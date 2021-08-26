@@ -1,0 +1,22 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[requires]
+python_version = "3.8"
+
+[packages]
+half-orm = {editable = true, path = "./../halfORM"}
+gitpython = "3"
+click = "*"
+pydash = "5"
+
+[dev-packages]
+pytest = "*"
+half-orm-packager = {editable = true, path = "."}
+twine = "*"
+build = "*"
+
+[scripts]
+hop = "python -m coucou.half_orm_packager.__init__:main"

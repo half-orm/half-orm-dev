@@ -1,0 +1,12 @@
+*~
+*.pyc
+\#*
+.#*
+*.swp
+tmp
+build/
+dist/
+half_orm.egg-info/
+.vscode/
+.noseids
+.pdbrc
