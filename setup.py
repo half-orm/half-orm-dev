@@ -24,8 +24,8 @@ setup(
     install_requires=[
         'GitPython',
         'click',
-        'half_orm',
-        'psycopg2-binary'
+        'pydash',
+        'half_orm'
     ],
     entry_points={
         'console_scripts': [

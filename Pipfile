@@ -19,4 +19,4 @@ twine = "*"
 build = "*"
 
 [scripts]
-hop = "python -m coucou.half_orm_packager.__init__:main"
+hop = "python -m half_orm_packager.hop:main"
