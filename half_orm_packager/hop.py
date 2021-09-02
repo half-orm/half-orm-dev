@@ -9,7 +9,8 @@ using the `hop` command.
 Initiate a new project and repository with the `hop new <project_name>` command.
 The <project_name> directory should not exist when using this command.
 
-In the <project name> directory generated, the hop command helps you patch, test and
+In the <project name> directory generated, the hop command helps you patch your
+model, keep your Python synced with the PostgreSQL model, test your Python code and
 deal with CI.
 
 TODO:
@@ -57,6 +58,14 @@ host = {host}
 port = {port}
 production = {production}
 """
+
+def status():
+    print('STATUS')
+    model = get_model()
+    next_release = Patch(model).get_next_release()
+    while next_release:
+        next_release = Patch(model).get_next_release(next_release)
+    print('hop --help to get help.')
 
 def init_package(model, project_name: str):
     """Initialises the package directory.
@@ -174,17 +183,25 @@ def set_config_file(project_name: str):
         sys.exit(1)
 
 @click.group(invoke_without_command=True)
+@click.pass_context
 @click.option('-v', '--version', is_flag=True)
-def main(version):
+def main(ctx, version):
     """
     Generates/Synchronises/Patches a python package from a PostgreSQL database
     """
+    if ctx.invoked_subcommand != 'new':
+        get_model()
+
+    if ctx.invoked_subcommand is None:
+        try:
+            status()
+        except:
+            pass
     if version:
-        click.echo(f'hop {hop_version}')
+        click.echo(f'hop {hop_version()}')
         sys.exit()
 
     sys.path.insert(0, '.')
-
 
 
 @main.command()
@@ -238,7 +255,7 @@ def init():
 
 @main.command()
 def patch():
-    """ Apply the next patch
+    """ Applies the next patch.
     """
 
     model = get_model()
@@ -251,7 +268,7 @@ def patch():
 @main.command()
 @click.option('-f', '--force', is_flag=True, help='Updates the package without testing')
 def update(force):
-    """Update the Python code with the changes made to the model.
+    """Updates the Python code with the changes made to the model.
     """
     from half_orm_packager.update import update_modules
     model = get_model()
@@ -264,7 +281,7 @@ def update(force):
 
 @main.command()
 def test():
-    """ Test some common pitfalls.
+    """ Tests some common pitfalls.
     """
     model = get_model()
     if tests(model, Hop.package_name):
@@ -274,4 +291,4 @@ def test():
 
 
 if __name__ == '__main__':
-    main()
+    main(obj={})
