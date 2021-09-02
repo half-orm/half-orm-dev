@@ -1,1 +1,1 @@
-create view "half_orm_meta.view".hop_penultimate_release as with sub as (select major, minor, patch, row_number() over (order by major desc, minor desc, patch desc) as rn from meta.release) select major, minor, patch from sub where rn = 2;
+create view "half_orm_meta.view".hop_penultimate_release as with sub as (select major, minor, patch, row_number() over (order by major desc, minor desc, patch desc) as rn from half_orm_meta.hop_release) select major, minor, patch from sub where rn = 2;

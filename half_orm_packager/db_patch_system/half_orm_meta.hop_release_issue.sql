@@ -12,7 +12,7 @@ create table half_orm_meta.hop_release_issue (
         release_patch,
         release_pre_release,
         release_pre_release_num) references
-    meta.release(
+    half_orm_meta.hop_release(
         major,
         minor,
         patch,

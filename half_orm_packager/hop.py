@@ -242,9 +242,13 @@ def new(package_name):
     """ Creates a new hop project named <package_name>.
 
     It adds to your database a patch system (by creating the relations:
-    meta.release, meta.release_issue and the view "meta.view".last_release)
+    * half_orm_meta.hop_release
+    * half_orm_meta.hop_release_issue
+    and the views
+    * "half_orm_meta.view".hop_last_release
+    * "half_orm_meta.view".hop_penultimate_release
     """
-    click.echo(f'hop create {package_name}')
+    # click.echo(f'hop new {package_name}')
     # on cherche un fichier de conf .hop/config dans l'arbre.
     model = set_config_file(package_name)
 
