@@ -192,6 +192,7 @@ class Patch:
             print(msg.format(**last_release))
         self.__last_release_s = '{major}.{minor}.{patch}'.format(**last_release)
         to_zero = []
+        tried = []
         for part in ['patch', 'minor', 'major']:
             next_release = dict(last_release)
             next_release[part] = last_release[part] + 1
@@ -200,14 +201,15 @@ class Patch:
             to_zero.append(part)
             next_release_path = '{major}/{minor}/{patch}'.format(**next_release)
             next_release_s = '{major}.{minor}.{patch}'.format(**next_release)
-            # print(f"Trying {next_release_s}")
+            tried.append(next_release_s)
             if os.path.exists('Patches/{}'.format(next_release_path)):
                 print("NEXT RELEASE: {major}.{minor}.{patch}".format(**next_release))
                 self.__release = next_release
                 self.__release_s = next_release_s
                 self.__release_path = next_release_path
                 return next_release
-        print(f'No new release to apply after {self.__last_release_s}.')
+        print(f"No new release to apply after {self.__last_release_s}.")
+        print(f"Was expecting one of: {', '.join(tried)}.")
 
     def exit_(self, retval=0):
         "Exit after restoring orig dir"
