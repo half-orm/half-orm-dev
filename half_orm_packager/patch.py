@@ -56,7 +56,7 @@ class Patch:
             patch=int(self.__release['patch']),
             commit=commit
         )
-        if len(new_release) == 0:
+        if new_release.is_empty() == 0:
             new_release.changelog = changelog
             new_release.insert()
         new_release = new_release.get()

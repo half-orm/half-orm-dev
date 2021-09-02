@@ -179,7 +179,7 @@ def set_config_file(project_name: str):
         user = os.environ['USER']
         user = input(f'User ({user}): ') or user
         password = getpass('Password: ')
-        if len(password) == 0 and \
+        if password == '' and \
             (input('Is it an ident login with a local account? [Y/n] ') or 'Y').upper() == 'Y':
                 host = port = ''
         else:

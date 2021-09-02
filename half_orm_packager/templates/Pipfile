@@ -4,10 +4,12 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-half_orm = "*"
+half_orm = ">=0.5.3"
 
 [dev-packages]
 pytest = "*"
+build = "*"
+twine = "*"
 
 [requires]
 python_version = "3.8"
