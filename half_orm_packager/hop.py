@@ -39,6 +39,38 @@ from half_orm_packager.test import tests
 class Hop:
     connection_file_name, package_name = get_connection_file_name()
 
+    def alpha(self, model):
+        """Toutes les modifs à faire durant la mise au point de hop
+        """
+        if not model.has_relation('half_orm_meta.hop_release'):
+            try:
+                model.get_relation_class('meta.release')
+                model.get_relation_class('meta.release_issue')
+                model.get_relation_class('meta.view.last_release')
+                model.get_relation_class('meta.view.penultimate_release')
+                click.echo("ALPHA: Renaming meta.release to half_orm_meta.hop_release, ...")
+                model.execute_query("""
+                create schema half_orm_meta;
+                create schema "half_orm_meta.view";
+                alter table meta.release set schema half_orm_meta;
+                alter table meta.release_issue set schema half_orm_meta ;
+                alter table half_orm_meta.release rename TO hop_release ;
+                alter table half_orm_meta.release_issue rename TO hop_release_issue ;
+                alter view "meta.view".last_release set schema "half_orm_meta.view" ;
+                alter view "meta.view".penultimate_release set schema "half_orm_meta.view" ;
+                alter view "half_orm_meta.view".last_release rename TO hop_last_release ;
+                alter view "half_orm_meta.view".penultimate_release rename TO hop_penultimate_release ;
+                """)
+                click.echo("Please re-run the command.")
+                sys.exit()
+            except Exception as err:
+                print('ALPHA ERR', err)
+                pass
+        # if not model.has_relation('half_orm_meta.view.hop_penultimate_release'):
+        #     TODO: fix missing penultimate_release on some databases.
+        return Model(HOP.package_name)
+
+
     def __str__(self):
         return f"""
         connection_file_name: {self.connection_file_name}
@@ -230,7 +262,9 @@ def get_model():
         sys.exit(1)
 
     try:
-        return Model(HOP.package_name)
+        model = Model(HOP.package_name)
+        model = HOP.alpha(model) #XXX To remove after alpha
+        return model
     except psycopg2.OperationalError as exc:
         sys.stderr.write(f'The database {HOP.package_name} does not exist.\n')
         raise exc
@@ -239,7 +273,7 @@ def get_model():
         sys.exit(1)
 
 
-@main.command()
+# @main.command()
 def init():
     """ Initialize a cloned hop project by applying the base patch
     """

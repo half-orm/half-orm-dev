@@ -1,6 +1,6 @@
-create schema "meta.view";
-create schema meta;
-create table meta.release (
+create schema "half_orm_meta.view";
+create schema half_orm_meta;
+create table half_orm_meta.hop_release (
     major int check (major >= 0),
     minor int check (minor >= 0),
     patch int check (patch >= 0),

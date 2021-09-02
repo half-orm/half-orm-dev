@@ -27,6 +27,8 @@ def tests(model, package_name):
     error = False
     for relation in model._relations():
         fqtn = relation.split('.')[1:]
+        if fqtn[0] == 'half_orm_meta':
+            continue
         module_name = f'.{fqtn[-1]}'
         class_name = camel_case(fqtn[-1])
         fqtn = '.'.join(fqtn[:-1])

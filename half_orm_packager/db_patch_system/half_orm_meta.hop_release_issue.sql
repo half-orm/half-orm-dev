@@ -1,4 +1,4 @@
-create table meta.release_issue (
+create table half_orm_meta.hop_release_issue (
     num int check (num >= 0),
     issue_release int default 0,
     release_major int not null,

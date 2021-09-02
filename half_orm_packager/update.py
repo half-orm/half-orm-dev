@@ -21,15 +21,11 @@ history with the last release applied.
 
 import re
 import os
-import subprocess
 import sys
 from keyword import iskeyword
-from getpass import getpass
 from configparser import ConfigParser
 
-import psycopg2
-
-from half_orm.model import Model, camel_case, CONF_DIR
+from half_orm.model import camel_case
 
 from half_orm_packager.globals import TEMPLATES_DIR, hop_version
 
@@ -121,7 +117,10 @@ def get_hop_version(template1):
     match = re.search(HOP_RELEASE_RE, line)
     major = minor = release = 0
     if match:
-        major, minor, release = [int(val) for val in match.group(0).split('.')]
+        major, minor, release = [val for val in match.group(0).split('.')]
+        major = int(major)
+        minor = int(minor)
+        release = int(re.search('\d+', release).group(0))
     return (major, minor, release)
 
 def get_fkeys(rel):
@@ -188,14 +187,16 @@ def update_this_module(
     """Updates the module."""
     _, fqtn = relation.split()
     path = fqtn.split('.')
-
+    if path[1] == 'half_orm_meta':
+        # hop internal. do nothing
+        return
     fqtn = '.'.join(path[1:])
     try:
         rel = model.get_relation_class(fqtn)()
     except TypeError as err:
         sys.stderr.write("{}\n{}\n".format(err, fqtn))
         sys.stderr.flush()
-        return None
+        return
 
     path[0] = package_dir
     module_path = '{}.py'.format('/'.join(

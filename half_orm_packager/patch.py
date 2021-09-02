@@ -8,7 +8,7 @@ par un.
 
 Si l'option -i <no de patch> est utilisée, le patch sera pris dans
 Patches/devel/issues/<no de patch>.
-Le numéro de patch dans la table meta.release sera 9999.9999.<no de patch>
+Le numéro de patch dans la table half_orm_meta.hop_release sera 9999.9999.<no de patch>
 L'option -i n'est pas utilisable si patch.yml positionne PRODUCTION à True.
 """
 
@@ -49,8 +49,8 @@ class Patch:
         return self.__release_s
 
     def update_release(self, changelog, commit, issue):
-        "Mise à jour de la table meta.release"
-        new_release = self.model.get_relation_class('meta.release')(
+        "Mise à jour de la table half_orm_meta.hop_release"
+        new_release = self.model.get_relation_class('half_orm_meta.hop_release')(
             major=self.__release['major'],
             minor=self.__release['minor'],
             patch=int(self.__release['patch']),
@@ -62,7 +62,7 @@ class Patch:
         new_release = new_release.get()
         if issue:
             num, issue_release = str(issue).split('.')
-            self.model.get_relation_class('meta.release_issue')(
+            self.model.get_relation_class('half_orm_meta.hop_release_issue')(
                 num=num, issue_release=issue_release,
                 release_major=new_release['major'],
                 release_minor=new_release['minor'],
@@ -109,7 +109,8 @@ class Patch:
 
     def _patch(self, commit=None, issue=None):
         "Applique le patch et met à jour la base"
-        self.__get_next_release()
+        last_release = self.get_current_release()
+        self.get_next_release(last_release)
         if self.__release_s == '':
             return
         self.save_database()
@@ -178,14 +179,18 @@ class Patch:
     #     "Applique un issue"
     #     self._patch('devel/issues/{}'.format(issue), commit, bundled_issue)
 
-    def __get_next_release(self):
+    def get_current_release(self):
+        return next(self.model.get_relation_class('half_orm_meta.view.hop_last_release')().select())
+
+    def get_next_release(self, last_release=None):
         "Renvoie en fonction de part le numéro de la prochaine release"
-        last_release = next(self.model.get_relation_class('meta.view.last_release')().select())
+        if last_release is None:
+            last_release = self.get_current_release()
+            msg = "CURRENT RELEASE: {major}.{minor}.{patch} at {time}"
+            if 'date' in last_release:
+                msg = "CURRENT RELEASE: {major}.{minor}.{patch}: {date} at {time}"
+            print(msg.format(**last_release))
         self.__last_release_s = '{major}.{minor}.{patch}'.format(**last_release)
-        msg = "LAST RELEASE: {major}.{minor}.{patch} at {time}"
-        if 'date' in last_release:
-            msg = "LAST RELEASE: {major}.{minor}.{patch}: {date} at {time}"
-        print(msg.format(**last_release))
         to_zero = []
         for part in ['patch', 'minor', 'major']:
             next_release = dict(last_release)
@@ -195,13 +200,14 @@ class Patch:
             to_zero.append(part)
             next_release_path = '{major}/{minor}/{patch}'.format(**next_release)
             next_release_s = '{major}.{minor}.{patch}'.format(**next_release)
-            print(f"Trying {next_release_s}")
+            # print(f"Trying {next_release_s}")
             if os.path.exists('Patches/{}'.format(next_release_path)):
-                print("FOUND PATCH: {major}.{minor}.{patch}".format(**next_release))
+                print("NEXT RELEASE: {major}.{minor}.{patch}".format(**next_release))
                 self.__release = next_release
                 self.__release_s = next_release_s
                 self.__release_path = next_release_path
-                return
+                return next_release
+        print(f'No new release to apply after {self.__last_release_s}.')
 
     def exit_(self, retval=0):
         "Exit after restoring orig dir"
@@ -209,7 +215,7 @@ class Patch:
         sys.exit(retval)
 
     def _init(self):
-        "Initialise le système de patch en créant les tables meta.release et meta.last_release"
+        "Initialise le système de patch en créant les tables half_orm_meta.hop_release et half_orm_meta.last_release"
 
         print(f"Initialising the patch system for the '{self.__dbname}' database.")
         sql_dir = f"{self.__module_dir}/db_patch_system"
@@ -218,19 +224,19 @@ class Patch:
         penultimate_release = True
         release_issue = True
         try:
-            self.model.get_relation_class('meta.release')
+            self.model.get_relation_class('half_orm_meta.hop_release')
         except UnknownRelation:
             release = False
         try:
-            self.model.get_relation_class('meta.last_release')
+            self.model.get_relation_class('half_orm_meta.view.hop_last_release')
         except UnknownRelation:
             last_release = False
         try:
-            self.model.get_relation_class('meta.penultimate_release')
+            self.model.get_relation_class('half_orm_meta.penultimate_release')
         except UnknownRelation:
             penultimate_release = False
         try:
-            self.model.get_relation_class('meta.release_issue')
+            self.model.get_relation_class('half_orm_meta.hop_release_issue')
         except UnknownRelation:
             release_issue = False
         patch_confict = release or last_release or release_issue or penultimate_release
@@ -241,12 +247,12 @@ class Patch:
         if not os.path.exists('./Patches'):
             os.mkdir('./Patches')
             open('./Patches/README', 'w').write(open(f"{sql_dir}/README").read())
-        self.model.execute_query(open(f"{sql_dir}/meta.release.sql").read())
-        self.model.execute_query(open(f"{sql_dir}/meta.last_release.sql").read())
-        self.model.execute_query(open(f"{sql_dir}/meta.view.penultimate_release.sql").read())
-        self.model.execute_query(open(f"{sql_dir}/meta.release_issue.sql").read())
+        self.model.execute_query(open(f"{sql_dir}/half_orm_meta.hop_release.sql").read())
+        self.model.execute_query(open(f"{sql_dir}/half_orm_meta.view.hop_last_release.sql").read())
+        self.model.execute_query(open(f"{sql_dir}/half_orm_meta.view.hop_penultimate_release.sql").read())
+        self.model.execute_query(open(f"{sql_dir}/half_orm_meta.hop_release_issue.sql").read())
         self.model.execute_query(
-            "insert into meta.release values (0,0,0, '', 0, now(), now(),'[0.0.0] First release', '{}')".format(
+            "insert into half_orm_meta.hop_release values (0,0,0, '', 0, now(), now(),'[0.0.0] First release', '{}')".format(
                 date.today()))
 
         print("Patch system initialized at release '0.0.0'.")
