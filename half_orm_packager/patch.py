@@ -21,12 +21,14 @@ import subprocess
 import psycopg2
 import pydash
 
+from .hgit import HGit
 
 class Patch:
     #TODO: docstring
     "class Patch"
-    def __init__(self, model, create_mode=False, init_mode=False):
-        self.model = model
+    def __init__(self, hop_cls, create_mode=False, init_mode=False):
+        self.__hop_cls = hop_cls
+        self.model = hop_cls.model
         self.__package_name = None
         self.__dbname = self.model._dbname
         self.__create_mode = create_mode
@@ -51,7 +53,7 @@ class Patch:
         os.chdir(self.__orig_dir)
         return self.__release_s
 
-    def update_release(self, changelog, commit, issue):
+    def __update_release(self, changelog, commit, issue):
         "Mise à jour de la table half_orm_meta.hop_release"
         new_release = self.model.get_relation_class('half_orm_meta.hop_release')(
             major=self.__release['major'],
@@ -75,21 +77,6 @@ class Patch:
                 changelog=changelog
             ).insert()
 
-    @classmethod
-    def get_sha1_commit(cls, patch_script):
-        "Returns the sha1 of the last commmit"
-        commit = subprocess.Popen(
-            "git log --oneline --abbrev=-1 --max-count=1 {}".format(
-            os.path.dirname(patch_script)
-        ), shell=True, stdout=subprocess.PIPE)
-        commit = commit.stdout.read().decode()
-        if commit.strip():
-            commit = commit.split()[0] # commit is the commit sha1
-        else:
-            sys.stderr.write("WARNING! Running in test mode (logging the date as commit).\n")
-            commit = "{}".format(date.today())
-        return commit
-
     def save_database(self):
         """Dumps the database"""
         if not os.path.isdir('./Backups'):
@@ -109,6 +96,7 @@ class Patch:
         self.get_next_release(last_release)
         if self.__release_s == '':
             return
+        # we got a patch we switch to a new branch
         self.save_database()
         patch_path = f'Patches/{self.__release_path}/'
         if not os.path.exists(patch_path):
@@ -123,7 +111,7 @@ class Patch:
             self.exit_(1)
 
         if commit is None:
-            commit = self.get_sha1_commit(changelog_file)
+            commit = HGit.get_sha1_commit(changelog_file)
             if not force:
                 repo_is_clean = subprocess.Popen(
                     "git status --porcelain", shell=True, stdout=subprocess.PIPE)
@@ -142,7 +130,7 @@ class Patch:
         # try:
         #     with open(bundle_file) as bundle_file_:
         #         bundle_issues = [ issue.strip() for issue in bundle_file_.readlines() ]
-        #         self.update_release(changelog, commit, None)
+        #         self.__update_release(changelog, commit, None)
         #         _ = [
         #             self.apply_issue(issue, commit, issue)
         #             for issue in bundle_issues
@@ -180,7 +168,7 @@ class Patch:
                 with subprocess.Popen(file_.path, shell=True) as sub:
                     sub.wait()
 
-        self.update_release(changelog, commit, issue)
+        self.__update_release(changelog, commit, issue)
 
     # def apply_issue(self, issue, commit=None, bundled_issue=None):
     #     "Applique un issue"

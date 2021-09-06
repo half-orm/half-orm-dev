@@ -37,21 +37,48 @@ from half_orm_packager.globals import TEMPLATES_DIR, get_connection_file_name, h
 from half_orm_packager.patch import Patch
 from half_orm_packager.test import tests
 from half_orm_packager.update import update_modules
+from half_orm_packager.hgit import HGit
 
 
 class Hop:
     "XXX: The hop class doc..."
-    connection_file_name, package_name = get_connection_file_name()
+    __connection_file_name, __package_name = get_connection_file_name()
+    __model = None
 
-    @classmethod
-    def alpha(cls, model):
+    @property
+    def connection_file_name(self):
+        "returns the connection file name"
+        return self.__connection_file_name
+
+    @property
+    def package_name(self):
+        "returns the package name"
+        return self.__package_name
+
+    @package_name.setter
+    def package_name(self, package_name):
+        self.__package_name = package_name
+
+    @property
+    def model(self):
+        "model getter"
+        if self.__model is None:
+            self.model = get_model()
+        return self.__model
+
+    @model.setter
+    def model(self, model):
+        "model setter"
+        self.__model = model
+
+    def alpha(self):
         """Toutes les modifs à faire durant la mise au point de hop
         """
-        if not model.has_relation('half_orm_meta.hop_release'):
-            if model.has_relation('meta.release'):
+        if not self.model.has_relation('half_orm_meta.hop_release'):
+            if self.model.has_relation('meta.release'):
                 click.echo(
                     "ALPHA: Renaming meta.release to half_orm_meta.hop_release, ...")
-                model.execute_query("""
+                self.model.execute_query("""
                 create schema half_orm_meta;
                 create schema "half_orm_meta.view";
                 alter table meta.release set schema half_orm_meta;
@@ -95,10 +122,9 @@ def status():
     """Prints the status"""
     print('STATUS')
     print(HOP)
-    model = get_model()
-    next_release = Patch(model).get_next_release()
+    next_release = Patch(HOP).get_next_release()
     while next_release:
-        next_release = Patch(model).get_next_release(next_release)
+        next_release = Patch(HOP).get_next_release(next_release)
     print('hop --help to get help.')
 
 
@@ -111,29 +137,6 @@ def write_file(file_path, content):
     "helper"
     with open(file_path, 'w', encoding='utf-8') as file_:
         file_.write(content)
-
-def init_git(project_path, model):
-    "Initiazes the git repo."
-    os.chdir(project_path)
-    try:
-        Repo.init('.', initial_branch='main')
-        print("Initializing git with a 'main' branch.")
-    except GitCommandError:
-        Repo.init('.')
-        print("Initializing git with a 'master' branch.")
-
-    repo = Repo('.')
-    Patch(model, create_mode=True).patch(HOP.package_name, force=True)
-    model.reconnect()  # we get the new stuff from db metadata here
-    subprocess.run(['hop', 'update', '-f'], check=True)  # ignore tests
-
-    try:
-        repo.head.commit
-    except ValueError:
-        repo.git.add('.')
-        repo.git.commit(m='[0.0.0] First release')
-
-    repo.create_head('hop_main')
 
 def init_package(model, project_name: str):
     """Initialises the package directory.
@@ -167,7 +170,7 @@ def init_package(model, project_name: str):
     write_file(f'{project_path}/README.md', readme)
     write_file(f'{project_path}/.gitignore', GIT_IGNORE)
     os.mkdir(f'{project_path}/{project_name}')
-    init_git(project_path, model)
+    HGit(project_path, HOP).init()
     print(f"\nThe hop project '{project_name}' has been created.")
 
 
@@ -175,6 +178,7 @@ def set_config_file(project_name: str):
     """ Asks for the connection parameters. Returns a dictionary with the params.
     """
     print(f'HALFORM_CONF_DIR: {CONF_DIR}')
+    HOP.package_name = project_name
     conf_path = os.path.join(CONF_DIR, project_name)
     if not os.path.isfile(conf_path):
         if not os.access(CONF_DIR, os.W_OK):
@@ -235,8 +239,6 @@ def main(ctx, version):
     """
     Generates/Synchronises/Patches a python package from a PostgreSQL database
     """
-    if ctx.invoked_subcommand != 'new':
-        get_model()
 
     if ctx.invoked_subcommand is None:
         status()
@@ -272,13 +274,13 @@ def get_model():
 
     if not HOP.package_name:
         sys.stderr.write(
-            "You're not in a halfORM package directory.\n"
+            "You're not in a hop package directory.\n"
             "Try hop --help.\n")
         sys.exit(1)
 
     try:
-        model = Model(HOP.package_name)
-        model = HOP.alpha(model)  # XXX To remove after alpha
+        HOP.model = Model(HOP.package_name)
+        model = HOP.alpha()  # XXX To remove after alpha
         return model
     except psycopg2.OperationalError as exc:
         sys.stderr.write(f'The database {HOP.package_name} does not exist.\n')
@@ -289,18 +291,18 @@ def get_model():
         sys.exit(1)
 
 
-# @main.command()
-def init():
-    """ Initialize a cloned hop project by applying the base patch
-    """
-    try:
-        model = get_model()
-    except psycopg2.OperationalError:
-        # config_file, package_name = get_connection_file_name()
-        model = set_config_file(HOP.package_name)
+# # @main.command()
+# def init():
+#     """ Initialize a cloned hop project by applying the base patch
+#     """
+#     try:
+#         model = get_model()
+#     except psycopg2.OperationalError:
+#         # config_file, package_name = get_connection_file_name()
+#         model = set_config_file(HOP.package_name)
 
-    Patch(model, init_mode=True).patch(HOP.package_name)
-    sys.exit()
+#     Patch(HOP, init_mode=True).patch(HOP.package_name)
+#     sys.exit()
 
 
 @main.command()
@@ -309,8 +311,7 @@ def patch(force):
     """ Applies the next patch.
     """
 
-    model = get_model()
-    Patch(model).patch(HOP.package_name, force)
+    Patch(HOP).patch(HOP.package_name, force)
 
     sys.exit()
 
@@ -320,9 +321,8 @@ def patch(force):
 def update(force):
     """Updates the Python code with the changes made to the model.
     """
-    model = get_model()
-    if force or tests(model, Hop.package_name):
-        update_modules(model, Hop.package_name)
+    if force or tests(HOP.model, HOP.package_name):
+        update_modules(HOP.model, HOP.package_name)
     else:
         print("\nPlease correct the errors before proceeding!")
         sys.exit(1)
@@ -332,8 +332,7 @@ def update(force):
 def test():
     """ Tests some common pitfalls.
     """
-    model = get_model()
-    if tests(model, Hop.package_name):
+    if tests(HOP.model, HOP.package_name):
         click.echo('Tests OK')
     else:
         click.echo('Tests failed')
