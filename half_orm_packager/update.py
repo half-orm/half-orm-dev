@@ -44,16 +44,19 @@ HALFORM_PATH = os.path.dirname(__file__)
 BEGIN_CODE = "#>>> PLACE YOUR CODE BELLOW THIS LINE. DO NOT REMOVE THIS LINE!\n"
 END_CODE = "#<<< PLACE YOUR CODE ABOVE THIS LINE. DO NOT REMOVE THIS LINE!\n"
 
-os.chdir(TEMPLATES_DIR)
-DB_CONNECTOR_TEMPLATE = open('db_connector.py').read()
-MODULE_TEMPLATE_1 = open('module_template_1').read()
-MODULE_TEMPLATE_2 = open('module_template_2').read()
-MODULE_TEMPLATE_3 = open('module_template_3').read()
-FKEYS_PROPS = open('fkeys_properties').read()
-WARNING_TEMPLATE = open('warning').read()
-BASE_TEST = open('base_test').read()
-TEST = open('relation_test').read()
-os.chdir(BASE_DIR)
+def read_template(file_name):
+    "helper"
+    with open(f'{TEMPLATES_DIR}/{file_name}', encoding='utf-8') as file_:
+        return file_.read()
+
+DB_CONNECTOR_TEMPLATE = read_template('db_connector.py')
+MODULE_TEMPLATE_1 = read_template('module_template_1')
+MODULE_TEMPLATE_2 = read_template('module_template_2')
+MODULE_TEMPLATE_3 = read_template('module_template_3')
+FKEYS_PROPS = read_template('fkeys_properties')
+WARNING_TEMPLATE = read_template('warning')
+BASE_TEST = read_template('base_test')
+TEST = read_template('relation_test')
 
 HOP_RELEASE_RE = re.compile("(?<=^# hop release: ).*$")
 
@@ -77,13 +80,14 @@ def hop_update():
         sys.stderr.write('WARNING! Renaming .halfORM to .hop.')
     if os.path.exists('README.rst'):
         os.rename('README.rst', 'README.md')
-    lines = []
-    with open('setup.py') as setup_file:
-        for line in setup_file:
+    with open('setup.py', encoding='utf-8') as tmpl_setup_file:
+        lines = []
+        for line in tmpl_setup_file:
             if line.find('README.rst'):
                 line = line.replace('README.rst', 'README.md')
             lines.append(line)
-    open('setup.py', 'w').write(''.join(lines))
+        with open('setup.py', 'w', encoding='utf-8') as setup_file:
+            setup_file.write(''.join(lines))
 
 def load_config_file(base_dir=None, ref_dir=None):
     """Try to retrieve the halfORM configuration file for the package.
@@ -117,15 +121,15 @@ def get_hop_version(template1):
     match = re.search(HOP_RELEASE_RE, line)
     major = minor = release = 0
     if match:
-        major, minor, release = [val for val in match.group(0).split('.')]
+        major, minor, release = list(match.group(0).split('.'))
         major = int(major)
         minor = int(minor)
-        release = int(re.search('\d+', release).group(0))
+        release = int(re.search(r'\d+', release).group(0))
     return (major, minor, release)
 
 def get_fkeys(rel):
-    """
-    """
+    "doctstring"
+    #TODO: docstring
     fks = '\n    '.join([f"('', '{key}')," for key in rel._fkeys])
     if fks:
         return FKEYS_PROPS.format(fks)
@@ -162,17 +166,18 @@ def assemble_module_template(module_path):
     module_template = MODULE_FORMAT
     user_s_class_attr = ''
     if os.path.exists(module_path):
-        module_code = open(module_path).read()
-        part1 = module_code.split(BEGIN_CODE)[0]
-        user_s_code = module_code.rsplit(BEGIN_CODE, 1)[1]
-        user_s_code = user_s_code.replace('{', '{{').replace('}', '}}')
-        global_user_s_code = module_code.rsplit(END_CODE)[0].split(BEGIN_CODE)[1]
-        global_user_s_code = global_user_s_code.replace('{', '{{').replace('}', '}}')
-        if get_hop_version(part1) >= (0, 0, 2):
-            user_s_class_attr = module_code.split(BEGIN_CODE)[2].split(END_CODE)[0]
-            # remove last spaces
-            user_s_class_attr = user_s_class_attr.rstrip()
-            user_s_class_attr = user_s_class_attr.replace('{', '{{').replace('}', '}}')
+        with open(module_path, encoding='utf-8') as module_file:
+            module_code = module_file.read()
+            part1 = module_code.split(BEGIN_CODE)[0]
+            user_s_code = module_code.rsplit(BEGIN_CODE, 1)[1]
+            user_s_code = user_s_code.replace('{', '{{').replace('}', '}}')
+            global_user_s_code = module_code.rsplit(END_CODE)[0].split(BEGIN_CODE)[1]
+            global_user_s_code = global_user_s_code.replace('{', '{{').replace('}', '}}')
+            if get_hop_version(part1) >= (0, 0, 2):
+                user_s_class_attr = module_code.split(BEGIN_CODE)[2].split(END_CODE)[0]
+                # remove last spaces
+                user_s_class_attr = user_s_class_attr.rstrip()
+                user_s_class_attr = user_s_class_attr.replace('{', '{{').replace('}', '}}')
     # else:
     #     print('mais ou est passé charlie')
     return module_template.format(
@@ -212,7 +217,7 @@ def update_this_module(
     inheritance_import, inherited_classes = get_inheritance_info(
         rel, package_name)
     module = f"{package_name}.{fqtn}"
-    open(module_path, 'w').write(
+    open(module_path, 'w', encoding='utf-8').write(
         module_template.format(
             hop_release = hop_version(),
             module=module,
@@ -227,18 +232,13 @@ def update_this_module(
             warning=warning))
     test_path = module_path.replace('.py', '_test.py')
     if not os.path.exists(test_path):
-        open(test_path, 'w').write(
+        open(test_path, 'w', encoding='utf-8').write(
             TEST.format(
                 package_name=package_name,
                 module=module,
                 class_name=camel_case(module_name))
         )
     return module_path
-
-@property
-def package_name(self):
-    return self.__config.get('package_name')
-
 
 def update_modules(model, package_name):
     """Synchronize the modules with the structure of the relation in PG.
@@ -248,11 +248,11 @@ def update_modules(model, package_name):
 
     dbname = model._dbname
     package_dir = package_name
-    open(f'{package_dir}/db_connector.py', 'w').write(
+    open(f'{package_dir}/db_connector.py', 'w', encoding='utf-8').write(
         DB_CONNECTOR_TEMPLATE.format(dbname=dbname, package_name=package_name))
 
     if not os.path.exists(f'{package_dir}/base_test.py'):
-        open(f'{package_dir}/base_test.py', 'w').write(
+        open(f'{package_dir}/base_test.py', 'w', encoding='utf-8').write(
             BASE_TEST.format(package_name=package_name)
         )
 
@@ -294,7 +294,7 @@ def update_init_files(package_dir, files_list, warning):
                     file.find('_test.py') == -1):
                 all_.append(file.replace('.py', ''))
         all_.sort()
-        with open('{}/__init__.py'.format(root), 'w') as init_file:
+        with open('{}/__init__.py'.format(root), 'w', encoding='utf-8') as init_file:
             init_file.write('"""{}"""\n\n'.format(warning))
             init_file.write(
                 '__all__ = [\n    {}\n]\n'.format(",\n    ".join(

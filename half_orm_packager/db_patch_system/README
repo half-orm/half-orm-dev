@@ -11,12 +11,8 @@ No new release to apply after 0.0.0.
 Was expecting one of: 0.0.1, 0.1.0, 1.0.0.
 ```
 
-* `LAST RELEASE` indicates the last patch applied. Here, we are on a newly
-  installed package with `hop new`, hence the 0.0.0 release.
-
-
 The patch system will try to find a next suitable patch to apply from the
-last release number. If the last patch is X.Y.Z, `hop -p` will try
+last release number. If the last patch is X.Y.Z, `hop patch` will try
 X.Y.<Z+1>, X.<Y+1>.Z, <X+1>.Y.Z in order.
 
 

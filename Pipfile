@@ -17,6 +17,8 @@ pytest = "*"
 half-orm-packager = {editable = true, path = "."}
 twine = "*"
 build = "*"
+gitpython = "*"
+pylint = "*"
 
 [scripts]
 hop = "python -m half_orm_packager.hop:main"
