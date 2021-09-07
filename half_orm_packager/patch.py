@@ -12,7 +12,7 @@ Le numéro de patch dans la table half_orm_meta.hop_release sera 9999.9999.<no d
 L'option -i n'est pas utilisable si patch.yml positionne PRODUCTION à True.
 """
 
-from datetime import date
+from datetime import date, datetime
 import os
 import shutil
 import sys
@@ -20,7 +20,6 @@ import subprocess
 
 import psycopg2
 import pydash
-
 from .hgit import HGit
 
 class Patch:
@@ -28,101 +27,165 @@ class Patch:
     "class Patch"
     def __init__(self, hop_cls, create_mode=False, init_mode=False):
         self.__hop_cls = hop_cls
-        self.model = hop_cls.model
-        self.__package_name = None
-        self.__dbname = self.model._dbname
+        self.__hgit = HGit(hop_cls)
         self.__create_mode = create_mode
         self.__init_mode = init_mode
-        self.__orig_dir = os.path.abspath('.')
+        # self.__orig_dir = os.path.abspath('.')
         self.__module_dir = os.path.dirname(__file__)
         self.__last_release_s = None
         self.__release = None
         self.__release_s = ''
         self.__release_path = None
 
-    def patch(self, package_name, force=False):
-        #TODO: docstring
-        "method patch"
+    @property
+    def model(self):
+        "halfORM model property"
+        return self.__hop_cls.model
 
-        self.__package_name = package_name
+    @property
+    def dbname(self):
+        "database name property"
+        return self.model._dbname
+
+    @property
+    def package_name(self):
+        "package name property"
+        return self.__hop_cls.package_name
+
+    @property
+    def __patch_path(self):
+        return f'{self.__hop_cls.project_path}/Patches/{self.__release_path}/'
+
+    def __get_backup_file_name(self, release):
+        release_s = self.get_release_s(release)
+        return f'{self.__hop_cls.project_path}/Backups/{self.dbname}-{release_s}.sql'
+
+    @property
+    def changelog(self):
+        with open(os.path.join(self.__patch_path, 'CHANGELOG.md'), encoding='utf-8') as changelog:
+            return changelog.read()
+
+    def __get_previous_release(self):
+        "Returns the penultimate release"
+        #pylint: disable=invalid-name
+        Previous = self.__hop_cls.model.get_relation_class(
+            'half_orm_meta.view.hop_penultimate_release')
+        return next(Previous().select())
+
+    def _revert(self):
+        """Revert to the previous release
+
+        Needs the backup
+        """
+        prev_release = self.__get_previous_release()
+        curr_release = self.get_current_release()
+        backup_file = self.__get_backup_file_name(prev_release)
+        if os.path.exists(backup_file):
+            self.__hop_cls.model.disconnect()
+            print("Restoring previous release...")
+            try:
+                subprocess.run(['dropdb', self.dbname], check=True)
+            except subprocess.CalledProcessError:
+                print("Aborting")
+                sys.exit(1)
+            subprocess.run(['createdb', self.dbname], check=True)
+            subprocess.run(
+                ['psql', self.dbname, '-f', backup_file],
+                check=True,
+                stdout=subprocess.DEVNULL)
+            os.remove(backup_file)
+            self.__hop_cls.model.ping()
+            #pylint: disable=invalid-name
+            Release = self.__hop_cls.model.get_relation_class('half_orm_meta.hop_release')
+            Release(
+                major=curr_release['major'],
+                minor=curr_release['minor'],
+                patch=curr_release['patch']
+                ).delete()
+            print(f'Reverted to {self.get_release_s(prev_release)}')
+        else:
+            print(f'Revert failed! No backup file for {prev_release}.')
+
+    def patch(self, force=False, revert=False):
+        #TODO: docstring
+        "patch method"
+
         if self.__create_mode or self.__init_mode:
             self.__last_release_s = 'pre-patch'
             self.save_database()
             return self._init()
+        if revert:
+            return self._revert()
+        branch_name = str(self.__hgit.repo.active_branch)
+        curr_release = self.get_release_s(self.get_current_release())
+        if branch_name == f'hop_{curr_release}':
+            revert_i = input(f'Replay patch {curr_release} [Y/n]? ') or 'Y'
+            if revert_i.upper() == 'Y':
+                self._revert()
+                force = True
+            else:
+                sys.exit()
         self._patch(force=force)
-        os.chdir(self.__orig_dir)
         return self.__release_s
 
-    def __update_release(self, changelog, commit, issue):
+    def __register(self):
         "Mise à jour de la table half_orm_meta.hop_release"
         new_release = self.model.get_relation_class('half_orm_meta.hop_release')(
             major=self.__release['major'],
             minor=self.__release['minor'],
-            patch=int(self.__release['patch']),
-            commit=commit
+            patch=int(self.__release['patch'])
         )
+        #FIXME
+        commit = str(datetime.now())
         if new_release.is_empty():
-            new_release.changelog = changelog
+            new_release.changelog = self.changelog
+            new_release.commit = commit
             new_release.insert()
+        else:
+            new_release.update(changelog=self.changelog, commit=commit)
         new_release = new_release.get()
-        if issue:
-            num, issue_release = str(issue).split('.')
-            self.model.get_relation_class('half_orm_meta.hop_release_issue')(
-                num=num, issue_release=issue_release,
-                release_major=new_release['major'],
-                release_minor=new_release['minor'],
-                release_patch=new_release['patch'],
-                release_pre_release=new_release['pre_release'],
-                release_pre_release_num=new_release['pre_release_num'],
-                changelog=changelog
-            ).insert()
+
+    def __backup_path(self, release_s: str) -> str:
+        "Returns the absolute path of the backup file"
+        return f'{self.__hop_cls.project_path}/Backups/{self.dbname}-{release_s}.sql'
 
     def save_database(self):
         """Dumps the database"""
         if not os.path.isdir('./Backups'):
             os.mkdir('./Backups')
-        svg_file = f'./Backups/{self.__dbname}-{self.__last_release_s}.sql'
+        svg_file = self.__backup_path(self.__last_release_s)
         if os.path.isfile(svg_file):
             sys.stderr.write(
                 f"Oops! there is already a dump for the {self.__last_release_s} release.\n")
             sys.stderr.write(f"Please remove {svg_file} if you realy want to proceed.\n")
             sys.exit(1)
-        subprocess.run(['pg_dump', self.__dbname, '-f', svg_file], check=True)
+        subprocess.run(['pg_dump', self.dbname, '-f', svg_file], check=True)
 
-    def _patch(self, commit=None, issue=None, force=False):
+    def _patch(self, commit=None, force=False):
         "Applies the patch and insert the information in the half_orm_meta.hop_release table"
         #TODO: simplify
         last_release = self.get_current_release()
         self.get_next_release(last_release)
         if self.__release_s == '':
             return
+        self.__hgit.set_branch(self.__release_s)
         # we got a patch we switch to a new branch
         self.save_database()
-        patch_path = f'Patches/{self.__release_path}/'
-        if not os.path.exists(patch_path):
-            sys.stderr.write(f'The directory {patch_path} does not exists!\n')
+        if not os.path.exists(self.__patch_path):
+            sys.stderr.write(f'The directory {self.__patch_path} does not exists!\n')
             sys.exit(1)
 
-        changelog_file = os.path.join(patch_path, 'CHANGELOG.md')
+        changelog_file = os.path.join(self.__patch_path, 'CHANGELOG.md')
         # bundle_file = os.path.join(patch_path, 'BUNDLE')
 
         if not os.path.exists(changelog_file):
-            sys.stderr.write("ERROR! {} is missing!\n".format(changelog_file))
-            self.exit_(1)
+            sys.stderr.write(f"ERROR! {changelog_file} is missing!\n")
+            sys.exit(1)
 
         if commit is None:
-            commit = HGit.get_sha1_commit(changelog_file)
+            commit = self.__hgit.get_sha1_commit(changelog_file)
             if not force:
-                repo_is_clean = subprocess.Popen(
-                    "git status --porcelain", shell=True, stdout=subprocess.PIPE)
-                repo_is_clean = repo_is_clean.stdout.read().decode().strip().split('\n')
-                repo_is_clean = [line for line in repo_is_clean if line != '']
-                if repo_is_clean:
-                    print("WARNING! Repo is not clean:\n\n{}".format('\n'.join(repo_is_clean)))
-                    cont = input("\nApply [y/N]?")
-                    if cont.upper() != 'Y':
-                        print("Aborting")
-                        self.exit_(1)
+                self.__hgit.exit_if_repo_is_not_clean()
 
         changelog = open(changelog_file, encoding='utf-8').read()
 
@@ -130,16 +193,14 @@ class Patch:
         # try:
         #     with open(bundle_file) as bundle_file_:
         #         bundle_issues = [ issue.strip() for issue in bundle_file_.readlines() ]
-        #         self.__update_release(changelog, commit, None)
-        #         _ = [
+        #         self.__register(changelog         _ = [
         #             self.apply_issue(issue, commit, issue)
         #             for issue in bundle_issues
         #         ]
         # except FileNotFoundError:
-        #     pass
-
+        #     pas
         files = []
-        for file_ in os.scandir(patch_path):
+        for file_ in os.scandir(self.__patch_path):
             files.append({'name': file_.name, 'file': file_})
         for elt in pydash.order_by(files, ['name']):
             file_ = elt['file']
@@ -168,7 +229,8 @@ class Patch:
                 with subprocess.Popen(file_.path, shell=True) as sub:
                     sub.wait()
 
-        self.__update_release(changelog, commit, issue)
+        subprocess.run(['hop', 'update', '-f'], check=True)
+        self.__register()
 
     # def apply_issue(self, issue, commit=None, bundled_issue=None):
     #     "Applique un issue"
@@ -203,10 +265,10 @@ class Patch:
                 next_release[sub_part] = 0
             to_zero.append(part)
             next_release_path = '{major}/{minor}/{patch}'.format(**next_release)
-            next_release_s = '{major}.{minor}.{patch}'.format(**next_release)
+            next_release_s = self.get_release_s(next_release)
             tried.append(next_release_s)
             if os.path.exists('Patches/{}'.format(next_release_path)):
-                print("NEXT RELEASE: {major}.{minor}.{patch}".format(**next_release))
+                print(f"NEXT RELEASE: {next_release_s}")
                 self.__release = next_release
                 self.__release_s = next_release_s
                 self.__release_path = next_release_path
@@ -214,11 +276,6 @@ class Patch:
         print(f"No new release to apply after {self.__last_release_s}.")
         print(f"Next possible releases: {', '.join(tried)}.")
         return None
-
-    def exit_(self, retval=0):
-        "Exit after restoring orig dir"
-        os.chdir(self.__orig_dir)
-        sys.exit(retval)
 
     def __add_relation(self, sql_dir, fqtn):
         with open(f'{sql_dir}/{fqtn}.sql', encoding='utf-8') as cmd:
@@ -243,9 +300,9 @@ class Patch:
                 sys.stderr.write('WARNING!\n')
                 sys.stderr.write(f'The hop patch system is already present at {release}!\n')
                 sys.stderr.write(
-                    f"The package {self.__package_name} will not containt any business code!\n")
+                    f"The package {self.package_name} will not containt any business code!\n")
             return None
-        print(f"Initializing the patch system for the '{self.__dbname}' database.")
+        print(f"Initializing the patch system for the '{self.dbname}' database.")
         if not os.path.exists('./Patches'):
             os.mkdir('./Patches')
             shutil.copy(f'{sql_dir}/README', './Patches/README')

@@ -7,7 +7,7 @@ name = "pypi"
 python_version = "3.8"
 
 [packages]
-half-orm = ">=0.5.3"
+half-orm = ">=0.5.5"
 gitpython = "3"
 click = "*"
 pydash = "5"

@@ -33,16 +33,42 @@ from git import Repo, GitCommandError
 from half_orm.model import Model, CONF_DIR
 from half_orm.model_errors import MissingConfigFile
 
-from half_orm_packager.globals import TEMPLATES_DIR, get_connection_file_name, hop_version
+from half_orm_packager.globals import TEMPLATES_DIR, hop_version
 from half_orm_packager.patch import Patch
 from half_orm_packager.test import tests
 from half_orm_packager.update import update_modules
 from half_orm_packager.hgit import HGit
 
 
+def get_connection_file_name(base_dir=None, ref_dir=None):
+    """searches the hop configuration file for the package.
+    This method is called when no hop config file is provided.
+    It changes to the package base directory if the config file exists.
+    """
+    config = ConfigParser()
+
+    cur_dir = base_dir
+    if not base_dir:
+        ref_dir = os.path.abspath(os.path.curdir)
+        cur_dir = base_dir = ref_dir
+    for base in ['hop', 'halfORM']:
+        if os.path.exists('.{}/config'.format(base)):
+            config.read('.{}/config'.format(base))
+            config_file = config['halfORM']['config_file']
+            package_name = config['halfORM']['package_name']
+            return config_file, package_name, cur_dir
+
+    if os.path.abspath(os.path.curdir) != '/':
+        os.chdir('..')
+        cur_dir = os.path.abspath(os.path.curdir)
+        return get_connection_file_name(cur_dir, ref_dir)
+    # restore reference directory.
+    os.chdir(ref_dir)
+    return None, None, None
+
 class Hop:
     "XXX: The hop class doc..."
-    __connection_file_name, __package_name = get_connection_file_name()
+    __connection_file_name, __package_name, __project_path = get_connection_file_name()
     __model = None
 
     @property
@@ -58,6 +84,19 @@ class Hop:
     @package_name.setter
     def package_name(self, package_name):
         self.__package_name = package_name
+
+    @property
+    def project_path(self):
+        return self.__project_path
+
+    @project_path.setter
+    def project_path(self, project_path):
+        if self.__project_path is None:
+            self.__project_path = project_path
+
+    @property
+    def package_path(self):
+        return f'{self.project_path}/{self.package_name}'
 
     @property
     def model(self):
@@ -170,9 +209,9 @@ def init_package(model, project_name: str):
     write_file(f'{project_path}/README.md', readme)
     write_file(f'{project_path}/.gitignore', GIT_IGNORE)
     os.mkdir(f'{project_path}/{project_name}')
-    HGit(project_path, HOP).init()
+    HOP.project_path = project_path
+    HGit(HOP).init()
     print(f"\nThe hop project '{project_name}' has been created.")
-
 
 def set_config_file(project_name: str):
     """ Asks for the connection parameters. Returns a dictionary with the params.
@@ -307,11 +346,12 @@ def get_model():
 
 @main.command()
 @click.option('-f', '--force', is_flag=True, help="Don't check if git repo is clean.")
-def patch(force):
+@click.option('-r', '--revert', is_flag=True, help="Revert to the previous release.")
+def patch(force, revert):
     """ Applies the next patch.
     """
 
-    Patch(HOP).patch(HOP.package_name, force)
+    Patch(HOP).patch(force, revert)
 
     sys.exit()
 

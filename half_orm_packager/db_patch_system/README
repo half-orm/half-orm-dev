@@ -16,7 +16,7 @@ last release number. If the last patch is X.Y.Z, `hop patch` will try
 X.Y.<Z+1>, X.<Y+1>.Z, <X+1>.Y.Z in order.
 
 
-To create a X.Y.Z patch, just create a directory Patches/X/Y/Z. In it you'll
+To create a X.Y.Z patch, create a directory Patches/X/Y/Z. In it you'll
 have to add a CHANGELOG.md description file with a series of patches scripts.
 The scripts are applied in alphabetical order and can only be of two types:
 
