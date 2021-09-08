@@ -5,16 +5,26 @@ import os
 import subprocess
 import sys
 from git import Repo, GitCommandError
+from git.exc import InvalidGitRepositoryError
 from datetime import date
 
 class HGit:
     "docstring"
+    __hop_main = False
     def __init__(self, hop_cls):
         self.__hop_cls = hop_cls
         self.__project_path = hop_cls.project_path
         self.__model = hop_cls.model
-        self.__repo = None
-    
+        if not os.path.exists(f'{self.__project_path}/.git'):
+            subprocess.run(['git', 'init', self.__project_path], check=True)
+        self.__repo = Repo(self.__project_path)
+        if not HGit.__hop_main:
+            HGit.__hop_main = 'hop_main' in [str(ref) for ref in self.__repo.references]
+        if not  HGit.__hop_main:
+            sys.stderr.write('WARN: creating hop_main branch.\n')
+            HGit.__hop_main = True
+            self.__repo.git.checkout('-b', 'hop_main')
+
     @property
     def repo(self):
         "Return the git repo object"
@@ -31,26 +41,19 @@ class HGit:
         "Initiazes the git repo."
         #pylint: disable=import-outside-toplevel
         from .patch import Patch
+        from .update import update_modules
 
         os.chdir(self.__project_path)
-        try:
-            Repo.init('.', initial_branch='main')
-            print("Initializing git with a 'main' branch.")
-        except GitCommandError:
-            Repo.init('.')
-            print("Initializing git with a 'master' branch.")
 
         Patch(self.__hop_cls, create_mode=True).patch(force=True)
         self.__model.reconnect()  # we get the new stuff from db metadata here
-        subprocess.run(['hop', 'update', '-f'], check=True)  # ignore tests
+        update_modules(self.__hop_cls.model, self.__hop_cls.package_name)
 
         try:
             self.repo.head.commit
         except ValueError:
             self.repo.git.add('.')
             self.repo.git.commit(m='[0.0.0] First release')
-
-        self.repo.git.checkout('-b', 'hop_main')
 
     @classmethod
     def get_sha1_commit(cls, patch_script):
