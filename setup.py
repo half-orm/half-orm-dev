@@ -16,7 +16,7 @@ setup(
     keywords='postgres, relation-object mapping',
     author='Joël Maïzi',
     author_email='joel.maizi@collorg.org',
-    url='https://github.com/collorg/half_orm_packager',
+    url='https://github.com/collorg/halfORM_packager',
     license='GNU General Public License v3 (GPLv3)',
     packages=['half_orm_packager'],
     package_data={'half_orm_packager': [
