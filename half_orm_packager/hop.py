@@ -39,6 +39,7 @@ from half_orm_packager.test import tests
 from half_orm_packager.update import update_modules
 from half_orm_packager.hgit import HGit
 
+PWD = os.path.abspath(os.path.curdir)
 
 def get_connection_file_name(base_dir=None, ref_dir=None):
     """searches the hop configuration file for the package.
@@ -63,7 +64,7 @@ def get_connection_file_name(base_dir=None, ref_dir=None):
         cur_dir = os.path.abspath(os.path.curdir)
         return get_connection_file_name(cur_dir, ref_dir)
     # restore reference directory.
-    os.chdir(ref_dir)
+    os.chdir(ref_dir or PWD)
     return None, None, None
 
 class Hop:
@@ -188,7 +189,7 @@ def init_package(model, project_name: str):
     if not os.path.exists(project_path):
         os.makedirs(project_path)
     else:
-        sys.stderr.write(f"The path '{project_path}' already exists!\n")
+        sys.stderr.write(f"ERROR! The path '{project_path}' already exists!\n")
         sys.exit(1)
     README = read_template(f'{TEMPLATES_DIR}/README')
     CONFIG_TEMPLATE = read_template(f'{TEMPLATES_DIR}/config')
