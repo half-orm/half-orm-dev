@@ -302,6 +302,10 @@ def new(package_name):
     """
     # click.echo(f'hop new {package_name}')
     # on cherche un fichier de conf .hop/config dans l'arbre.
+    conf_file, _, _ = get_connection_file_name('.')
+    if conf_file is not None:
+        sys.stderr.write("ERROR! Can't run hop new in a hop project.\n")
+        sys.exit(1)
     model = set_config_file(package_name)
 
     init_package(model, package_name)
