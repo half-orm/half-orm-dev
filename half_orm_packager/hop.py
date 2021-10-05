@@ -280,7 +280,7 @@ def main(ctx, version):
     Generates/Synchronises/Patches a python package from a PostgreSQL database
     """
 
-    if ctx.invoked_subcommand is None:
+    if ctx.invoked_subcommand is None and not version:
         status()
     if version:
         click.echo(f'hop {hop_version()}')
