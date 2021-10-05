@@ -149,15 +149,16 @@ class Patch:
         "Returns the absolute path of the backup file"
         return f'{self.__hop_cls.project_path}/Backups/{self.dbname}-{release_s}.sql'
 
-    def save_database(self):
-        """Dumps the database"""
+    def save_database(self, force=False):
+        """Dumps the database 
+        """
         if not os.path.isdir('./Backups'):
             os.mkdir('./Backups')
         svg_file = self.__backup_path(self.__last_release_s)
-        if os.path.isfile(svg_file):
+        if os.path.isfile(svg_file) and not force:
             sys.stderr.write(
                 f"Oops! there is already a dump for the {self.__last_release_s} release.\n")
-            sys.stderr.write(f"Please remove {svg_file} if you realy want to proceed.\n")
+            sys.stderr.write(f"Please use the --force option if you realy want to proceed.\n")
             sys.exit(1)
         subprocess.run(['pg_dump', self.dbname, '-f', svg_file], check=True)
 
@@ -168,9 +169,9 @@ class Patch:
         self.get_next_release(last_release)
         if self.__release_s == '':
             return
+        # we've got a patch we switch to a new branch
         self.__hgit.set_branch(self.__release_s)
-        # we got a patch we switch to a new branch
-        self.save_database()
+        self.save_database(force)
         if not os.path.exists(self.__patch_path):
             sys.stderr.write(f'The directory {self.__patch_path} does not exists!\n')
             sys.exit(1)
