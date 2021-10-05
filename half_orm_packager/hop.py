@@ -284,6 +284,12 @@ def main(ctx, version):
         status()
     if version:
         click.echo(f'hop {hop_version()}')
+        try:
+            from half_orm import VERSION
+            click.echo(f'half_orm: {VERSION}')
+        except ImportError as exc:
+            click.echo('half_orm: missing')
+            raise exc
         sys.exit()
 
     sys.path.insert(0, '.')
