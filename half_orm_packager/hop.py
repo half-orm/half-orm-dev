@@ -329,9 +329,11 @@ def get_model():
     except psycopg2.OperationalError as exc:
         sys.stderr.write(f'The database {HOP.package_name} does not exist.\n')
         raise exc
-    except MissingConfigFile:
+    except MissingConfigFile as exc:
         sys.stderr.write(
-            'Cannot find the half_orm config file for this database.\n')
+            'Cannot find the half_orm config file for this database.\n{}\n'.format(
+                str(exc)))
+        #raise exc
         sys.exit(1)
 
 
