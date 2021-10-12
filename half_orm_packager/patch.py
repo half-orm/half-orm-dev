@@ -109,6 +109,14 @@ class Patch:
     def patch(self, force=False, revert=False):
         #TODO: docstring
         "patch method"
+        if self.__hop_cls.production:
+            # we ensure that we are on the hop_main branch in prod
+            # we set force and revert to False
+            # we pull to sync the git repo
+            self.__hgit.set_branch('main')
+            force = False
+            revert = False
+            self.__hgit.repo.git.pull()
 
         if self.__create_mode or self.__init_mode:
             self.__last_release_s = 'pre-patch'

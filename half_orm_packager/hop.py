@@ -72,6 +72,37 @@ class Hop:
     __connection_file_name, __package_name, __project_path = get_connection_file_name()
     __model = None
 
+    def __init__(self):
+        if self.__model is None:
+            self.__model = self.get_model()
+
+    def get_model(self):
+        "Returns the half_orm model"
+        # config_file, package_name = get_connection_file_name()
+
+        if not self.package_name:
+            sys.stderr.write(
+                "You're not in a hop package directory.\n"
+                "Try hop --help.\n")
+            sys.exit(1)
+
+        try:
+            self.__model = Model(self.package_name)
+            model = self.alpha()  # XXX To remove after alpha
+            return model
+        except psycopg2.OperationalError as exc:
+            sys.stderr.write(f'The database {self.package_name} does not exist.\n')
+            raise exc
+        except MissingConfigFile:
+            sys.stderr.write(
+                'Cannot find the half_orm config file for this database.\n')
+            sys.exit(1)
+
+
+    @property
+    def production(self):
+        return self.__model.production
+
     @property
     def connection_file_name(self):
         "returns the connection file name"
@@ -134,7 +165,7 @@ class Hop:
                 sys.exit()
         # if not model.has_relation('half_orm_meta.view.hop_penultimate_release'):
         #     TODO: fix missing penultimate_release on some databases.
-        return Model(HOP.package_name)
+        return Model(self.package_name)
 
     def __str__(self):
         return f"""
@@ -271,7 +302,6 @@ def set_config_file(project_name: str):
         print(f'Please create the database an rerun hop new {project_name}')
         sys.exit(1)
 
-
 @click.group(invoke_without_command=True)
 @click.pass_context
 @click.option('-v', '--version', is_flag=True)
@@ -279,7 +309,6 @@ def main(ctx, version):
     """
     Generates/Synchronises/Patches a python package from a PostgreSQL database
     """
-
     if ctx.invoked_subcommand is None:
         status()
     if version:
@@ -288,8 +317,7 @@ def main(ctx, version):
 
     sys.path.insert(0, '.')
 
-
-@main.command()
+@click.command()
 @click.argument('package_name')
 def new(package_name):
     """ Creates a new hop project named <package_name>.
@@ -312,30 +340,7 @@ def new(package_name):
     init_package(model, package_name)
 
 
-def get_model():
-    "Returns the half_orm model"
-    # config_file, package_name = get_connection_file_name()
-
-    if not HOP.package_name:
-        sys.stderr.write(
-            "You're not in a hop package directory.\n"
-            "Try hop --help.\n")
-        sys.exit(1)
-
-    try:
-        HOP.model = Model(HOP.package_name)
-        model = HOP.alpha()  # XXX To remove after alpha
-        return model
-    except psycopg2.OperationalError as exc:
-        sys.stderr.write(f'The database {HOP.package_name} does not exist.\n')
-        raise exc
-    except MissingConfigFile:
-        sys.stderr.write(
-            'Cannot find the half_orm config file for this database.\n')
-        sys.exit(1)
-
-
-# # @main.command()
+# # @click.command()
 # def init():
 #     """ Initialize a cloned hop project by applying the base patch
 #     """
@@ -349,7 +354,7 @@ def get_model():
 #     sys.exit()
 
 
-@main.command()
+@click.command()
 @click.option('-f', '--force', is_flag=True, help="Don't check if git repo is clean.")
 @click.option('-r', '--revert', is_flag=True, help="Revert to the previous release.")
 @click.option('-p', '--prep-next', type=click.Choice(['patch', 'minor', 'major']))
@@ -364,7 +369,7 @@ def patch(force, revert, prep_next):
     sys.exit()
 
 
-@main.command()
+@click.command()
 @click.option('-f', '--force', is_flag=True, help='Updates the package without testing')
 def update(force):
     """Updates the Python code with the changes made to the model.
@@ -376,7 +381,17 @@ def update(force):
         sys.exit(1)
 
 
-@main.command()
+@click.command()
+# @click.option('-d', '--dry-run', is_flag=True, help='Do nothing')
+# @click.option('-l', '--loop', is_flag=True, help='Run every patches to apply')
+def upgrade():
+    """Apply one or many patches.
+
+    switches to hop_main, pulls should check the tags
+    """
+    Patch(HOP).patch()
+
+@click.command()
 def test():
     """ Tests some common pitfalls.
     """
@@ -385,6 +400,16 @@ def test():
     else:
         click.echo('Tests failed')
 
+
+if not HOP.model.production:
+    # commands only available in dev
+    main.add_command(new)
+    main.add_command(patch)
+    main.add_command(test)
+    main.add_command(update)
+else:
+    # in prod
+    main.add_command(upgrade)
 
 if __name__ == '__main__':
     main({}, None)
