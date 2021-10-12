@@ -352,11 +352,14 @@ def get_model():
 @main.command()
 @click.option('-f', '--force', is_flag=True, help="Don't check if git repo is clean.")
 @click.option('-r', '--revert', is_flag=True, help="Revert to the previous release.")
-def patch(force, revert):
+@click.option('-p', '--prep-next', type=click.Choice(['patch', 'minor', 'major']))
+def patch(force, revert, prep_next):
     """ Applies the next patch.
     """
-
-    Patch(HOP).patch(force, revert)
+    if not prep_next:
+        Patch(HOP).patch(force, revert)
+    else:
+        Patch(HOP).prep_next_release(prep_next)
 
     sys.exit()
 

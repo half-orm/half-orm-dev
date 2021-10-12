@@ -242,11 +242,33 @@ class Patch:
         """
         return next(self.model.get_relation_class('half_orm_meta.view.hop_last_release')().select())
 
-    @classmethod
     def get_release_s(cls, release):
         """Returns the current release (str)
         """
         return '{major}.{minor}.{patch}'.format(**release)
+
+    def prep_next_release(self, release_level):
+        """Returns the next (major, minor, patch) tuple according to the release_level
+
+        Args:
+            release_level (str): one of ['patch', 'minor', 'major']
+        """
+        current = self.get_current_release()
+        next = {}
+        next['major'] = current['major']
+        next['minor'] = current['minor']
+        next['patch'] = current['patch']
+        next[release_level] = next[release_level] + 1
+        if release_level == 'major':
+            next['minor'] = next['patch'] = 0
+        if release_level == 'minor':
+            next['patch'] = 0
+        patch_path = 'Patches/{major}/{minor}/{patch}'.format(**next)
+        if not os.path.exists(patch_path):
+            changelog_msg = input('CHANGELOG message: ')
+            os.makedirs(patch_path)
+            with open(f'{patch_path}/CHANGELOG.md', 'w', encoding='utf-8') as changelog:
+                changelog.write(changelog_msg)
 
     def get_next_release(self, last_release=None):
         "Renvoie en fonction de part le numéro de la prochaine release"

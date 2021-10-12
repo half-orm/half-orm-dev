@@ -178,9 +178,12 @@ last release number. If the last patch is X.Y.Z, `hop patch` will try in order
 X.Y.<Z+1>, X.<Y+1>.Z, <X+1>.Y.Z.
 
 
-To create a X.Y.Z patch, create a directory Patches/X/Y/Z. In it you'll
-have to add a CHANGELOG.md description file with a series of patches scripts.
+To prepare a new patch, run `hop patch -p <patch_level>` where patch_level is one
+of ['patch', 'minor', 'major']. The command will create a directory in 
+`Patches/X/Y/Z` with a CHANGELOG.md description file. You can add in this
+directory a series of patches scripts.
 The scripts are applied in alphabetical order and can only be of two types:
+
 
 * SQL with .sql extension
 * Python with .py extension
