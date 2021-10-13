@@ -21,6 +21,7 @@ import subprocess
 import psycopg2
 import pydash
 from .hgit import HGit
+from .update import update_modules
 
 class Patch:
     #TODO: docstring
@@ -238,7 +239,7 @@ class Patch:
                 with subprocess.Popen(file_.path, shell=True) as sub:
                     sub.wait()
 
-        subprocess.run(['hop', 'update', '-f'], check=True)
+        update_modules(self.model, self.package_name)
         self.__register()
 
     # def apply_issue(self, issue, commit=None, bundled_issue=None):

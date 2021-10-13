@@ -369,16 +369,16 @@ def patch(force, revert, prep_next):
     sys.exit()
 
 
-@click.command()
-@click.option('-f', '--force', is_flag=True, help='Updates the package without testing')
-def update(force):
-    """Updates the Python code with the changes made to the model.
-    """
-    if force or tests(HOP.model, HOP.package_name):
-        update_modules(HOP.model, HOP.package_name)
-    else:
-        print("\nPlease correct the errors before proceeding!")
-        sys.exit(1)
+# @click.command()
+# @click.option('-f', '--force', is_flag=True, help='Updates the package without testing')
+# def update(force):
+#     """Updates the Python code with the changes made to the model.
+#     """
+#     if force or tests(HOP.model, HOP.package_name):
+#         update_modules(HOP.model, HOP.package_name)
+#     else:
+#         print("\nPlease correct the errors before proceeding!")
+#         sys.exit(1)
 
 
 @click.command()
@@ -406,7 +406,7 @@ if not HOP.model.production:
     main.add_command(new)
     main.add_command(patch)
     main.add_command(test)
-    main.add_command(update)
+    # main.add_command(update)
 else:
     # in prod
     main.add_command(upgrade)
