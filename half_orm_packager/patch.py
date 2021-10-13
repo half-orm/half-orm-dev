@@ -114,7 +114,7 @@ class Patch:
             # we ensure that we are on the hop_main branch in prod
             # we set force and revert to False
             # we pull to sync the git repo
-            self.__hgit.set_branch('main')
+            self.__hgit.repo.git.checkout('hop_main')
             force = False
             revert = False
             self.__hgit.repo.git.pull()
@@ -179,7 +179,8 @@ class Patch:
         if self.__release_s == '':
             return
         # we've got a patch we switch to a new branch
-        self.__hgit.set_branch(self.__release_s)
+        if not self.__hop_cls.model.production:
+            self.__hgit.set_branch(self.__release_s)
         self.save_database(force)
         if not os.path.exists(self.__patch_path):
             sys.stderr.write(f'The directory {self.__patch_path} does not exists!\n')
