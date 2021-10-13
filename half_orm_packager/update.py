@@ -246,6 +246,7 @@ def update_modules(model, package_name):
     dirs_list = []
     files_list = []
 
+    model.reconnect()
     dbname = model._dbname
     package_dir = package_name
     open(f'{package_dir}/db_connector.py', 'w', encoding='utf-8').write(
