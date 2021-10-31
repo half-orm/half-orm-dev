@@ -73,8 +73,10 @@ class Hop:
     __model = None
 
     def __init__(self):
-        if self.__model is None:
+        self.__production = False
+        if self.__package_name and self.__model is None:
             self.__model = self.get_model()
+            self.__production = self.__model.production
 
     def get_model(self):
         "Returns the half_orm model"
@@ -83,8 +85,7 @@ class Hop:
         if not self.package_name:
             sys.stderr.write(
                 "You're not in a hop package directory.\n"
-                "Try hop --help.\n")
-            sys.exit(1)
+                "Try hop new <package directory> or change directory.\n")
 
         try:
             self.__model = Model(self.package_name)
@@ -101,7 +102,7 @@ class Hop:
 
     @property
     def production(self):
-        return self.__model.production
+        return self.__production
 
     @property
     def connection_file_name(self):
@@ -133,8 +134,8 @@ class Hop:
     @property
     def model(self):
         "model getter"
-        if self.__model is None:
-            self.model = get_model()
+        if self.__model is None and self.__package_name:
+            self.model = self.get_model()
         return self.__model
 
     @model.setter
@@ -174,7 +175,6 @@ class Hop:
         """
 
 
-HOP = Hop()
 # print(HOP)
 
 BASE_DIR = os.getcwd()
@@ -309,10 +309,16 @@ def main(ctx, version):
     """
     Generates/Synchronises/Patches a python package from a PostgreSQL database
     """
-    if ctx.invoked_subcommand is None:
-        status()
-    if version:
-        click.echo(f'hop {hop_version()}')
+    if HOP.model:
+        if ctx.invoked_subcommand is None:
+            status()
+        if version:
+            click.echo(f'hop {hop_version()}')
+            sys.exit()
+    else:
+        sys.stderr.write(
+            "You're not in a hop package directory.\n"
+            "Try hop new <package directory> or change directory.\n")
         sys.exit()
 
     sys.path.insert(0, '.')
@@ -340,20 +346,6 @@ def new(package_name):
     init_package(model, package_name)
 
 
-# # @click.command()
-# def init():
-#     """ Initialize a cloned hop project by applying the base patch
-#     """
-#     try:
-#         model = get_model()
-#     except psycopg2.OperationalError:
-#         # config_file, package_name = get_connection_file_name()
-#         model = set_config_file(HOP.package_name)
-
-#     Patch(HOP, init_mode=True).patch(HOP.package_name)
-#     sys.exit()
-
-
 @click.command()
 @click.option('-f', '--force', is_flag=True, help="Don't check if git repo is clean.")
 @click.option('-r', '--revert', is_flag=True, help="Revert to the previous release.")
@@ -367,18 +359,6 @@ def patch(force, revert, prep_next):
         Patch(HOP).prep_next_release(prep_next)
 
     sys.exit()
-
-
-# @click.command()
-# @click.option('-f', '--force', is_flag=True, help='Updates the package without testing')
-# def update(force):
-#     """Updates the Python code with the changes made to the model.
-#     """
-#     if force or tests(HOP.model, HOP.package_name):
-#         update_modules(HOP.model, HOP.package_name)
-#     else:
-#         print("\nPlease correct the errors before proceeding!")
-#         sys.exit(1)
 
 
 @click.command()
@@ -400,10 +380,11 @@ def test():
     else:
         click.echo('Tests failed')
 
-
-if not HOP.model.production:
-    # commands only available in dev
+HOP = Hop()
+if not HOP.model:
     main.add_command(new)
+elif not HOP.production:
+    # commands only available in dev
     main.add_command(patch)
     main.add_command(test)
     # main.add_command(update)
