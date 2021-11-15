@@ -316,10 +316,11 @@ def main(ctx, version):
             click.echo(f'hop {hop_version()}')
             sys.exit()
     else:
-        sys.stderr.write(
-            "You're not in a hop package directory.\n"
-            "Try hop new <package directory> or change directory.\n")
-        sys.exit()
+        if ctx.invoked_subcommand != 'new':
+            sys.stderr.write(
+                "You're not in a hop package directory.\n"
+                "Try hop new <package directory> or change directory.\n")
+            sys.exit()
 
     sys.path.insert(0, '.')
 
