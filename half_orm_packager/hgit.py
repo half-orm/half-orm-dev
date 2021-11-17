@@ -93,11 +93,11 @@ class HGit:
         rel_branch = f'hop_{release_s}'
         if str(self.branch) == 'hop_main' and rel_branch != 'hop_main':
             # creates the new branch
-            print(f'NEW branch hop_{release_s}')
             self.repo.create_head(rel_branch)
             self.repo.git.checkout(rel_branch)
+            print(f'NEW branch {rel_branch}')
         elif str(self.branch) == rel_branch:
             print(f'OK! on {rel_branch}')
         else:
-            sys.stderr.write(f'PB! pas sur la bonne branche!\n')
+            sys.stderr.write(f'Current branch is {self.branch}\n')
             sys.exit(1)

@@ -33,10 +33,6 @@ class Patch:
         self.__init_mode = init_mode
         # self.__orig_dir = os.path.abspath('.')
         self.__module_dir = os.path.dirname(__file__)
-        self.__last_release_s = None
-        self.__release = None
-        self.__release_s = ''
-        self.__release_path = None
 
     @property
     def model(self):
@@ -55,10 +51,10 @@ class Patch:
 
     @property
     def __patch_path(self):
-        return f'{self.__hop_cls.project_path}/Patches/{self.__release_path}/'
+        return f'{self.__hop_cls.project_path}/Patches/{self.__hop_cls.release_path}/'
 
     def __get_backup_file_name(self, release):
-        release_s = self.get_release_s(release)
+        release_s = self.__hop_cls.get_release_s(release)
         return f'{self.__hop_cls.project_path}/Backups/{self.dbname}-{release_s}.sql'
 
     @property
@@ -71,15 +67,22 @@ class Patch:
         #pylint: disable=invalid-name
         Previous = self.__hop_cls.model.get_relation_class(
             'half_orm_meta.view.hop_penultimate_release')
-        return next(Previous().select())
+        try:
+            return next(Previous().select())
+        except StopIteration:
+            Current = self.__hop_cls.model.get_relation_class('half_orm_meta.view.hop_last_release')
+            return next(Current().select())
 
-    def _revert(self):
+    def revert(self):
         """Revert to the previous release
 
         Needs the backup
         """
         prev_release = self.__get_previous_release()
-        curr_release = self.get_current_release()
+        curr_release = self.__hop_cls.get_current_release()
+        if curr_release['major'] == curr_release['minor'] == curr_release['patch'] == 0:
+            sys.stderr.write('Current release is 0.0.0. There is no previous release to revert to!\n')
+            sys.exit(1)
         backup_file = self.__get_backup_file_name(prev_release)
         if os.path.exists(backup_file):
             self.__hop_cls.model.disconnect()
@@ -103,7 +106,8 @@ class Patch:
                 minor=curr_release['minor'],
                 patch=curr_release['patch']
                 ).delete()
-            print(f'Reverted to {self.get_release_s(prev_release)}')
+            print(f'Reverted to {self.__hop_cls.get_release_s(prev_release)}')
+            HGit(self.__hop_cls).set_branch(self.__hop_cls.get_release_s(prev_release))
         else:
             print(f'Revert failed! No backup file for {prev_release}.')
 
@@ -120,29 +124,29 @@ class Patch:
             self.__hgit.repo.git.pull()
 
         if self.__create_mode or self.__init_mode:
-            self.__last_release_s = 'pre-patch'
+            self.__hop_cls.last_release_s = 'pre-patch'
             self.save_database()
             return self._init()
         if revert:
-            return self._revert()
+            return self.revert()
         branch_name = str(self.__hgit.repo.active_branch)
-        curr_release = self.get_release_s(self.get_current_release())
+        curr_release = self.__hop_cls.get_release_s(self.__hop_cls.get_current_release())
         if branch_name == f'hop_{curr_release}':
             revert_i = input(f'Replay patch {curr_release} [Y/n]? ') or 'Y'
             if revert_i.upper() == 'Y':
-                self._revert()
+                self.revert()
                 force = True
             else:
                 sys.exit()
         self._patch(force=force)
-        return self.__release_s
+        return self.__hop_cls.release_s
 
     def __register(self):
         "Mise à jour de la table half_orm_meta.hop_release"
         new_release = self.model.get_relation_class('half_orm_meta.hop_release')(
-            major=self.__release['major'],
-            minor=self.__release['minor'],
-            patch=int(self.__release['patch'])
+            major=self.__hop_cls.release['major'],
+            minor=self.__hop_cls.release['minor'],
+            patch=int(self.__hop_cls.release['patch'])
         )
         #FIXME
         commit = str(datetime.now())
@@ -163,10 +167,10 @@ class Patch:
         """
         if not os.path.isdir('./Backups'):
             os.mkdir('./Backups')
-        svg_file = self.__backup_path(self.__last_release_s)
+        svg_file = self.__backup_path(self.__hop_cls.last_release_s)
         if os.path.isfile(svg_file) and not force:
             sys.stderr.write(
-                f"Oops! there is already a dump for the {self.__last_release_s} release.\n")
+                f"Oops! there is already a dump for the {self.__hop_cls.last_release_s} release.\n")
             sys.stderr.write(f"Please use the --force option if you realy want to proceed.\n")
             sys.exit(1)
         subprocess.run(['pg_dump', self.dbname, '-f', svg_file], check=True)
@@ -174,13 +178,14 @@ class Patch:
     def _patch(self, commit=None, force=False):
         "Applies the patch and insert the information in the half_orm_meta.hop_release table"
         #TODO: simplify
-        last_release = self.get_current_release()
-        self.get_next_release(last_release)
-        if self.__release_s == '':
+        last_release = self.__hop_cls.get_current_release()
+        self.__hop_cls.release_s = self.__hop_cls.get_release_s(self.__hop_cls.get_next_release(last_release))
+        if self.__hop_cls.release_s == '':
             return
         # we've got a patch we switch to a new branch
         if not self.__hop_cls.model.production:
-            self.__hgit.set_branch(self.__release_s)
+            print('XXX', self.__hop_cls.release_s)
+            self.__hgit.set_branch(self.__hop_cls.release_s)
         self.save_database(force)
         if not os.path.exists(self.__patch_path):
             sys.stderr.write(f'The directory {self.__patch_path} does not exists!\n')
@@ -247,23 +252,13 @@ class Patch:
     #     "Applique un issue"
     #     self._patch('devel/issues/{}'.format(issue), commit, bundled_issue)
 
-    def get_current_release(self):
-        """Returns the current release (dict)
-        """
-        return next(self.model.get_relation_class('half_orm_meta.view.hop_last_release')().select())
-
-    def get_release_s(cls, release):
-        """Returns the current release (str)
-        """
-        return '{major}.{minor}.{patch}'.format(**release)
-
     def prep_next_release(self, release_level):
         """Returns the next (major, minor, patch) tuple according to the release_level
 
         Args:
             release_level (str): one of ['patch', 'minor', 'major']
         """
-        current = self.get_current_release()
+        current = self.__hop_cls.get_current_release()
         next = {}
         next['major'] = current['major']
         next['minor'] = current['minor']
@@ -279,36 +274,6 @@ class Patch:
             os.makedirs(patch_path)
             with open(f'{patch_path}/CHANGELOG.md', 'w', encoding='utf-8') as changelog:
                 changelog.write(changelog_msg)
-
-    def get_next_release(self, last_release=None):
-        "Renvoie en fonction de part le numéro de la prochaine release"
-        if last_release is None:
-            last_release = self.get_current_release()
-            msg = "CURRENT RELEASE: {major}.{minor}.{patch} at {time}"
-            if 'date' in last_release:
-                msg = "CURRENT RELEASE: {major}.{minor}.{patch}: {date} at {time}"
-            print(msg.format(**last_release))
-        self.__last_release_s = '{major}.{minor}.{patch}'.format(**last_release)
-        to_zero = []
-        tried = []
-        for part in ['patch', 'minor', 'major']:
-            next_release = dict(last_release)
-            next_release[part] = last_release[part] + 1
-            for sub_part in to_zero:
-                next_release[sub_part] = 0
-            to_zero.append(part)
-            next_release_path = '{major}/{minor}/{patch}'.format(**next_release)
-            next_release_s = self.get_release_s(next_release)
-            tried.append(next_release_s)
-            if os.path.exists('Patches/{}'.format(next_release_path)):
-                print(f"NEXT RELEASE: {next_release_s}")
-                self.__release = next_release
-                self.__release_s = next_release_s
-                self.__release_path = next_release_path
-                return next_release
-        print(f"No new release to apply after {self.__last_release_s}.")
-        print(f"Next possible releases: {', '.join(tried)}.")
-        return None
 
     def __add_relation(self, sql_dir, fqtn):
         with open(f'{sql_dir}/{fqtn}.sql', encoding='utf-8') as cmd:
@@ -328,7 +293,7 @@ class Patch:
         release_issue = self.model.has_relation('half_orm_meta.hop_release_issue')
         patch_confict = release or last_release or release_issue or penultimate_release
         if patch_confict:
-            release = self.get_release_s(self.get_current_release())
+            release = self.__hop_cls.get_release_s(self.__hop_cls.get_current_release())
             if release != '0.0.0':
                 sys.stderr.write('WARNING!\n')
                 sys.stderr.write(f'The hop patch system is already present at {release}!\n')
@@ -347,6 +312,9 @@ class Patch:
             "insert into half_orm_meta.hop_release values " +
             "(0,0,0, '', 0, now(), now(),'[0.0.0] First release', " +
             f'{date.today()})')
-
+        self.__hgit.repo.git.checkout('-b', 'hop_0.0.0')
+        self.__hgit.repo.git.checkout('-b', 'hop_main')
+        self.__hop_cls.last_release_s = '0.0.0'
+        self.save_database()
         print("Patch system initialized at release '0.0.0'.")
         return "0.0.0"

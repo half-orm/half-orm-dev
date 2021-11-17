@@ -11,6 +11,7 @@ half-orm = ">=0.5.8"
 gitpython = "3"
 click = "*"
 pydash = "5"
+half-orm-packager = {editable = true, path = "."}
 
 [dev-packages]
 pytest = "*"

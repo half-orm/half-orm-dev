@@ -27,22 +27,8 @@ from configparser import ConfigParser
 
 from half_orm.model import camel_case
 
-from half_orm_packager.globals import TEMPLATES_DIR, hop_version
-
-BASE_DIR = os.getcwd()
-
-TMPL_CONF_FILE = """[database]
-name = {name}
-user = {user}
-password = {password}
-host = {host}
-port = {port}
-production = {production}
-"""
-
-HALFORM_PATH = os.path.dirname(__file__)
-BEGIN_CODE = "#>>> PLACE YOUR CODE BELLOW THIS LINE. DO NOT REMOVE THIS LINE!\n"
-END_CODE = "#<<< PLACE YOUR CODE ABOVE THIS LINE. DO NOT REMOVE THIS LINE!\n"
+from half_orm_packager.globals import TEMPLATES_DIR, BEGIN_CODE, END_CODE
+from half_orm_packager.lib.utils import hop_version
 
 def read_template(file_name):
     "helper"
