@@ -23,7 +23,6 @@ history with the last release applied.
 import os
 import subprocess
 import sys
-from getpass import getpass
 
 import click
 import psycopg2
@@ -31,7 +30,7 @@ import psycopg2
 from half_orm.model import Model, CONF_DIR
 from half_orm.model_errors import MissingConfigFile
 
-from half_orm_packager.lib.utils import hop_version, get_connection_file_name, set_config_file, Hop, read_template, write_file, init_package
+from half_orm_packager.lib.utils import hop_version, get_connection_file_name, set_config_file, Hop, read_template, write_file
 from half_orm_packager.patch import Patch
 from half_orm_packager.test import tests
 from half_orm_packager.update import update_modules
@@ -46,18 +45,16 @@ def main(ctx, version):
     """
     Generates/Synchronises/Patches a python package from a PostgreSQL database
     """
-    if HOP.model:
-        if ctx.invoked_subcommand is None:
-            HOP.status()
-        if version:
-            click.echo(f'hop {hop_version()}')
-            sys.exit()
-    else:
-        if ctx.invoked_subcommand != 'new':
-            sys.stderr.write(
-                "You're not in a hop package directory.\n"
-                "Try hop new <package directory> or change directory.\n")
-            sys.exit()
+    if version:
+        click.echo(f'hop {hop_version()}')
+        sys.exit()
+    if HOP.model and ctx.invoked_subcommand is None:
+        HOP.status()
+    elif not HOP.model and ctx.invoked_subcommand != 'new':
+        sys.stderr.write(
+            "You're not in a hop package directory.\n"
+            "Try hop new <package directory> or change directory.\n")
+        sys.exit()
 
     sys.path.insert(0, '.')
 
@@ -81,18 +78,19 @@ def new(package_name):
         sys.exit(1)
     model = set_config_file(HOP, package_name)
 
-    init_package(HOP, package_name)
+    HOP.init_package(package_name)
 
 
 @click.command()
 @click.option('-f', '--force', is_flag=True, help="Don't check if git repo is clean.")
 @click.option('-r', '--revert', is_flag=True, help="Revert to the previous release.")
-@click.option('-p', '--prep-next', type=click.Choice(['patch', 'minor', 'major']))
-def patch(force, revert, prep_next):
+@click.option('-p', '--prepare', type=click.Choice(['patch', 'minor', 'major']), help="Prepare next patch.")
+#TODO @click.option('-c', '--commit', is_flag=True, help="Commit the patch to the hop_main branch")
+def patch(force, revert, prepare):
     """ Applies the next patch.
     """
-    if prep_next:
-        Patch(HOP).prep_next_release(prep_next)
+    if prepare:
+        Patch(HOP).prep_next_release(prepare)
     elif revert:
         Patch(HOP).revert()
     else:

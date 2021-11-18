@@ -7,6 +7,7 @@ import sys
 from git import Repo, GitCommandError
 from git.exc import InvalidGitRepositoryError
 from datetime import date
+from time import sleep
 
 class HGit:
     "docstring"
@@ -18,6 +19,9 @@ class HGit:
         if not os.path.exists(f'{self.__project_path}/.git'):
             subprocess.run(['git', 'init', self.__project_path], check=True)
         self.__repo = Repo(self.__project_path)
+        self.hop_main_branch()
+
+    def hop_main_branch(self):
         if not HGit.__hop_main:
             HGit.__hop_main = 'hop_main' in [str(ref) for ref in self.__repo.references]
         if not  HGit.__hop_main:
@@ -48,12 +52,11 @@ class HGit:
         Patch(self.__hop_cls, create_mode=True).patch(force=True)
         self.__model.reconnect()  # we get the new stuff from db metadata here
         update_modules(self.__hop_cls.model, self.__hop_cls.package_name)
-
-        try:
-            self.repo.head.commit
-        except ValueError:
-            self.repo.git.add('.')
-            self.repo.git.commit(m='[0.0.0] First release')
+        self.repo.git.add('.')
+        self.repo.git.commit(m='[0.0.0] First release')
+        self.hop_main_branch()
+        self.__hop_cls.last_release_s = '0.0.0'
+        print("Patch system initialized at release '0.0.0'.")
 
     @classmethod
     def get_sha1_commit(cls, patch_script):
@@ -97,7 +100,7 @@ class HGit:
             self.repo.git.checkout(rel_branch)
             print(f'NEW branch {rel_branch}')
         elif str(self.branch) == rel_branch:
-            print(f'OK! on {rel_branch}')
+            print(f'On branch {rel_branch}')
         else:
             sys.stderr.write(f'Current branch is {self.branch}\n')
             sys.exit(1)

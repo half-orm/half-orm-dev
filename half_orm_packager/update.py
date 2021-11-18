@@ -269,10 +269,10 @@ def update_init_files(package_dir, files_list, warning):
             if dir_ != '__pycache__':
                 all_.append(dir_)
         for file in files:
-            path_ = "{}/{}".format(root, file)
+            path_ = f"{root}/{file}"
             if path_ not in files_list and file not in DO_NOT_REMOVE:
                 if path_.find('__pycache__') == -1 and path_.find('_test.py') == -1:
-                    print("REMOVING: {}".format(path_))
+                    print(f"REMOVING: {path_}")
                 os.remove(path_)
                 continue
             if (re.findall('.py$', file) and
@@ -281,8 +281,7 @@ def update_init_files(package_dir, files_list, warning):
                     file.find('_test.py') == -1):
                 all_.append(file.replace('.py', ''))
         all_.sort()
-        with open('{}/__init__.py'.format(root), 'w', encoding='utf-8') as init_file:
-            init_file.write('"""{}"""\n\n'.format(warning))
-            init_file.write(
-                '__all__ = [\n    {}\n]\n'.format(",\n    ".join(
-                    ["'{}'".format(elt) for elt in all_])))
+        with open(f'{root}/__init__.py', 'w', encoding='utf-8') as init_file:
+            init_file.write(f'"""{warning}"""\n\n')
+            all = ",\n    ".join([f"'{elt}'" for elt in all_])
+            init_file.write(f'__all__ = [\n    {all}\n]\n')

@@ -1,16 +1,27 @@
 import os
 import sys
 import subprocess
+from getpass import getpass
 from configparser import ConfigParser
 
 import psycopg2
 
 from half_orm.model import Model, CONF_DIR
+from half_orm.model_errors import UnknownRelation
 
 from half_orm_packager.globals import HOP_PATH, TEMPLATES_DIR
 from half_orm_packager.hgit import HGit
+# from half_orm_packager.patch import Patch
 
-
+TMPL_CONF_FILE = """
+[database]
+name = {name}
+user = {user}
+password = {password}
+host = {host}
+port = {port}
+production = {production}
+""" 
 
 class Hop:
     "XXX: The hop class doc..."
@@ -73,18 +84,22 @@ class Hop:
                 'Cannot find the half_orm config file for this database.\n')
             sys.exit(1)
 
-    def get_next_release(self, last_release=None):
+    def get_next_release(self, last_release=None, show=False):
         "Renvoie en fonction de part le numéro de la prochaine release"
+        patch_types = ['patch', 'minor', 'major']
+        if self.get_current_release() is None:
+            return None
         if last_release is None:
             last_release = self.get_current_release()
             msg = "CURRENT RELEASE: {major}.{minor}.{patch} at {time}"
             if 'date' in last_release:
                 msg = "CURRENT RELEASE: {major}.{minor}.{patch}: {date} at {time}"
-            print(msg.format(**last_release))
+            if show:
+                print(msg.format(**last_release))
         self.__last_release_s = '{major}.{minor}.{patch}'.format(**last_release)
         to_zero = []
         tried = []
-        for part in ['patch', 'minor', 'major']:
+        for part in patch_types:
             next_release = dict(last_release)
             next_release[part] = last_release[part] + 1
             for sub_part in to_zero:
@@ -94,24 +109,48 @@ class Hop:
             next_release_s = self.get_release_s(next_release)
             tried.append(next_release_s)
             if os.path.exists('Patches/{}'.format(next_release_path)):
-                print(f"NEXT RELEASE: {next_release_s}")
+                if show:
+                    print(f"NEXT RELEASE: {next_release_s}")
                 self.__release = next_release
                 self.__release_s = next_release_s
                 self.__release_path = next_release_path
                 return next_release
-        print(f"No new release to apply after {self.__last_release_s}.")
-        print(f"Next possible releases: {', '.join(tried)}.")
+        if show:
+            print(f"No new release to apply after {self.__last_release_s}.")
+            print(f"Next possible releases:")
+            idx = 0
+            for release in tried:
+                print(f'* {release} - prepare with: hop patch -p {patch_types[idx]}')
+                idx += 1
+
         return None
 
     def get_current_release(self):
         """Returns the current release (dict)
         """
-        return next(self.model.get_relation_class('half_orm_meta.view.hop_last_release')().select())
+        try:
+            return next(self.model.get_relation_class('half_orm_meta.view.hop_last_release')().select())
+        except UnknownRelation:
+            return None
+
+    def get_previous_release(self):
+        "Returns the penultimate release"
+        #pylint: disable=invalid-name
+        if self.get_current_release() is None:
+            return None
+        Previous = self.model.get_relation_class(
+            'half_orm_meta.view.hop_penultimate_release')
+        try:
+            return next(Previous().select())
+        except StopIteration:
+            Current = self.model.get_relation_class('half_orm_meta.view.hop_last_release')
+            return next(Current().select())
 
     def get_release_s(cls, release):
         """Returns the current release (str)
         """
-        return '{major}.{minor}.{patch}'.format(**release)
+        if release:
+            return '{major}.{minor}.{patch}'.format(**release)
 
     def status(self):
         """Prints the status"""
@@ -120,6 +159,7 @@ class Hop:
         next_release = self.get_next_release()
         while next_release:
             next_release = self.get_next_release(next_release)
+        self.get_next_release(show=True)
         print('hop --help to get help.')
 
     @property
@@ -189,6 +229,42 @@ class Hop:
         # if not model.has_relation('half_orm_meta.view.hop_penultimate_release'):
         #     TODO: fix missing penultimate_release on some databases.
         return Model(self.package_name)
+
+    def init_package(self, project_name: str):
+        """Initialises the package directory.
+
+        project_name (str): The project name (hop create argument)
+        """
+        curdir = os.path.abspath(os.curdir)
+        project_path = os.path.join(curdir, project_name)
+        if not os.path.exists(project_path):
+            os.makedirs(project_path)
+        else:
+            sys.stderr.write(f"ERROR! The path '{project_path}' already exists!\n")
+            sys.exit(1)
+        README = read_template(f'{TEMPLATES_DIR}/README')
+        CONFIG_TEMPLATE = read_template(f'{TEMPLATES_DIR}/config')
+        SETUP_TEMPLATE = read_template(f'{TEMPLATES_DIR}/setup.py')
+        GIT_IGNORE = read_template(f'{TEMPLATES_DIR}/.gitignore')
+        PIPFILE = read_template(f'{TEMPLATES_DIR}/Pipfile')
+
+        dbname = self.model._dbname
+        setup = SETUP_TEMPLATE.format(dbname=dbname, package_name=project_name)
+        write_file(f'{project_path}/setup.py', setup)
+        write_file(f'{project_path}/Pipfile', PIPFILE)
+        os.mkdir(f'{project_path}/.hop')
+        write_file(f'{project_path}/.hop/config',
+            CONFIG_TEMPLATE.format(
+                config_file=project_name, package_name=project_name))
+        cmd = " ".join(sys.argv)
+        readme = README.format(cmd=cmd, dbname=dbname, package_name=project_name)
+        write_file(f'{project_path}/README.md', readme)
+        write_file(f'{project_path}/.gitignore', GIT_IGNORE)
+        os.mkdir(f'{project_path}/{project_name}')
+        self.project_path = project_path
+        HGit(self).init()
+
+        print(f"\nThe hop project '{project_name}' has been created.")
 
     def __str__(self):
         return f"""
@@ -291,40 +367,3 @@ def write_file(file_path, content):
     "helper"
     with open(file_path, 'w', encoding='utf-8') as file_:
         file_.write(content)
-
-def init_package(HOP, project_name: str):
-    """Initialises the package directory.
-
-    HOP.model (Model): The loaded model instance
-    project_name (str): The project name (hop create argument)
-    """
-    curdir = os.path.abspath(os.curdir)
-    project_path = os.path.join(curdir, project_name)
-    if not os.path.exists(project_path):
-        os.makedirs(project_path)
-    else:
-        sys.stderr.write(f"ERROR! The path '{project_path}' already exists!\n")
-        sys.exit(1)
-    README = read_template(f'{TEMPLATES_DIR}/README')
-    CONFIG_TEMPLATE = read_template(f'{TEMPLATES_DIR}/config')
-    SETUP_TEMPLATE = read_template(f'{TEMPLATES_DIR}/setup.py')
-    GIT_IGNORE = read_template(f'{TEMPLATES_DIR}/.gitignore')
-    PIPFILE = read_template(f'{TEMPLATES_DIR}/Pipfile')
-
-    dbname = HOP.model._dbname
-    setup = SETUP_TEMPLATE.format(dbname=dbname, package_name=project_name)
-    write_file(f'{project_path}/setup.py', setup)
-    write_file(f'{project_path}/Pipfile', PIPFILE)
-    os.mkdir(f'{project_path}/.hop')
-    write_file(f'{project_path}/.hop/config',
-        CONFIG_TEMPLATE.format(
-            config_file=project_name, package_name=project_name))
-    cmd = " ".join(sys.argv)
-    readme = README.format(cmd=cmd, dbname=dbname, package_name=project_name)
-    write_file(f'{project_path}/README.md', readme)
-    write_file(f'{project_path}/.gitignore', GIT_IGNORE)
-    os.mkdir(f'{project_path}/{project_name}')
-    HOP.project_path = project_path
-    HGit(HOP).init()
-    print(f"\nThe hop project '{project_name}' has been created.")
-
