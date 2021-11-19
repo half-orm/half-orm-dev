@@ -58,20 +58,9 @@ class HGit:
         self.__hop_cls.last_release_s = '0.0.0'
         print("Patch system initialized at release '0.0.0'.")
 
-    @classmethod
-    def get_sha1_commit(cls, patch_script):
-        "Returns the sha1 of the last commmit"
-        commit = subprocess.Popen(
-            "git log --oneline --abbrev=-1 --max-count=1 {}".format(
-            os.path.dirname(patch_script)
-        ), shell=True, stdout=subprocess.PIPE)
-        commit = commit.stdout.read().decode()
-        if commit.strip():
-            commit = commit.split()[0] # commit is the commit sha1
-        else:
-            sys.stderr.write("WARNING! Running in test mode (logging the date as commit).\n")
-            commit = "{}".format(date.today())
-        return commit
+    @property
+    def commit(self):
+        return list(self.__repo.iter_commits(self.branch, max_count=1))[0]
 
     @classmethod
     def exit_if_repo_is_not_clean(cls):
@@ -101,6 +90,5 @@ class HGit:
             print(f'NEW branch {rel_branch}')
         elif str(self.branch) == rel_branch:
             print(f'On branch {rel_branch}')
-        else:
-            sys.stderr.write(f'Current branch is {self.branch}\n')
-            sys.exit(1)
+        # else:
+        #     sys.stderr.write(f'Current branch is {self.branch}\n')

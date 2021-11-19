@@ -45,10 +45,9 @@ def main(ctx, verbose):
     """
     Generates/Synchronises/Patches a python package from a PostgreSQL database
     """
-    if verbose:
-        click.echo('halfORM packager')
     if HOP.model and ctx.invoked_subcommand is None:
-        HOP.status()
+        click.echo('halfORM packager')
+        HOP.status(verbose)
     elif not HOP.model and ctx.invoked_subcommand != 'new':
         sys.stderr.write(
             "You're not in a hop package directory.\n"
@@ -78,6 +77,7 @@ def new(package_name):
     model = set_config_file(HOP, package_name)
 
     HOP.init_package(package_name)
+    HOP.what_next()
 
 
 @click.command()

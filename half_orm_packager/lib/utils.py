@@ -40,6 +40,11 @@ class Hop:
         if self.__package_name and self.__model is None:
             self.__model = self.get_model()
             self.__production = self.__model.production
+        self.__hgit = None
+        try:
+            self.__hgit = HGit(self)
+        except TypeError:
+            pass
 
     def __get_last_release_s(self):
         return self.__last_release_s
@@ -84,18 +89,30 @@ class Hop:
                 'Cannot find the half_orm config file for this database.\n')
             sys.exit(1)
 
+    def get_next_possible_releases(self):
+        "Returns the next possible releases regarding the current db release"
+        to_zero = []
+        tried = []
+        for part in patch_types:
+            next_release = dict(last_release)
+            next_release[part] = last_release[part] + 1
+            for sub_part in to_zero:
+                next_release[sub_part] = 0
+            to_zero.append(part)
+            next_release_s = self.get_release_s(next_release)
+            tried.append(next_release_s)
+        return tried
+
     def get_next_release(self, last_release=None, show=False):
         "Renvoie en fonction de part le numéro de la prochaine release"
         patch_types = ['patch', 'minor', 'major']
-        if self.get_current_release() is None:
+        if self.get_current_db_release() is None:
             return None
         if last_release is None:
-            last_release = self.get_current_release()
-            msg = "CURRENT RELEASE: {major}.{minor}.{patch} at {time}"
-            if 'date' in last_release:
-                msg = "CURRENT RELEASE: {major}.{minor}.{patch}: {date} at {time}"
-            if show:
-                print(msg.format(**last_release))
+            last_release = self.get_current_db_release()
+            # msg = "CURRENT DB RELEASE: {major}.{minor}.{patch}: {date} at {time}"
+            # if show:
+            #     print(msg.format(**last_release))
         self.__last_release_s = '{major}.{minor}.{patch}'.format(**last_release)
         to_zero = []
         tried = []
@@ -115,18 +132,17 @@ class Hop:
                 self.__release_s = next_release_s
                 self.__release_path = next_release_path
                 return next_release
-        if show:
-            print(f"No new release to apply after {self.__last_release_s}.")
-            print(f"Next possible releases:")
+        if show and not self.__production and str(self.__hgit.branch) == 'hop_main':
+            print(f"Prepare a new patch:")
             idx = 0
             for release in tried:
-                print(f'* {release} - hop patch -p {patch_types[idx]}')
+                print(f'* hop patch -p {patch_types[idx]} -> {release}')
                 idx += 1
 
         return None
 
-    def get_current_release(self):
-        """Returns the current release (dict)
+    def get_current_db_release(self):
+        """Returns the current database release (dict)
         """
         try:
             return next(self.model.get_relation_class('half_orm_meta.view.hop_last_release')().select())
@@ -136,7 +152,7 @@ class Hop:
     def get_previous_release(self):
         "Returns the penultimate release"
         #pylint: disable=invalid-name
-        if self.get_current_release() is None:
+        if self.get_current_db_release() is None:
             return None
         Previous = self.model.get_relation_class(
             'half_orm_meta.view.hop_penultimate_release')
@@ -152,14 +168,45 @@ class Hop:
         if release:
             return '{major}.{minor}.{patch}'.format(**release)
 
-    def status(self):
+    def status(self, verbose=False):
         """Prints the status"""
-        print(self)
-        next_release = self.get_next_release()
-        while next_release:
-            next_release = self.get_next_release(next_release)
-        self.get_next_release(show=True)
+        if verbose:
+            print(self)
+        if self.__production:
+            next_release = self.get_next_release()
+            while next_release:
+                next_release = self.get_next_release(next_release)
+        else:
+            self.what_next()
         print('\nhop --help to get help.')
+
+    def what_next(self):
+        "Shows what are the next possible actions and how to do them."
+        print("\nNext possible hop command(s):\n")
+        if self.__hgit is None:
+            self.__hgit = HGit(self)
+        if self.__production:
+            return
+        else:
+            if str(self.__hgit.branch) == 'hop_main':
+                self.get_next_release(show=True)
+            else:
+                if self.git_branch_is_db_release():
+                    print('hop patch -f: re-apply the patch.')
+                    print('hop patch -r: revert the DB to the previous release.')
+                    print('(TODO) hop patch -A: Abort. Remove the patch.')
+                    print()
+                    print('(TODO) hop commit: Git repo must be clean.')
+                    print(f'            Reapplies commits on top of hop_main <=> git rebase {self.__hgit.branch} hop_main.')
+                if self.git_branch_is_db_next_release():
+                    print('hop patch [-f]: apply the patch.')
+                    print('(TODO) hop patch -A: Abort. Remove the patch.')
+
+    def git_branch_is_db_release(self):
+        return f'hop_{self.get_release_s(self.get_current_db_release())}' == str(self.__hgit.branch)
+
+    def git_branch_is_db_next_release(self):
+        return f'hop_{self.get_release_s(self.get_current_db_release())}' < str(self.__hgit.branch)
 
     @property
     def production(self):
@@ -266,14 +313,21 @@ class Hop:
         print(f"\nThe hop project '{project_name}' has been created.")
 
     def __str__(self):
+        commit_message = self.__hgit.commit.message.strip().split('\n')[0]
         return f"""Production: {self.__production}
 
-        hop path: {HOP_PATH}
-        version: {hop_version()}
-        project path: {self.project_path}
         package name: {self.package_name}
+        project path: {self.project_path}
         DB connection file: {CONF_DIR}/{self.connection_file_name}
-        """
+        DB release: {self.get_release_s(self.get_current_db_release())}
+
+        GIT branch: {self.__hgit.branch}
+        GIT last commit: 
+        -  {self.__hgit.commit.author}. {self.__hgit.commit.committed_datetime.strftime("%A, %d. %B %Y %I:%M%p")}
+        -  #{self.__hgit.commit.hexsha[:8]}: {commit_message}
+
+        hop path: {HOP_PATH}
+        hop version: {hop_version()}"""
 
 def hop_version():
     return open(f'{HOP_PATH}/version.txt').read().strip()

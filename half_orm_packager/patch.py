@@ -41,7 +41,7 @@ class Patch:
         self.__update_release()
 
     def __update_release(self):
-        self.__curr_release = self.__hop_cls.get_current_release()
+        self.__curr_release = self.__hop_cls.get_current_db_release()
         self.__curr_release_s = self.__hop_cls.get_release_s(self.__curr_release)
         self.__prev_release = self.__hop_cls.get_previous_release()
         self.__prev_release_s = self.__hop_cls.get_release_s(self.__prev_release)
@@ -93,7 +93,7 @@ class Patch:
         backup_file = self.__get_backup_file_name(self.__prev_release)
         if os.path.exists(backup_file):
             self.__hop_cls.model.disconnect()
-            print("Restoring previous release...")
+            print("Restoring previous DB release...")
             try:
                 subprocess.run(['dropdb', self.dbname], check=True)
             except subprocess.CalledProcessError:
@@ -115,7 +115,8 @@ class Patch:
                 ).delete()
             self.__update_release()
             print(f'Reverted to {self.__curr_release_s}')
-            HGit(self.__hop_cls).set_branch(self.__curr_release_s)
+            self.__hop_cls.what_next()
+            # self.__hgit.set_branch(self.__curr_release_s)
         else:
             print(f'Revert failed! No backup file for {prev_release_s}.')
 
@@ -150,17 +151,18 @@ class Patch:
             return self._init()
 
         if revert:
-            return self.revert()
-
-        branch_name = str(self.__hgit.repo.active_branch)
-        if branch_name == f'hop_{self.__curr_release_s}':
-            revert_i = input(f'Replay patch {self.__curr_release_s} [Y/n]? ') or 'Y'
-            if revert_i.upper() == 'Y':
-                self.revert()
-                force = True
-            else:
-                sys.exit()
-        self.__patch(force=force)
+            self.revert()
+        else:
+            branch_name = str(self.__hgit.repo.active_branch)
+            if branch_name == f'hop_{self.__curr_release_s}':
+                revert_i = input(f'Replay patch {self.__curr_release_s} [Y/n]? ') or 'Y'
+                if revert_i.upper() == 'Y':
+                    self.revert()
+                    force = True
+                else:
+                    sys.exit()
+            self.__patch(force=force)
+        self.__hop_cls.what_next()
         return self.__curr_release_s
 
     def __register(self):
@@ -218,7 +220,7 @@ class Patch:
             sys.exit(1)
 
         if commit is None:
-            commit = self.__hgit.get_sha1_commit(changelog_file)
+            commit = self.__hgit.commit.hexsha
             if not force:
                 self.__hgit.exit_if_repo_is_not_clean()
 
@@ -277,7 +279,7 @@ class Patch:
         Args:
             release_level (str): one of ['patch', 'minor', 'major']
         """
-        current = self.__hop_cls.get_current_release()
+        current = self.__hop_cls.get_current_db_release()
         next = {}
         next['major'] = current['major']
         next['minor'] = current['minor']
@@ -299,6 +301,7 @@ class Patch:
             with open(f'{patch_path}/CHANGELOG.md', 'w', encoding='utf-8') as changelog:
                 changelog.write(changelog_msg)
         self.__hgit.set_branch(new_release_s)
+        print(f'You can now add your patch scripts (*.py, *.sql) in {patch_path}. See Patches/README.')
 
     def __add_relation(self, sql_dir, fqtn):
         with open(f'{sql_dir}/{fqtn}.sql', encoding='utf-8') as cmd:
@@ -318,7 +321,7 @@ class Patch:
         release_issue = self.model.has_relation('half_orm_meta.hop_release_issue')
         patch_confict = release or last_release or release_issue or penultimate_release
         if patch_confict:
-            release = self.__hop_cls.get_release_s(self.__hop_cls.get_current_release())
+            release = self.__hop_cls.get_release_s(self.__hop_cls.get_current_db_release())
             if release != '0.0.0':
                 sys.stderr.write('WARNING!\n')
                 sys.stderr.write(f'The hop patch system is already present at {release}!\n')
