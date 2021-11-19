@@ -120,7 +120,7 @@ class Hop:
             print(f"Next possible releases:")
             idx = 0
             for release in tried:
-                print(f'* {release} - prepare with: hop patch -p {patch_types[idx]}')
+                print(f'* {release} - hop patch -p {patch_types[idx]}')
                 idx += 1
 
         return None
@@ -154,13 +154,12 @@ class Hop:
 
     def status(self):
         """Prints the status"""
-        print('STATUS')
         print(self)
         next_release = self.get_next_release()
         while next_release:
             next_release = self.get_next_release(next_release)
         self.get_next_release(show=True)
-        print('hop --help to get help.')
+        print('\nhop --help to get help.')
 
     @property
     def production(self):
@@ -267,9 +266,13 @@ class Hop:
         print(f"\nThe hop project '{project_name}' has been created.")
 
     def __str__(self):
-        return f"""
-        connection_file_name: {self.connection_file_name}
-        package_name: {self.package_name}
+        return f"""Production: {self.__production}
+
+        hop path: {HOP_PATH}
+        version: {hop_version()}
+        project path: {self.project_path}
+        package name: {self.package_name}
+        DB connection file: {CONF_DIR}/{self.connection_file_name}
         """
 
 def hop_version():

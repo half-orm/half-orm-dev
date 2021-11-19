@@ -40,14 +40,13 @@ PWD = os.path.abspath(os.path.curdir)
 
 @click.group(invoke_without_command=True)
 @click.pass_context
-@click.option('-v', '--version', is_flag=True)
-def main(ctx, version):
+@click.option('-v', '--verbose', is_flag=True)
+def main(ctx, verbose):
     """
     Generates/Synchronises/Patches a python package from a PostgreSQL database
     """
-    if version:
-        click.echo(f'hop {hop_version()}')
-        sys.exit()
+    if verbose:
+        click.echo('halfORM packager')
     if HOP.model and ctx.invoked_subcommand is None:
         HOP.status()
     elif not HOP.model and ctx.invoked_subcommand != 'new':
