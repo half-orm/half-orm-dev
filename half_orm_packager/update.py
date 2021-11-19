@@ -28,7 +28,7 @@ from configparser import ConfigParser
 from half_orm.model import camel_case
 
 from half_orm_packager.globals import TEMPLATES_DIR, BEGIN_CODE, END_CODE
-from half_orm_packager.lib.utils import hop_version
+from half_orm_packager.utils import hop_version
 
 def read_template(file_name):
     "helper"
