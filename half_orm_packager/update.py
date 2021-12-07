@@ -85,10 +85,10 @@ def load_config_file(base_dir=None, ref_dir=None):
     if not base_dir:
         ref_dir = os.path.abspath(os.path.curdir)
         base_dir = ref_dir
-    print(base_dir)
+    # print(base_dir)
     for base in ['hop', 'halfORM']:
-        if os.path.exists('.{}/config'.format(base)):
-            config.read('.{}/config'.format(base))
+        if os.path.exists(f'.{base}/config'):
+            config.read(f'.{base}/config')
             config_file = config['halfORM']['config_file']
             return config_file
 
@@ -114,8 +114,8 @@ def get_hop_version(template1):
     return (major, minor, release)
 
 def get_fkeys(rel):
-    "doctstring"
-    #TODO: docstring
+    """Generates FKEYS properties string.
+    """
     fks = '\n    '.join([f"('', '{key}')," for key in rel._fkeys])
     if fks:
         return FKEYS_PROPS.format(fks)
@@ -130,18 +130,15 @@ def get_inheritance_info(rel, package_name):
         if base.__name__ != 'Relation':
             inh_sfqrn = list(base.__sfqrn)
             inh_sfqrn[0] = package_name
-            inh_cl_alias = "{}{}".format(
-                camel_case(inh_sfqrn[1]), camel_case(inh_sfqrn[2]))
-            inh_cl_name = "{}".format(camel_case(inh_sfqrn[2]))
+            inh_cl_alias = f"{camel_case(inh_sfqrn[1])}{camel_case(inh_sfqrn[2])}"
+            inh_cl_name = f"{camel_case(inh_sfqrn[2])}"
             inheritance_import_list.append(
-                "from {} import {} as {}".format(".".join(
-                    inh_sfqrn), inh_cl_name, inh_cl_alias)
-            )
+                f"from {'.'.join(inh_sfqrn)} import {inh_cl_name} as {inh_cl_alias}")
             inherited_classes_aliases_list.append(inh_cl_alias)
     inheritance_import = "\n".join(inheritance_import_list)
     inherited_classes = ", ".join(inherited_classes_aliases_list)
     if inherited_classes.strip():
-        inherited_classes = "{}, ".format(inherited_classes)
+        inherited_classes = f"{inherited_classes}, "
     return inheritance_import, inherited_classes
 
 def assemble_module_template(module_path):
@@ -174,56 +171,50 @@ def assemble_module_template(module_path):
         user_s_code=user_s_code)
 
 def update_this_module(
-        model, relation, package_dir, package_name, dirs_list, warning):
+        model, relation, package_dir, package_name, dirs_list):
     """Updates the module."""
     _, fqtn = relation.split()
     path = fqtn.split('.')
     if path[1] == 'half_orm_meta':
         # hop internal. do nothing
-        return
+        return None
     fqtn = '.'.join(path[1:])
     try:
         rel = model.get_relation_class(fqtn)()
     except TypeError as err:
-        sys.stderr.write("{}\n{}\n".format(err, fqtn))
+        sys.stderr.write(f"{err}\n{fqtn}\n")
         sys.stderr.flush()
-        return
+        return None
 
     path[0] = package_dir
-    module_path = '{}.py'.format('/'.join(
-        [iskeyword(elt) and "{}_".format(elt) or elt for elt in path]))
-    schema_dir = os.path.dirname(module_path)
-    if not schema_dir in dirs_list:
-        dirs_list.append(schema_dir)
-    module_name = path[-1]
-    path = '/'.join(path[:-1])
-    if not os.path.exists(path):
-        os.makedirs(path)
+    module_path = f"{'/'.join([iskeyword(elt) and f'{elt}_' or elt for elt in path])}.py"
+    if not os.path.dirname(module_path) in dirs_list:
+        dirs_list.append(os.path.dirname(module_path))
+    if not os.path.exists('/'.join(path[:-1])):
+        os.makedirs('/'.join(path[:-1]))
     module_template = assemble_module_template(module_path)
     inheritance_import, inherited_classes = get_inheritance_info(
         rel, package_name)
-    module = f"{package_name}.{fqtn}"
-    open(module_path, 'w', encoding='utf-8').write(
-        module_template.format(
-            hop_release = hop_version(),
-            module=module,
-            fkeys_properties=get_fkeys(rel),
-            package_name=package_name,
-            documentation="\n".join(["    {}".format(line)
-                                    for line in str(rel).split("\n")]),
-            inheritance_import=inheritance_import,
-            inherited_classes=inherited_classes,
-            class_name=camel_case(module_name),
-            fqtn=fqtn,
-            warning=warning))
-    test_path = module_path.replace('.py', '_test.py')
-    if not os.path.exists(test_path):
-        open(test_path, 'w', encoding='utf-8').write(
-            TEST.format(
+    with open(module_path, 'w', encoding='utf-8') as file_:
+        file_.write(
+            module_template.format(
+                hop_release = hop_version(),
+                module=f"{package_name}.{fqtn}",
+                fkeys_properties=get_fkeys(rel),
                 package_name=package_name,
-                module=module,
-                class_name=camel_case(module_name))
-        )
+                documentation="\n".join([f"    {line}" for line in str(rel).split("\n")]),
+                inheritance_import=inheritance_import,
+                inherited_classes=inherited_classes,
+                class_name=camel_case(path[-1]),
+                fqtn=fqtn,
+                warning=WARNING_TEMPLATE.format(package_name=package_name)))
+    if not os.path.exists(module_path.replace('.py', '_test.py')):
+        with open(module_path.replace('.py', '_test.py'), 'w', encoding='utf-8') as file_:
+            file_.write(TEST.format(
+                package_name=package_name,
+                module=f"{package_name}.{fqtn}",
+                class_name=camel_case(path[-1]))
+            )
     return module_path
 
 def update_modules(model, package_name):
@@ -235,19 +226,17 @@ def update_modules(model, package_name):
     model.reconnect()
     dbname = model._dbname
     package_dir = package_name
-    open(f'{package_dir}/db_connector.py', 'w', encoding='utf-8').write(
-        DB_CONNECTOR_TEMPLATE.format(dbname=dbname, package_name=package_name))
+    with open(f'{package_dir}/db_connector.py', 'w', encoding='utf-8') as file_:
+        file_.write(DB_CONNECTOR_TEMPLATE.format(dbname=dbname, package_name=package_name))
 
     if not os.path.exists(f'{package_dir}/base_test.py'):
-        open(f'{package_dir}/base_test.py', 'w', encoding='utf-8').write(
-            BASE_TEST.format(package_name=package_name)
-        )
+        with open(f'{package_dir}/base_test.py', 'w', encoding='utf-8') as file_:
+            file_.write(BASE_TEST.format(package_name=package_name))
 
     warning = WARNING_TEMPLATE.format(package_name=package_name)
 
     for relation in model._relations():
-        module_path = update_this_module(
-            model, relation, package_dir, package_name, dirs_list, warning)
+        module_path = update_this_module(model, relation, package_dir, package_name, dirs_list)
         if module_path:
             files_list.append(module_path)
             if module_path.find('__init__.py') == -1:
@@ -283,5 +272,5 @@ def update_init_files(package_dir, files_list, warning):
         all_.sort()
         with open(f'{root}/__init__.py', 'w', encoding='utf-8') as init_file:
             init_file.write(f'"""{warning}"""\n\n')
-            all = ",\n    ".join([f"'{elt}'" for elt in all_])
-            init_file.write(f'__all__ = [\n    {all}\n]\n')
+            all_ = ",\n    ".join([f"'{elt}'" for elt in all_])
+            init_file.write(f'__all__ = [\n    {all_}\n]\n')

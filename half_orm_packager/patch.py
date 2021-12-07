@@ -118,7 +118,7 @@ class Patch:
             self.__hop_cls.what_next()
             # self.__hgit.set_branch(self.__curr_release_s)
         else:
-            print(f'Revert failed! No backup file for {prev_release_s}.')
+            print(f'Revert failed! No backup file for {self.__hop_cls.get_release_s(self.__prev_release)}.')
 
     def patch(self, force=False, revert=False):
         """Patches the repo
@@ -279,11 +279,15 @@ class Patch:
         Args:
             release_level (str): one of ['patch', 'minor', 'major']
         """
+        # First check if we're on hop_main branch
+        if str(self.__hgit.branch) != 'hop_main':
+            sys.stderr.write('ERROR! Wrong branch. Please, switch to the hop_main branch before.\n')
+            sys.exit(1)
         current = self.__hop_cls.get_current_db_release()
-        next = {}
-        next['major'] = current['major']
-        next['minor'] = current['minor']
-        next['patch'] = current['patch']
+        next = dict(current)
+        # next['major'] = current['major']
+        # next['minor'] = current['minor']
+        # next['patch'] = current['patch']
         next[release_level] = next[release_level] + 1
         if release_level == 'major':
             next['minor'] = next['patch'] = 0

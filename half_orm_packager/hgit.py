@@ -4,10 +4,11 @@
 import os
 import subprocess
 import sys
-from git import Repo, GitCommandError
-from git.exc import InvalidGitRepositoryError
-from datetime import date
-from time import sleep
+
+# from datetime import date
+# from time import sleep
+from git import Repo #, GitCommandError
+# from git.exc import InvalidGitRepositoryError
 
 class HGit:
     "docstring"
@@ -22,6 +23,8 @@ class HGit:
         self.hop_main_branch()
 
     def hop_main_branch(self):
+        """Sets the reference to hop_main branch. Creates the branch if it doesn't exist.
+        """
         if not HGit.__hop_main:
             HGit.__hop_main = 'hop_main' in [str(ref) for ref in self.__repo.references]
         if not  HGit.__hop_main:
@@ -60,21 +63,24 @@ class HGit:
 
     @property
     def commit(self):
+        """Returns the last commit
+        """
         return list(self.__repo.iter_commits(self.branch, max_count=1))[0]
 
     @classmethod
     def exit_if_repo_is_not_clean(cls):
-        "Exits if the repo has uncommited got changes."
-        repo_is_clean = subprocess.Popen(
-            "git status --porcelain", shell=True, stdout=subprocess.PIPE)
-        repo_is_clean = repo_is_clean.stdout.read().decode().strip().split('\n')
-        repo_is_clean = [line for line in repo_is_clean if line != '']
-        if repo_is_clean:
-            print("WARNING! Repo is not clean:\n\n{}".format('\n'.join(repo_is_clean)))
-            cont = input("\nApply [y/N]?")
-            if cont.upper() != 'Y':
-                print("Aborting")
-                sys.exit(1)
+        "Exits if the repo has uncommited changes."
+        with subprocess.Popen(
+            "git status --porcelain", shell=True, stdout=subprocess.PIPE) as repo_is_clean:
+            repo_is_clean = repo_is_clean.stdout.read().decode().strip().split('\n')
+            repo_is_clean = [line for line in repo_is_clean if line != '']
+            if repo_is_clean:
+                repo_is_clean_s = '\n'.join(repo_is_clean)
+                print(f"WARNING! Repo is not clean:\n\n{repo_is_clean_s}")
+                cont = input("\nApply [y/N]?")
+                if cont.upper() != 'Y':
+                    print("Aborting")
+                    sys.exit(1)
 
 
     def set_branch(self, release_s):

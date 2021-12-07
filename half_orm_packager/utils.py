@@ -4,6 +4,7 @@ import subprocess
 from getpass import getpass
 from configparser import ConfigParser
 
+import click
 import psycopg2
 
 from half_orm.model import Model, CONF_DIR
@@ -33,8 +34,6 @@ class Hop:
     def __init__(self, ref_dir):
         self.__last_release_s = None
         self.__release = None
-        self.__release_s = ''
-        self.__release_path = None
         Hop.__connection_file_name, Hop.__package_name, Hop.__project_path = get_connection_file_name(ref_dir=ref_dir)
         self.__production = False
         if self.__package_name and self.__model is None:
@@ -58,16 +57,16 @@ class Hop:
         return self.__release
 
     def __get_release_s(self):
-        return self.__release_s
+        return self.__release['release_s']
     
     def __set_release_s(self, release_s):
-        self.__release_s = release_s
+        self.__release['release_s'] = release_s
 
     release_s = property(__get_release_s, __set_release_s)
 
     @property
     def release_path(self):
-        return self.__release_path
+        return self.__release['path']
 
     def get_model(self):
         "Returns the half_orm model"
@@ -89,8 +88,9 @@ class Hop:
                 'Cannot find the half_orm config file for this database.\n')
             sys.exit(1)
 
-    def get_next_possible_releases(self):
+    def get_next_possible_releases(self, last_release, show):
         "Returns the next possible releases regarding the current db release"
+        patch_types = ['patch', 'minor', 'major']
         to_zero = []
         tried = []
         for part in patch_types:
@@ -98,14 +98,21 @@ class Hop:
             next_release[part] = last_release[part] + 1
             for sub_part in to_zero:
                 next_release[sub_part] = 0
+            next_release['release_s'] = self.get_release_s(next_release)
+            next_release['path'] = next_release['release_s'].replace('.', '/')
             to_zero.append(part)
-            next_release_s = self.get_release_s(next_release)
-            tried.append(next_release_s)
+            tried.append(next_release)
+        if show and not self.__production and str(self.__hgit.branch) == 'hop_main':
+            print(f"Prepare a new patch:")
+            idx = 0
+            for release in tried:
+                print(f"* hop patch -p {patch_types[idx]} -> {release['release_s']}")
+                idx += 1
+            print("* (TODO) hop patch -p <major>.<minor>")
         return tried
 
     def get_next_release(self, last_release=None, show=False):
         "Renvoie en fonction de part le numéro de la prochaine release"
-        patch_types = ['patch', 'minor', 'major']
         if self.get_current_db_release() is None:
             return None
         if last_release is None:
@@ -116,29 +123,12 @@ class Hop:
         self.__last_release_s = '{major}.{minor}.{patch}'.format(**last_release)
         to_zero = []
         tried = []
-        for part in patch_types:
-            next_release = dict(last_release)
-            next_release[part] = last_release[part] + 1
-            for sub_part in to_zero:
-                next_release[sub_part] = 0
-            to_zero.append(part)
-            next_release_path = '{major}/{minor}/{patch}'.format(**next_release)
-            next_release_s = self.get_release_s(next_release)
-            tried.append(next_release_s)
-            if os.path.exists('Patches/{}'.format(next_release_path)):
+        for release in self.get_next_possible_releases(last_release, show):
+            if os.path.exists('Patches/{}'.format(release['path'])):
                 if show:
-                    print(f"NEXT RELEASE: {next_release_s}")
-                self.__release = next_release
-                self.__release_s = next_release_s
-                self.__release_path = next_release_path
-                return next_release
-        if show and not self.__production and str(self.__hgit.branch) == 'hop_main':
-            print(f"Prepare a new patch:")
-            idx = 0
-            for release in tried:
-                print(f'* hop patch -p {patch_types[idx]} -> {release}')
-                idx += 1
-
+                    print(f"NEXT RELEASE: {release['release_s']}")
+                self.__release = release
+                return release
         return None
 
     def get_current_db_release(self):
@@ -162,6 +152,7 @@ class Hop:
             Current = self.model.get_relation_class('half_orm_meta.view.hop_last_release')
             return next(Current().select())
 
+    @classmethod
     def get_release_s(cls, release):
         """Returns the current release (str)
         """
@@ -316,8 +307,8 @@ class Hop:
         commit_message = self.__hgit.commit.message.strip().split('\n')[0]
         return f"""Production: {self.__production}
 
-        package name: {self.package_name}
-        project path: {self.project_path}
+        Package name: {self.package_name}
+        Project path: {self.project_path}
         DB connection file: {CONF_DIR}/{self.connection_file_name}
         DB release: {self.get_release_s(self.get_current_db_release())}
 

@@ -84,10 +84,12 @@ def new(package_name):
 @click.option('-f', '--force', is_flag=True, help="Don't check if git repo is clean.")
 @click.option('-r', '--revert', is_flag=True, help="Revert to the previous release.")
 @click.option('-p', '--prepare', type=click.Choice(['patch', 'minor', 'major']), help="Prepare next patch.")
+# @click.argument('branch_from', required=False)
 #TODO @click.option('-c', '--commit', is_flag=True, help="Commit the patch to the hop_main branch")
-def patch(force, revert, prepare):
+def patch(force, revert, prepare, branch_from=None):
     """ Applies the next patch.
     """
+    # print('branch from', branch_from)
     if prepare:
         Patch(HOP).prep_next_release(prepare)
     elif revert:
