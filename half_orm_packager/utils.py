@@ -7,7 +7,7 @@ from configparser import ConfigParser
 import psycopg2
 
 from half_orm.model import Model, CONF_DIR
-from half_orm.model_errors import UnknownRelation
+from half_orm.model_errors import UnknownRelation, MissingConfigFile
 
 from half_orm_packager.globals import HOP_PATH, TEMPLATES_DIR
 from half_orm_packager.hgit import HGit
