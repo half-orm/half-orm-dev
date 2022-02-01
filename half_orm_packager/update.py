@@ -26,6 +26,7 @@ from keyword import iskeyword
 from configparser import ConfigParser
 
 from half_orm.model import camel_case
+from half_orm.model_errors import UnknownRelation
 
 from half_orm_packager.globals import TEMPLATES_DIR, BEGIN_CODE, END_CODE
 from half_orm_packager.utils import hop_version
@@ -181,7 +182,7 @@ def update_this_module(
     fqtn = '.'.join(path[1:])
     try:
         rel = model.get_relation_class(fqtn)()
-    except TypeError as err:
+    except (TypeError, UnknownRelation) as err:
         sys.stderr.write(f"{err}\n{fqtn}\n")
         sys.stderr.flush()
         return None

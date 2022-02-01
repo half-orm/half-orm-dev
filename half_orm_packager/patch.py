@@ -197,7 +197,8 @@ class Patch:
                 f"Oops! there is already a dump for the {self.__hop_cls.last_release_s} release.\n")
             sys.stderr.write(f"Please use the --force option if you realy want to proceed.\n")
             sys.exit(1)
-        subprocess.run(['pg_dump', self.dbname, '-f', svg_file], check=True)
+        err = subprocess.run(['pg_dump', self.dbname, '-f', svg_file], check=True, stderr=subprocess.PIPE)
+        print(err)
 
     def __patch(self, commit=None, force=False):
         "Applies the patch and insert the information in the half_orm_meta.hop_release table"
@@ -261,7 +262,7 @@ class Patch:
                     continue
                 except (psycopg2.OperationalError, psycopg2.InterfaceError) as err:
                     raise Exception(f'Problem with query in {file_.name}') from err
-            if extension == 'py':
+            elif extension == 'py':
                 # exécuter le script
                 with subprocess.Popen(file_.path, shell=True) as sub:
                     sub.wait()
