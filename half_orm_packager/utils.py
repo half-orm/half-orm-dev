@@ -286,9 +286,19 @@ class Hop:
         PIPFILE = read_template(f'{TEMPLATES_DIR}/Pipfile')
 
         dbname = self.model._dbname
-        setup = SETUP_TEMPLATE.format(dbname=dbname, package_name=project_name)
+        import half_orm
+        half_orm_version = half_orm.VERSION
+
+        setup = SETUP_TEMPLATE.format(
+                dbname=dbname,
+                package_name=project_name,
+                half_orm_version=half_orm_version)
         write_file(f'{project_path}/setup.py', setup)
+
+        PIPFILE = PIPFILE.format(
+                half_orm_version=half_orm_version)
         write_file(f'{project_path}/Pipfile', PIPFILE)
+
         os.mkdir(f'{project_path}/.hop')
         write_file(f'{project_path}/.hop/config',
             CONFIG_TEMPLATE.format(
