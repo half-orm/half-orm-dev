@@ -10,25 +10,40 @@ You can edit the following parameters:
 from setuptools import setup, find_packages
 from codecs import open
 from os import path
+import re
+import half_orm
 
 PWD = path.abspath(path.dirname(__file__))
 
-with open(path.join(PWD, 'README.md'), encoding='utf-8') as f:
-    LONG_DESCRIPTION = f.read()
+def get_long_description():
+    """
+    Return the README.
+    """
+    with open("README.md", encoding="utf8") as f:
+        return f.read()
+
+def get_version(package):
+    """
+    Return package version as listed in `__version__` in `init.py`.
+    """
+    with open(path.join(package, "version.txt")) as f:
+        return f.read()
+
+
+package_name='{package_name}'
 
 setup(
-    name='{package_name}',
+    name=package_name,
 
-    version='0.0.0',
+    version=get_version(package_name),
 
     description='Package for {dbname} PG',
-    long_description=LONG_DESCRIPTION,
-
+    long_description=get_long_description(),
+    long_description_content_type='text/markdown',
     # url='',
 
     # author='',
     # author_email='',
-
     license='MIT',
 
     # See https://pypi.python.org/pypi?%3Aaction=list_classifiers
@@ -51,12 +66,16 @@ setup(
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
     ],
 
     keywords='',
 
     packages=find_packages(exclude=['contrib', 'docs', 'tests', 'patches', 'svg']),
 
-    install_requires=['half_orm'],
+    install_requires=[
+        'half_orm>={half_orm_version}'
+    ],
 
 )
