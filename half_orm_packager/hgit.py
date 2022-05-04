@@ -54,12 +54,12 @@ class HGit:
 
         Patch(self.__hop_cls, create_mode=True).patch(force=True)
         self.__model.reconnect()  # we get the new stuff from db metadata here
-        update_modules(self.__hop_cls.model, self.__hop_cls.package_name)
-        self.repo.git.add('.')
-        self.repo.git.commit(m='[0.0.0] First release')
-        self.hop_main_branch()
         self.__hop_cls.last_release_s = '0.0.0'
-        print("Patch system initialized at release '0.0.0'.")
+        update_modules(self.__hop_cls.model, self.__hop_cls.package_name, self.__hop_cls.last_release_s )
+        self.repo.git.add('.')
+        self.repo.git.commit(m='[{}] First release'.format(self.__hop_cls.last_release_s))
+        self.hop_main_branch()
+        print("Patch system initialized at release '{}'.".format(self.__hop_cls.last_release_s))
 
     @property
     def commit(self):

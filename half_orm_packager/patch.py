@@ -267,7 +267,7 @@ class Patch:
                 with subprocess.Popen(file_.path, shell=True) as sub:
                     sub.wait()
 
-        update_modules(self.model, self.package_name)
+        update_modules(self.model, self.package_name, self.__hop_cls.release_s)
         self.__register()
 
     # def apply_issue(self, issue, commit=None, bundled_issue=None):
