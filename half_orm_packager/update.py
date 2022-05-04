@@ -218,7 +218,7 @@ def update_this_module(
             )
     return module_path
 
-def update_modules(model, package_name):
+def update_modules(model, package_name, release):
     """Synchronize the modules with the structure of the relation in PG.
     """
     dirs_list = []
@@ -244,9 +244,9 @@ def update_modules(model, package_name):
                 test_file_path = module_path.replace('.py', '_test.py')
                 files_list.append(test_file_path)
 
-    update_init_files(package_dir, files_list, warning)
+    update_init_files(package_dir, files_list, warning, release)
 
-def update_init_files(package_dir, files_list, warning):
+def update_init_files(package_dir, files_list, warning, release):
     """Update __all__ lists in __init__ files.
     """
     exp = re.compile('/[A-Z]')
@@ -273,5 +273,12 @@ def update_init_files(package_dir, files_list, warning):
         all_.sort()
         with open(f'{root}/__init__.py', 'w', encoding='utf-8') as init_file:
             init_file.write(f'"""{warning}"""\n\n')
+
             all_ = ",\n    ".join([f"'{elt}'" for elt in all_])
             init_file.write(f'__all__ = [\n    {all_}\n]\n')
+
+    with open(os.path.join(package_dir, 'version.txt'), 'w') as fh:
+        fh.write(release)
+
+
+
