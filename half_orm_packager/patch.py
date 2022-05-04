@@ -298,13 +298,13 @@ class Patch:
         print(f'PREPARING: {new_release_s}')
         patch_path = 'Patches/{major}/{minor}/{patch}'.format(**next)
         if not os.path.exists(patch_path):
-            changelog_msg = input('CHANGELOG message (leave empty to abort): ')
+            changelog_msg = input('CHANGELOG message - will be prepended by (version_number) - (leave empty to abort): ')
             if not changelog_msg:
                 print('Aborting')
                 return
             os.makedirs(patch_path)
             with open(f'{patch_path}/CHANGELOG.md', 'w', encoding='utf-8') as changelog:
-                changelog.write(changelog_msg)
+                changelog.write('({}) {}'.format(new_release_s, changelog_msg))
         self.__hgit.set_branch(new_release_s)
         print(f'You can now add your patch scripts (*.py, *.sql) in {patch_path}. See Patches/README.')
 
