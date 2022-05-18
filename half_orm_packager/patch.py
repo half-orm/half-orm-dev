@@ -47,7 +47,6 @@ class Patch:
         self.__prev_release_s = self.__hop_cls.get_release_s(self.__prev_release)
         self.__next_release = self.__hop_cls.get_next_release()
         self.__next_release_s = self.__next_release and self.__hop_cls.get_release_s(self.__next_release)
-        # print('XXX update release', self.__prev_release_s, self.__curr_release_s, self.__next_release_s)
 
 
     @property
@@ -197,8 +196,7 @@ class Patch:
                 f"Oops! there is already a dump for the {self.__hop_cls.last_release_s} release.\n")
             sys.stderr.write(f"Please use the --force option if you realy want to proceed.\n")
             sys.exit(1)
-        err = subprocess.run(['pg_dump', self.dbname, '-f', svg_file], check=True, stderr=subprocess.PIPE)
-        print(err)
+        _ = subprocess.run(['pg_dump', self.dbname, '-f', svg_file], check=True, stderr=subprocess.PIPE)
 
     def __patch(self, commit=None, force=False):
         "Applies the patch and insert the information in the half_orm_meta.hop_release table"

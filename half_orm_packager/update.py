@@ -25,7 +25,7 @@ import sys
 from keyword import iskeyword
 from configparser import ConfigParser
 
-from half_orm.model import camel_case
+from half_orm.pg_meta import camel_case
 from half_orm.model_errors import UnknownRelation
 
 from half_orm_packager.globals import TEMPLATES_DIR, BEGIN_CODE, END_CODE
@@ -174,8 +174,8 @@ def assemble_module_template(module_path):
 def update_this_module(
         model, relation, package_dir, package_name, dirs_list):
     """Updates the module."""
-    _, fqtn = relation.split()
-    path = fqtn.split('.')
+    _, fqtn = relation
+    path = fqtn.replace('"', '').replace(':', '.').split('.')
     if path[1] == 'half_orm_meta':
         # hop internal. do nothing
         return None
@@ -224,7 +224,7 @@ def update_modules(model, package_name, release):
     dirs_list = []
     files_list = []
 
-    model.reconnect()
+    model.reload()
     dbname = model._dbname
     package_dir = package_name
     with open(f'{package_dir}/db_connector.py', 'w', encoding='utf-8') as file_:
@@ -235,7 +235,6 @@ def update_modules(model, package_name, release):
             file_.write(BASE_TEST.format(package_name=package_name))
 
     warning = WARNING_TEMPLATE.format(package_name=package_name)
-
     for relation in model._relations():
         module_path = update_this_module(model, relation, package_dir, package_name, dirs_list)
         if module_path:

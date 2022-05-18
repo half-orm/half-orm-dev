@@ -78,6 +78,7 @@ def new(package_name):
 
     HOP.init_package(package_name)
     HOP.what_next()
+    print(f"\nPlease go to {PWD}/{package_name}")
 
 
 @click.command()

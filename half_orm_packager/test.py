@@ -4,7 +4,7 @@
 """
 
 import importlib
-from half_orm.model import camel_case
+from half_orm.pg_meta import camel_case
 from half_orm import relation_errors
 
 def set_error(err):
