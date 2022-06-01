@@ -25,7 +25,7 @@ import sys
 from keyword import iskeyword
 from configparser import ConfigParser
 
-from half_orm.pg_meta import camel_case
+from half_orm.pg_meta import camel_case, normalize_fqrn
 from half_orm.model_errors import UnknownRelation
 
 from half_orm_packager.globals import TEMPLATES_DIR, BEGIN_CODE, END_CODE
@@ -129,7 +129,7 @@ def get_inheritance_info(rel, package_name):
     inherited_classes_aliases_list = []
     for base in rel.__class__.__bases__:
         if base.__name__ != 'Relation':
-            inh_sfqrn = list(base.__sfqrn)
+            inh_sfqrn = list(normalize_fqrn(base.__sfqrn)[1])
             inh_sfqrn[0] = package_name
             inh_cl_alias = f"{camel_case(inh_sfqrn[1])}{camel_case(inh_sfqrn[2])}"
             inh_cl_name = f"{camel_case(inh_sfqrn[2])}"
