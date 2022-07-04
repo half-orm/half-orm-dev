@@ -41,7 +41,6 @@ MODULE_TEMPLATE_1 = read_template('module_template_1')
 MODULE_TEMPLATE_2 = read_template('module_template_2')
 MODULE_TEMPLATE_3 = read_template('module_template_3')
 FKEYS_PROPS = read_template('fkeys_properties')
-FKEYS_CLASS_ATTR = read_template('fkeys_class_attribute')
 WARNING_TEMPLATE = read_template('warning')
 BASE_TEST = read_template('base_test')
 TEST = read_template('relation_test')
@@ -123,14 +122,6 @@ def get_fkeys(rel):
         return FKEYS_PROPS.format(fks)
     return ''
 
-def __get_fkeys_class_attr(rel):
-    """Generates FKEYS properties string.
-    """
-    fks = '\n        '.join([f"'': '{key}'," for key in rel._fkeys])
-    if fks:
-        return FKEYS_CLASS_ATTR.format(fks)
-    return ''
-
 def get_inheritance_info(rel, package_name):
     """Returns inheritance informations for the rel relation.
     """
@@ -208,8 +199,7 @@ def update_this_module(
     inheritance_import, inherited_classes = get_inheritance_info(
         rel, package_name)
     with open(module_path, 'w', encoding='utf-8') as file_:
-        documentation = "\n".join([f"    {line}" for line in str(rel).split("\n")])
-        documentation += __get_fkeys_class_attr(rel)
+        documentation = "\n".join([line and f"    {line}" or "" for line in str(rel).split("\n")])
         file_.write(
             module_template.format(
                 hop_release = hop_version(),
