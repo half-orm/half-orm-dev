@@ -41,6 +41,7 @@ MODULE_TEMPLATE_1 = read_template('module_template_1')
 MODULE_TEMPLATE_2 = read_template('module_template_2')
 MODULE_TEMPLATE_3 = read_template('module_template_3')
 FKEYS_PROPS = read_template('fkeys_properties')
+FKEYS_CLASS_ATTR = read_template('fkeys_class_attribute')
 WARNING_TEMPLATE = read_template('warning')
 BASE_TEST = read_template('base_test')
 TEST = read_template('relation_test')
@@ -122,6 +123,14 @@ def get_fkeys(rel):
         return FKEYS_PROPS.format(fks)
     return ''
 
+def __get_fkeys_class_attr(rel):
+    """Generates FKEYS properties string.
+    """
+    fks = '\n        '.join([f"'': '{key}'," for key in rel._fkeys])
+    if fks:
+        return FKEYS_CLASS_ATTR.format(fks)
+    return ''
+
 def get_inheritance_info(rel, package_name):
     """Returns inheritance informations for the rel relation.
     """
@@ -129,12 +138,12 @@ def get_inheritance_info(rel, package_name):
     inherited_classes_aliases_list = []
     for base in rel.__class__.__bases__:
         if base.__name__ != 'Relation':
-            inh_sfqrn = list(normalize_fqrn(base.__sfqrn)[1])
+            inh_sfqrn = list(base._t_fqrn)
             inh_sfqrn[0] = package_name
             inh_cl_alias = f"{camel_case(inh_sfqrn[1])}{camel_case(inh_sfqrn[2])}"
             inh_cl_name = f"{camel_case(inh_sfqrn[2])}"
-            inheritance_import_list.append(
-                f"from {'.'.join(inh_sfqrn)} import {inh_cl_name} as {inh_cl_alias}")
+            from_import = f"from {'.'.join(inh_sfqrn)} import {inh_cl_name} as {inh_cl_alias}"
+            inheritance_import_list.append(from_import)
             inherited_classes_aliases_list.append(inh_cl_alias)
     inheritance_import = "\n".join(inheritance_import_list)
     inherited_classes = ", ".join(inherited_classes_aliases_list)
@@ -175,8 +184,8 @@ def update_this_module(
         model, relation, package_dir, package_name, dirs_list):
     """Updates the module."""
     _, fqtn = relation
-    path = fqtn.replace('"', '').replace(':', '.').split('.')
-    if path[1] == 'half_orm_meta':
+    path = list(fqtn)
+    if path[1].find('half_orm_meta') == 0:
         # hop internal. do nothing
         return None
     fqtn = '.'.join(path[1:])
@@ -188,6 +197,8 @@ def update_this_module(
         return None
 
     path[0] = package_dir
+    path[1] = path[1].replace('.', '/')
+
     module_path = f"{'/'.join([iskeyword(elt) and f'{elt}_' or elt for elt in path])}.py"
     if not os.path.dirname(module_path) in dirs_list:
         dirs_list.append(os.path.dirname(module_path))
@@ -197,13 +208,15 @@ def update_this_module(
     inheritance_import, inherited_classes = get_inheritance_info(
         rel, package_name)
     with open(module_path, 'w', encoding='utf-8') as file_:
+        documentation = "\n".join([f"    {line}" for line in str(rel).split("\n")])
+        documentation += __get_fkeys_class_attr(rel)
         file_.write(
             module_template.format(
                 hop_release = hop_version(),
                 module=f"{package_name}.{fqtn}",
                 fkeys_properties=get_fkeys(rel),
                 package_name=package_name,
-                documentation="\n".join([f"    {line}" for line in str(rel).split("\n")]),
+                documentation=documentation,
                 inheritance_import=inheritance_import,
                 inherited_classes=inherited_classes,
                 class_name=camel_case(path[-1]),
@@ -278,6 +291,3 @@ def update_init_files(package_dir, files_list, warning, release):
 
     with open(os.path.join(package_dir, 'version.txt'), 'w') as fh:
         fh.write(release)
-
-
-
