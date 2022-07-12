@@ -25,7 +25,7 @@ setup(
         'GitPython',
         'click',
         'pydash',
-        'half_orm>=0.6.4'
+        'half_orm==0.7.0-rc0'
     ],
     entry_points={
         'console_scripts': [

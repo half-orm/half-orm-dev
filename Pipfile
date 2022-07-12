@@ -4,7 +4,7 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-half-orm = ">=0.6.4"
+half-orm = "0.7.0-rc0"
 gitpython = "3"
 click = "*"
 pydash = "5"
