@@ -11,7 +11,6 @@ from setuptools import setup, find_packages
 from codecs import open
 from os import path
 import re
-import half_orm
 
 PWD = path.abspath(path.dirname(__file__))
 
