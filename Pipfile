@@ -4,18 +4,16 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-half-orm = "0.7.0-rc0"
 gitpython = "3"
 click = "*"
 pydash = "5"
-half-orm-packager = {editable = true, path = "."}
+half-orm = "0.7.2"
 
 [dev-packages]
 pytest = "*"
 half-orm-packager = {editable = true, path = "."}
 twine = "*"
 build = "*"
-gitpython = "*"
 pylint = "*"
 
 [scripts]
