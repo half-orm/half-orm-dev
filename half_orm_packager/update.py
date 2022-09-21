@@ -40,7 +40,7 @@ DB_CONNECTOR_TEMPLATE = read_template('db_connector.py')
 MODULE_TEMPLATE_1 = read_template('module_template_1')
 MODULE_TEMPLATE_2 = read_template('module_template_2')
 MODULE_TEMPLATE_3 = read_template('module_template_3')
-FKEYS_PROPS = read_template('fkeys_properties')
+# FKEYS_PROPS = read_template('fkeys_properties')
 WARNING_TEMPLATE = read_template('warning')
 BASE_TEST = read_template('base_test')
 TEST = read_template('relation_test')
@@ -114,13 +114,13 @@ def get_hop_version(template1):
         release = int(re.search(r'\d+', release).group(0))
     return (major, minor, release)
 
-def get_fkeys(rel):
-    """Generates FKEYS properties string.
-    """
-    fks = '\n    '.join([f"('', '{key}')," for key in rel._fkeys])
-    if fks:
-        return FKEYS_PROPS.format(fks)
-    return ''
+# def get_fkeys(rel):
+#     """Generates FKEYS properties string.
+#     """
+#     fks = '\n    '.join([f"('', '{key}')," for key in rel._fkeys])
+#     if fks:
+#         return FKEYS_PROPS.format(fks)
+#     return ''
 
 def get_inheritance_info(rel, package_name):
     """Returns inheritance informations for the rel relation.
@@ -204,7 +204,7 @@ def update_this_module(
             module_template.format(
                 hop_release = hop_version(),
                 module=f"{package_name}.{fqtn}",
-                fkeys_properties=get_fkeys(rel),
+                # fkeys_properties=get_fkeys(rel),
                 package_name=package_name,
                 documentation=documentation,
                 inheritance_import=inheritance_import,
@@ -227,7 +227,7 @@ def update_modules(model, package_name, release):
     dirs_list = []
     files_list = []
 
-    model.reload()
+    model._reload()
     dbname = model._dbname
     package_dir = package_name
     with open(f'{package_dir}/db_connector.py', 'w', encoding='utf-8') as file_:

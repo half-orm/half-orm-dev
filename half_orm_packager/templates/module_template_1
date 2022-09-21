@@ -6,8 +6,6 @@
 WARNING!
 
 {warning}
-
-{fkeys_properties}
 """
 
 from {package_name}.db_connector import base_relation_class
