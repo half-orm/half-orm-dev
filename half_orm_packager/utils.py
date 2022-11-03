@@ -44,6 +44,42 @@ class Hop:
             self.__hgit = HGit(self)
         except TypeError:
             pass
+        self.__params = {}
+        if self.__model is not None:
+            self.__params = self.__model._Model__dbinfo
+
+    def read_params(self, conf_path):
+        config = ConfigParser()
+        config.read([conf_path])
+        self.__params['name'] = config.get('database', 'name')
+        self.__params['user'] = config.get('database', 'user')
+        self.__params['password'] = config.get('database', 'password')
+        self.__params['host'] = config.get('database', 'host')
+        self.__params['port'] = config.get('database', 'port')
+
+
+    def execute_pg_command(self, cmd, *args, **kwargs):
+        self.__dbname = self.__params['name']
+        self.__user = self.__params.get('user')
+        self.__password = self.__params.get('password')
+        self.__host = self.__params.get('host')
+        self.__port = self.__params.get('port')
+        cmd_list = [cmd]
+        env = os.environ.copy()
+        password = self.__password
+        if password:
+            env['PGPASSWORD'] = password
+        if self.__user:
+            cmd_list += ['-U', self.__user]
+        if self.__port:
+            cmd_list += ['-p', self.__port]
+        if self.__host:
+            cmd_list += ['-h', self.__host]
+        cmd_list.append(self.__dbname)
+        if len(args):
+            cmd_list += args
+        subprocess.run(cmd_list, env=env, shell=False, **kwargs)
+
 
     def __get_last_release_s(self):
         return self.__last_release_s
@@ -411,7 +447,8 @@ def set_config_file(HOP, project_name: str):
         sys.stderr.write(f"The database '{dbname}' does not exist.\n")
         create = input('Do you want to create it (Y/n): ') or "y"
         if create.upper() == 'Y':
-            subprocess.run(['createdb', dbname], check=True)
+            HOP.read_params(conf_path)
+            HOP.execute_pg_command('createdb')
             return Model(project_name)
         print(f'Please create the database an rerun hop new {project_name}')
         sys.exit(1)

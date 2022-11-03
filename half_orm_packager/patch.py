@@ -94,15 +94,12 @@ class Patch:
             self.__hop_cls.model.disconnect()
             print("Restoring previous DB release...")
             try:
-                subprocess.run(['dropdb', self.dbname], check=True)
+                self.__hop_cls.execute_pg_command('dropdb')
             except subprocess.CalledProcessError:
                 print("Aborting")
                 sys.exit(1)
-            subprocess.run(['createdb', self.dbname], check=True)
-            subprocess.run(
-                ['psql', self.dbname, '-f', backup_file],
-                check=True,
-                stdout=subprocess.DEVNULL)
+            self.__hop_cls.execute_pg_command('createdb')
+            self.__hop_cls.execute_pg_command('psql', '-f', backup_file, stdout=subprocess.DEVNULL)
             os.remove(backup_file)
             self.__hop_cls.model.ping()
             #pylint: disable=invalid-name
@@ -196,7 +193,7 @@ class Patch:
                 f"Oops! there is already a dump for the {self.__hop_cls.last_release_s} release.\n")
             sys.stderr.write(f"Please use the --force option if you realy want to proceed.\n")
             sys.exit(1)
-        _ = subprocess.run(['pg_dump', self.dbname, '-f', svg_file], check=True, stderr=subprocess.PIPE)
+        self.__hop_cls.execute_pg_command('pg_dump', '-f', svg_file, stderr=subprocess.PIPE)
 
     def __patch(self, commit=None, force=False):
         "Applies the patch and insert the information in the half_orm_meta.hop_release table"
