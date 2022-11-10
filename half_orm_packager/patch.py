@@ -178,16 +178,12 @@ class Patch:
             new_release.update(changelog=self.changelog, commit=commit)
         new_release = new_release.get()
 
-    def __backup_path(self, release_s: str) -> str:
-        "Returns the absolute path of the backup file"
-        return f'{self.__hop_cls.project_path}/Backups/{self.dbname}-{release_s}.sql'
-
     def save_database(self, force=False):
         """Dumps the database 
         """
         if not os.path.isdir('./Backups'):
             os.mkdir('./Backups')
-        svg_file = self.__backup_path(self.__hop_cls.last_release_s)
+        svg_file = self.__hop_cls.backup_path
         if os.path.isfile(svg_file) and not force:
             sys.stderr.write(
                 f"Oops! there is already a dump for the {self.__hop_cls.last_release_s} release.\n")
@@ -254,13 +250,14 @@ class Patch:
                         f"""WARNING! SQL error in :{file_.path}\n
                             QUERY : {query}\n
                             {err}\n""")
-                    continue
+                    self.__hop_cls.abort()
                 except (psycopg2.OperationalError, psycopg2.InterfaceError) as err:
                     raise Exception(f'Problem with query in {file_.name}') from err
             elif extension == 'py':
-                # exécuter le script
-                with subprocess.Popen(file_.path, shell=True) as sub:
-                    sub.wait()
+                try:
+                    subprocess.check_call(file_.path, shell=True)
+                except subprocess.CalledProcessError:
+                    self.__hop_cls.abort()
 
         update_modules(self.model, self.package_name, self.__hop_cls.release_s)
         self.__register()

@@ -64,6 +64,8 @@ class Hop:
         self.__password = self.__params.get('password')
         self.__host = self.__params.get('host')
         self.__port = self.__params.get('port')
+        if not kwargs.get('stdout'):
+            kwargs['stdout']=subprocess.DEVNULL
         cmd_list = [cmd]
         env = os.environ.copy()
         password = self.__password
@@ -78,7 +80,23 @@ class Hop:
         cmd_list.append(self.__dbname)
         if len(args):
             cmd_list += args
-        subprocess.run(cmd_list, env=env, shell=False, **kwargs)
+        ret = subprocess.run(cmd_list, env=env, shell=False, **kwargs)
+        if ret.returncode:
+            sys.exit(ret.returncode)
+
+    def abort(self):
+        print('RESTORING', self.backup_path)
+        self.model.disconnect()
+        self.execute_pg_command('dropdb')
+        self.execute_pg_command('createdb')
+        self.execute_pg_command('psql', '-f', self.backup_path)
+        # subprocess.run(['rm', svg_file])
+        sys.exit(1)
+
+    @property
+    def backup_path(self) -> str:
+        "Returns the absolute path of the backup file"
+        return f"{self.project_path}/Backups/{self.__params['name']}-{self.last_release_s}.sql"
 
 
     def __get_last_release_s(self):
@@ -173,6 +191,7 @@ class Hop:
         try:
             return next(self.model.get_relation_class('half_orm_meta.view.hop_last_release')().select())
         except UnknownRelation:
+            sys.stderr.write("WARNING! The database doesn't have the hop metadata!")
             return None
 
     def get_previous_release(self):
