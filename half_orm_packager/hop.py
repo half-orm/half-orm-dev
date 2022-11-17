@@ -30,7 +30,7 @@ import psycopg2
 from half_orm.model import Model, CONF_DIR
 from half_orm.model_errors import MissingConfigFile
 
-from half_orm_packager.utils import hop_version, get_connection_file_name, set_config_file, Hop, read_template, write_file
+from half_orm_packager.utils import get_connection_file_name, set_config_file, Hop, read_template, write_file
 from half_orm_packager.patch import Patch
 from half_orm_packager.test import tests
 from half_orm_packager.update import update_modules

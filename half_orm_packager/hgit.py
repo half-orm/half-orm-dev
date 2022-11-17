@@ -98,3 +98,15 @@ class HGit:
             print(f'On branch {rel_branch}')
         # else:
         #     sys.stderr.write(f'Current branch is {self.branch}\n')
+
+    @property
+    def get_patch_path(self):
+        next_ = str(self.branch)
+        if next_[0:4] != 'hop_':
+            sys.stderr.write('Not on a hop branch!\n')
+            sys.exit(1)
+        next_ = next_[4:]
+        if next_ == 'main':
+            next_ = self.__hop_cls.get_next_release()['release_s']
+        major, minor, patch = [int(elt) for elt in next_.split('.')]
+        return f'{major}/{minor}/{patch}'

@@ -5,14 +5,10 @@
 
 Détermine le patch suivant et l'applique. Les patchs sont appliqués un
 par un.
-
-Si l'option -i <no de patch> est utilisée, le patch sera pris dans
-Patches/devel/issues/<no de patch>.
-Le numéro de patch dans la table half_orm_meta.hop_release sera 9999.9999.<no de patch>
-L'option -i n'est pas utilisable si patch.yml positionne PRODUCTION à True.
 """
 
 from datetime import date, datetime
+import json
 import os
 import shutil
 import sys
@@ -64,18 +60,9 @@ class Patch:
         "package name property"
         return self.__hop_cls.package_name
 
-    @property
-    def __patch_path(self):
-        return f'{self.__hop_cls.project_path}/Patches/{self.__hop_cls.release_path}/'
-
-    def __get_backup_file_name(self, release):
+    def __get_backup_file_name(self, release): #XXX HOP ?
         release_s = self.__hop_cls.get_release_s(release)
         return f'{self.__hop_cls.project_path}/Backups/{self.dbname}-{release_s}.sql'
-
-    @property
-    def changelog(self):
-        with open(os.path.join(self.__patch_path, 'CHANGELOG.md'), encoding='utf-8') as changelog:
-            return changelog.read()
 
     def is_first_release(self):
         return self.__curr_release_s == '0.0.0'
@@ -140,6 +127,13 @@ class Patch:
             force = False
             revert = False
             self.__hgit.repo.git.pull()
+            if self.__hop_cls.version != self.__hop_cls.manifest['hop_version'] and not force:
+                sys.stderr.write('Hop version mismatch. Update half_orm_packager.\n')
+                sys.exit(1)
+        else:
+            if self.__hop_cls.version != self.__hop_cls.manifest['hop_version'] and not force:
+                sys.stderr.write('Hop version mismatch. Fix hop_release in MANIFEST.json.\n')
+                sys.exit(1)
 
         if self.__create_mode or self.__init_mode:
             self.__hop_cls.last_release_s = 'pre-patch'
@@ -171,11 +165,11 @@ class Patch:
         #FIXME
         commit = str(datetime.now())
         if new_release.is_empty():
-            new_release.changelog = self.changelog
+            new_release.changelog = self.__hop_cls.changelog
             new_release.commit = commit
             new_release.insert()
         else:
-            new_release.update(changelog=self.changelog, commit=commit)
+            new_release.update(changelog=self.__hop_cls.changelog, commit=commit)
         new_release = new_release.get()
 
     def save_database(self, force=False):
@@ -200,23 +194,18 @@ class Patch:
         if not self.__hop_cls.model.production:
             self.__hgit.set_branch(self.__hop_cls.release_s)
         self.save_database(force)
-        if not os.path.exists(self.__patch_path):
+        if not os.path.exists(self.__hop_cls.patch_path):
             sys.stderr.write(f'The directory {self.__patch_path} does not exists!\n')
             sys.exit(1)
 
-        changelog_file = os.path.join(self.__patch_path, 'CHANGELOG.md')
         # bundle_file = os.path.join(patch_path, 'BUNDLE')
-
-        if not os.path.exists(changelog_file):
-            sys.stderr.write(f"ERROR! {changelog_file} is missing!\n")
-            sys.exit(1)
 
         if commit is None:
             commit = self.__hgit.commit.hexsha
             if not force:
                 self.__hgit.exit_if_repo_is_not_clean()
 
-        changelog = open(changelog_file, encoding='utf-8').read()
+        changelog = self.__hop_cls.changelog
 
         print(changelog)
         # try:
@@ -229,11 +218,13 @@ class Patch:
         # except FileNotFoundError:
         #     pas
         files = []
-        for file_ in os.scandir(self.__patch_path):
+        for file_ in os.scandir(self.__hop_cls.patch_path):
             files.append({'name': file_.name, 'file': file_})
         for elt in pydash.order_by(files, ['name']):
             file_ = elt['file']
             extension = file_.name.split('.').pop()
+            if file_.name == 'MANIFEST.py':
+                continue
             if (not file_.is_file() or not (extension in ['sql', 'py'])):
                 continue
             print(f'+ {file_.name}')
@@ -290,13 +281,17 @@ class Patch:
         print(f'PREPARING: {new_release_s}')
         patch_path = 'Patches/{major}/{minor}/{patch}'.format(**next)
         if not os.path.exists(patch_path):
-            changelog_msg = input('CHANGELOG message - will be prepended by (version_number) - (leave empty to abort): ')
+            changelog_msg = input('CHANGELOG message - (leave empty to abort): ')
             if not changelog_msg:
                 print('Aborting')
                 return
             os.makedirs(patch_path)
-            with open(f'{patch_path}/CHANGELOG.md', 'w', encoding='utf-8') as changelog:
-                changelog.write('({}) {}'.format(new_release_s, changelog_msg))
+            with open(f'{patch_path}/MANIFEST.json', 'w', encoding='utf-8') as manifest:
+                manifest.write(json.dumps({
+                    'hop_version': self.__hop_cls.version,
+                    'changelog_msg': changelog_msg,
+                    'new_release': new_release_s
+                })) 
         self.__hgit.set_branch(new_release_s)
         print(f'You can now add your patch scripts (*.py, *.sql) in {patch_path}. See Patches/README.')
 

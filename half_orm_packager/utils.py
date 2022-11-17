@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import subprocess
@@ -30,10 +31,16 @@ class Hop:
     __package_name = None
     __project_path = None
     __model = None
+    __manifest = None
+    __version = open(f'{HOP_PATH}/version.txt').read().strip()
+
+    @property
+    def version(self):
+        return self.__version
 
     def __init__(self, ref_dir):
+        # __release = self.get_next_possible_releases()
         self.__last_release_s = None
-        self.__release = None
         Hop.__connection_file_name, Hop.__package_name, Hop.__project_path = get_connection_file_name(ref_dir=ref_dir)
         self.__production = False
         if self.__package_name and self.__model is None:
@@ -107,12 +114,28 @@ class Hop:
     last_release_s = property(__get_last_release_s, __set_last_release_s)
 
     @property
+    def patch_path(self):
+        return f'{self.project_path}/Patches/{self.release_path}/'
+
+    @property
     def release(self):
         return self.__release
 
     def __get_release_s(self):
         return self.__release['release_s']
-    
+
+
+    @property
+    def manifest(self):
+        if not Hop.__manifest:
+            with open(os.path.join(self.patch_path, 'MANIFEST.json'), encoding='utf-8') as manifest:
+                Hop.__manifest = json.load(manifest)
+        return Hop.__manifest
+
+    @property
+    def changelog(self):
+        return self.manifest['changelog_msg']
+
     def __set_release_s(self, release_s):
         self.__release['release_s'] = release_s
 
@@ -120,7 +143,7 @@ class Hop:
 
     @property
     def release_path(self):
-        return self.__release['path']
+        return self.__hgit.get_patch_path
 
     def get_model(self):
         "Returns the half_orm model"
@@ -248,11 +271,15 @@ class Hop:
                     print('hop patch [-f]: apply the patch.')
                     print('(TODO) hop patch -A: Abort. Remove the patch.')
 
+    @property
+    def current_db_release_s(self):
+        return self.get_release_s(self.get_current_db_release())
+
     def git_branch_is_db_release(self):
-        return f'hop_{self.get_release_s(self.get_current_db_release())}' == str(self.__hgit.branch)
+        return f'hop_{self.current_db_release_s}' == str(self.__hgit.branch)
 
     def git_branch_is_db_next_release(self):
-        return f'hop_{self.get_release_s(self.get_current_db_release())}' < str(self.__hgit.branch)
+        return f'hop_{self.current_db_release_s}' < str(self.__hgit.branch)
 
     @property
     def production(self):
@@ -300,6 +327,8 @@ class Hop:
     def alpha(self):
         """Toutes les modifs à faire durant la mise au point de hop
         """
+        # if not self.model.has_relation('half_orm_meta.database'):
+        #     self.model_execute_query()
         if not self.model.has_relation('half_orm_meta.hop_release'):
             if self.model.has_relation('meta.release'):
                 click.echo(
@@ -375,7 +404,7 @@ class Hop:
         Package name: {self.package_name}
         Project path: {self.project_path}
         DB connection file: {CONF_DIR}/{self.connection_file_name}
-        DB release: {self.get_release_s(self.get_current_db_release())}
+        DB release: {self.current_db_release_s}
 
         GIT branch: {self.__hgit.branch}
         GIT last commit: 
@@ -383,10 +412,7 @@ class Hop:
         -  #{self.__hgit.commit.hexsha[:8]}: {commit_message}
 
         hop path: {HOP_PATH}
-        hop version: {hop_version()}"""
-
-def hop_version():
-    return open(f'{HOP_PATH}/version.txt').read().strip()
+        hop version: {self.__version}"""
 
 def get_connection_file_name(base_dir=None, ref_dir=None):
     """searches the hop configuration file for the package.

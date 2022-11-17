@@ -29,7 +29,6 @@ from half_orm.pg_meta import camel_case, normalize_fqrn
 from half_orm.model_errors import UnknownRelation
 
 from half_orm_packager.globals import TEMPLATES_DIR, BEGIN_CODE, END_CODE
-from half_orm_packager.utils import hop_version
 
 def read_template(file_name):
     "helper"
@@ -202,7 +201,7 @@ def update_this_module(
         documentation = "\n".join([line and f"    {line}" or "" for line in str(rel).split("\n")])
         file_.write(
             module_template.format(
-                hop_release = hop_version(),
+                hop_release = self.__hop_cls.version,
                 module=f"{package_name}.{fqtn}",
                 # fkeys_properties=get_fkeys(rel),
                 package_name=package_name,
