@@ -8,18 +8,22 @@ import sys
 # from datetime import date
 # from time import sleep
 from git import Repo #, GitCommandError
-# from git.exc import InvalidGitRepositoryError
+from git.exc import InvalidGitRepositoryError
 
 class HGit:
     "docstring"
     __hop_main = False
     def __init__(self, hop_cls):
         self.__hop_cls = hop_cls
-        self.__project_path = hop_cls.project_path
         self.__model = hop_cls.model
-        if not os.path.exists(f'{self.__project_path}/.git'):
-            subprocess.run(['git', 'init', self.__project_path], check=True)
-        self.__repo = Repo(self.__project_path)
+        self.__failed = False
+        if 'new' in self.__hop_cls.available_cmds:
+            self.__init()
+        self.__repo = Repo(self.__hop_cls.project_path)
+
+    def __init(self):
+        subprocess.run(['git', 'init', self.__hop_cls.project_path], check=True)
+        self.__repo = Repo(self.__hop_cls.project_path)
         self.hop_main_branch()
 
     def hop_main_branch(self):
@@ -36,13 +40,13 @@ class HGit:
     def repo(self):
         "Return the git repo object"
         if self.__repo is None:
-            self.__repo = Repo(self.__project_path)
+            self.__repo = Repo(self.__hop_cls.project_path)
         return self.__repo
 
     @property
     def branch(self):
         "Returns the active branch"
-        return self.repo.active_branch
+        return str(self.repo.active_branch)
 
     def init(self):
         "Initiazes the git repo."
@@ -50,7 +54,7 @@ class HGit:
         from .patch import Patch
         from .update import update_modules
 
-        os.chdir(self.__project_path)
+        os.chdir(self.__hop_cls.project_path)
 
         Patch(self.__hop_cls, create_mode=True).patch(force=True)
         self.__model.reconnect()  # we get the new stuff from db metadata here
@@ -60,6 +64,7 @@ class HGit:
         self.repo.git.commit(m='[{}] First release'.format(self.__hop_cls.last_release_s))
         self.hop_main_branch()
         print("Patch system initialized at release '{}'.".format(self.__hop_cls.last_release_s))
+        return self
 
     @property
     def commit(self):

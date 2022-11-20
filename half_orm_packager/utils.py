@@ -13,64 +13,143 @@ from half_orm.model_errors import UnknownRelation, MissingConfigFile
 
 from half_orm_packager.globals import HOP_PATH, TEMPLATES_DIR
 from half_orm_packager.hgit import HGit
-# from half_orm_packager.patch import Patch
-
-TMPL_CONF_FILE = """
-[database]
-name = {name}
-user = {user}
-password = {password}
-host = {host}
-port = {port}
-production = {production}
-""" 
+from half_orm_packager.conf import HopConf, DbConf
 
 class Hop:
-    "XXX: The hop class doc..."
-    __connection_file_name = None
-    __package_name = None
-    __project_path = None
-    __model = None
-    __manifest = None
-    __version = open(f'{HOP_PATH}/version.txt').read().strip()
+    "The Hop class"
+    __available_cmds = []
 
     @property
     def version(self):
-        return self.__version
+        return open(f'{HOP_PATH}/version.txt').read().strip()
 
-    def __init__(self, ref_dir):
-        # __release = self.get_next_possible_releases()
-        self.__last_release_s = None
-        Hop.__connection_file_name, Hop.__package_name, Hop.__project_path = get_connection_file_name(ref_dir=ref_dir)
-        self.__production = False
-        if self.__package_name and self.__model is None:
-            self.__model = self.get_model()
-            self.__production = self.__model.production
+    def __init__(self):
+        self.__config: HopConf = None
+        self.__db_conf: DbConf = DbConf()
+        self.__model: Model = None
+        self.__manifest = None
+        self.__hgit: HGit = None
+        self.__cur_dir = os.path.abspath(os.path.curdir)
         self.__hgit = None
-        try:
-            self.__hgit = HGit(self)
-        except TypeError:
-            pass
-        self.__params = {}
-        if self.__model is not None:
-            self.__params = self.__model._Model__dbinfo
+        hop_ok = self.__check()
+        return
+        self.__model = self.get_model()
+        self.__db_conf.production = self.__model.production
+        self.__hgit = None
 
-    def read_params(self, conf_path):
-        config = ConfigParser()
-        config.read([conf_path])
-        self.__params['name'] = config.get('database', 'name')
-        self.__params['user'] = config.get('database', 'user')
-        self.__params['password'] = config.get('database', 'password')
-        self.__params['host'] = config.get('database', 'host')
-        self.__params['port'] = config.get('database', 'port')
+    def __check(self):
+        """Checks the status of the current dir.
+        * is it a hop repo?
+        * what are the next available commands?
+        """
+        ok_hop = self.__is_hop_repo
+        # If we are not in a hop directory, only hop new is available.
+        if not ok_hop:
+            Hop.__available_cmds = ['new']
+        else:
+            if not self.__db_conf.production:
+                Hop.__available_cmds = ['patch']
+            else:
+                Hop.__available_cmds = ['upgrade']
 
+    def add_commands(self, main):
+        @click.command()
+        @click.argument('package_name')
+        def new(package_name):
+            """ Creates a new hop project named <package_name>.
+            """
+            self.command = 'new'
+            # click.echo(f'hop new {package_name}')
+            # on cherche un fichier de conf .hop/config dans l'arbre.
+            self.init_package(package_name)
+            print(f"\nPlease go to {PWD}/{package_name}")
+
+
+        @click.command()
+        @click.option('-f', '--force', is_flag=True, help="Don't check if git repo is clean.")
+        @click.option('-r', '--revert', is_flag=True, help="Revert to the previous release.")
+        @click.option('-p', '--prepare', type=click.Choice(['patch', 'minor', 'major']), help="Prepare next patch.")
+        # @click.argument('branch_from', required=False)
+        #TODO @click.option('-c', '--commit', is_flag=True, help="Commit the patch to the hop_main branch")
+        def patch(force, revert, prepare, branch_from=None):
+            """ Applies the next patch.
+            """
+            self.command = 'patch'
+            # print('branch from', branch_from)
+            if prepare:
+                Patch(self).prep_next_release(prepare)
+            elif revert:
+                Patch(self).revert()
+            else:
+                Patch(self).patch(force, revert)
+
+            sys.exit()
+
+
+        @click.command()
+        # @click.option('-d', '--dry-run', is_flag=True, help='Do nothing')
+        # @click.option('-l', '--loop', is_flag=True, help='Run every patches to apply')
+        def upgrade():
+            """Apply one or many patches.
+
+            switches to hop_main, pulls should check the tags
+            """
+            self.command = 'upgrade'
+            Patch(self).patch()
+
+        @click.command()
+        def test():
+            """ Tests some common pitfalls.
+            """
+            if tests(self.model, self.package_name):
+                click.echo('Tests OK')
+            else:
+                click.echo('Tests failed')
+
+        CMDS = {
+            'new': new,
+            'patch': patch,
+            'upgrade': upgrade,
+        }
+
+        for cmd in self.__available_cmds:
+            main.add_command(CMDS[cmd])
+
+    @property
+    def available_cmds(self):
+        return self.__available_cmds
+
+    @property
+    def __is_hop_repo(self):
+        """Searches the hop configuration file for the package.
+        This method is called when no hop config file is provided.
+        It changes to the package base directory if the config file exists.
+
+        Sets the __project_path and __config attributes
+
+        Returns True if we are in a repo, False otherwise.
+        """
+        path_list = self.__cur_dir.split('/')
+        idx = len(path_list)
+        while idx > 0:
+            base_dir = '/'.join(path_list[:idx]) or '/'
+            if os.path.exists(f'{base_dir}/.hop/config'):
+                self.__project_path = base_dir
+                self.__config = HopConf(f'{base_dir}/.hop/config')
+                return True
+            idx -= 1
+        return False
+
+    def click(self, main):
+
+        main.add_command(new)
 
     def execute_pg_command(self, cmd, *args, **kwargs):
-        self.__dbname = self.__params['name']
-        self.__user = self.__params.get('user')
-        self.__password = self.__params.get('password')
-        self.__host = self.__params.get('host')
-        self.__port = self.__params.get('port')
+        self.__dbname = self.__db_conf.name
+        self.__user = self.__db_conf.user
+        self.__password = self.__db_conf.password
+        self.__host = self.__db_conf.host
+        self.__port = self.__db_conf.port
         if not kwargs.get('stdout'):
             kwargs['stdout']=subprocess.DEVNULL
         cmd_list = [cmd]
@@ -87,13 +166,14 @@ class Hop:
         cmd_list.append(self.__dbname)
         if len(args):
             cmd_list += args
+        print('XXX', cmd_list, kwargs)
         ret = subprocess.run(cmd_list, env=env, shell=False, **kwargs)
         if ret.returncode:
             sys.exit(ret.returncode)
 
     def abort(self):
         print('RESTORING', self.backup_path)
-        self.model.disconnect()
+        self.__model.disconnect()
         self.execute_pg_command('dropdb')
         self.execute_pg_command('createdb')
         self.execute_pg_command('psql', '-f', self.backup_path)
@@ -103,7 +183,7 @@ class Hop:
     @property
     def backup_path(self) -> str:
         "Returns the absolute path of the backup file"
-        return f"{self.project_path}/Backups/{self.__params['name']}-{self.last_release_s}.sql"
+        return f"{self.project_path}/Backups/{self.__db_conf.name}-{self.last_release_s}.sql"
 
 
     def __get_last_release_s(self):
@@ -124,13 +204,19 @@ class Hop:
     def __get_release_s(self):
         return self.__release['release_s']
 
+    def __get_command(self):
+        return self.__cmd
+    def __set_command(self, cmd):
+        self.__cmd = cmd
+
+    command = property(__get_command, __set_command)
 
     @property
     def manifest(self):
-        if not Hop.__manifest:
+        if not self.__manifest and self.__cmd != 'new':
             with open(os.path.join(self.patch_path, 'MANIFEST.json'), encoding='utf-8') as manifest:
-                Hop.__manifest = json.load(manifest)
-        return Hop.__manifest
+                self.__manifest = json.load(manifest)
+        return self.__manifest
 
     @property
     def changelog(self):
@@ -179,7 +265,7 @@ class Hop:
             next_release['path'] = next_release['release_s'].replace('.', '/')
             to_zero.append(part)
             tried.append(next_release)
-        if show and not self.__production and str(self.__hgit.branch) == 'hop_main':
+        if show and not self.__db_conf.production and str(self.__hgit.branch) == 'hop_main':
             print(f"Prepare a new patch:")
             idx = 0
             for release in tried:
@@ -212,7 +298,7 @@ class Hop:
         """Returns the current database release (dict)
         """
         try:
-            return next(self.model.get_relation_class('half_orm_meta.view.hop_last_release')().select())
+            return next(self.__model.get_relation_class('half_orm_meta.view.hop_last_release')().select())
         except UnknownRelation:
             sys.stderr.write("WARNING! The database doesn't have the hop metadata!")
             return None
@@ -222,12 +308,12 @@ class Hop:
         #pylint: disable=invalid-name
         if self.get_current_db_release() is None:
             return None
-        Previous = self.model.get_relation_class(
+        Previous = self.__model.get_relation_class(
             'half_orm_meta.view.hop_penultimate_release')
         try:
             return next(Previous().select())
         except StopIteration:
-            Current = self.model.get_relation_class('half_orm_meta.view.hop_last_release')
+            Current = self.__model.get_relation_class('half_orm_meta.view.hop_last_release')
             return next(Current().select())
 
     @classmethod
@@ -241,7 +327,7 @@ class Hop:
         """Prints the status"""
         if verbose:
             print(self)
-        if self.__production:
+        if self.__db_conf.production:
             next_release = self.get_next_release()
             while next_release:
                 next_release = self.get_next_release(next_release)
@@ -254,7 +340,7 @@ class Hop:
         print("\nNext possible hop command(s):\n")
         if self.__hgit is None:
             self.__hgit = HGit(self)
-        if self.__production:
+        if self.__db_conf.production:
             return
         else:
             if str(self.__hgit.branch) == 'hop_main':
@@ -283,21 +369,21 @@ class Hop:
 
     @property
     def production(self):
-        return self.__production
+        return self.__db_conf.production
 
     @property
-    def connection_file_name(self):
+    def config_file(self):
         "returns the connection file name"
-        return self.__connection_file_name
+        return self.__config_file
 
     @property
     def package_name(self):
         "returns the package name"
-        return self.__package_name
+        return self.__config.name
 
     @package_name.setter
     def package_name(self, package_name):
-        self.__package_name = package_name
+        self.__config.name = package_name
 
     @property
     def project_path(self):
@@ -315,8 +401,8 @@ class Hop:
     @property
     def model(self):
         "model getter"
-        if self.__model is None and self.__package_name:
-            self.model = self.get_model()
+        if self.__model is None and self.__config:
+            self.__model = self.get_model()
         return self.__model
 
     @model.setter
@@ -327,13 +413,13 @@ class Hop:
     def alpha(self):
         """Toutes les modifs à faire durant la mise au point de hop
         """
-        # if not self.model.has_relation('half_orm_meta.database'):
+        # if not self.__model.has_relation('half_orm_meta.database'):
         #     self.model_execute_query()
-        if not self.model.has_relation('half_orm_meta.hop_release'):
-            if self.model.has_relation('meta.release'):
+        if not self.__model.has_relation('half_orm_meta.hop_release'):
+            if self.__model.has_relation('meta.release'):
                 click.echo(
                     "ALPHA: Renaming meta.release to half_orm_meta.hop_release, ...")
-                self.model.execute_query("""
+                self.__model.execute_query("""
                 create schema half_orm_meta;
                 create schema "half_orm_meta.view";
                 alter table meta.release set schema half_orm_meta;
@@ -356,8 +442,10 @@ class Hop:
 
         project_name (str): The project name (hop create argument)
         """
-        curdir = os.path.abspath(os.curdir)
-        project_path = os.path.join(curdir, project_name)
+        self.__package_name = project_name
+        self.__set_config_file()
+        project_path = f'{self.__cur_dir}/{project_name}'
+        self.__project_path = project_path
         if not os.path.exists(project_path):
             os.makedirs(project_path)
         else:
@@ -369,12 +457,11 @@ class Hop:
         GIT_IGNORE = read_template(f'{TEMPLATES_DIR}/.gitignore')
         PIPFILE = read_template(f'{TEMPLATES_DIR}/Pipfile')
 
-        dbname = self.model._dbname
         import half_orm
         half_orm_version = half_orm.VERSION
 
         setup = SETUP_TEMPLATE.format(
-                dbname=dbname,
+                dbname=self.__db_conf.name,
                 package_name=project_name,
                 half_orm_version=half_orm_version)
         write_file(f'{project_path}/setup.py', setup)
@@ -388,115 +475,98 @@ class Hop:
             CONFIG_TEMPLATE.format(
                 config_file=project_name, package_name=project_name))
         cmd = " ".join(sys.argv)
-        readme = README.format(cmd=cmd, dbname=dbname, package_name=project_name)
+        readme = README.format(cmd=cmd, dbname=self.__db_conf.name, package_name=project_name)
         write_file(f'{project_path}/README.md', readme)
         write_file(f'{project_path}/.gitignore', GIT_IGNORE)
         os.mkdir(f'{project_path}/{project_name}')
         self.project_path = project_path
-        HGit(self).init()
+        self.__hgit = HGit(self).init()
 
         print(f"\nThe hop project '{project_name}' has been created.")
 
+    def __set_config_file(self):
+        """ Asks for the connection parameters. Returns a dictionary with the params.
+        """
+        print(f'HALFORM_CONF_DIR: {CONF_DIR}')
+        conf_path = os.path.join(CONF_DIR, self.__package_name)
+        if not os.path.isfile(conf_path):
+            if not os.access(CONF_DIR, os.W_OK):
+                sys.stderr.write(f"You don't have write access to {CONF_DIR}.\n")
+                if CONF_DIR == '/etc/half_orm':
+                    sys.stderr.write(
+                        "Set the HALFORM_CONF_DIR environment variable if you want to use a\n"
+                        "different directory.\n")
+                sys.exit(1)
+            print('Connection parameters to the database:')
+            dbname = input(f'. database name ({self.__package_name}): ') or self.__package_name
+            user = os.environ['USER']
+            user = input(f'. user ({user}): ') or user
+            password = getpass('. password: ')
+            if password == '' and \
+                    (input(
+                        '. is it an ident login with a local account? [Y/n] ') or 'Y').upper() == 'Y':
+                host = port = ''
+            else:
+                host = input('. host (localhost): ') or 'localhost'
+                port = input('. port (5432): ') or 5432
+
+            production = input('Production (False): ') or False
+
+            res = {
+                'name': dbname,
+                'user': user,
+                'password': password,
+                'host': host,
+                'port': port,
+                'production': production
+            }
+            open(f'{CONF_DIR}/{self.__package_name}',
+                'w', encoding='utf-8').write(self.__db_conf.TMPL_CONF_FILE.format(**res))
+        else:
+            print(f"Using '{CONF_DIR}/{self.__package_name}' file for connexion.")
+
+        try:
+            self.__model = Model(self.__package_name)
+        except psycopg2.OperationalError:
+            config = ConfigParser()
+            config.read([conf_path])
+            dbname = config.get('database', 'name')
+
+            sys.stderr.write(f"The database '{dbname}' does not exist.\n")
+            create = input('Do you want to create it (Y/n): ') or "y"
+            if create.upper() == 'Y':
+                self.__db_conf = DbConf(conf_path)
+                self.execute_pg_command('createdb')
+                self.__model = Model(self.__package_name)
+            print(f'Please create the database an rerun hop new {self.__package_name}')
+            sys.exit(1)
+
     def __str__(self):
-        commit_message = self.__hgit.commit.message.strip().split('\n')[0]
-        return f"""Production: {self.__production}
+        return str(self.__available_cmds)
+        commit_message = None
+        if self.__hgit:
+            commit_message = self.__hgit.commit.message.strip().split('\n')[0]
+        ret = []
+        ret.append(f"""Production: {self.__db_conf.production}
 
         Package name: {self.package_name}
         Project path: {self.project_path}
         DB connection file: {CONF_DIR}/{self.connection_file_name}
-        DB release: {self.current_db_release_s}
+        """)
+        try:
+            ret.append(f"""DB release: {self.current_db_release_s}
 
         GIT branch: {self.__hgit.branch}
         GIT last commit: 
         -  {self.__hgit.commit.author}. {self.__hgit.commit.committed_datetime.strftime("%A, %d. %B %Y %I:%M%p")}
         -  #{self.__hgit.commit.hexsha[:8]}: {commit_message}
-
-        hop path: {HOP_PATH}
-        hop version: {self.__version}"""
-
-def get_connection_file_name(base_dir=None, ref_dir=None):
-    """searches the hop configuration file for the package.
-    This method is called when no hop config file is provided.
-    It changes to the package base directory if the config file exists.
-    """
-    config = ConfigParser()
-
-    cur_dir = base_dir
-    if not base_dir:
-        ref_dir = os.path.abspath(os.path.curdir)
-        cur_dir = base_dir = ref_dir
-    for base in ['hop', 'halfORM']:
-        if os.path.exists('.{}/config'.format(base)):
-            config.read('.{}/config'.format(base))
-            config_file = config['halfORM']['config_file']
-            package_name = config['halfORM']['package_name']
-            return config_file, package_name, cur_dir
-
-    if os.path.abspath(os.path.curdir) != '/':
-        os.chdir('..')
-        cur_dir = os.path.abspath(os.path.curdir)
-        return get_connection_file_name(cur_dir, ref_dir)
-    # restore reference directory.
-    os.chdir(ref_dir)
-    return None, None, None
-
-def set_config_file(HOP, project_name: str):
-    """ Asks for the connection parameters. Returns a dictionary with the params.
-    """
-    print(f'HALFORM_CONF_DIR: {CONF_DIR}')
-    HOP.package_name = project_name
-    conf_path = os.path.join(CONF_DIR, project_name)
-    if not os.path.isfile(conf_path):
-        if not os.access(CONF_DIR, os.W_OK):
-            sys.stderr.write(f"You don't have write acces to {CONF_DIR}.\n")
-            if CONF_DIR == '/etc/half_orm':
-                sys.stderr.write(
-                    "Set the HALFORM_CONF_DIR environment variable if you want to use a\n"
-                    "different directory.\n")
-            sys.exit(1)
-        print('Connection parameters to the database:')
-        dbname = input(f'. database name ({project_name}): ') or project_name
-        user = os.environ['USER']
-        user = input(f'. user ({user}): ') or user
-        password = getpass('. password: ')
-        if password == '' and \
-                (input(
-                    '. is it an ident login with a local account? [Y/n] ') or 'Y').upper() == 'Y':
-            host = port = ''
-        else:
-            host = input('. host (localhost): ') or 'localhost'
-            port = input('. port (5432): ') or 5432
-
-        production = input('Production (False): ') or False
-
-        res = {
-            'name': dbname,
-            'user': user,
-            'password': password,
-            'host': host,
-            'port': port,
-            'production': production
-        }
-        open(f'{CONF_DIR}/{project_name}',
-             'w', encoding='utf-8').write(TMPL_CONF_FILE.format(**res))
-    else:
-        print(f"Using '{CONF_DIR}/{project_name}' file for connexion.")
-
-    try:
-        return Model(project_name)
-    except psycopg2.OperationalError:
-        config = ConfigParser()
-        config.read([conf_path])
-        dbname = config.get('database', 'name')
-
-        sys.stderr.write(f"The database '{dbname}' does not exist.\n")
-        create = input('Do you want to create it (Y/n): ') or "y"
-        if create.upper() == 'Y':
-            HOP.read_params(conf_path)
-            HOP.execute_pg_command('createdb')
-            return Model(project_name)
-        print(f'Please create the database an rerun hop new {project_name}')
-        sys.exit(1)
+            """)
+        except:
+            pass
+        ret.append(f"""hop path: {HOP_PATH}
+        hop version: {self.__version}
+        """)
+        return ''.join(ret)
 
 def read_template(file_path):
     "helper"

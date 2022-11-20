@@ -131,13 +131,13 @@ class Patch:
                 sys.stderr.write('Hop version mismatch. Update half_orm_packager.\n')
                 sys.exit(1)
         else:
-            if self.__hop_cls.version != self.__hop_cls.manifest['hop_version'] and not force:
+            if self.__hop_cls.command != 'new' and self.__hop_cls.version != self.__hop_cls.manifest['hop_version'] and not force:
                 sys.stderr.write('Hop version mismatch. Fix hop_release in MANIFEST.json.\n')
                 sys.exit(1)
 
         if self.__create_mode or self.__init_mode:
             self.__hop_cls.last_release_s = 'pre-patch'
-            self.save_database()
+            # self.save_database()
             return self._init()
 
         if revert:
@@ -178,6 +178,7 @@ class Patch:
         if not os.path.isdir('./Backups'):
             os.mkdir('./Backups')
         svg_file = self.__hop_cls.backup_path
+        print('XXX', svg_file)
         if os.path.isfile(svg_file) and not force:
             sys.stderr.write(
                 f"Oops! there is already a dump for the {self.__hop_cls.last_release_s} release.\n")
