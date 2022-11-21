@@ -2,6 +2,7 @@
 """
 
 from configparser import ConfigParser
+from half_orm.model import CONF_DIR
 
 class HopConf:
     """Reads and writes the hop repo conf file.
@@ -39,7 +40,7 @@ production = {production}
 """ 
 
     def __init__(self, connection_file: str = None):
-        self.__connection_file: str = connection_file
+        self.__connection_file: str = connection_file and f'{CONF_DIR}/{connection_file}' or None
         self.__name = None
         self.__user = None
         self.__password = None

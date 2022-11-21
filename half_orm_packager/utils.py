@@ -37,7 +37,7 @@ class Hop:
         hop_ok = self.__check()
         if self.__is_hop_repo:
             self.__hgit = HGit(self)
-            self.__db_conf = DbConf(f'{CONF_DIR}/{self.__config.name}')
+            self.__db_conf = DbConf(self.__config.name)
 
     def __check(self):
         """Checks the status of the current dir.
@@ -138,6 +138,10 @@ class Hop:
             if os.path.exists(f'{base_dir}/.hop/config'):
                 self.__project_path = base_dir
                 self.__config = HopConf(base_dir)
+                try:
+                    self.__db_conf = DbConf(self.__config.name)
+                except Exception as err:
+                    pass
                 return True
             idx -= 1
         return False
@@ -196,6 +200,8 @@ class Hop:
 
     @property
     def patch_path(self):
+        if self.release_path is None:
+            return None
         return f'{self.project_path}/Patches/{self.release_path}/'
 
     @property
@@ -214,7 +220,7 @@ class Hop:
 
     @property
     def manifest(self):
-        if not self.__manifest and self.__cmd != 'new':
+        if not self.__manifest and self.__cmd != 'new' and self.patch_path:
             with open(os.path.join(self.patch_path, 'MANIFEST.json'), encoding='utf-8') as manifest:
                 self.__manifest = json.load(manifest)
         return self.__manifest
@@ -475,7 +481,7 @@ class Hop:
             CONFIG_TEMPLATE.format(
                 config_file=project_name, package_name=project_name))
         self.__config = HopConf(project_path)
-        self.__db_conf = DbConf(f'{CONF_DIR}/{self.__config.name}')
+        self.__db_conf = DbConf(self.__config.name)
 
         cmd = " ".join(sys.argv)
         readme = README.format(cmd=cmd, dbname=self.__db_conf.name, package_name=project_name)
@@ -538,7 +544,7 @@ class Hop:
             sys.stderr.write(f"The database '{dbname}' does not exist.\n")
             create = input('Do you want to create it (Y/n): ') or "y"
             if create.upper() == 'Y':
-                self.__db_conf = DbConf(conf_path)
+                self.__db_conf = DbConf(self.__package_name)
                 self.execute_pg_command('createdb')
                 self.__model = Model(self.__package_name)
 

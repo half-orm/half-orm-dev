@@ -112,6 +112,9 @@ class HGit:
             sys.exit(1)
         next_ = next_[4:]
         if next_ == 'main':
-            next_ = self.__hop_cls.get_next_release()['release_s']
+            next_release = self.__hop_cls.get_next_release()
+            if next_release is None:
+                return
+            next_ = next_release['release_s']
         major, minor, patch = [int(elt) for elt in next_.split('.')]
         return f'{major}/{minor}/{patch}'

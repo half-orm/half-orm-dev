@@ -122,7 +122,9 @@ class Patch:
         if not create:
             self.__update_release()
 
-        self.__hop_cls.production and print('XXX PRODUCTION !!!!')
+        if not self.__hop_cls.manifest and not self.__hop_cls.command == 'new':
+            sys.stderr.write('No patch to apply!\n')
+            sys.exit(1)
         if self.__hop_cls.production and self.__hop_cls.command != 'new': #XXX production should be at False here (CHECK)
             # we ensure that we are on the hop_main branch in prod
             # we set force and revert to False
