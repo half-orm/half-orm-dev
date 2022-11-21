@@ -15,16 +15,15 @@ class HGit:
     __hop_main = False
     def __init__(self, hop_cls):
         self.__hop_cls = hop_cls
-        self.__model = hop_cls.model
         self.__failed = False
-        if 'new' in self.__hop_cls.available_cmds:
-            self.__init()
-        self.__repo = Repo(self.__hop_cls.project_path)
-
-    def __init(self):
-        subprocess.run(['git', 'init', self.__hop_cls.project_path], check=True)
-        self.__repo = Repo(self.__hop_cls.project_path)
-        self.hop_main_branch()
+        try:
+            self.__repo = Repo(self.__hop_cls.project_path)
+        except:
+            self.init()
+            # if 'new' in self.__hop_cls.available_cmds:
+            #     self.init()
+            # else:
+            #     raise(err)
 
     def hop_main_branch(self):
         """Sets the reference to hop_main branch. Creates the branch if it doesn't exist.
@@ -54,12 +53,13 @@ class HGit:
         from .patch import Patch
         from .update import update_modules
 
+        subprocess.run(['git', 'init', self.__hop_cls.project_path], check=True)
+        self.__repo = Repo(self.__hop_cls.project_path)
         os.chdir(self.__hop_cls.project_path)
-
-        Patch(self.__hop_cls, create_mode=True).patch(force=True)
-        self.__model.reconnect()  # we get the new stuff from db metadata here
+        Patch(self.__hop_cls, create_mode=True).patch(force=True, create=True)
+        self.__hop_cls.model.reconnect()  # we get the new stuff from db metadata here
         self.__hop_cls.last_release_s = '0.0.0'
-        update_modules(self.__hop_cls.model, self.__hop_cls.package_name, self.__hop_cls.last_release_s )
+        update_modules(self.__hop_cls, self.__hop_cls.package_name, self.__hop_cls.last_release_s )
         self.repo.git.add('.')
         self.repo.git.commit(m='[{}] First release'.format(self.__hop_cls.last_release_s))
         self.hop_main_branch()

@@ -34,7 +34,8 @@ class Patch:
         self.__curr_release_s = None
         self.__prev_release = None
         self.__next_release = None
-        self.__update_release()
+        if not create_mode:
+            self.__update_release()
 
     def __update_release(self):
         self.__curr_release = self.__hop_cls.get_current_db_release()
@@ -103,7 +104,7 @@ class Patch:
         else:
             print(f'Revert failed! No backup file for {self.__hop_cls.get_release_s(self.__prev_release)}.')
 
-    def patch(self, force=False, revert=False):
+    def patch(self, force=False, revert=False, create=False):
         """Patches the repo
 
         Gets the current patch release
@@ -118,8 +119,11 @@ class Patch:
         Returns:
             [type]: [description]
         """
-        self.__update_release()
-        if self.__hop_cls.production:
+        if not create:
+            self.__update_release()
+
+        self.__hop_cls.production and print('XXX PRODUCTION !!!!')
+        if self.__hop_cls.production and self.__hop_cls.command != 'new': #XXX production should be at False here (CHECK)
             # we ensure that we are on the hop_main branch in prod
             # we set force and revert to False
             # we pull to sync the git repo
@@ -178,7 +182,6 @@ class Patch:
         if not os.path.isdir('./Backups'):
             os.mkdir('./Backups')
         svg_file = self.__hop_cls.backup_path
-        print('XXX', svg_file)
         if os.path.isfile(svg_file) and not force:
             sys.stderr.write(
                 f"Oops! there is already a dump for the {self.__hop_cls.last_release_s} release.\n")
@@ -251,7 +254,7 @@ class Patch:
                 except subprocess.CalledProcessError:
                     self.__hop_cls.abort()
 
-        update_modules(self.model, self.package_name, self.__hop_cls.release_s)
+        update_modules(self.__hop_cls, self.package_name, self.__hop_cls.release_s)
         self.__register()
 
     # def apply_issue(self, issue, commit=None, bundled_issue=None):

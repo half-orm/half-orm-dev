@@ -8,12 +8,14 @@ from configparser import ConfigParser
 import click
 import psycopg2
 
+import half_orm
 from half_orm.model import Model, CONF_DIR
 from half_orm.model_errors import UnknownRelation, MissingConfigFile
 
 from half_orm_packager.globals import HOP_PATH, TEMPLATES_DIR
 from half_orm_packager.hgit import HGit
 from half_orm_packager.conf import HopConf, DbConf
+from half_orm_packager.patch import Patch
 
 class Hop:
     "The Hop class"
@@ -31,11 +33,11 @@ class Hop:
         self.__hgit: HGit = None
         self.__cur_dir = os.path.abspath(os.path.curdir)
         self.__hgit = None
+
         hop_ok = self.__check()
-        return
-        self.__model = self.get_model()
-        self.__db_conf.production = self.__model.production
-        self.__hgit = None
+        if self.__is_hop_repo:
+            self.__hgit = HGit(self)
+            self.__db_conf = DbConf(f'{CONF_DIR}/{self.__config.name}')
 
     def __check(self):
         """Checks the status of the current dir.
@@ -62,7 +64,7 @@ class Hop:
             # click.echo(f'hop new {package_name}')
             # on cherche un fichier de conf .hop/config dans l'arbre.
             self.init_package(package_name)
-            print(f"\nPlease go to {PWD}/{package_name}")
+            print(f"\nPlease go to {self.__config}")
 
 
         @click.command()
@@ -135,7 +137,7 @@ class Hop:
             base_dir = '/'.join(path_list[:idx]) or '/'
             if os.path.exists(f'{base_dir}/.hop/config'):
                 self.__project_path = base_dir
-                self.__config = HopConf(f'{base_dir}/.hop/config')
+                self.__config = HopConf(base_dir)
                 return True
             idx -= 1
         return False
@@ -166,7 +168,6 @@ class Hop:
         cmd_list.append(self.__dbname)
         if len(args):
             cmd_list += args
-        print('XXX', cmd_list, kwargs)
         ret = subprocess.run(cmd_list, env=env, shell=False, **kwargs)
         if ret.returncode:
             sys.exit(ret.returncode)
@@ -297,9 +298,9 @@ class Hop:
     def get_current_db_release(self):
         """Returns the current database release (dict)
         """
-        try:
+        if 1:#try:
             return next(self.__model.get_relation_class('half_orm_meta.view.hop_last_release')().select())
-        except UnknownRelation:
+        else:#except UnknownRelation:
             sys.stderr.write("WARNING! The database doesn't have the hop metadata!")
             return None
 
@@ -457,7 +458,6 @@ class Hop:
         GIT_IGNORE = read_template(f'{TEMPLATES_DIR}/.gitignore')
         PIPFILE = read_template(f'{TEMPLATES_DIR}/Pipfile')
 
-        import half_orm
         half_orm_version = half_orm.VERSION
 
         setup = SETUP_TEMPLATE.format(
@@ -474,13 +474,16 @@ class Hop:
         write_file(f'{project_path}/.hop/config',
             CONFIG_TEMPLATE.format(
                 config_file=project_name, package_name=project_name))
+        self.__config = HopConf(project_path)
+        self.__db_conf = DbConf(f'{CONF_DIR}/{self.__config.name}')
+
         cmd = " ".join(sys.argv)
         readme = README.format(cmd=cmd, dbname=self.__db_conf.name, package_name=project_name)
         write_file(f'{project_path}/README.md', readme)
         write_file(f'{project_path}/.gitignore', GIT_IGNORE)
         os.mkdir(f'{project_path}/{project_name}')
         self.project_path = project_path
-        self.__hgit = HGit(self).init()
+        self.__hgit = HGit(self)
 
         print(f"\nThe hop project '{project_name}' has been created.")
 
@@ -538,8 +541,6 @@ class Hop:
                 self.__db_conf = DbConf(conf_path)
                 self.execute_pg_command('createdb')
                 self.__model = Model(self.__package_name)
-            print(f'Please create the database an rerun hop new {self.__package_name}')
-            sys.exit(1)
 
     def __str__(self):
         return str(self.__available_cmds)

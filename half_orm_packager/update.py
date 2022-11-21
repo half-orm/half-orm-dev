@@ -171,8 +171,9 @@ def assemble_module_template(module_path):
         user_s_code=user_s_code)
 
 def update_this_module(
-        model, relation, package_dir, package_name, dirs_list):
+        hop_cls, relation, package_dir, package_name, dirs_list):
     """Updates the module."""
+    model = hop_cls.model
     _, fqtn = relation
     path = list(fqtn)
     if path[1].find('half_orm_meta') == 0:
@@ -201,7 +202,7 @@ def update_this_module(
         documentation = "\n".join([line and f"    {line}" or "" for line in str(rel).split("\n")])
         file_.write(
             module_template.format(
-                hop_release = self.__hop_cls.version,
+                hop_release = hop_cls.version,
                 module=f"{package_name}.{fqtn}",
                 # fkeys_properties=get_fkeys(rel),
                 package_name=package_name,
@@ -220,12 +221,12 @@ def update_this_module(
             )
     return module_path
 
-def update_modules(model, package_name, release):
+def update_modules(hop_cls, package_name, release):
     """Synchronize the modules with the structure of the relation in PG.
     """
     dirs_list = []
     files_list = []
-
+    model = hop_cls.model
     model._reload()
     dbname = model._dbname
     package_dir = package_name
@@ -238,7 +239,7 @@ def update_modules(model, package_name, release):
 
     warning = WARNING_TEMPLATE.format(package_name=package_name)
     for relation in model._relations():
-        module_path = update_this_module(model, relation, package_dir, package_name, dirs_list)
+        module_path = update_this_module(hop_cls, relation, package_dir, package_name, dirs_list)
         if module_path:
             files_list.append(module_path)
             if module_path.find('__init__.py') == -1:

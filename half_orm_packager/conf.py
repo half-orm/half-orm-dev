@@ -13,7 +13,7 @@ class HopConf:
 
     def __load(self):
         config = ConfigParser()
-        config.read(self.__path)
+        config.read(f'{self.__path}/.hop/config')
         self.__name = config['halfORM']['package_name']
 
     @property
@@ -24,7 +24,7 @@ class HopConf:
         self.__name = name
 
     def __str__(self):
-        return f'''Package name: {self.__name}'''
+        return f'''Package: {self.__path}'''
 
 class DbConf:
     """Reads and writes the halfORM connection file
@@ -46,6 +46,8 @@ production = {production}
         self.__host = None
         self.__port = None
         self.__production = None
+        if connection_file:
+            self.__read_conf_file()
 
     def __read_conf_file(self):
         config = ConfigParser()
@@ -55,7 +57,13 @@ production = {production}
         self.__password = config.get('database', 'password')
         self.__host = config.get('database', 'host')
         self.__port = config.get('database', 'port')
-        self.__production = config.get('database', 'production')
+        prod = config.get('database', 'production')
+        if prod == 'True':
+            self.__production = True
+        elif prod == 'False':
+            self.__production = False
+        else:
+            raise Exception('production must be either False or True')
 
     @property
     def name(self):
@@ -80,3 +88,12 @@ production = {production}
     @property
     def production(self):
         return self.__production
+
+    def __str__(self):
+        return f"""name: {self.__name}
+user: {self.__user}
+password: {self.__password}
+host: {self.__host}
+port: {self.__port}
+production: {self.__production}
+"""

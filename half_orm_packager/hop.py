@@ -50,8 +50,6 @@ def main(ctx, verbose):
             "Try hop new <package directory> or change directory.\n")
         sys.exit()
 
-    sys.path.insert(0, '.')
-
 HOP.add_commands(main)
 
 if __name__ == '__main__':
