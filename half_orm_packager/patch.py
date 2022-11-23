@@ -191,6 +191,40 @@ class Patch:
             sys.exit(1)
         self.__hop_cls.execute_pg_command('pg_dump', '-f', svg_file, stderr=subprocess.PIPE)
 
+    def __apply(self, path):
+        files = []
+        for file_ in os.scandir(path):
+            files.append({'name': file_.name, 'file': file_})
+        for elt in pydash.order_by(files, ['name']):
+            file_ = elt['file']
+            extension = file_.name.split('.').pop()
+            if file_.name == 'MANIFEST.py':
+                continue
+            if (not file_.is_file() or not (extension in ['sql', 'py'])):
+                continue
+            print(f'+ {file_.name}')
+
+            if extension == 'sql':
+                query = open(file_.path, 'r', encoding='utf-8').read().replace('%', '%%')
+                if len(query) <= 0:
+                    continue
+
+                try:
+                    self.model.execute_query(query)
+                except psycopg2.Error as err:
+                    sys.stderr.write(
+                        f"""WARNING! SQL error in :{file_.path}\n
+                            QUERY : {query}\n
+                            {err}\n""")
+                    self.__hop_cls.abort()
+                except (psycopg2.OperationalError, psycopg2.InterfaceError) as err:
+                    raise Exception(f'Problem with query in {file_.name}') from err
+            elif extension == 'py':
+                try:
+                    subprocess.check_call(file_.path, shell=True)
+                except subprocess.CalledProcessError:
+                    self.__hop_cls.abort()
+
     def __patch(self, commit=None, force=False):
         "Applies the patch and insert the information in the half_orm_meta.hop_release table"
         #TODO: simplify
@@ -223,40 +257,9 @@ class Patch:
         #         ]
         # except FileNotFoundError:
         #     pas
-        files = []
-        for file_ in os.scandir(self.__hop_cls.patch_path):
-            files.append({'name': file_.name, 'file': file_})
-        for elt in pydash.order_by(files, ['name']):
-            file_ = elt['file']
-            extension = file_.name.split('.').pop()
-            if file_.name == 'MANIFEST.py':
-                continue
-            if (not file_.is_file() or not (extension in ['sql', 'py'])):
-                continue
-            print(f'+ {file_.name}')
 
-            if extension == 'sql':
-                query = open(file_.path, 'r', encoding='utf-8').read().replace('%', '%%')
-                if len(query) <= 0:
-                    continue
-
-                try:
-                    self.model.execute_query(query)
-                except psycopg2.Error as err:
-                    sys.stderr.write(
-                        f"""WARNING! SQL error in :{file_.path}\n
-                            QUERY : {query}\n
-                            {err}\n""")
-                    self.__hop_cls.abort()
-                except (psycopg2.OperationalError, psycopg2.InterfaceError) as err:
-                    raise Exception(f'Problem with query in {file_.name}') from err
-            elif extension == 'py':
-                try:
-                    subprocess.check_call(file_.path, shell=True)
-                except subprocess.CalledProcessError:
-                    self.__hop_cls.abort()
-
-        update_modules(self.__hop_cls, self.package_name, self.__hop_cls.release_s)
+        self.__apply(self.__hop_cls.patch_path)
+        update_modules(self.__hop_cls)
         self.__register()
 
     # def apply_issue(self, issue, commit=None, bundled_issue=None):

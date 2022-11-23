@@ -40,7 +40,7 @@ hop new <package name>
 
 **WARNING!** The `hop new` command will add to your database
 two new schemas: `half_orm_meta` and "`half_orm_meta.view`".
-The table `half_orm_meta.hop_release` will containt the patch history
+The table `half_orm_meta.release` will containt the patch history
 of your model (see `hop patch` bellow).
 
 

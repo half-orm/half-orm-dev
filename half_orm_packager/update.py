@@ -221,9 +221,11 @@ def update_this_module(
             )
     return module_path
 
-def update_modules(hop_cls, package_name, release):
+def update_modules(hop_cls):
     """Synchronize the modules with the structure of the relation in PG.
     """
+    package_name = hop_cls.package_name
+    release = hop_cls.last_release_s 
     dirs_list = []
     files_list = []
     model = hop_cls.model

@@ -34,7 +34,7 @@ class Hop:
         self.__cur_dir = os.path.abspath(os.path.curdir)
         self.__hgit = None
 
-        hop_ok = self.__check()
+        self.__check()
         if self.__is_hop_repo:
             self.__hgit = HGit(self)
             self.__db_conf = DbConf(self.__config.name)
@@ -44,15 +44,25 @@ class Hop:
         * is it a hop repo?
         * what are the next available commands?
         """
-        ok_hop = self.__is_hop_repo
         # If we are not in a hop directory, only hop new is available.
-        if not ok_hop:
+        if not self.__is_hop_repo:
             Hop.__available_cmds = ['new']
         else:
             if not self.__db_conf.production:
                 Hop.__available_cmds = ['patch']
             else:
                 Hop.__available_cmds = ['upgrade']
+            self.__check_version()
+
+    def __check_version(self):
+        if self.version != self.__config.hop_version:
+            print(f'HOP VERSION MISMATCH!\n- hop: {self.version}\n- repo: {self.__config.hop_version}')
+            self.__hop_upgrade()
+            self.__config.hop_version = self.version
+            self.__config.write()
+
+    def __hop_upgrade(self):
+        print('TODO __hop_upgrade')
 
     def add_commands(self, main):
         @click.command()
@@ -145,10 +155,6 @@ class Hop:
                 return True
             idx -= 1
         return False
-
-    def click(self, main):
-
-        main.add_command(new)
 
     def execute_pg_command(self, cmd, *args, **kwargs):
         self.__dbname = self.__db_conf.name

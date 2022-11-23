@@ -1,7 +1,7 @@
 """The pkg_conf module provides the HopConf and DbConf classes.
 """
 
-from configparser import ConfigParser
+from configparser import ConfigParser, NoOptionError
 from half_orm.model import CONF_DIR
 
 class HopConf:
@@ -9,13 +9,16 @@ class HopConf:
     """
     def __init__(self, path):
         self.__path: str = path
+        self.__file: str = f'{self.__path}/.hop/config'
         self.__name: str = None
+        self.__hop_version: str = None
         self.__load()
 
     def __load(self):
         config = ConfigParser()
-        config.read(f'{self.__path}/.hop/config')
+        config.read(self.__file)
         self.__name = config['halfORM']['package_name']
+        self.__hop_version = config['halfORM'].get('hop_version')
 
     @property
     def name(self):
@@ -24,8 +27,22 @@ class HopConf:
     def name(self, name):
         self.__name = name
 
+    @property
+    def hop_version(self):
+        return self.__hop_version
+    @hop_version.setter
+    def hop_version(self, version):
+        self.__hop_version = version
+
+    def write(self):
+        open(self.__file, 'w').write(str(self))
+
     def __str__(self):
-        return f'''Package: {self.__path}'''
+        return f'''[halfORM]
+config_file = {self.__name}
+package_name = {self.__name}
+hop_version = {self.__hop_version}
+'''
 
 class DbConf:
     """Reads and writes the halfORM connection file
@@ -58,7 +75,10 @@ production = {production}
         self.__password = config.get('database', 'password')
         self.__host = config.get('database', 'host')
         self.__port = config.get('database', 'port')
-        prod = config.get('database', 'production')
+        try:
+            prod = config.get('database', 'production')
+        except NoOptionError:
+            prod = 'False'
         if prod == 'True':
             self.__production = True
         elif prod == 'False':
@@ -69,26 +89,44 @@ production = {production}
     @property
     def name(self):
         return self.__name
+    @name.setter
+    def name(self, name):
+        self.__name = name
 
     @property
     def user(self):
         return self.__user
+    @user.setter
+    def user(self, user):
+        self.__user = user
 
     @property
     def password(self):
         return self.__password
+    @password.setter
+    def password(self, password):
+        self.__password = password
 
     @property
     def host(self):
         return self.__host
+    @host.setter
+    def host(self, host):
+        self.__host = host
 
     @property
     def port(self):
         return self.__port
+    @port.setter
+    def port(self, port):
+        self.__port = port
 
     @property
     def production(self):
         return self.__production
+    @production.setter
+    def production(self, production):
+        self.__production = production
 
     def __str__(self):
         return f"""name: {self.__name}
@@ -98,3 +136,6 @@ host: {self.__host}
 port: {self.__port}
 production: {self.__production}
 """
+
+    def write(self):
+        open(self.__connection_file, 'w').write(str(self))

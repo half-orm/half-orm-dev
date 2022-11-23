@@ -59,7 +59,7 @@ class HGit:
         Patch(self.__hop_cls, create_mode=True).patch(force=True, create=True)
         self.__hop_cls.model.reconnect()  # we get the new stuff from db metadata here
         self.__hop_cls.last_release_s = '0.0.0'
-        update_modules(self.__hop_cls, self.__hop_cls.package_name, self.__hop_cls.last_release_s )
+        update_modules(self.__hop_cls)
         self.repo.git.add('.')
         self.repo.git.commit(m='[{}] First release'.format(self.__hop_cls.last_release_s))
         self.hop_main_branch()
