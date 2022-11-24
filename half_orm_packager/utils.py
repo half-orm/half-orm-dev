@@ -62,8 +62,16 @@ class Hop:
             self.__config.write()
 
     def __hop_upgrade(self):
+        versions = [line.split()[0] for line in open(f'{HOP_PATH}/patches/log').readlines()]
         if self.__config.hop_version:
-            Patch(self, create_mode=True).apply(f'{HOP_PATH}/patches/{self.version.replace(".", "/")}')
+            to_apply = False
+            for version in versions:
+                if version == self.__config.hop_version:
+                    to_apply = True
+                    continue
+            if to_apply:
+                print('UPGRADE HOP to', version)
+                Patch(self, create_mode=True).apply(f'{HOP_PATH}/patches/{self.version.replace(".", "/")}')
 
     def add_commands(self, main):
         @click.command()
