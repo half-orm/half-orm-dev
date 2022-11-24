@@ -191,7 +191,7 @@ class Patch:
             sys.exit(1)
         self.__hop_cls.execute_pg_command('pg_dump', '-f', svg_file, stderr=subprocess.PIPE)
 
-    def __apply(self, path):
+    def apply(self, path):
         files = []
         for file_ in os.scandir(path):
             files.append({'name': file_.name, 'file': file_})
@@ -258,7 +258,7 @@ class Patch:
         # except FileNotFoundError:
         #     pas
 
-        self.__apply(self.__hop_cls.patch_path)
+        self.apply(self.__hop_cls.patch_path)
         update_modules(self.__hop_cls)
         self.__register()
 
