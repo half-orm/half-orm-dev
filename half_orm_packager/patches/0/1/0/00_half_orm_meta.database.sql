@@ -14,7 +14,13 @@ DECLARE
 BEGIN
     select current_database() into dbname;
     --XXX: use a materialized view.
-    select encode(hmac(dbname, pg_read_file('hop_key'), 'sha1'), 'hex') into dbid;
+    BEGIN
+        select encode(hmac(dbname, pg_read_file('hop_key'), 'sha1'), 'hex') into dbid;
+    EXCEPTION
+        when undefined_file then
+            raise NOTICE 'No hop_key file for the cluster. Will use % for dbid', dbname;
+            dbid := dbname;
+    END;
     if old_dbid is not null and old_dbid != dbid
     then
         raise Exception 'Not the same database!';

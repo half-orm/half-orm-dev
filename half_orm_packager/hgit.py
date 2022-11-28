@@ -12,18 +12,8 @@ from git.exc import InvalidGitRepositoryError
 
 class HGit:
     "docstring"
-    __hop_main = False
-    def __init__(self, hop_cls):
-        self.__hop_cls = hop_cls
-        self.__failed = False
-        try:
-            self.__repo = Repo(self.__hop_cls.project_path)
-        except:
-            self.init()
-            # if 'new' in self.__hop_cls.available_cmds:
-            #     self.init()
-            # else:
-            #     raise(err)
+    def __init__(self, base_dir):
+        self.__repo = Repo(base_dir)
 
     def hop_main_branch(self):
         """Sets the reference to hop_main branch. Creates the branch if it doesn't exist.
@@ -72,20 +62,24 @@ class HGit:
         """
         return list(self.__repo.iter_commits(self.branch, max_count=1))[0]
 
-    @classmethod
-    def exit_if_repo_is_not_clean(cls):
-        "Exits if the repo has uncommited changes."
+    @staticmethod
+    def repos_is_clean():
         with subprocess.Popen(
             "git status --porcelain", shell=True, stdout=subprocess.PIPE) as repo_is_clean:
             repo_is_clean = repo_is_clean.stdout.read().decode().strip().split('\n')
             repo_is_clean = [line for line in repo_is_clean if line != '']
-            if repo_is_clean:
-                repo_is_clean_s = '\n'.join(repo_is_clean)
-                print(f"WARNING! Repo is not clean:\n\n{repo_is_clean_s}")
-                cont = input("\nApply [y/N]?")
-                if cont.upper() != 'Y':
-                    print("Aborting")
-                    sys.exit(1)
+            return not(bool(repo_is_clean))
+
+    @classmethod
+    def exit_if_repo_is_not_clean(cls):
+        "Exits if the repo has uncommited changes."
+        if self.repo_is_clean:
+            repo_is_clean_s = '\n'.join(repo_is_clean)
+            print(f"WARNING! Repo is not clean:\n\n{repo_is_clean_s}")
+            cont = input("\nApply [y/N]?")
+            if cont.upper() != 'Y':
+                print("Aborting")
+                sys.exit(1)
 
 
     def set_branch(self, release_s):

@@ -29,10 +29,110 @@ import psycopg2
 
 from half_orm.model import Model, CONF_DIR
 from half_orm.model_errors import MissingConfigFile
+from half_orm_packager.globals import HOP_PATH
+from half_orm_packager.conf import Config
 
-from half_orm_packager.utils import Hop
+# from half_orm_packager.utils import Hop
 
-HOP = Hop()
+class Hop:
+    __hop_version = open(f'{HOP_PATH}/version.txt').read().strip()
+    __available_cmds = []
+    def __init__(self):
+        self.__config: Config = Config()
+        if not self.is_repo:
+            Hop.__available_cmds = ['new']
+        else:
+            self.__check_version()
+            if not self.__config.production:
+                Hop.__available_cmds = ['patch']
+            else:
+                Hop.__available_cmds = ['upgrade']
+
+    @property
+    def is_repo(self):
+        return bool(self.__config.name)
+
+    @property
+    def model(self):
+        return self.__config.model
+
+    @property
+    def status(self):
+        return(self.__config)
+
+    def __check_version(self):
+        if self.__hop_version != self.__config.repo_hop_version:
+            print(f'HOP VERSION MISMATCH!\n- hop: {self.__hop_version}\n- repo: {self.__config.repo_hop_version}')
+            sys.exit(1)
+            # self.__hop_upgrade()
+            # self.__config.hop_version = self.__config.repo_hop_version
+            # self.__config.write()
+
+    def add_commands(self, main):
+        @click.command()
+        @click.argument('package_name')
+        def new(package_name):
+            """ Creates a new hop project named <package_name>.
+            """
+            self.command = 'new'
+            # click.echo(f'hop new {package_name}')
+            # on cherche un fichier de conf .hop/config dans l'arbre.
+            self.init_package(package_name)
+            print(f"\nPlease go to {self.__config}")
+
+
+        @click.command()
+        @click.option('-f', '--force', is_flag=True, help="Don't check if git repo is clean.")
+        @click.option('-r', '--revert', is_flag=True, help="Revert to the previous release.")
+        @click.option('-p', '--prepare', type=click.Choice(['patch', 'minor', 'major']), help="Prepare next patch.")
+        # @click.argument('branch_from', required=False)
+        #TODO @click.option('-c', '--commit', is_flag=True, help="Commit the patch to the hop_main branch")
+        def patch(force, revert, prepare, branch_from=None):
+            """ Applies the next patch.
+            """
+            self.command = 'patch'
+            # print('branch from', branch_from)
+            if prepare:
+                Patch(self).prep_next_release(prepare)
+            elif revert:
+                Patch(self).revert()
+            else:
+                Patch(self).patch(force, revert)
+
+            sys.exit()
+
+
+        @click.command()
+        # @click.option('-d', '--dry-run', is_flag=True, help='Do nothing')
+        # @click.option('-l', '--loop', is_flag=True, help='Run every patches to apply')
+        def upgrade():
+            """Apply one or many patches.
+
+            switches to hop_main, pulls should check the tags
+            """
+            self.command = 'upgrade'
+            Patch(self).patch()
+
+        @click.command()
+        def test():
+            """ Tests some common pitfalls.
+            """
+            if tests(self.model, self.package_name):
+                click.echo('Tests OK')
+            else:
+                click.echo('Tests failed')
+
+        CMDS = {
+            'new': new,
+            'patch': patch,
+            'upgrade': upgrade,
+        }
+
+        for cmd in self.__available_cmds:
+            main.add_command(CMDS[cmd])
+
+
+hop = Hop()
 
 @click.group(invoke_without_command=True)
 @click.pass_context
@@ -41,16 +141,16 @@ def main(ctx, verbose):
     """
     Generates/Synchronises/Patches a python package from a PostgreSQL database
     """
-    if HOP.model and ctx.invoked_subcommand is None:
-        click.echo('halfORM packager')
-        HOP.status(verbose)
-    elif not HOP.model and ctx.invoked_subcommand != 'new':
+    if hop.is_repo and ctx.invoked_subcommand is None:
+        click.echo('halfORM packager\n')
+        click.echo(hop.status)
+    elif not hop.model and ctx.invoked_subcommand != 'new':
         sys.stderr.write(
             "You're not in a hop package directory.\n"
             "Try hop new <package directory> or change directory.\n")
         sys.exit()
 
-HOP.add_commands(main)
+hop.add_commands(main)
 
 if __name__ == '__main__':
     main({}, None)
