@@ -82,16 +82,20 @@ class DbConf:
         if self.__name:
             return Model(self.__name)
 
-    def __str__(self):
+    def __repr(self, show_password=False):
         db_conf_keys = ['name', 'user', 'password', 'host', 'port', 'production']
         res = ['[database]']
         for key in db_conf_keys:
             value = eval(f'self.{key}')
+            if not show_password and key == 'password':
+                value = 'xxxxxxxx'
             res.append(f'{key}: {value}')
         res.append('\n')
         res.append('[model]')
         res.append(str(self.model))
         return '\n'.join(res)
 
+    __str__ = __repr
+
     def write(self):
-        open(self.__connection_file, 'w').write(str(self))
+        open(self.__connection_file, 'w').write(str(self.__repr, True))
