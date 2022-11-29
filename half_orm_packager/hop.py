@@ -131,7 +131,7 @@ def main(ctx, verbose):
     elif not hop.model and ctx.invoked_subcommand != 'new':
         sys.stderr.write(
             "You're not in a hop package directory.\n"
-            "Try hop new <package directory> or change directory.\n")
+            "Try `hop new <package name>` or change directory.\n")
         sys.exit()
 
 hop.add_commands(main)

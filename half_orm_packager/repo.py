@@ -1,11 +1,12 @@
-"""The pkg_conf module provides the Repo and DbConf classes.
+"""The pkg_conf module provides the Repo class.
 """
 
 import os
 from configparser import ConfigParser, NoOptionError
 from half_orm_packager.globals import HOP_PATH
-from half_orm_packager.db_conf import DbConf
+from half_orm_packager.database import Database
 from half_orm_packager.git_conf import GitConf
+from half_orm_packager.utils import Color
 
 class Repo:
     """Reads and writes the hop repo conf file.
@@ -13,18 +14,18 @@ class Repo:
     __hop_version = open(f'{HOP_PATH}/version.txt').read().strip()
     __base_dir: str = None;
     __name: str = None;
-    __db_conf: DbConf = DbConf()
+    __database: Database = Database()
     __file: str;
     def __init__(self):
         self.__check()
 
     @property
     def production(self):
-        return self.__db_conf.production
+        return self.__database.production
 
     @property
     def model(self):
-        return self.__db_conf.model
+        return self.__database.model
 
     def __check(self):
         """Searches the hop configuration file for the package.
@@ -38,7 +39,7 @@ class Repo:
                 self.__base_dir = base_dir
                 self.__file: str = conf_file
                 self.__load_config()
-                self.__db_conf = DbConf(self.__name)
+                self.__database = Database(self.__name)
                 self.__git_conf = GitConf(self.__base_dir)
                 return True
             par_dir = os.path.split(base_dir)[0]
@@ -78,25 +79,30 @@ class Repo:
     def __write(self):
         open(self.__file, 'w').write(str(self))
 
-    def __str__(self):
-        res = [f'Half-ORM packager {self.__hop_version}', '\n']
+    def __repr(self, verbose=True):
+        res = [f'Half-ORM packager: {self.__hop_version}', '\n']
+        hop_version = Color.green(self.__self_hop_version)
+        if self.__hop_version != self.__self_hop_version:
+            hop_version = Color.red(self.__self_hop_version)
         res += [
             '[hop repo]',
-            f'package_name = {self.__name}',
-            f'hop_version = {self.__self_hop_version}'
+            f'package name: {self.__name}',
+            f'hop version: {hop_version}'
         ]
-        res.append('\n')
-        res.append(str(self.__db_conf))
+        verbose and res.append('\n')
+        verbose and res.append(str(self.__database))
         res.append('\n')
         res.append(str(self.__git_conf))
         return '\n'.join(res)
 
+    __str__ = __repr
+
     @property
     def db_conf(self):
-        return self.__db_conf
+        return self.__database
     @db_conf.setter
     def db_conf(self, dbname):
-        self.__db_conf = DbConf(dbname)
+        self.__database = Database(dbname)
 
 
     def init(self, package_name):

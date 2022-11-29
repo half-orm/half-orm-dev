@@ -1,26 +1,34 @@
-import json
-import os
 import sys
-import subprocess
-from getpass import getpass
-from configparser import ConfigParser
 
-import click
-import psycopg2
-
-import half_orm
-from half_orm.model import Model, CONF_DIR
-from half_orm.model_errors import UnknownRelation, MissingConfigFile
-
-from half_orm_packager.globals import HOP_PATH, TEMPLATES_DIR
-from half_orm_packager.hgit import HGit
-from half_orm_packager.conf import HopConf, DbConf
-from half_orm_packager.patch import Patch
-from half_orm.manifest import Manifest
-
-class Hop
+class Color:
+    @staticmethod
+    def red(text):
+        return(f"\033[31m{text}\033[0m")
+    @staticmethod
+    def green(text):
+        return(f"\033[32m{text}\033[0m")
+    @staticmethod
+    def blue(text):
+        return(f"\033[34m{text}\033[0m")
 
 if False:
+    import json
+    import os
+    import sys
+    import subprocess
+    from getpass import getpass
+    from configparser import ConfigParser
+
+    import half_orm
+    from half_orm.model import Model, CONF_DIR
+    from half_orm.model_errors import UnknownRelation, MissingConfigFile
+
+    from half_orm_packager.globals import HOP_PATH, TEMPLATES_DIR
+    from half_orm_packager.hgit import HGit
+    from half_orm_packager.conf import HopConf, DbConf
+    from half_orm_packager.patch import Patch
+    from half_orm.manifest import Manifest
+
     class Hop:
         "The Hop class"
         __available_cmds = []
