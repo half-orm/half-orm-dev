@@ -2,11 +2,13 @@
 """
 
 import os
+import sys
 from configparser import ConfigParser, NoOptionError
-from half_orm_packager.globals import HOP_PATH
+from half_orm_packager.globals import HOP_PATH, TEMPLATES_DIR
 from half_orm_packager.database import Database
-from half_orm_packager.git_conf import GitConf
+from half_orm_packager.hgit import HGit 
 from half_orm_packager.utils import Color
+from half_orm_packager.hgit import HGit
 
 class Repo:
     """Reads and writes the hop repo conf file.
@@ -40,7 +42,7 @@ class Repo:
                 self.__file: str = conf_file
                 self.__load_config()
                 self.__database = Database(self.__name)
-                self.__git_conf = GitConf(self.__base_dir)
+                self.__git_conf = HGit(self.__base_dir)
                 return True
             par_dir = os.path.split(base_dir)[0]
             if par_dir == base_dir:
@@ -79,7 +81,8 @@ class Repo:
     def __write(self):
         open(self.__file, 'w').write(str(self))
 
-    def __repr(self, verbose=True):
+    @property
+    def status(self, verbose=True):
         res = [f'Half-ORM packager: {self.__hop_version}', '\n']
         hop_version = Color.green(self.__self_hop_version)
         if self.__hop_version != self.__self_hop_version:
@@ -90,12 +93,10 @@ class Repo:
             f'hop version: {hop_version}'
         ]
         verbose and res.append('\n')
-        verbose and res.append(str(self.__database))
+        verbose and res.append(str(self.__database.status))
         res.append('\n')
-        res.append(str(self.__git_conf))
+        res.append(str(self.__hgit))
         return '\n'.join(res)
-
-    __str__ = __repr
 
     @property
     def db_conf(self):
@@ -106,10 +107,52 @@ class Repo:
 
 
     def init(self, package_name):
+        self.__name = package_name
+        self.__self_hop_version=self.__hop_version
         cur_dir = os.path.abspath(os.path.curdir)
-        path = os.path.join(cur_dir, package_name)
-        print(f"Installing new hop repo in {path}.")
-        raise NotImplemented
+        self.__base_dir = os.path.join(cur_dir, package_name)
+        print(f"Installing new hop repo in {self.__base_dir}.")
+
+        if not os.path.exists(self.__base_dir):
+            os.makedirs(self.__base_dir)
+        else:
+            sys.stderr.write(f"ERROR! The path '{self.__base_dir}' already exists!\n")
+            sys.exit(1)
+        README = open(f'{TEMPLATES_DIR}/README').read()
+        CONFIG_TEMPLATE = open(f'{TEMPLATES_DIR}/config').read()
+        SETUP_TEMPLATE = open(f'{TEMPLATES_DIR}/setup.py').read()
+        GIT_IGNORE = open(f'{TEMPLATES_DIR}/.gitignore').read()
+        PIPFILE = open(f'{TEMPLATES_DIR}/Pipfile').read()
+
+        setup = SETUP_TEMPLATE.format(
+                dbname=self.__name,
+                package_name=self.__name,
+                half_orm_version=self.__hop_version)
+        open(f'{self.__base_dir}/setup.py', 'w').write(setup)
+
+        PIPFILE = PIPFILE.format(
+                half_orm_version=self.__hop_version)
+        open(f'{self.__base_dir}/Pipfile', 'w').write(PIPFILE)
+
+        os.mkdir(f'{self.__base_dir}/.hop')
+        open(f'{self.__base_dir}/.hop/config', 'w').write(
+            CONFIG_TEMPLATE.format(
+                config_file=self.__name,
+                package_name=self.__name,
+                hop_version=self.__hop_version))
+        self.__database = Database().init(self.__name)
+        # self.__config = HopConf(self.__base_dir)
+
+        cmd = " ".join(sys.argv)
+        readme = README.format(cmd=cmd, dbname=self.__name, package_name=self.__name)
+        open(f'{self.__base_dir}/README.md', 'w').write(readme)
+        open(f'{self.__base_dir}/.gitignore', 'w').write(GIT_IGNORE)
+        os.mkdir(f'{self.__base_dir}/{self.__name}')
+        self.__hgit = HGit().init(self.__base_dir)
+
+        print(f"\nThe hop project '{self.__name}' has been created.")
+        print(self.status)
+
 
     def upgrade(self):
         raise NotImplemented

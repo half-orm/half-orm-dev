@@ -54,7 +54,7 @@ class Hop:
 
     @property
     def status(self):
-        return(self.__repo)
+        return(self.__repo.status)
 
     def add_commands(self, main):
         @click.command()
