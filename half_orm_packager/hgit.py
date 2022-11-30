@@ -14,7 +14,7 @@ class HGit:
         self.__repo = Repo(self.__base_dir)
         self.__current_branch = self.branch
         self.__is_clean = self.repos_is_clean()
-        self.__last_commit = self.commit
+        self.__last_commit = self.last_commit()
 
     def __str__(self):
         res = ['[git]']
@@ -51,8 +51,7 @@ class HGit:
             repo_is_clean = [line for line in repo_is_clean if line != '']
             return not(bool(repo_is_clean))
 
-    @property
-    def commit(self):
+    def last_commit(self):
         """Returns the last commit
         """
         return list(self.__repo.iter_commits(self.branch, max_count=1))[0]

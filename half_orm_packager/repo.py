@@ -42,7 +42,7 @@ class Repo:
                 self.__file: str = conf_file
                 self.__load_config()
                 self.__database = Database(self.__name)
-                self.__git_conf = HGit(self.__base_dir)
+                self.__hgit = HGit(self.__base_dir)
                 return True
             par_dir = os.path.split(base_dir)[0]
             if par_dir == base_dir:
@@ -81,12 +81,15 @@ class Repo:
     def __write(self):
         open(self.__file, 'w').write(str(self))
 
+    def __hop_version_mismatch(self):
+        return self.__hop_version != self.__self_hop_version
+
     @property
     def status(self, verbose=True):
         res = [f'Half-ORM packager: {self.__hop_version}', '\n']
-        hop_version = Color.green(self.__self_hop_version)
-        if self.__hop_version != self.__self_hop_version:
-            hop_version = Color.red(self.__self_hop_version)
+        hop_version = self.__hop_version_mismatch() and \
+            Color.red(self.__self_hop_version) or \
+            Color.green(self.__self_hop_version)
         res += [
             '[hop repo]',
             f'package name: {self.__name}',
