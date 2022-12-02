@@ -32,7 +32,7 @@ class Database:
 
     def __init(self, name, get_release=True):
         self.__name = name
-        self.__connection_file = f'{self.__conf_dir}/{self.__name}'
+        self.__connection_file = os.path.join(self.__conf_dir, self.__name)
         if not os.path.exists(self.__connection_file):
             raise FileNotFoundError
         config = ConfigParser()
@@ -145,13 +145,13 @@ class Database:
             if create.upper() == 'Y':
                 self.execute_pg_command('createdb')
             else:
-                sys.stderr.write(f'Aborting! Please remove {self.__base_dir}/{self.__name} directory.\n')
+                sys.stderr.write(f'Aborting! Please remove {os.path.join(self.__base_dir, self.__name)} directory.\n')
                 sys.exit(1)
         self.__model = Model(self.__name)
         try:
             self.__model.get_relation_class('half_orm_meta.hop_release')
         except UnknownRelation:
-            hop_init_sql_file = f'{HOP_PATH}/sql/half_orm_meta_schemas.sql'
+            hop_init_sql_file = os.path.join(HOP_PATH, 'sql', 'half_orm_meta_schemas.sql')
             self.execute_pg_command('psql', '-f', hop_init_sql_file, stdout=subprocess.DEVNULL)
             self.__model.reconnect(reload=True)
             self.__last_release = self.__model.get_relation_class('half_orm_meta.hop_release')(
@@ -165,7 +165,7 @@ class Database:
         """
         if not os.access(CONF_DIR, os.W_OK):
             sys.stderr.write(f"You don't have write access to {CONF_DIR}.\n")
-            if CONF_DIR == '/etc/half_orm':
+            if CONF_DIR == '/etc/half_orm': # only on linux
                 sys.stderr.write(
                     "Set the HALFORM_CONF_DIR environment variable if you want to use a\n"
                     "different directory.\n")
@@ -184,7 +184,7 @@ class Database:
 
         self.__production = input('Production (False): ') or False
 
-        open(f'{CONF_DIR}/{self.__name}',
+        open(os.path.join(CONF_DIR, self.__name),
             'w', encoding='utf-8').write(self.__repr(show_password=True))
 
         return self

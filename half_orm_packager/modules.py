@@ -32,7 +32,7 @@ from half_orm_packager.globals import TEMPLATES_DIR, BEGIN_CODE, END_CODE
 
 def read_template(file_name):
     "helper"
-    with open(f'{TEMPLATES_DIR}/{file_name}', encoding='utf-8') as file_:
+    with open(os.path.join(TEMPLATES_DIR, file_name), encoding='utf-8') as file_:
         return file_.read()
 
 DB_CONNECTOR_TEMPLATE = read_template('db_connector.py')
@@ -72,7 +72,7 @@ def __update_init_files(package_dir, files_list, warning):
             if dir_ != '__pycache__':
                 all_.append(dir_)
         for file in files:
-            path_ = f"{root}/{file}"
+            path_ = os.path.join(root, file)
             if path_ not in files_list and file not in DO_NOT_REMOVE:
                 if path_.find('__pycache__') == -1 and path_.find('_test.py') == -1:
                     print(f"REMOVING: {path_}")
@@ -84,7 +84,7 @@ def __update_init_files(package_dir, files_list, warning):
                     file.find('_test.py') == -1):
                 all_.append(file.replace('.py', ''))
         all_.sort()
-        with open(f'{root}/__init__.py', 'w', encoding='utf-8') as init_file:
+        with open(os.path.join(root, '__init__.py'), 'w', encoding='utf-8') as init_file:
             init_file.write(f'"""{warning}"""\n\n')
 
             all_ = ",\n    ".join([f"'{elt}'" for elt in all_])
@@ -150,13 +150,15 @@ def __update_this_module(
         return None
 
     path[0] = package_dir
-    path[1] = path[1].replace('.', '/')
+    path[1] = path[1].replace('.', os.sep)
 
-    module_path = f"{'/'.join([iskeyword(elt) and f'{elt}_' or elt for elt in path])}.py"
+    path = [iskeyword(elt) and f'{elt}_' or elt for elt in path]
+    module_path = f"{os.path.join(*path)}.py"
     if not os.path.dirname(module_path) in dirs_list:
         dirs_list.append(os.path.dirname(module_path))
-    if not os.path.exists('/'.join(path[:-1])):
-        os.makedirs('/'.join(path[:-1]))
+    path_1 = os.path.join(*path[:-1])
+    if not os.path.exists(path_1):
+        os.makedirs(path_1)
     module_template = __assemble_module_template(module_path)
     inheritance_import, inherited_classes = __get_inheritance_info(
         rel, package_name)
@@ -189,17 +191,17 @@ def generate(repo):
     model = repo.database.model
     base_dir = repo.base_dir
     package_name = repo.name
-    package_dir = f'{base_dir}/{package_name}'
+    package_dir = os.path.join(base_dir, package_name)
     dirs_list = []
     files_list = []
     model._reload()
     if not os.path.exists(package_dir):
         os.mkdir(package_dir)
-    with open(f'{package_dir}/db_connector.py', 'w', encoding='utf-8') as file_:
+    with open(os.path.join(package_dir, 'db_connector.py'), 'w', encoding='utf-8') as file_:
         file_.write(DB_CONNECTOR_TEMPLATE.format(dbname=package_name, package_name=package_name))
 
-    if not os.path.exists(f'{package_dir}/base_test.py'):
-        with open(f'{package_dir}/base_test.py', 'w', encoding='utf-8') as file_:
+    if not os.path.exists(os.path.join(package_dir, 'base_test.py')):
+        with open(os.path.join(package_dir, 'base_test.py'), 'w', encoding='utf-8') as file_:
             file_.write(BASE_TEST.format(package_name=package_name))
 
     warning = WARNING_TEMPLATE.format(package_name=package_name)

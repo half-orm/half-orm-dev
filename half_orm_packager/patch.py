@@ -21,18 +21,11 @@ from .hgit import HGit
 from .update import update_modules
 
 class Patch:
+    raise NotImplemented
     #TODO: docstring
     "class Patch"
     def __init__(self, hop_cls):
         self.__hop_cls = hop_cls
-        self.__hgit = HGit(hop_cls)
-        self.__init_mode = init_mode
-        # self.__orig_dir = os.path.abspath('.')
-        self.__module_dir = os.path.dirname(__file__)
-        self.__curr_release = None
-        self.__curr_release_s = None
-        self.__prev_release = None
-        self.__next_release = None
         if not create_mode:
             self.__update_release()
 

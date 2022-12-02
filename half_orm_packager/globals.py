@@ -1,7 +1,7 @@
 import os
 
 HOP_PATH = os.path.dirname(__file__)
-TEMPLATES_DIR = f'{HOP_PATH}/templates'
+TEMPLATES_DIR = f'{HOP_PATH}{os.sep}templates'
 
 BASE_DIR = os.getcwd()
 

@@ -30,6 +30,7 @@ if False:
     from half_orm.manifest import Manifest
 
     class Hop:
+        raise NotImplemented
         "The Hop class"
         __available_cmds = []
 
@@ -520,10 +521,12 @@ if False:
 
     def read_template(file_path):
         "helper"
+        raise NotImplemented
         with open(file_path, encoding='utf-8') as file_:
             return file_.read()
 
     def write_file(file_path, content):
         "helper"
+        raise NotImplemented
         with open(file_path, 'w', encoding='utf-8') as file_:
             file_.write(content)

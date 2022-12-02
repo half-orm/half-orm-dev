@@ -14,7 +14,7 @@ from half_orm_packager import modules
 class Repo:
     """Reads and writes the hop repo conf file.
     """
-    __hop_version = open(f'{HOP_PATH}/version.txt').read().strip()
+    __hop_version = open(os.path.join(HOP_PATH, 'version.txt')).read().strip()
     __base_dir: str = None;
     __name: str = None;
     __database: Database = Database()
@@ -127,38 +127,38 @@ class Repo:
         else:
             sys.stderr.write(f"ERROR! The path '{self.__base_dir}' already exists!\n")
             sys.exit(1)
-        README = open(f'{TEMPLATES_DIR}/README').read()
-        CONFIG_TEMPLATE = open(f'{TEMPLATES_DIR}/config').read()
-        SETUP_TEMPLATE = open(f'{TEMPLATES_DIR}/setup.py').read()
-        GIT_IGNORE = open(f'{TEMPLATES_DIR}/.gitignore').read()
-        PIPFILE = open(f'{TEMPLATES_DIR}/Pipfile').read()
+        README = open(os.path.join(TEMPLATES_DIR, 'README')).read()
+        CONFIG_TEMPLATE = open(os.path.join(TEMPLATES_DIR, 'config')).read()
+        SETUP_TEMPLATE = open(os.path.join(TEMPLATES_DIR, 'setup.py')).read()
+        GIT_IGNORE = open(os.path.join(TEMPLATES_DIR, '.gitignore')).read()
+        PIPFILE = open(os.path.join(TEMPLATES_DIR, 'Pipfile')).read()
 
         setup = SETUP_TEMPLATE.format(
                 dbname=self.__name,
                 package_name=self.__name,
                 half_orm_version=self.__hop_version)
-        open(f'{self.__base_dir}/setup.py', 'w').write(setup)
+        open(os.path.join(self.__base_dir, 'setup.py'), 'w').write(setup)
 
         PIPFILE = PIPFILE.format(
                 half_orm_version=self.__hop_version)
-        open(f'{self.__base_dir}/Pipfile', 'w').write(PIPFILE)
+        open(os.path.join(self.__base_dir, 'Pipfile'), 'w').write(PIPFILE)
 
-        os.mkdir(f'{self.__base_dir}/.hop')
+        os.mkdir(os.path.join(self.__base_dir, '.hop'))
         config = ConfigParser()
         config['halfORM'] = {
             'config_file': self.__name,
             'package_name': self.__name,
             'hop_version': self.__hop_version
         }
-        with open(f'{self.__base_dir}/.hop/config', 'w') as configfile:
+        with open(os.path.join(self.__base_dir, '.hop', 'config'), 'w') as configfile:
             config.write(configfile)
         self.__database = Database().init(self.__name)
         modules.generate(self)
 
         cmd = " ".join(sys.argv)
         readme = README.format(cmd=cmd, dbname=self.__name, package_name=self.__name)
-        open(f'{self.__base_dir}/README.md', 'w').write(readme)
-        open(f'{self.__base_dir}/.gitignore', 'w').write(GIT_IGNORE)
+        open(os.path.join(self.__base_dir, 'README.md'), 'w').write(readme)
+        open(os.path.join(self.__base_dir, '.gitignore'), 'w').write(GIT_IGNORE)
         self.__hgit = HGit().init(self.__base_dir)
 
         print(f"\nThe hop project '{self.__name}' has been created.")
@@ -168,7 +168,7 @@ class Repo:
     def upgrade(self):
         print('XXX WIP')
         return
-        versions = [line.split()[0] for line in open(f'{HOP_PATH}/patches/log').readlines()]
+        versions = [line.split()[0] for line in open(os.path.join(HOP_PATH, 'patches', 'log')).readlines()]
         if self.__config.hop_version:
             to_apply = False
             for version in versions:
@@ -177,7 +177,7 @@ class Repo:
                     continue
             if to_apply:
                 print('UPGRADE HOP to', version)
-                Patch(self, create_mode=True).apply(f'{HOP_PATH}/patches/{self.version.replace(".", "/")}')
+                Patch(self, create_mode=True).apply(os.path.join(HOP_PATH, 'patches', self.version.replace(".", os.sep)))
         self.__hop_version = self.__hop_version
         self.__write()
 
