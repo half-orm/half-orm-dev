@@ -9,6 +9,7 @@ from half_orm_packager.database import Database
 from half_orm_packager.hgit import HGit 
 from half_orm_packager.utils import Color
 from half_orm_packager.hgit import HGit
+from half_orm_packager import modules
 
 class Repo:
     """Reads and writes the hop repo conf file.
@@ -28,6 +29,10 @@ class Repo:
     @property
     def model(self):
         return self.__database.model
+
+    @property
+    def hop_version(self):
+        return self.__hop_version
 
     def __check(self):
         """Searches the hop configuration file for the package.
@@ -72,6 +77,10 @@ class Repo:
         self.__self_hop_version = config['halfORM'].get('hop_version')
 
     @property
+    def base_dir(self):
+        return self.__base_dir
+
+    @property
     def name(self):
         return self.__name
     @name.setter
@@ -102,12 +111,8 @@ class Repo:
         return '\n'.join(res)
 
     @property
-    def db_conf(self):
+    def database(self):
         return self.__database
-    @db_conf.setter
-    def db_conf(self, dbname):
-        self.__database = Database(dbname)
-
 
     def init(self, package_name):
         self.__name = package_name
@@ -138,19 +143,21 @@ class Repo:
         open(f'{self.__base_dir}/Pipfile', 'w').write(PIPFILE)
 
         os.mkdir(f'{self.__base_dir}/.hop')
-        open(f'{self.__base_dir}/.hop/config', 'w').write(
-            CONFIG_TEMPLATE.format(
-                config_file=self.__name,
-                package_name=self.__name,
-                hop_version=self.__hop_version))
+        config = ConfigParser()
+        config['halfORM'] = {
+            'config_file': self.__name,
+            'package_name': self.__name,
+            'hop_version': self.__hop_version
+        }
+        with open(f'{self.__base_dir}/.hop/config', 'w') as configfile:
+            config.write(configfile)
         self.__database = Database().init(self.__name)
-        # self.__config = HopConf(self.__base_dir)
+        modules.generate(self)
 
         cmd = " ".join(sys.argv)
         readme = README.format(cmd=cmd, dbname=self.__name, package_name=self.__name)
         open(f'{self.__base_dir}/README.md', 'w').write(readme)
         open(f'{self.__base_dir}/.gitignore', 'w').write(GIT_IGNORE)
-        os.mkdir(f'{self.__base_dir}/{self.__name}')
         self.__hgit = HGit().init(self.__base_dir)
 
         print(f"\nThe hop project '{self.__name}' has been created.")
@@ -158,7 +165,8 @@ class Repo:
 
 
     def upgrade(self):
-        raise NotImplemented
+        print('XXX WIP')
+        return
         versions = [line.split()[0] for line in open(f'{HOP_PATH}/patches/log').readlines()]
         if self.__config.hop_version:
             to_apply = False
@@ -171,3 +179,8 @@ class Repo:
                 Patch(self, create_mode=True).apply(f'{HOP_PATH}/patches/{self.version.replace(".", "/")}')
         self.__hop_version = self.__hop_version
         self.__write()
+
+    def patch(self):
+        print('XXX WIP')
+        modules.generate(self)
+        sys.exit(1)

@@ -23,10 +23,9 @@ from .update import update_modules
 class Patch:
     #TODO: docstring
     "class Patch"
-    def __init__(self, hop_cls, create_mode=False, init_mode=False):
+    def __init__(self, hop_cls):
         self.__hop_cls = hop_cls
         self.__hgit = HGit(hop_cls)
-        self.__create_mode = create_mode
         self.__init_mode = init_mode
         # self.__orig_dir = os.path.abspath('.')
         self.__module_dir = os.path.dirname(__file__)

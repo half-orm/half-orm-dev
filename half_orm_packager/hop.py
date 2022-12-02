@@ -75,7 +75,10 @@ class Hop:
         def patch(force, revert, prepare, branch_from=None):
             """ Applies the next patch.
             """
+            print('XXX WIP')
             self.command = 'patch'
+            self.__repo.patch()
+            sys.exit(1)
             # print('branch from', branch_from)
             if prepare:
                 Patch(self).prep_next_release(prepare)
@@ -130,7 +133,7 @@ def main(ctx, verbose):
         click.echo(hop.status)
     elif not hop.model and ctx.invoked_subcommand != 'new':
         sys.stderr.write(
-            "You're not in a hop package directory.\n"
+            "You're not in a hop repository.\n"
             "Try `hop new <package name>` or change directory.\n")
         sys.exit()
 

@@ -219,7 +219,6 @@ if False:
 
             try:
                 self.__model = Model(self.package_name)
-                model = self.alpha()  # XXX To remove after alpha
                 return model
             except psycopg2.OperationalError as exc:
                 sys.stderr.write(f'The database {self.package_name} does not exist.\n')
@@ -387,33 +386,6 @@ if False:
         def model(self, model):
             "model setter"
             self.__model = model
-
-        def alpha(self):
-            """Toutes les modifs à faire durant la mise au point de hop
-            """
-            # if not self.__model.has_relation('half_orm_meta.database'):
-            #     self.model_execute_query()
-            if not self.__model.has_relation('half_orm_meta.hop_release'):
-                if self.__model.has_relation('meta.release'):
-                    click.echo(
-                        "ALPHA: Renaming meta.release to half_orm_meta.hop_release, ...")
-                    self.__model.execute_query("""
-                    create schema half_orm_meta;
-                    create schema "half_orm_meta.view";
-                    alter table meta.release set schema half_orm_meta;
-                    alter table meta.release_issue set schema half_orm_meta ;
-                    alter table half_orm_meta.release rename TO hop_release ;
-                    alter table half_orm_meta.release_issue rename TO hop_release_issue ;
-                    alter view "meta.view".last_release set schema "half_orm_meta.view" ;
-                    alter view "meta.view".penultimate_release set schema "half_orm_meta.view" ;
-                    alter view "half_orm_meta.view".last_release rename TO hop_last_release ;
-                    alter view "half_orm_meta.view".penultimate_release rename TO hop_penultimate_release ;
-                    """)
-                    click.echo("Please re-run the command.")
-                    sys.exit()
-            # if not model.has_relation('half_orm_meta.view.hop_penultimate_release'):
-            #     TODO: fix missing penultimate_release on some databases.
-            return Model(self.package_name)
 
         def init_package(self, project_name: str):
             """Initialises the package directory.

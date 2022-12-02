@@ -38,10 +38,13 @@ class Database:
         config = ConfigParser()
         config.read([self.__connection_file])
         self.__name = config.get('database', 'name')
-        self.__user = config.get('database', 'user')
-        self.__password = config.get('database', 'password')
-        self.__host = config.get('database', 'host')
-        self.__port = config.get('database', 'port')
+        try:
+            self.__user = config.get('database', 'user')
+            self.__password = config.get('database', 'password')
+            self.__host = config.get('database', 'host')
+            self.__port = config.get('database', 'port')
+        except NoOptionError:
+            pass
         if get_release:
             self.__last_release = next(self.__model.get_relation_class('half_orm_meta.view.hop_last_release')().select())
         try:
@@ -57,7 +60,7 @@ class Database:
 
     @property
     def __last_release_s(self):
-        return '{major}.{minor}.{patch} ({date})'.format(**self.__last_release)
+        return '{major}.{minor}.{patch}'.format(**self.__last_release)
 
     @property
     def name(self):
