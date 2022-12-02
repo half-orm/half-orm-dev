@@ -111,9 +111,9 @@ class Database:
     @property
     def status(self):
         db_conf_keys = ['production']
-        res = ['[database]']
-        res.append(f'production: {self.production}')
-        res.append(f'last release: {self.__last_release_s}')
+        res = ['[Database]']
+        res.append(f'- production: {self.production}')
+        res.append(f'- last release: {self.__last_release_s}')
         return '\n'.join(res)
 
     def __repr(self, show_password=False):

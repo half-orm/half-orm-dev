@@ -95,18 +95,19 @@ class Repo:
 
     @property
     def status(self, verbose=True):
-        res = [f'Half-ORM packager: {self.__hop_version}', '\n']
+        res = [f'Half-ORM packager: {self.__hop_version}\n']
         hop_version = self.__hop_version_mismatch() and \
             Color.red(self.__self_hop_version) or \
             Color.green(self.__self_hop_version)
         res += [
-            '[hop repo]',
-            f'package name: {self.__name}',
-            f'hop version: {hop_version}'
+            '[Hop repository]',
+            f'- base directory: {self.__base_dir}',
+            f'- package name: {self.__name}',
+            f'- hop version: {hop_version}'
         ]
-        verbose and res.append('\n')
+        # verbose and res.append('\n')
         verbose and res.append(str(self.__database.status))
-        res.append('\n')
+        # res.append('\n')
         res.append(str(self.__hgit))
         return '\n'.join(res)
 

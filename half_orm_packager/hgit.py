@@ -17,10 +17,10 @@ class HGit:
         self.__last_commit = self.last_commit()
 
     def __str__(self):
-        res = ['[git]']
-        res.append(f'current branch: {self.__current_branch}')
-        res.append(f'repo is clean: {self.__is_clean and Color.green(self.__is_clean) or Color.red(self.__is_clean)}')
-        res.append(f'last commit: {self.__last_commit}')
+        res = ['[Git]']
+        res.append(f'- current branch: {self.__current_branch}')
+        res.append(f'- repo is clean: {self.__is_clean and Color.green(self.__is_clean) or Color.red(self.__is_clean)}')
+        res.append(f'- last commit: {self.__last_commit}')
         return '\n'.join(res)
 
     def init(self, base_dir, release='0.0.0'):
