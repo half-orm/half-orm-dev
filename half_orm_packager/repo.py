@@ -13,7 +13,7 @@ from half_orm_packager import modules
 class Repo:
     """Reads and writes the hop repo conf file.
     """
-    __hop_version: str = None
+    __checked: bool = False
     __self_hop_version: str = None
     __base_dir: str = None
     __name: str = None
@@ -22,6 +22,10 @@ class Repo:
     __conf_file: str = None
     def __init__(self):
         self.__check()
+
+    @property
+    def checked(self):
+        return self.__checked
 
     @property
     def production(self):
@@ -33,31 +37,21 @@ class Repo:
         "Returns the Model (halfORM) of the database"
         return self.__database.model
 
-    @classmethod
-    def hop_version(cls):
-        "Returns the version of hop"
-        if not Repo.__hop_version:
-            with open(os.path.join(utils.HOP_PATH, 'version.txt'), encoding='utf-8') as version:
-                Repo.__hop_version = version.read().strip()
-        return Repo.__hop_version
-
     def __check(self):
         """Searches the hop configuration file for the package.
         This method is called when no hop config file is provided.
         Returns True if we are in a repo, False otherwise.
         """
-        Repo.hop_version()
         base_dir = os.path.abspath(os.path.curdir)
         while base_dir:
             if self.__set_base_dir(base_dir):
                 self.__database = Database(self.__name)
                 self.__hgit = HGit(self.__base_dir)
-                return True
+                self.__checked = True
             par_dir = os.path.split(base_dir)[0]
             if par_dir == base_dir:
-                return False
+                break
             base_dir = par_dir
-        return False
 
     def __set_base_dir(self, base_dir):
         conf_file = os.path.join(base_dir, '.hop', 'config')
@@ -72,7 +66,7 @@ class Repo:
         """Verify that the current hop version is the one that was last used in the
         hop repository. If not tries to upgrade the repository to the current version of hop.
         """
-        h_vers = self.__hop_version
+        h_vers = utils.hop_version()
         sh_vers = self.__self_hop_version
         if h_vers < sh_vers:
             print("Can't downgrade hop.")
@@ -111,7 +105,7 @@ class Repo:
         config['halfORM'] = {
             'config_file': self.__name,
             'package_name': self.__name,
-            'hop_version': self.__hop_version
+            'hop_version': utils.hop_version()
         }
         with open(Repo.__conf_file, 'w', encoding='utf-8') as configfile:
             config.write(configfile)
@@ -120,12 +114,12 @@ class Repo:
         """Returns a boolean indicating if current hop version is different from
         the last hop version used with this repository.
         """
-        return self.__hop_version != self.__self_hop_version
+        return utils.hop_version() != self.__self_hop_version
 
     @property
     def status(self):
         "Returns the status (str) of the repository."
-        res = [f'Half-ORM packager: {self.__hop_version}\n']
+        res = [f'Half-ORM packager: {utils.hop_version()}\n']
         hop_version = Color.red(self.__self_hop_version) if \
             self.__hop_version_mismatch() else \
             Color.green(self.__self_hop_version)
@@ -144,10 +138,15 @@ class Repo:
         "Getter for the current database"
         return self.__database
 
+    @property
+    def hgit(self):
+        "Getter for the __hgit attribute"
+        return self.__hgit
+
     def new(self, package_name):
         "Create a new hop repository"
         self.__name = package_name
-        self.__self_hop_version=self.__hop_version
+        self.__self_hop_version=utils.hop_version()
         cur_dir = os.path.abspath(os.path.curdir)
         self.__base_dir = os.path.join(cur_dir, package_name)
         print(f"Installing new hop repo in {self.__base_dir}.")
@@ -165,11 +164,11 @@ class Repo:
         setup = setup_template.format(
                 dbname=self.__name,
                 package_name=self.__name,
-                half_orm_version=self.__hop_version)
+                half_orm_version=utils.hop_version())
         utils.write(os.path.join(self.__base_dir, 'setup.py'), setup)
 
         pipfile = pipfile.format(
-                half_orm_version=self.__hop_version)
+                half_orm_version=utils.hop_version())
         utils.write(os.path.join(self.__base_dir, 'Pipfile'), pipfile)
 
         os.mkdir(os.path.join(self.__base_dir, '.hop'))
@@ -193,7 +192,7 @@ class Repo:
         print('XXX WIP')
         # versions = [line.split()[0] for line in
         #     open(os.path.join(hop_path, 'patches', 'log')).readlines()]
-        # if self.__hop_version:
+        # if utils.hop_version():
         #     to_apply = False
         #     for version in versions:
         #         if self.__config.hop_version.find(version) == 0:
@@ -203,7 +202,7 @@ class Repo:
         #         print('UPGRADE HOP to', version)
         #         Patch(self, create_mode=True).apply(
         #             os.path.join(hop_path, 'patches', self.version.replace(".", os.sep)))
-        # self.__hop_version = self.__hop_version
+        # utils.hop_version() = utils.hop_version()
         # self.__write_config()
 
     def patch(self, force=False, revert=False, prepare=False, branch_from=None):

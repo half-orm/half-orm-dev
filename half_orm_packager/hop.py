@@ -31,7 +31,7 @@ class Hop:
     __command = None
     def __init__(self):
         self.__repo: Repo = Repo()
-        if not self.is_repo:
+        if not self.repo_checked:
             Hop.__available_cmds = ['new']
         else:
             if not self.__repo.production:
@@ -40,9 +40,9 @@ class Hop:
                 Hop.__available_cmds = ['upgrade']
 
     @property
-    def is_repo(self):
+    def repo_checked(self):
         "Returns wether we are in a repo or not."
-        return bool(self.__repo.name)
+        return self.__repo.checked
 
     @property
     def model(self):
@@ -116,9 +116,9 @@ def main(ctx):
     """
     Generates/Synchronises/Patches a python package from a PostgreSQL database
     """
-    if hop.is_repo and ctx.invoked_subcommand is None:
+    if hop.repo_checked and ctx.invoked_subcommand is None:
         click.echo(hop.status)
-    elif not hop.is_repo and ctx.invoked_subcommand != 'new':
+    elif not hop.repo_checked and ctx.invoked_subcommand != 'new':
         sys.stderr.write(
             "You're not in a hop repository.\n"
             "Try `hop new <package name>` or change directory.\n")

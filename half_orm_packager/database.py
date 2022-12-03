@@ -41,7 +41,7 @@ class Database:
         return '{major}.{minor}.{patch}'.format(**self.__last_release)
 
     @property
-    def lase_release(self):
+    def last_release(self):
         "Returns the last release"
         return self.__last_release
 

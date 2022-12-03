@@ -161,7 +161,7 @@ def __update_this_module(
         documentation = "\n".join([line and f"    {line}" or "" for line in str(rel).split("\n")])
         file_.write(
             module_template.format(
-                hop_release = repo.hop_version,
+                hop_release = utils.hop_version(),
                 module=f"{package_name}.{fqtn}",
                 package_name=package_name,
                 documentation=documentation,
