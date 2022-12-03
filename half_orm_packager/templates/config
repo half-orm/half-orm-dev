@@ -1,4 +1,0 @@
-[halfORM]
-config_file = {config_file}
-package_name = {package_name}
-hop_version = {hop_version}

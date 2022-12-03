@@ -23,16 +23,15 @@ import re
 import os
 import sys
 from keyword import iskeyword
-from configparser import ConfigParser
 
-from half_orm.pg_meta import camel_case, normalize_fqrn
+from half_orm.pg_meta import camel_case
 from half_orm.model_errors import UnknownRelation
 
-from half_orm_packager.globals import TEMPLATES_DIR, BEGIN_CODE, END_CODE
+from half_orm_packager import utils
 
 def read_template(file_name):
     "helper"
-    with open(os.path.join(TEMPLATES_DIR, file_name), encoding='utf-8') as file_:
+    with open(os.path.join(utils.TEMPLATE_DIRS, file_name), encoding='utf-8') as file_:
         return file_.read()
 
 DB_CONNECTOR_TEMPLATE = read_template('db_connector.py')
@@ -43,8 +42,6 @@ MODULE_TEMPLATE_3 = read_template('module_template_3')
 WARNING_TEMPLATE = read_template('warning')
 BASE_TEST = read_template('base_test')
 TEST = read_template('relation_test')
-
-HOP_RELEASE_RE = re.compile("(?<=^# hop release: ).*$")
 
 MODULE_FORMAT = (
     "{rt1}" +
@@ -120,21 +117,19 @@ def __assemble_module_template(module_path):
     if os.path.exists(module_path):
         with open(module_path, encoding='utf-8') as module_file:
             module_code = module_file.read()
-            part1 = module_code.split(BEGIN_CODE)[0]
-            user_s_code = module_code.rsplit(BEGIN_CODE, 1)[1]
+            user_s_code = module_code.rsplit(utils.BEGIN_CODE, 1)[1]
             user_s_code = user_s_code.replace('{', '{{').replace('}', '}}')
-            global_user_s_code = module_code.rsplit(END_CODE)[0].split(BEGIN_CODE)[1]
+            global_user_s_code = module_code.rsplit(utils.END_CODE)[0].split(utils.BEGIN_CODE)[1]
             global_user_s_code = global_user_s_code.replace('{', '{{').replace('}', '}}')
     return module_template.format(
         rt1=MODULE_TEMPLATE_1, rt2=MODULE_TEMPLATE_2, rt3=MODULE_TEMPLATE_3,
-        bc_=BEGIN_CODE, ec_=END_CODE,
+        bc_=utils.BEGIN_CODE, ec_=utils.END_CODE,
         global_user_s_code=global_user_s_code,
         user_s_class_attr=user_s_class_attr,
         user_s_code=user_s_code)
 
 def __update_this_module(
         repo, relation, package_dir, package_name, dirs_list):
-    model = repo.database.model
     """Updates the module."""
     _, fqtn = relation
     path = list(fqtn)
@@ -143,7 +138,7 @@ def __update_this_module(
         return None
     fqtn = '.'.join(path[1:])
     try:
-        rel = model.get_relation_class(fqtn)()
+        rel = repo.database.model.get_relation_class(fqtn)()
     except (TypeError, UnknownRelation) as err:
         sys.stderr.write(f"{err}\n{fqtn}\n")
         sys.stderr.flush()
@@ -168,7 +163,6 @@ def __update_this_module(
             module_template.format(
                 hop_release = repo.hop_version,
                 module=f"{package_name}.{fqtn}",
-                # fkeys_properties=get_fkeys(rel),
                 package_name=package_name,
                 documentation=documentation,
                 inheritance_import=inheritance_import,
@@ -188,13 +182,11 @@ def __update_this_module(
 def generate(repo):
     """Synchronize the modules with the structure of the relation in PG.
     """
-    model = repo.database.model
-    base_dir = repo.base_dir
     package_name = repo.name
-    package_dir = os.path.join(base_dir, package_name)
+    package_dir = os.path.join(repo.base_dir, package_name)
     dirs_list = []
     files_list = []
-    model._reload()
+    repo.database.model._reload()
     if not os.path.exists(package_dir):
         os.mkdir(package_dir)
     with open(os.path.join(package_dir, 'db_connector.py'), 'w', encoding='utf-8') as file_:
@@ -205,7 +197,7 @@ def generate(repo):
             file_.write(BASE_TEST.format(package_name=package_name))
 
     warning = WARNING_TEMPLATE.format(package_name=package_name)
-    for relation in model._relations():
+    for relation in repo.database.model._relations():
         module_path = __update_this_module(repo, relation, package_dir, package_name, dirs_list)
         if module_path:
             files_list.append(module_path)

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# pylint: disable=invalid-name, protected-access
 
 """
 Generates/Patches/Synchronizes a hop Python package with a PostgreSQL database
@@ -20,20 +19,16 @@ the remote origin, synchronizes with devel branch if needed and tags your git
 history with the last release applied.
 """
 
-import os
-import subprocess
 import sys
 
 import click
-import psycopg2
 
-from half_orm.model import Model, CONF_DIR
-from half_orm.model_errors import MissingConfigFile
-from half_orm_packager.globals import HOP_PATH
 from half_orm_packager.repo import Repo
 
 class Hop:
+    "Sets the options available to the hop command"
     __available_cmds = []
+    __command = None
     def __init__(self):
         self.__repo: Repo = Repo()
         if not self.is_repo:
@@ -46,49 +41,46 @@ class Hop:
 
     @property
     def is_repo(self):
+        "Returns wether we are in a repo or not."
         return bool(self.__repo.name)
 
     @property
     def model(self):
+        "Returns the model (half_orm.model.Model) associated to the repo."
         return self.__repo.model
 
     @property
     def status(self):
-        return(self.__repo.status)
+        "Returns the status of the repo."
+        return self.__repo.status
 
-    def add_commands(self, main):
+    @property
+    def command(self):
+        "The command invoked (click)"
+        return self.__command
+
+    def add_commands(self, click_main):
+        "Adds the commands to the main click group."
         @click.command()
         @click.argument('package_name')
         def new(package_name):
             """ Creates a new hop project named <package_name>.
             """
-            self.command = 'new'
-            self.__repo.init(package_name)
+            self.__repo.new(package_name)
 
 
         @click.command()
         @click.option('-f', '--force', is_flag=True, help="Don't check if git repo is clean.")
         @click.option('-r', '--revert', is_flag=True, help="Revert to the previous release.")
-        @click.option('-p', '--prepare', type=click.Choice(['patch', 'minor', 'major']), help="Prepare next patch.")
-        # @click.argument('branch_from', required=False)
-        #TODO @click.option('-c', '--commit', is_flag=True, help="Commit the patch to the hop_main branch")
-        def patch(force, revert, prepare, branch_from=None):
+        @click.option(
+            '-p', '--prepare',
+            type=click.Choice(['patch', 'minor', 'major']), help="Prepare next patch.")
+        def patch(force, revert, prepare):
             """ Applies the next patch.
             """
-            print('XXX WIP')
-            self.command = 'patch'
-            self.__repo.patch()
-            sys.exit(1)
-            # print('branch from', branch_from)
-            if prepare:
-                Patch(self).prep_next_release(prepare)
-            elif revert:
-                Patch(self).revert()
-            else:
-                Patch(self).patch(force, revert)
-
+            self.__command = 'patch'
+            self.__repo.patch(force, revert, prepare)
             sys.exit()
-
 
         @click.command()
         # @click.option('-d', '--dry-run', is_flag=True, help='Do nothing')
@@ -98,40 +90,35 @@ class Hop:
 
             switches to hop_main, pulls should check the tags
             """
-            self.command = 'upgrade'
-            Patch(self).patch()
+            self.__command = 'upgrade'
+            self.__repo.patch(branch_from='hop_main')
 
         @click.command()
         def test():
-            """ Tests some common pitfalls.
-            """
-            if tests(self.model, self.package_name):
-                click.echo('Tests OK')
-            else:
-                click.echo('Tests failed')
+            pass
 
-        CMDS = {
+        cmds = {
             'new': new,
             'patch': patch,
             'upgrade': upgrade,
+            'test': test
         }
 
         for cmd in self.__available_cmds:
-            main.add_command(CMDS[cmd])
+            click_main.add_command(cmds[cmd])
 
 
 hop = Hop()
 
 @click.group(invoke_without_command=True)
 @click.pass_context
-@click.option('-v', '--verbose', is_flag=True)
-def main(ctx, verbose):
+def main(ctx):
     """
     Generates/Synchronises/Patches a python package from a PostgreSQL database
     """
     if hop.is_repo and ctx.invoked_subcommand is None:
         click.echo(hop.status)
-    elif not hop.model and ctx.invoked_subcommand != 'new':
+    elif not hop.is_repo and ctx.invoked_subcommand != 'new':
         sys.stderr.write(
             "You're not in a hop repository.\n"
             "Try `hop new <package name>` or change directory.\n")
@@ -140,4 +127,4 @@ def main(ctx, verbose):
 hop.add_commands(main)
 
 if __name__ == '__main__':
-    main({}, None)
+    main({})
