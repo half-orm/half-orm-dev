@@ -4,25 +4,43 @@
 import json
 import os
 
+from half_orm_packager import utils
+
 class Manifest:
-    def __init__(self, hop_cls):
-        self.__hop_release = hop_cls.version
+    "Manages the manifest of a patch"
+    def __init__(self, path):
+        self.__hop_version = None
         self.__changelog_msg = None
-        self.__new_release_s = hop_cls.release_path.replace('/', '.')
-        self.__file = f'{hop_cls.patch_path}/MANIFEST.json'
+        self.__file = f'{path}/MANIFEST.json'
         self.__read()
 
     def __read(self):
         if os.path.exists(self.__file):
-            with open(self.__file) as manifest:
-                data = json.loads(manifest)
-                print(data)
-                sys.exit(1)
+            manifest = utils.read(self.__file)
+            data = json.loads(manifest)
+            self.__hop_version = data['hop_version']
+            self.__changelog_msg = data['changelog_msg']
 
-    def write(self, changelog_msg):
+    @property
+    def changelog_msg(self):
+        "Returns the changelog msg"
+        return self.__changelog_msg
+    @changelog_msg.setter
+    def changelog_msg(self, msg):
+        self.__changelog_msg = msg
+
+    @property
+    def hop_version(self):
+        "Returns the version of hop used to create this patch"
+        return self.__hop_version
+    @hop_version.setter
+    def hop_version(self, release):
+        self.__hop_version = release
+
+    def write(self):
+        "Writes the manifest"
         with open(self.__file, 'w', encoding='utf-8') as manifest:
             manifest.write(json.dumps({
-                'hop_version': self.__hop_release,
-                'changelog_msg': self.__changelog_msg,
-                'new_release': self.__new_release_s
-            })) 
+                'hop_version': self.__hop_version,
+                'changelog_msg': self.__changelog_msg
+            }))

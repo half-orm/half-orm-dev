@@ -75,11 +75,12 @@ class Hop:
         @click.option(
             '-p', '--prepare',
             type=click.Choice(['patch', 'minor', 'major']), help="Prepare next patch.")
-        def patch(force, revert, prepare):
+        @click.option('-m', '--message', type=str, help="The commit message")
+        def patch(force, revert, prepare, message=None):
             """ Applies the next patch.
             """
             self.__command = 'patch'
-            self.__repo.patch(force, revert, prepare)
+            self.__repo.patch(force, revert, prepare, message)
             sys.exit()
 
         @click.command()

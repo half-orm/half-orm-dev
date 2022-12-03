@@ -9,6 +9,7 @@ from half_orm_packager.database import Database
 from half_orm_packager.hgit import HGit
 from half_orm_packager.utils import Color
 from half_orm_packager import modules
+from half_orm_packager.patch import Patch
 
 class Repo:
     """Reads and writes the hop repo conf file.
@@ -205,8 +206,10 @@ class Repo:
         # utils.hop_version() = utils.hop_version()
         # self.__write_config()
 
-    def patch(self, force=False, revert=False, prepare=False, branch_from=None):
+    def patch(self, force=False, revert=False, prepare=False, message=None, branch_from=None):
         "Patch..."
         print('XXX WIP')
+        if prepare:
+            Patch(self).prep_next_release(prepare, message)
         modules.generate(self)
         sys.exit(1)

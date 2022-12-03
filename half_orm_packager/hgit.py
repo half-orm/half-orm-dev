@@ -56,3 +56,16 @@ class HGit:
         """
         return list(self.__repo.iter_commits(self.branch, max_count=1))[0]
 
+    def set_branch(self, release_s):
+        """Checks the branch
+
+        Either hop_main or hop_<release>.
+        """
+        rel_branch = f'hop_{release_s}'
+        if str(self.branch) == 'hop_main' and rel_branch != 'hop_main':
+            # creates the new branch
+            self.__repo.create_head(rel_branch)
+            self.__repo.git.checkout(rel_branch)
+            print(f'NEW branch {rel_branch}')
+        elif str(self.branch) == rel_branch:
+            print(f'On branch {rel_branch}')
