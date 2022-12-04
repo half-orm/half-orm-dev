@@ -212,8 +212,6 @@ class Repo:
         "Prepare a new patch"
         Patch(self).prep_next_release(level, message)
 
-    def apply_patch(self):
+    def apply_patch(self, force=False):
         "Apply the current patch patch"
-        current = self.hgit.current_release
-        path = os.path.join(self.base_dir, 'Patches', current.replace('.', '/'))
-        Patch(self).apply(path)
+        Patch(self).apply(self.hgit.current_release, force=force)

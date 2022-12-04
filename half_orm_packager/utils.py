@@ -28,9 +28,14 @@ def read(file_):
     with open(file_, encoding='utf-8') as text_io_wrapper:
         return text_io_wrapper.read()
 
-def write(file_, data):
+def readlines(file_):
+    "Return the file split on lines"
+    with open(file_, encoding='utf-8') as text_io_wrapper:
+        return text_io_wrapper.readlines()
+
+def write(file_, data, mode='w'):
     "Write file helper"
-    with open(file_, 'w', encoding='utf-8') as text_io_wrapper:
+    with open(file_, mode=mode, encoding='utf-8') as text_io_wrapper:
         return text_io_wrapper.write(data)
 
 def hop_version():

@@ -36,15 +36,15 @@ class Database:
                 self.__model.get_relation_class('half_orm_meta.view.hop_last_release')().select())
 
     @property
+    def last_release(self):
+        "Returns the last release"
+        return self.__last_release
+
+    @property
     def last_release_s(self):
         "Returns the string representation of the last release X.Y.Z"
         # pylint: disable=consider-using-f-string
         return '{major}.{minor}.{patch}'.format(**self.__last_release)
-
-    @property
-    def last_release(self):
-        "Returns the last release"
-        return self.__last_release
 
     @property
     def model(self):
@@ -99,12 +99,17 @@ class Database:
             self.execute_pg_command(
                 'psql', '-f', hop_init_sql_file, stdout=subprocess.DEVNULL)
             self.__model.reconnect(reload=True)
-            self.__last_release = self.__model.get_relation_class('half_orm_meta.hop_release')(
-                major=0, minor=0, patch=0, changelog='Initial release'
-            ).insert()[0]
+            self.__last_release = self.register_release(
+                major=0, minor=0, patch=0, changelog='Initial release')
         return self(self.__name)
 
     @property
     def execute_pg_command(self):
         "Helper: execute a postgresql command"
         return self.__connection_params.execute_pg_command
+
+    def register_release(self, major, minor, patch, changelog):
+        "Register the release into half_orm_meta.hop_release"
+        return self.__model.get_relation_class('half_orm_meta.hop_release')(
+                major=major, minor=minor, patch=patch, changelog=changelog
+            ).insert()[0] # TODO: REMOVE [0] WHEN UPGRADING TO half_orm 0.8.0

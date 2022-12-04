@@ -8,10 +8,10 @@ gitpython = "3"
 click = "*"
 pydash = "5"
 half-orm = ">=0.7.4"
+half-orm-packager = {editable = true, path = "."}
 
 [dev-packages]
 pytest = "*"
-half-orm-packager = {editable = true, path = "."}
 twine = "*"
 build = "*"
 pylint = "*"

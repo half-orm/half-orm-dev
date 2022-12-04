@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import sys
 
 import pydash
@@ -14,6 +15,29 @@ class Patch:
     "The Patch class..."
     def __init__(self, repo):
         self.__repo = repo
+        self.__patches_base_dir = os.path.join(repo.base_dir, 'Patches')
+        self.__changelog_file = os.path.join(self.__patches_base_dir, 'CHANGLEOG')
+        if not os.path.exists(self.__patches_base_dir):
+            os.makedirs(self.__patches_base_dir)
+        if not os.path.exists(self.__changelog_file):
+            utils.write(self.__changelog_file, f'{self.__repo.database.last_release_s}\n')
+        self.__sequence = self.__get_sequence()
+
+    def __get_sequence(self):
+        """Get the sequence of patches in Patches/CHANGLOG"""
+        return [elt.strip() for elt in utils.readlines(self.__changelog_file)]
+
+    def __update_changelog(self, release_level):
+        """Update with the release the Patches/CHANGELOG file"""
+        utils.write(self.__changelog_file, f'{release_level}\n', mode='a+')
+
+    @property
+    def previous(self):
+        return self.__sequence[-2]
+
+    @property
+    def last(self):
+        return self.__sequence[-1]
 
     def prep_next_release(self, release_level, message=None):
         """Returns the next (major, minor, patch) tuple according to the release_level
@@ -35,14 +59,18 @@ class Patch:
         new_release_s = '{major}.{minor}.{patch}'.format(**next_release)
         print(f'PREPARING: {new_release_s}')
         # pylint: disable=consider-using-f-string
-        patch_path = 'Patches/{major}/{minor}/{patch}'.format(**next_release)
+        patch_path = os.path.join(
+            'Patches',
+            str(next_release['major']),
+            str(next_release['minor']),
+            str(next_release['patch']))
         if not os.path.exists(patch_path):
             changelog_msg = message or input('CHANGELOG message - (leave empty to abort): ')
             if not changelog_msg:
                 print('Aborting')
                 return
             os.makedirs(patch_path)
-            with open(f'{patch_path}/MANIFEST.json', 'w', encoding='utf-8') as manifest:
+            with open(os.path.join(patch_path, 'MANIFEST.json'), 'w', encoding='utf-8') as manifest:
                 manifest.write(json.dumps({
                     'hop_version': utils.hop_version(),
                     'changelog_msg': changelog_msg,
@@ -51,44 +79,95 @@ class Patch:
         print('You can now add your patch scripts (*.py, *.sql)'
             f'in {patch_path}. See Patches/README.')
         modules.generate(self.__repo)
+        self.__update_changelog(new_release_s)
 
-    def apply(self, path):
+    def __check_apply_or_re_apply(self):
+        """Return True if it's the first time.
+        False otherwise.
+        """
+        if self.__repo.database.last_release_s == self.__repo.hgit.current_release:
+            return 're-apply'
+        return 'apply'
+
+    def __backup_file(self, release):
+        backup_dir = os.path.join(self.__repo.base_dir, 'Backups')
+        if not os.path.isdir(backup_dir):
+            os.mkdir(backup_dir)
+        file_name = f'{self.__repo.name}-{self.last}.sql'
+        return os.path.join(backup_dir, file_name)
+
+    def __save_db(self):
+        """Save the database
+        """
+        svg_file = self.__backup_file(self.last)
+        print(f'Saving the database into {svg_file}')
+        if os.path.isfile(svg_file):
+            sys.stderr.write(
+                f"Oops! there is already a dump for the {self.last} release.\n")
+            sys.stderr.write(f"Please remove it if you really want to proceed.\n")
+            sys.exit(1)
+        self.__repo.database.execute_pg_command('pg_dump', '-f', svg_file, stderr=subprocess.PIPE)
+
+    def __restore_previous_db(self):
+        """Restore the database to the release_s version.
+        """
+        print(f'Restoring the database to {self.previous}')
+        self.__repo.model.disconnect()
+        self.__repo.database.execute_pg_command('dropdb')
+        self.__repo.database.execute_pg_command('createdb')
+        self.__repo.database.execute_pg_command('psql', '-f', self.__backup_file(self.previous), stdout=subprocess.DEVNULL)
+        self.__repo.model.ping()
+
+    def apply(self, release, force=False):
         "Apply the patch in 'path'"
-        print(f'Applying patch at {path}')
+        changelog_msg = ''
+        print('XXX', self.__check_apply_or_re_apply())
+        if self.__check_apply_or_re_apply() == 'apply':
+            self.__save_db()
+        else:
+            if not force:
+                okay = input('Do you want to re-apply the patch [y/N]?') or 'y'
+                if okay.upper() != 'Y':
+                    sys.exit(1)
+            self.__restore_previous_db()
+        print(f'Applying patch {release}')
         files = []
+        major, minor, patch = release.split('.')
+        path = os.path.join(self.__patches_base_dir, major, minor, patch)
         for file_ in os.scandir(path):
             files.append({'name': file_.name, 'file': file_})
         for elt in pydash.order_by(files, ['name']):
             file_ = elt['file']
             extension = file_.name.split('.').pop()
             if file_.name == 'MANIFEST.py':
-                continue
+                changelog_msg = json.loads(utils.read(file_))['changelog_msg']
             if (not file_.is_file() or not (extension in ['sql', 'py'])):
                 continue
             print(f'+ {file_.name}')
 
             if extension == 'sql':
                 query = open(file_.path, 'r', encoding='utf-8').read().replace('%', '%%')
-                if len(query) <= 0:
+                if len(query) == 0:
                     continue
-
                 try:
                     self.__repo.model.execute_query(query)
-                except psycopg2.Error as err:
-                    sys.stderr.write(
-                        f"""WARNING! SQL error in :{file_.path}\n
-                            QUERY : {query}\n
-                            {err}\n""")
-                    self.__repo.abort()
-                except (psycopg2.OperationalError, psycopg2.InterfaceError) as err:
-                    raise Exception(f'Problem with query in {file_.name}') from err
+                except (psycopg2.Error, psycopg2.OperationalError, psycopg2.InterfaceError) as err:
+                    sys.stderr.write(f'Problem with query in {file_.name}\n{err}\n')
+                    self.__restore_previous_db()
+                    sys.exit(1)
             elif extension == 'py':
                 try:
-                    subprocess.check_call(file_.path, shell=True)
-                except subprocess.CalledProcessError:
-                    self.__repo.abort()
+                    subprocess.run(
+                        ['python', file_.path],
+                        env=os.environ.update({'PYTHONPATH': self.__repo.base_dir}),
+                        shell=False)
+                except subprocess.CalledProcessError as err:
+                    sys.stderr.write(f'Problem with script {file_}\n{err}\n')
+                    self.__restore_previous_db()
+                    sys.exit(1)
         modules.generate(self.__repo)
-        
+        self.__repo.database.register_release(major, minor, patch, changelog_msg)
+
     @property
     def status(self):
         "The status of a patch"

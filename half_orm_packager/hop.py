@@ -35,9 +35,12 @@ class Hop:
             Hop.__available_cmds = ['new']
         else:
             if not self.__repo.production:
-                Hop.__available_cmds = ['prepare-patch', 'apply-patch']
+                if self.__repo.hgit.branch == 'hop_main':
+                    Hop.__available_cmds = ['prepare-patch']
+                elif self.__repo.hgit.is_hop_patch_branch:
+                    Hop.__available_cmds = ['apply-patch']
             else:
-                Hop.__available_cmds = ['upgrade']
+                Hop.__available_cmds = ['apply-patch']
 
     @property
     def repo_checked(self):
@@ -82,12 +85,12 @@ class Hop:
             sys.exit()
 
         @click.command()
-        # @click.option('-f', '--force', is_flag=True, help='Force')
-        def apply_patch():
+        @click.option('-f', '--force', is_flag=True, help='Force')
+        def apply_patch(force=False):
             """Apply the current patch.
             """
             self.__command = 'apply-patch'
-            self.__repo.apply_patch()
+            self.__repo.apply_patch(force)
 
         @click.command()
         # @click.option('-d', '--dry-run', is_flag=True, help='Do nothing')
@@ -98,7 +101,7 @@ class Hop:
             switches to hop_main, pulls should check the tags
             """
             self.__command = 'upgrade'
-            self.__repo.patch(branch_from='hop_main')
+            self.__repo.apply_patch()
 
         @click.command()
         def test():

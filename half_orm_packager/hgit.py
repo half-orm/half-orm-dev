@@ -47,13 +47,20 @@ class HGit:
     def branch(self):
         "Returns the active branch"
         return str(self.__repo.active_branch)
-    
+
     @property
     def current_release(self):
         "Returns the current branch name without 'hop_'"
-        if self.branch.find('hop_') != 0:
-            raise Exception('Not a hop branch')
         return self.branch.replace('hop_', '')
+
+    @property
+    def is_hop_patch_branch(self):
+        "Returns True if we are on a hop patch branch hop_X.Y.Z."
+        try:
+            major, minor, patch = self.current_release.split('.')
+            return bool(1 + int(major) + int(minor) + int(patch))
+        except ValueError:
+            return False
 
     @staticmethod
     def repos_is_clean():
