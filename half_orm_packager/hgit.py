@@ -1,3 +1,5 @@
+"Provides the HGit class"
+
 import os
 import subprocess
 from git import Repo
@@ -5,8 +7,10 @@ from git import Repo
 from half_orm_packager.utils import Color
 
 class HGit:
+    "Manages the git operations on the repo."
     def __init__(self, base_dir=None):
         self.__base_dir = base_dir
+        self.__repo: Repo = None
         if base_dir:
             self.__post_init()
 
@@ -19,7 +23,8 @@ class HGit:
     def __str__(self):
         res = ['[Git]']
         res.append(f'- current branch: {self.__current_branch}')
-        res.append(f'- repo is clean: {self.__is_clean and Color.green(self.__is_clean) or Color.red(self.__is_clean)}')
+        clean = Color.green(self.__is_clean) if self.__is_clean else Color.red(self.__is_clean)
+        res.append(f'- repo is clean: {clean}')
         res.append(f'- last commit: {self.__last_commit}')
         return '\n'.join(res)
 
@@ -42,14 +47,22 @@ class HGit:
     def branch(self):
         "Returns the active branch"
         return str(self.__repo.active_branch)
+    
+    @property
+    def current_release(self):
+        "Returns the current branch name without 'hop_'"
+        if self.branch.find('hop_') != 0:
+            raise Exception('Not a hop branch')
+        return self.branch.replace('hop_', '')
 
     @staticmethod
     def repos_is_clean():
+        "Returns True if the git repository is clean, False otherwise."
         with subprocess.Popen(
             "git status --porcelain", shell=True, stdout=subprocess.PIPE) as repo_is_clean:
             repo_is_clean = repo_is_clean.stdout.read().decode().strip().split('\n')
             repo_is_clean = [line for line in repo_is_clean if line != '']
-            return not(bool(repo_is_clean))
+            return not bool(repo_is_clean)
 
     def last_commit(self):
         """Returns the last commit

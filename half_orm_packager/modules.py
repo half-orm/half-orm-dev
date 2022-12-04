@@ -129,7 +129,7 @@ def __assemble_module_template(module_path):
         user_s_code=user_s_code)
 
 def __update_this_module(
-        repo, relation, package_dir, package_name, dirs_list):
+        repo, relation, package_dir, package_name):
     """Updates the module."""
     _, fqtn = relation
     path = list(fqtn)
@@ -149,8 +149,6 @@ def __update_this_module(
 
     path = [iskeyword(elt) and f'{elt}_' or elt for elt in path]
     module_path = f"{os.path.join(*path)}.py"
-    if not os.path.dirname(module_path) in dirs_list:
-        dirs_list.append(os.path.dirname(module_path))
     path_1 = os.path.join(*path[:-1])
     if not os.path.exists(path_1):
         os.makedirs(path_1)
@@ -184,7 +182,6 @@ def generate(repo):
     """
     package_name = repo.name
     package_dir = os.path.join(repo.base_dir, package_name)
-    dirs_list = []
     files_list = []
     repo.database.model._reload()
     if not os.path.exists(package_dir):
@@ -198,7 +195,7 @@ def generate(repo):
 
     warning = WARNING_TEMPLATE.format(package_name=package_name)
     for relation in repo.database.model._relations():
-        module_path = __update_this_module(repo, relation, package_dir, package_name, dirs_list)
+        module_path = __update_this_module(repo, relation, package_dir, package_name)
         if module_path:
             files_list.append(module_path)
             if module_path.find('__init__.py') == -1:

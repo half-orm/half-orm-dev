@@ -26,6 +26,7 @@ class Repo:
 
     @property
     def checked(self):
+        "Returns if the Repo is OK."
         return self.__checked
 
     @property
@@ -130,8 +131,9 @@ class Repo:
             f'- package name: {self.__name}',
             f'- hop version: {hop_version}'
         ]
-        res.append(str(self.__database.status))
+        res.append(self.__database.status)
         res.append(str(self.__hgit))
+        res.append(Patch(self).status)
         return '\n'.join(res)
 
     @property
@@ -206,10 +208,12 @@ class Repo:
         # utils.hop_version() = utils.hop_version()
         # self.__write_config()
 
-    def patch(self, force=False, revert=False, prepare=False, message=None, branch_from=None):
-        "Patch..."
-        print('XXX WIP')
-        if prepare:
-            Patch(self).prep_next_release(prepare, message)
-        modules.generate(self)
-        sys.exit(1)
+    def prepare_patch(self, level, message=None):
+        "Prepare a new patch"
+        Patch(self).prep_next_release(level, message)
+
+    def apply_patch(self):
+        "Apply the current patch patch"
+        current = self.hgit.current_release
+        path = os.path.join(self.base_dir, 'Patches', current.replace('.', '/'))
+        Patch(self).apply(path)

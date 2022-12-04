@@ -1,7 +1,6 @@
 "Various utilities"
 
 import os
-import sys
 
 class Color:
     "Colors for the console"

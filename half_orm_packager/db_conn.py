@@ -119,7 +119,11 @@ class DbConn:
         cmd_list.append(self.__name)
         if args:
             cmd_list += args
-        ret = subprocess.run(cmd_list, env=env, shell=False, **kwargs)
-        if ret.returncode:
-            sys.stderr.write(f'Unable to execute sql command {cmd} with {args}, {kwargs}\n')
-            sys.exit(ret.returncode)
+        try:
+            subprocess.run(
+                cmd_list, env=env, shell=False, check=True,
+                # stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                **kwargs)
+        except subprocess.CalledProcessError as err:
+            sys.stderr.write(f'{err.stderr}\n')
+            sys.exit(err.returncode)

@@ -38,6 +38,7 @@ class Database:
     @property
     def last_release_s(self):
         "Returns the string representation of the last release X.Y.Z"
+        # pylint: disable=consider-using-f-string
         return '{major}.{minor}.{patch}'.format(**self.__last_release)
 
     @property

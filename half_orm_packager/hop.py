@@ -35,7 +35,7 @@ class Hop:
             Hop.__available_cmds = ['new']
         else:
             if not self.__repo.production:
-                Hop.__available_cmds = ['patch']
+                Hop.__available_cmds = ['prepare-patch', 'apply-patch']
             else:
                 Hop.__available_cmds = ['upgrade']
 
@@ -70,18 +70,24 @@ class Hop:
 
 
         @click.command()
-        @click.option('-f', '--force', is_flag=True, help="Don't check if git repo is clean.")
-        @click.option('-r', '--revert', is_flag=True, help="Revert to the previous release.")
         @click.option(
-            '-p', '--prepare',
-            type=click.Choice(['patch', 'minor', 'major']), help="Prepare next patch.")
+            '-l', '--level',
+            type=click.Choice(['patch', 'minor', 'major']), help="Patch level.")
         @click.option('-m', '--message', type=str, help="The commit message")
-        def patch(force, revert, prepare, message=None):
-            """ Applies the next patch.
+        def prepare_patch(level, message=None):
+            """ Prepares the next patch.
             """
-            self.__command = 'patch'
-            self.__repo.patch(force, revert, prepare, message)
+            self.__command = 'prepare-patch'
+            self.__repo.prepare_patch(level, message)
             sys.exit()
+
+        @click.command()
+        # @click.option('-f', '--force', is_flag=True, help='Force')
+        def apply_patch():
+            """Apply the current patch.
+            """
+            self.__command = 'apply-patch'
+            self.__repo.apply_patch()
 
         @click.command()
         # @click.option('-d', '--dry-run', is_flag=True, help='Do nothing')
@@ -100,9 +106,10 @@ class Hop:
 
         cmds = {
             'new': new,
-            'patch': patch,
-            'upgrade': upgrade,
-            'test': test
+            'prepare-patch': prepare_patch,
+            'apply-patch': apply_patch,
+            # 'upgrade': upgrade,
+            # 'test': test
         }
 
         for cmd in self.__available_cmds:
