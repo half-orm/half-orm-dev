@@ -89,3 +89,9 @@ class HGit:
             print(f'NEW branch {rel_branch}')
         elif str(self.branch) == rel_branch:
             print(f'On branch {rel_branch}')
+
+    def rebase_to_hop_main(self):
+        "Rebase a hop_X.Y.Z branch to hop_main"
+        branch = self.branch
+        self.__repo.git.checkout('hop_main')
+        self.__repo.git.rebase(branch)

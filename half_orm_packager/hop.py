@@ -38,7 +38,7 @@ class Hop:
                 if self.__repo.hgit.branch == 'hop_main':
                     Hop.__available_cmds = ['prepare-patch']
                 elif self.__repo.hgit.is_hop_patch_branch:
-                    Hop.__available_cmds = ['apply-patch', 'undo-patch']
+                    Hop.__available_cmds = ['apply-patch', 'undo-patch', 'release']
             else:
                 Hop.__available_cmds = ['apply-patch']
 
@@ -114,12 +114,15 @@ class Hop:
             self.__repo.apply_patch()
 
         @click.command()
+        def release():
+            self.__repo.patch_release()
 
         cmds = {
             'new': new,
             'prepare-patch': prepare_patch,
             'apply-patch': apply_patch,
             'undo-patch': undo_patch,
+            'release': release,
         }
 
         for cmd in self.__available_cmds:

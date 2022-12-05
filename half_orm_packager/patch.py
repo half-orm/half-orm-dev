@@ -85,6 +85,7 @@ class Patch:
         """Return True if it's the first time.
         False otherwise.
         """
+        print('XXX', self.__repo.database.last_release_s, self.__repo.hgit.current_release)
         if self.__repo.database.last_release_s == self.__repo.hgit.current_release:
             return 're-apply'
         return 'apply'
@@ -174,7 +175,22 @@ class Patch:
         return '[Patch]'
 
     def undo(self, database_only=False):
+        "Undo a patch."
         self.__restore_previous_db()
         if not database_only:
             modules.generate(self.__repo)
         os.remove(self.__backup_file(self.previous))
+
+    def release(self):
+        "Release a patch"
+        print('XXX release a patch')
+        # The patch must be applied and the last to apply
+        assert self.__repo.database.last_release_s == self.last
+        # Git repo must be clean
+        assert self.__repo.hgit.repos_is_clean()
+        # If we undo the patch (db only) and re-apply it the repo must still be clear.
+        self.undo(database_only=True)
+        self.apply(self.last, force=True)
+        assert self.__repo.hgit.repos_is_clean()
+        # So far, so good
+        self.__repo.hgit.rebase_to_hop_main()

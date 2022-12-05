@@ -32,19 +32,20 @@ class Database:
         self.__name = name
         self.__connection_params = DbConn(name)
         if get_release:
-            self.__last_release = next(
-                self.__model.get_relation_class('half_orm_meta.view.hop_last_release')().select())
+            self.__last_release = self.last_release
 
     @property
     def last_release(self):
         "Returns the last release"
+        self.__last_release = next(
+            self.__model.get_relation_class('half_orm_meta.view.hop_last_release')().select())
         return self.__last_release
 
     @property
     def last_release_s(self):
         "Returns the string representation of the last release X.Y.Z"
         # pylint: disable=consider-using-f-string
-        return '{major}.{minor}.{patch}'.format(**self.__last_release)
+        return '{major}.{minor}.{patch}'.format(**self.last_release)
 
     @property
     def model(self):

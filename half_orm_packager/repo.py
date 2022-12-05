@@ -218,3 +218,7 @@ class Repo:
     def undo_patch(self, database_only=False):
         "Undo the current patch"
         Patch(self).undo(database_only=database_only)
+
+    def patch_release(self):
+        "Release a patch"
+        Patch(self).release()
