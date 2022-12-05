@@ -33,10 +33,12 @@ class Patch:
 
     @property
     def previous(self):
+        "Return Patches/CHANGELOG second to last line."
         return self.__sequence[-2]
 
     @property
     def last(self):
+        "Return Patches/CHANGELOG last line"
         return self.__sequence[-1]
 
     def prep_next_release(self, release_level, message=None):
@@ -85,7 +87,6 @@ class Patch:
         """Return True if it's the first time.
         False otherwise.
         """
-        print('XXX', self.__repo.database.last_release_s, self.__repo.hgit.current_release)
         if self.__repo.database.last_release_s == self.__repo.hgit.current_release:
             return 're-apply'
         return 'apply'
@@ -94,7 +95,7 @@ class Patch:
         backup_dir = os.path.join(self.__repo.base_dir, 'Backups')
         if not os.path.isdir(backup_dir):
             os.mkdir(backup_dir)
-        file_name = f'{self.__repo.name}-{self.previous}.sql'
+        file_name = f'{self.__repo.name}-{release}.sql'
         return os.path.join(backup_dir, file_name)
 
     def __save_db(self):
@@ -105,7 +106,7 @@ class Patch:
         if os.path.isfile(svg_file):
             sys.stderr.write(
                 f"Oops! there is already a dump for the {self.previous} release.\n")
-            sys.stderr.write(f"Please remove it if you really want to proceed.\n")
+            sys.stderr.write("Please remove it if you really want to proceed.\n")
             sys.exit(1)
         self.__repo.database.execute_pg_command('pg_dump', '-f', svg_file, stderr=subprocess.PIPE)
 
@@ -116,13 +117,36 @@ class Patch:
         self.__repo.model.disconnect()
         self.__repo.database.execute_pg_command('dropdb')
         self.__repo.database.execute_pg_command('createdb')
-        self.__repo.database.execute_pg_command('psql', '-f', self.__backup_file(self.previous), stdout=subprocess.DEVNULL)
+        self.__repo.database.execute_pg_command(
+            'psql', '-f', self.__backup_file(self.previous), stdout=subprocess.DEVNULL)
         self.__repo.model.ping()
+
+    def __execute_sql(self, file_):
+        "Execute sql query contained in sql file_"
+        query = utils.read(file_.path).replace('%', '%%')
+        if len(query) == 0:
+            return
+        try:
+            self.__repo.model.execute_query(query)
+        except (psycopg2.Error, psycopg2.OperationalError, psycopg2.InterfaceError) as err:
+            sys.stderr.write(f'Problem with query in {file_.name}\n{err}\n')
+            self.__restore_previous_db()
+            sys.exit(1)
+
+    def __execute_script(self, file_):
+        try:
+            subprocess.run(
+                ['python', file_.path],
+                env=os.environ.update({'PYTHONPATH': self.__repo.base_dir}),
+                shell=False, check=True)
+        except subprocess.CalledProcessError as err:
+            sys.stderr.write(f'Problem with script {file_}\n{err}\n')
+            self.__restore_previous_db()
+            sys.exit(1)
 
     def apply(self, release, force=False):
         "Apply the patch in 'path'"
         changelog_msg = ''
-        print('XXX', self.__check_apply_or_re_apply())
         if self.__check_apply_or_re_apply() == 'apply':
             self.__save_db()
         else:
@@ -147,25 +171,9 @@ class Patch:
             print(f'+ {file_.name}')
 
             if extension == 'sql':
-                query = open(file_.path, 'r', encoding='utf-8').read().replace('%', '%%')
-                if len(query) == 0:
-                    continue
-                try:
-                    self.__repo.model.execute_query(query)
-                except (psycopg2.Error, psycopg2.OperationalError, psycopg2.InterfaceError) as err:
-                    sys.stderr.write(f'Problem with query in {file_.name}\n{err}\n')
-                    self.__restore_previous_db()
-                    sys.exit(1)
+                self.__execute_sql(file_)
             elif extension == 'py':
-                try:
-                    subprocess.run(
-                        ['python', file_.path],
-                        env=os.environ.update({'PYTHONPATH': self.__repo.base_dir}),
-                        shell=False)
-                except subprocess.CalledProcessError as err:
-                    sys.stderr.write(f'Problem with script {file_}\n{err}\n')
-                    self.__restore_previous_db()
-                    sys.exit(1)
+                self.__execute_script(file_)
         modules.generate(self.__repo)
         self.__repo.database.register_release(major, minor, patch, changelog_msg)
 
@@ -183,7 +191,6 @@ class Patch:
 
     def release(self):
         "Release a patch"
-        print('XXX release a patch')
         # The patch must be applied and the last to apply
         assert self.__repo.database.last_release_s == self.last
         # Git repo must be clean

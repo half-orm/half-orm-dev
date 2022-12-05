@@ -47,7 +47,7 @@ class Repo:
         while base_dir:
             if self.__set_base_dir(base_dir):
                 self.__database = Database(self.__name)
-                self.__hgit = HGit(self.__base_dir)
+                self.__hgit = HGit(self)
                 self.__checked = True
             par_dir = os.path.split(base_dir)[0]
             if par_dir == base_dir:
@@ -62,22 +62,6 @@ class Repo:
             self.__load_config()
             return True
         return False
-
-    def __check_version(self):
-        """Verify that the current hop version is the one that was last used in the
-        hop repository. If not tries to upgrade the repository to the current version of hop.
-        """
-        h_vers = utils.hop_version()
-        sh_vers = self.__self_hop_version
-        if h_vers < sh_vers:
-            print("Can't downgrade hop.")
-        if h_vers != sh_vers:
-            print(f'HOP VERSION MISMATCH!\n- hop: {h_vers}\n- repo: {sh_vers}')
-            sys.exit(1)
-            # self.__hop_upgrade()
-            # self.__config.hop_version = self.__config.repo_hop_version
-            # self.__config.write()
-
 
     @property
     def base_dir(self):

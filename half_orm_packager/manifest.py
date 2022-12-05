@@ -11,10 +11,7 @@ class Manifest:
     def __init__(self, path):
         self.__hop_version = None
         self.__changelog_msg = None
-        self.__file = f'{path}/MANIFEST.json'
-        self.__read()
-
-    def __read(self):
+        self.__file = os.path.join(path, 'MANIFEST.json')
         if os.path.exists(self.__file):
             manifest = utils.read(self.__file)
             data = json.loads(manifest)
