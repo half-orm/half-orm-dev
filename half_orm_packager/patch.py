@@ -189,7 +189,7 @@ class Patch:
             modules.generate(self.__repo)
         os.remove(self.__backup_file(self.previous))
 
-    def release(self):
+    def release(self, push):
         "Release a patch"
         # The patch must be applied and the last to apply
         assert self.__repo.database.last_release_s == self.last
@@ -200,4 +200,4 @@ class Patch:
         self.apply(self.last, force=True)
         assert self.__repo.hgit.repos_is_clean()
         # So far, so good
-        self.__repo.hgit.rebase_to_hop_main()
+        self.__repo.hgit.rebase_to_hop_main(push)

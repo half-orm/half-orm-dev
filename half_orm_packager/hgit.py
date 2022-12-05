@@ -94,7 +94,7 @@ class HGit:
         elif str(self.branch) == rel_branch:
             print(f'On branch {rel_branch}')
 
-    def rebase_to_hop_main(self):
+    def rebase_to_hop_main(self, push=False):
         "Rebase a hop_X.Y.Z branch to hop_main"
         release = self.current_release
         self.__git_repo.git.checkout('hop_main')
@@ -107,5 +107,6 @@ class HGit:
         message = f'[{release}] {manifest.changelog_msg}'
         self.__git_repo.git.commit('-m', message)
         self.__git_repo.git.tag(release, '-m', release)
-        self.__git_repo.git.push()
-        self.__git_repo.git.push('-uf', 'origin', release)
+        if push:
+            self.__git_repo.git.push()
+            self.__git_repo.git.push('-uf', 'origin', release)

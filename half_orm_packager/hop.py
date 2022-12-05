@@ -114,8 +114,9 @@ class Hop:
             self.__repo.apply_patch()
 
         @click.command()
-        def release():
-            self.__repo.patch_release()
+        @click.option('-p', '--push', is_flag=True, help='Push git repo to origin')
+        def release(push=False):
+            self.__repo.patch_release(push)
 
         cmds = {
             'new': new,

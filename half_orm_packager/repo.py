@@ -203,6 +203,6 @@ class Repo:
         "Undo the current patch"
         Patch(self).undo(database_only=database_only)
 
-    def patch_release(self):
+    def patch_release(self, push):
         "Release a patch"
-        Patch(self).release()
+        Patch(self).release(push)
