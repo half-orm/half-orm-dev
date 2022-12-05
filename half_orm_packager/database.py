@@ -55,7 +55,8 @@ class Database:
     def status(self):
         "The status (str) of the database"
         res = ['[Database]']
-        res.append(f'- production: {self.__connection_params.production}')
+        prod = utils.Color.red(True) if self.__connection_params.production else False
+        res.append(f'- production: {prod}')
         res.append(f'- last release: {self.last_release_s}')
         return '\n'.join(res)
 

@@ -4,7 +4,7 @@ import os
 import subprocess
 from git import Repo
 
-from half_orm_packager.utils import Color
+from half_orm_packager import utils
 
 class HGit:
     "Manages the git operations on the repo."
@@ -23,7 +23,7 @@ class HGit:
     def __str__(self):
         res = ['[Git]']
         res.append(f'- current branch: {self.__current_branch}')
-        clean = Color.green(self.__is_clean) if self.__is_clean else Color.red(self.__is_clean)
+        clean = utils.Color.green(self.__is_clean) if self.__is_clean else utils.Color.red(self.__is_clean)
         res.append(f'- repo is clean: {clean}')
         res.append(f'- last commit: {self.__last_commit}')
         return '\n'.join(res)

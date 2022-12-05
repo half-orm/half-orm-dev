@@ -7,7 +7,6 @@ from configparser import ConfigParser
 from half_orm_packager import utils
 from half_orm_packager.database import Database
 from half_orm_packager.hgit import HGit
-from half_orm_packager.utils import Color
 from half_orm_packager import modules
 from half_orm_packager.patch import Patch
 
@@ -122,9 +121,9 @@ class Repo:
     def status(self):
         "Returns the status (str) of the repository."
         res = [f'Half-ORM packager: {utils.hop_version()}\n']
-        hop_version = Color.red(self.__self_hop_version) if \
+        hop_version = utils.Color.red(self.__self_hop_version) if \
             self.__hop_version_mismatch() else \
-            Color.green(self.__self_hop_version)
+            utils.Color.green(self.__self_hop_version)
         res += [
             '[Hop repository]',
             f'- base directory: {self.__base_dir}',
@@ -213,5 +212,9 @@ class Repo:
         Patch(self).prep_next_release(level, message)
 
     def apply_patch(self, force=False):
-        "Apply the current patch patch"
+        "Apply the current patch"
         Patch(self).apply(self.hgit.current_release, force=force)
+
+    def undo_patch(self, database_only=False):
+        "Undo the current patch"
+        Patch(self).undo(database_only=database_only)

@@ -38,7 +38,7 @@ class Hop:
                 if self.__repo.hgit.branch == 'hop_main':
                     Hop.__available_cmds = ['prepare-patch']
                 elif self.__repo.hgit.is_hop_patch_branch:
-                    Hop.__available_cmds = ['apply-patch']
+                    Hop.__available_cmds = ['apply-patch', 'undo-patch']
             else:
                 Hop.__available_cmds = ['apply-patch']
 
@@ -93,6 +93,16 @@ class Hop:
             self.__repo.apply_patch(force)
 
         @click.command()
+        @click.option(
+            '-d', '--database-only', is_flag=True,
+            help='Restore the database to the previous release.')
+        def undo_patch(database_only):
+            """Undo the last patch.
+            """
+            self.__command = 'undo-patch'
+            self.__repo.undo_patch(database_only)
+
+        @click.command()
         # @click.option('-d', '--dry-run', is_flag=True, help='Do nothing')
         # @click.option('-l', '--loop', is_flag=True, help='Run every patches to apply')
         def upgrade():
@@ -104,15 +114,12 @@ class Hop:
             self.__repo.apply_patch()
 
         @click.command()
-        def test():
-            pass
 
         cmds = {
             'new': new,
             'prepare-patch': prepare_patch,
             'apply-patch': apply_patch,
-            # 'upgrade': upgrade,
-            # 'test': test
+            'undo-patch': undo_patch,
         }
 
         for cmd in self.__available_cmds:

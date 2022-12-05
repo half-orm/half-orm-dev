@@ -93,17 +93,17 @@ class Patch:
         backup_dir = os.path.join(self.__repo.base_dir, 'Backups')
         if not os.path.isdir(backup_dir):
             os.mkdir(backup_dir)
-        file_name = f'{self.__repo.name}-{self.last}.sql'
+        file_name = f'{self.__repo.name}-{self.previous}.sql'
         return os.path.join(backup_dir, file_name)
 
     def __save_db(self):
         """Save the database
         """
-        svg_file = self.__backup_file(self.last)
+        svg_file = self.__backup_file(self.previous)
         print(f'Saving the database into {svg_file}')
         if os.path.isfile(svg_file):
             sys.stderr.write(
-                f"Oops! there is already a dump for the {self.last} release.\n")
+                f"Oops! there is already a dump for the {self.previous} release.\n")
             sys.stderr.write(f"Please remove it if you really want to proceed.\n")
             sys.exit(1)
         self.__repo.database.execute_pg_command('pg_dump', '-f', svg_file, stderr=subprocess.PIPE)
@@ -172,3 +172,9 @@ class Patch:
     def status(self):
         "The status of a patch"
         return '[Patch]'
+
+    def undo(self, database_only=False):
+        self.__restore_previous_db()
+        if not database_only:
+            modules.generate(self.__repo)
+        os.remove(self.__backup_file(self.previous))
