@@ -38,7 +38,7 @@ class Hop:
                 if self.__repo.hgit.branch == 'hop_main':
                     Hop.__available_cmds = ['prepare-patch']
                 elif self.__repo.hgit.is_hop_patch_branch:
-                    Hop.__available_cmds = ['apply-patch', 'undo-patch', 'release']
+                    Hop.__available_cmds = ['apply-patch', 'undo-patch', 'release-patch']
             else:
                 Hop.__available_cmds = ['apply-patch']
 
@@ -115,7 +115,7 @@ class Hop:
 
         @click.command()
         @click.option('-p', '--push', is_flag=True, help='Push git repo to origin')
-        def release(push=False):
+        def release_patch(push=False):
             self.__repo.patch_release(push)
 
         cmds = {
@@ -123,7 +123,7 @@ class Hop:
             'prepare-patch': prepare_patch,
             'apply-patch': apply_patch,
             'undo-patch': undo_patch,
-            'release': release,
+            'release-patch': release_patch,
         }
 
         for cmd in self.__available_cmds:

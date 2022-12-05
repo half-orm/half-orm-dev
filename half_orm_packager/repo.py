@@ -4,6 +4,7 @@
 import os
 import sys
 from configparser import ConfigParser
+import half_orm
 from half_orm_packager import utils
 from half_orm_packager.database import Database
 from half_orm_packager.hgit import HGit
@@ -150,11 +151,12 @@ class Repo:
         setup = setup_template.format(
                 dbname=self.__name,
                 package_name=self.__name,
-                half_orm_version=utils.hop_version())
+                half_orm_version=half_orm.VERSION)
         utils.write(os.path.join(self.__base_dir, 'setup.py'), setup)
 
         pipfile = pipfile.format(
-                half_orm_version=utils.hop_version())
+                half_orm_version=half_orm.VERSION,
+                hop_version=self.__self_hop_version)
         utils.write(os.path.join(self.__base_dir, 'Pipfile'), pipfile)
 
         os.mkdir(os.path.join(self.__base_dir, '.hop'))
@@ -175,7 +177,7 @@ class Repo:
 
     def upgrade(self):
         "Upgrade???"
-        print('XXX WIP')
+        raise NotImplementedError
         # versions = [line.split()[0] for line in
         #     open(os.path.join(hop_path, 'patches', 'log')).readlines()]
         # if utils.hop_version():

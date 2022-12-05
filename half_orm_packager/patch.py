@@ -16,7 +16,7 @@ class Patch:
     def __init__(self, repo):
         self.__repo = repo
         self.__patches_base_dir = os.path.join(repo.base_dir, 'Patches')
-        self.__changelog_file = os.path.join(self.__patches_base_dir, 'CHANGLEOG')
+        self.__changelog_file = os.path.join(self.__repo.base_dir, '.hop', 'CHANGELOG')
         if not os.path.exists(self.__patches_base_dir):
             os.makedirs(self.__patches_base_dir)
         if not os.path.exists(self.__changelog_file):
@@ -24,21 +24,21 @@ class Patch:
         self.__sequence = self.__get_sequence()
 
     def __get_sequence(self):
-        """Get the sequence of patches in Patches/CHANGLOG"""
+        """Get the sequence of patches in .hop/CHANGLOG"""
         return [elt.strip() for elt in utils.readlines(self.__changelog_file)]
 
     def __update_changelog(self, release_level):
-        """Update with the release the Patches/CHANGELOG file"""
+        """Update with the release the .hop/CHANGELOG file"""
         utils.write(self.__changelog_file, f'{release_level}\n', mode='a+')
 
     @property
     def previous(self):
-        "Return Patches/CHANGELOG second to last line."
+        "Return .hop/CHANGELOG second to last line."
         return self.__sequence[-2]
 
     @property
     def last(self):
-        "Return Patches/CHANGELOG last line"
+        "Return .hop/CHANGELOG last line"
         return self.__sequence[-1]
 
     def prep_next_release(self, release_level, message=None):
@@ -191,13 +191,19 @@ class Patch:
 
     def release(self, push):
         "Release a patch"
-        # The patch must be applied and the last to apply
-        assert self.__repo.database.last_release_s == self.last
         # Git repo must be clean
-        assert self.__repo.hgit.repos_is_clean()
+        if not self.__repo.hgit.repos_is_clean():
+            sys.stderr.write('Pease `git commit` your changes to proceed.\n')
+            sys.exit()
+        # The patch must be applied and the last to apply
+        if not self.__repo.database.last_release_s == self.last:
+            sys.stderr.write(f'Please `hop apply-patch` in order to release.\n')
+            sys.exit(1)
         # If we undo the patch (db only) and re-apply it the repo must still be clear.
         self.undo(database_only=True)
         self.apply(self.last, force=True)
-        assert self.__repo.hgit.repos_is_clean()
+        if not self.__repo.hgit.repos_is_clean():
+            sys.stderr.write('Something has change when re-applying the patch. This should not happen.\n')
+            sys.exit(1)
         # So far, so good
         self.__repo.hgit.rebase_to_hop_main(push)

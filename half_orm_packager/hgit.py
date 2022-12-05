@@ -97,6 +97,8 @@ class HGit:
     def rebase_to_hop_main(self, push=False):
         "Rebase a hop_X.Y.Z branch to hop_main"
         release = self.current_release
+        self.__git_repo.git.pull('origin', 'hop_main')
+        self.__git_repo.git.rebase('hop_main')
         self.__git_repo.git.checkout('hop_main')
         self.__git_repo.git.rebase(f'hop_{release}')
         version_file = os.path.join(self.__base_dir, self.__repo.name, 'version.txt')
