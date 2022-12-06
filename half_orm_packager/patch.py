@@ -48,7 +48,8 @@ class Patch:
             release_level (str): one of ['patch', 'minor', 'major']
         """
         if str(self.__repo.hgit.branch) != 'hop_main':
-            utils.error('ERROR! Wrong branch. Please, switch to the hop_main branch before.\n', exit=1)
+            utils.error(
+                'ERROR! Wrong branch. Please, switch to the hop_main branch before.\n', exit_code=1)
         current = self.__repo.database.last_release
         next_release = dict(current)
         next_release[release_level] = next_release[release_level] + 1
@@ -105,7 +106,7 @@ class Patch:
         if os.path.isfile(svg_file):
             utils.error(
                 f"Oops! there is already a dump for the {self.previous} release.\n")
-            utils.error("Please remove it if you really want to proceed.\n", exit=1)
+            utils.error("Please remove it if you really want to proceed.\n", exit_code=1)
         self.__repo.database.execute_pg_command('pg_dump', '-f', svg_file, stderr=subprocess.PIPE)
 
     def __restore_previous_db(self):
@@ -191,20 +192,22 @@ class Patch:
         "Release a patch"
         # Git repo must be clean
         if not self.__repo.hgit.repos_is_clean():
-            utils.error('Please `git commit` your changes before releasing the patch.\n', exit=1)
+            utils.error(
+                'Please `git commit` your changes before releasing the patch.\n', exit_code=1)
         # The patch must be applied and the last to apply
         if not self.__repo.database.last_release_s == self.last:
-            utils.error('Please `hop apply-patch` before releasing the patch.\n', exit=1)
+            utils.error('Please `hop apply-patch` before releasing the patch.\n', exit_code=1)
         # If we undo the patch (db only) and re-apply it the repo must still be clear.
         self.undo(database_only=True)
         self.apply(self.last, force=True)
         if not self.__repo.hgit.repos_is_clean():
             utils.error(
-                'Something has changed when re-applying the patch. This should not happen.\n', exit=1)
+                'Something has changed when re-applying the patch. This should not happen.\n',
+                exit_code=1)
         # the tests must pass
         try:
             subprocess.run(['pytest', self.__repo.name], check=True)
         except subprocess.CalledProcessError:
-            utils.error('Tests must pass in order to release the patch.\n', exit=1)
+            utils.error('Tests must pass in order to release the patch.\n', exit_code=1)
         # So far, so good
         self.__repo.hgit.rebase_to_hop_main(push)

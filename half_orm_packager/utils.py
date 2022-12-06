@@ -8,15 +8,15 @@ class Color:
     @staticmethod
     def red(text):
         "red"
-        return f"\033[31m{text}\033[0m"
+        return f"\033[1;31m{text}\033[0m"
     @staticmethod
     def green(text):
         "green"
-        return f"\033[32m{text}\033[0m"
+        return f"\033[1;32m{text}\033[0m"
     @staticmethod
     def blue(text):
         "blue"
-        return f"\033[34m{text}\033[0m"
+        return f"\033[1;34m{text}\033[0m"
 
 HOP_PATH = os.path.dirname(__file__)
 TEMPLATE_DIRS = os.path.join(HOP_PATH, 'templates')
@@ -46,7 +46,8 @@ def hop_version():
         hop_v = version.read().strip()
     return hop_v
 
-def error(msg: str, exit: int=None):
-    sys.stderr.write(Color.red(msg))
-    if exit:
-        sys.exit(exit)
+def error(msg: str, exit_code: int=None):
+    "Write error message on stderr in bold red and exit if exit is not None"
+    sys.stderr.write(f'\033[1mHOP ERROR\033[0m: {Color.red(msg)}')
+    if exit_code:
+        sys.exit(exit_code)

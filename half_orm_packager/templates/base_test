@@ -6,6 +6,10 @@ This class is inherited by every test modules in the package.
 from unittest import TestCase
 from half_orm.relation import Relation
 
+{BEGIN_CODE}
+
+{END_CODE}
+
 class BaseTest(TestCase):
 
     def setUp(self) -> None:
@@ -13,3 +17,5 @@ class BaseTest(TestCase):
 
     def tearDown(self) -> None:
         pass
+
+    {BEGIN_CODE}

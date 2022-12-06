@@ -141,7 +141,7 @@ class Repo:
         if not os.path.exists(self.__base_dir):
             os.makedirs(self.__base_dir)
         else:
-            utils.error(f"ERROR! The path '{self.__base_dir}' already exists!\n", exit=1)
+            utils.error(f"ERROR! The path '{self.__base_dir}' already exists!\n", exit_code=1)
         readme = utils.read(os.path.join(utils.TEMPLATE_DIRS, 'README'))
         setup_template = utils.read(os.path.join(utils.TEMPLATE_DIRS, 'setup.py'))
         git_ignore = utils.read(os.path.join(utils.TEMPLATE_DIRS, '.gitignore'))

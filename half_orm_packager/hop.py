@@ -24,6 +24,7 @@ import sys
 import click
 
 from half_orm_packager.repo import Repo
+from half_orm_packager import utils
 
 class Hop:
     "Sets the options available to the hop command"
@@ -143,7 +144,7 @@ def main(ctx):
     elif not hop.repo_checked and ctx.invoked_subcommand != 'new':
         utils.error(
             "You're not in a hop repository.\n"
-            "Try `hop new <package name>` or change directory.\n", exit=1)
+            "Try `hop new <package name>` or change directory.\n", exit_code=1)
 
 hop.add_commands(main)
 

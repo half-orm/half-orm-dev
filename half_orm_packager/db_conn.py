@@ -66,7 +66,7 @@ class DbConn:
             if self.__conf_dir == '/etc/half_orm': # only on linux
                 utils.error(
                     "Set the HALFORM_CONF_DIR environment variable if you want to use a\n"
-                    "different directory.\n", exit=1)
+                    "different directory.\n", exit_code=1)
         print(f'Connection parameters to the database {self.__name}:')
         self.__user = os.environ['USER']
         self.__user = input(f'. user ({self.__user}): ') or self.__user
@@ -125,4 +125,4 @@ class DbConn:
                 # stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 **kwargs)
         except subprocess.CalledProcessError as err:
-            utils.error(f'{err.stderr}\n', exit=err.returncode)
+            utils.error(f'{err.stderr}\n', exit_code=err.returncode)

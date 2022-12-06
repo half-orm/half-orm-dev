@@ -115,12 +115,11 @@ def __assemble_module_template(module_path):
     module_template = MODULE_FORMAT
     user_s_class_attr = ''
     if os.path.exists(module_path):
-        with open(module_path, encoding='utf-8') as module_file:
-            module_code = module_file.read()
-            user_s_code = module_code.rsplit(utils.BEGIN_CODE, 1)[1]
-            user_s_code = user_s_code.replace('{', '{{').replace('}', '}}')
-            global_user_s_code = module_code.rsplit(utils.END_CODE)[0].split(utils.BEGIN_CODE)[1]
-            global_user_s_code = global_user_s_code.replace('{', '{{').replace('}', '}}')
+        module_code = utils.read(module_path)
+        user_s_code = module_code.rsplit(utils.BEGIN_CODE, 1)[1]
+        user_s_code = user_s_code.replace('{', '{{').replace('}', '}}')
+        global_user_s_code = module_code.rsplit(utils.END_CODE)[0].split(utils.BEGIN_CODE)[1]
+        global_user_s_code = global_user_s_code.replace('{', '{{').replace('}', '}}')
     return module_template.format(
         rt1=MODULE_TEMPLATE_1, rt2=MODULE_TEMPLATE_2, rt3=MODULE_TEMPLATE_3,
         bc_=utils.BEGIN_CODE, ec_=utils.END_CODE,
@@ -171,6 +170,8 @@ def __update_this_module(
     if not os.path.exists(module_path.replace('.py', '_test.py')):
         with open(module_path.replace('.py', '_test.py'), 'w', encoding='utf-8') as file_:
             file_.write(TEST.format(
+                BEGIN_CODE=utils.BEGIN_CODE,
+                END_CODE=utils.END_CODE,
                 package_name=package_name,
                 module=f"{package_name}.{fqtn}",
                 class_name=camel_case(path[-1]))
@@ -191,7 +192,10 @@ def generate(repo):
 
     if not os.path.exists(os.path.join(package_dir, 'base_test.py')):
         with open(os.path.join(package_dir, 'base_test.py'), 'w', encoding='utf-8') as file_:
-            file_.write(BASE_TEST.format(package_name=package_name))
+            file_.write(BASE_TEST.format(
+                BEGIN_CODE=utils.BEGIN_CODE,
+                END_CODE=utils.END_CODE,
+                package_name=package_name))
 
     warning = WARNING_TEMPLATE.format(package_name=package_name)
     for relation in repo.database.model._relations():

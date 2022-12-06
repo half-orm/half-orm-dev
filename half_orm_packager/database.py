@@ -56,7 +56,7 @@ class Database:
     def status(self):
         "The status (str) of the database"
         res = ['[Database]']
-        prod = utils.Color.red(True) if self.__connection_params.production else False
+        prod = utils.Color.blue(True) if self.__connection_params.production else False
         res.append(f'- production: {prod}')
         res.append(f'- last release: {self.last_release_s}')
         return '\n'.join(res)
@@ -90,7 +90,7 @@ class Database:
                 self.execute_pg_command('createdb')
             else:
                 utils.error(
-                    f'Aborting! Please remove {self.__name} directory.\n', exit=1)
+                    f'Aborting! Please remove {self.__name} directory.\n', exit_code=1)
         self.__model = Model(self.__name)
         try:
             self.__model.get_relation_class('half_orm_meta.hop_release')

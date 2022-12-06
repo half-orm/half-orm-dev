@@ -47,7 +47,8 @@ class HGit:
             os.chdir(cur_dir)
             self.__post_init()
         except GitCommandError as err:
-            utils.error(f'Something went wrong initializing git repo in {base_dir}\n{err}\n', exit=1)
+            utils.error(
+                f'Something went wrong initializing git repo in {base_dir}\n{err}\n', exit_code=1)
         return self
 
     @property
@@ -112,4 +113,4 @@ class HGit:
                 self.__git_repo.git.push()
                 self.__git_repo.git.push('-uf', 'origin', release)
         except GitCommandError as err:
-            utils.error(f'Something went wrong rebasing hop_main\n{err}\n', exit=1)
+            utils.error(f'Something went wrong rebasing hop_main\n{err}\n', exit_code=1)
