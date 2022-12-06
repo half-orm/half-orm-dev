@@ -58,28 +58,31 @@ MODEL = None
 def __update_init_files(package_dir, files_list, warning):
     """Update __all__ lists in __init__ files.
     """
-    exp = re.compile('[A-Z]')
+    skip = re.compile('[A-Z]')
     for root, dirs, files in os.walk(package_dir):
         all_ = []
-        if exp.search(os.path.split(root)[1][0]):
-            print(f'Ignoring {root}')
+        reldir = root.replace(package_dir, '')
+        if re.findall(skip, reldir):
             continue
-
         for dir_ in dirs:
+            if re.findall(skip, dir_):
+                continue
             if dir_ != '__pycache__':
                 all_.append(dir_)
-        for file in files:
-            path_ = os.path.join(root, file)
-            if path_ not in files_list and file not in DO_NOT_REMOVE:
+        for file_ in files:
+            if re.findall(skip, file_):
+                continue
+            path_ = os.path.join(root, file_)
+            if path_ not in files_list and file_ not in DO_NOT_REMOVE:
                 if path_.find('__pycache__') == -1 and path_.find('_test.py') == -1:
                     print(f"REMOVING: {path_}")
                 os.remove(path_)
                 continue
-            if (re.findall('.py$', file) and
-                    file != '__init__.py' and
-                    file != '__pycache__' and
-                    file.find('_test.py') == -1):
-                all_.append(file.replace('.py', ''))
+            if (re.findall('.py$', file_) and
+                    file_ != '__init__.py' and
+                    file_ != '__pycache__' and
+                    file_.find('_test.py') == -1):
+                all_.append(file_.replace('.py', ''))
         all_.sort()
         with open(os.path.join(root, '__init__.py'), 'w', encoding='utf-8') as init_file:
             init_file.write(f'"""{warning}"""\n\n')
@@ -126,7 +129,7 @@ def __assemble_module_template(module_path):
         rt1=MODULE_TEMPLATE_1, rt2=MODULE_TEMPLATE_2, rt3=MODULE_TEMPLATE_3,
         bc_=utils.BEGIN_CODE, ec_=utils.END_CODE,
         global_user_s_code=global_user_s_code,
-        user_s_class_attr=user_s_class_attr, #f'{user_s_class_attr}\n' if user_s_class_attr else user_s_class_attr,
+        user_s_class_attr=user_s_class_attr,
         user_s_code=user_s_code)
 
 def __update_this_module(

@@ -182,8 +182,18 @@ EOF
 git add .
 git commit -m "(b) with Fkeys"
 
+mkdir hop_test/Api
+touch hop_test/Api/__init__.py
+mkdir hop_test/Api/coucou
+echo 'print ("coucou")' > hop_test/Api/coucou/__init__.py
+
+git add .
+git commit -m "Add API"
+
 hop release-patch
 
 git status
 git push
 git tag
+
+git log
