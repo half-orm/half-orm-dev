@@ -47,7 +47,7 @@ MODULE_FORMAT = (
     "{rt1}" +
     "{bc_}{global_user_s_code}{ec_}" +
     "{rt2}" +
-    "    {bc_}{user_s_class_attr}\n    {ec_}" +
+    "    {bc_}{user_s_class_attr}    {ec_}" +
     "{rt3}\n        " +
     "{bc_}{user_s_code}")
 AP_EPILOG = """"""
@@ -120,11 +120,13 @@ def __assemble_module_template(module_path):
         user_s_code = user_s_code.replace('{', '{{').replace('}', '}}')
         global_user_s_code = module_code.rsplit(utils.END_CODE)[0].split(utils.BEGIN_CODE)[1]
         global_user_s_code = global_user_s_code.replace('{', '{{').replace('}', '}}')
+        user_s_class_attr = module_code.split(utils.BEGIN_CODE)[2].split(f'    {utils.END_CODE}')[0]
+        user_s_class_attr = user_s_class_attr.replace('{', '{{').replace('}', '}}')
     return module_template.format(
         rt1=MODULE_TEMPLATE_1, rt2=MODULE_TEMPLATE_2, rt3=MODULE_TEMPLATE_3,
         bc_=utils.BEGIN_CODE, ec_=utils.END_CODE,
         global_user_s_code=global_user_s_code,
-        user_s_class_attr=user_s_class_attr,
+        user_s_class_attr=user_s_class_attr, #f'{user_s_class_attr}\n' if user_s_class_attr else user_s_class_attr,
         user_s_code=user_s_code)
 
 def __update_this_module(
