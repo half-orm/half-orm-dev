@@ -48,8 +48,7 @@ class Patch:
             release_level (str): one of ['patch', 'minor', 'major']
         """
         if str(self.__repo.hgit.branch) != 'hop_main':
-            sys.stderr.write('ERROR! Wrong branch. Please, switch to the hop_main branch before.\n')
-            sys.exit(1)
+            utils.error('ERROR! Wrong branch. Please, switch to the hop_main branch before.\n', exit=1)
         current = self.__repo.database.last_release
         next_release = dict(current)
         next_release[release_level] = next_release[release_level] + 1
@@ -104,10 +103,9 @@ class Patch:
         svg_file = self.__backup_file(self.previous)
         print(f'Saving the database into {svg_file}')
         if os.path.isfile(svg_file):
-            sys.stderr.write(
+            utils.error(
                 f"Oops! there is already a dump for the {self.previous} release.\n")
-            sys.stderr.write("Please remove it if you really want to proceed.\n")
-            sys.exit(1)
+            utils.error("Please remove it if you really want to proceed.\n", exit=1)
         self.__repo.database.execute_pg_command('pg_dump', '-f', svg_file, stderr=subprocess.PIPE)
 
     def __restore_previous_db(self):
@@ -129,7 +127,7 @@ class Patch:
         try:
             self.__repo.model.execute_query(query)
         except (psycopg2.Error, psycopg2.OperationalError, psycopg2.InterfaceError) as err:
-            sys.stderr.write(f'Problem with query in {file_.name}\n{err}\n')
+            utils.error(f'Problem with query in {file_.name}\n{err}\n')
             self.__restore_previous_db()
             sys.exit(1)
 
@@ -140,7 +138,7 @@ class Patch:
                 env=os.environ.update({'PYTHONPATH': self.__repo.base_dir}),
                 shell=False, check=True)
         except subprocess.CalledProcessError as err:
-            sys.stderr.write(f'Problem with script {file_}\n{err}\n')
+            utils.error(f'Problem with script {file_}\n{err}\n')
             self.__restore_previous_db()
             sys.exit(1)
 
@@ -153,7 +151,7 @@ class Patch:
             if not force:
                 okay = input('Do you want to re-apply the patch [y/N]?') or 'y'
                 if okay.upper() != 'Y':
-                    sys.exit(1)
+                    sys.exit()
             self.__restore_previous_db()
         print(f'Applying patch {release}')
         files = []
@@ -193,17 +191,20 @@ class Patch:
         "Release a patch"
         # Git repo must be clean
         if not self.__repo.hgit.repos_is_clean():
-            sys.stderr.write('Pease `git commit` your changes to proceed.\n')
-            sys.exit()
+            utils.error('Please `git commit` your changes before releasing the patch.\n', exit=1)
         # The patch must be applied and the last to apply
         if not self.__repo.database.last_release_s == self.last:
-            sys.stderr.write(f'Please `hop apply-patch` in order to release.\n')
-            sys.exit(1)
+            utils.error('Please `hop apply-patch` before releasing the patch.\n', exit=1)
         # If we undo the patch (db only) and re-apply it the repo must still be clear.
         self.undo(database_only=True)
         self.apply(self.last, force=True)
         if not self.__repo.hgit.repos_is_clean():
-            sys.stderr.write('Something has change when re-applying the patch. This should not happen.\n')
-            sys.exit(1)
+            utils.error(
+                'Something has changed when re-applying the patch. This should not happen.\n', exit=1)
+        # the tests must pass
+        try:
+            subprocess.run(['pytest', self.__repo.name], check=True)
+        except subprocess.CalledProcessError:
+            utils.error('Tests must pass in order to release the patch.\n', exit=1)
         # So far, so good
         self.__repo.hgit.rebase_to_hop_main(push)

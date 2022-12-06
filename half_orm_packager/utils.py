@@ -1,6 +1,7 @@
 "Various utilities"
 
 import os
+import sys
 
 class Color:
     "Colors for the console"
@@ -44,3 +45,8 @@ def hop_version():
     with open(os.path.join(HOP_PATH, 'version.txt'), encoding='utf-8') as version:
         hop_v = version.read().strip()
     return hop_v
+
+def error(msg: str, exit: int=None):
+    sys.stderr.write(Color.red(msg))
+    if exit:
+        sys.exit(exit)

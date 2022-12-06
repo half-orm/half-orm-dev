@@ -3,6 +3,7 @@
 import os
 import subprocess
 from git import Repo
+from git.exc import GitCommandError
 
 from half_orm_packager import utils
 from half_orm_packager.manifest import Manifest
@@ -20,14 +21,14 @@ class HGit:
     def __post_init(self):
         self.__git_repo = Repo(self.__base_dir)
         self.__current_branch = self.branch
-        self.__is_clean = self.repos_is_clean()
         self.__last_commit = self.last_commit()
 
     def __str__(self):
         res = ['[Git]']
         res.append(f'- current branch: {self.__current_branch}')
-        clean = utils.Color.green(self.__is_clean) \
-            if self.__is_clean else utils.Color.red(self.__is_clean)
+        clean = self.repos_is_clean()
+        clean = utils.Color.green(clean) \
+            if clean else utils.Color.red(clean)
         res.append(f'- repo is clean: {clean}')
         res.append(f'- last commit: {self.__last_commit}')
         return '\n'.join(res)
@@ -36,15 +37,17 @@ class HGit:
         "Initiazes the git repo."
         cur_dir = os.path.abspath(os.path.curdir)
         self.__base_dir = base_dir
-        subprocess.run(['git', 'init', base_dir], check=True)
-        self.__git_repo = Repo(base_dir)
-        os.chdir(base_dir)
-        # Patch(self.__hop_cls, create_mode=True).patch(force=True, create=True)
-        self.__git_repo.git.add('.')
-        self.__git_repo.git.commit(m=f'[{release}] hop new {os.path.basename(base_dir)}')
-        self.__git_repo.git.checkout('-b', 'hop_main')
-        self.__post_init()
-        os.chdir(cur_dir)
+        try:
+            subprocess.run(['git', 'init', base_dir], check=True)
+            self.__git_repo = Repo(base_dir)
+            os.chdir(base_dir)
+            self.__git_repo.git.add('.')
+            self.__git_repo.git.commit(m=f'[{release}] hop new {os.path.basename(base_dir)}')
+            self.__git_repo.git.checkout('-b', 'hop_main')
+            os.chdir(cur_dir)
+            self.__post_init()
+        except GitCommandError as err:
+            utils.error(f'Something went wrong initializing git repo in {base_dir}\n{err}\n', exit=1)
         return self
 
     @property
@@ -66,14 +69,9 @@ class HGit:
         except ValueError:
             return False
 
-    @staticmethod
-    def repos_is_clean():
+    def repos_is_clean(self):
         "Returns True if the git repository is clean, False otherwise."
-        with subprocess.Popen(
-            "git status --porcelain", shell=True, stdout=subprocess.PIPE) as repo_is_clean:
-            repo_is_clean = repo_is_clean.stdout.read().decode().strip().split('\n')
-            repo_is_clean = [line for line in repo_is_clean if line != '']
-            return not bool(repo_is_clean)
+        return not self.__git_repo.is_dirty(untracked_files=True)
 
     def last_commit(self):
         """Returns the last commit
@@ -97,18 +95,21 @@ class HGit:
     def rebase_to_hop_main(self, push=False):
         "Rebase a hop_X.Y.Z branch to hop_main"
         release = self.current_release
-        self.__git_repo.git.pull('origin', 'hop_main')
-        self.__git_repo.git.rebase('hop_main')
-        self.__git_repo.git.checkout('hop_main')
-        self.__git_repo.git.rebase(f'hop_{release}')
-        version_file = os.path.join(self.__base_dir, self.__repo.name, 'version.txt')
-        utils.write(version_file, release)
-        self.__git_repo.git.add(version_file)
-        patch_dir = os.path.join(self.__base_dir, 'Patches', *release.split('.'))
-        manifest = Manifest(patch_dir)
-        message = f'[{release}] {manifest.changelog_msg}'
-        self.__git_repo.git.commit('-m', message)
-        self.__git_repo.git.tag(release, '-m', release)
-        if push:
-            self.__git_repo.git.push()
-            self.__git_repo.git.push('-uf', 'origin', release)
+        try:
+            self.__git_repo.git.pull('origin', 'hop_main')
+            self.__git_repo.git.rebase('hop_main')
+            self.__git_repo.git.checkout('hop_main')
+            self.__git_repo.git.rebase(f'hop_{release}')
+            version_file = os.path.join(self.__base_dir, self.__repo.name, 'version.txt')
+            utils.write(version_file, release)
+            self.__git_repo.git.add(version_file)
+            patch_dir = os.path.join(self.__base_dir, 'Patches', *release.split('.'))
+            manifest = Manifest(patch_dir)
+            message = f'[{release}] {manifest.changelog_msg}'
+            self.__git_repo.git.commit('-m', message)
+            self.__git_repo.git.tag(release, '-m', release)
+            if push:
+                self.__git_repo.git.push()
+                self.__git_repo.git.push('-uf', 'origin', release)
+        except GitCommandError as err:
+            utils.error(f'Something went wrong rebasing hop_main\n{err}\n', exit=1)

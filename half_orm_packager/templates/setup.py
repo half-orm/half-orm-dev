@@ -75,7 +75,7 @@ setup(
     packages=find_packages(exclude=['contrib', 'docs', 'tests', 'patches', 'svg']),
 
     install_requires=[
-        'half_orm>={half_orm_version}'
+        'half_orm=={half_orm_version}'
     ],
 
 )

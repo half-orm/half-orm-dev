@@ -89,9 +89,8 @@ class Database:
             if create.upper() == 'Y':
                 self.execute_pg_command('createdb')
             else:
-                sys.stderr.write(
-                    f'Aborting! Please remove {self.__name} directory.\n')
-                sys.exit(1)
+                utils.error(
+                    f'Aborting! Please remove {self.__name} directory.\n', exit=1)
         self.__model = Model(self.__name)
         try:
             self.__model.get_relation_class('half_orm_meta.hop_release')

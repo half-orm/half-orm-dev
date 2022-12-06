@@ -141,10 +141,9 @@ def main(ctx):
     if hop.repo_checked and ctx.invoked_subcommand is None:
         click.echo(hop.status)
     elif not hop.repo_checked and ctx.invoked_subcommand != 'new':
-        sys.stderr.write(
+        utils.error(
             "You're not in a hop repository.\n"
-            "Try `hop new <package name>` or change directory.\n")
-        sys.exit()
+            "Try `hop new <package name>` or change directory.\n", exit=1)
 
 hop.add_commands(main)
 

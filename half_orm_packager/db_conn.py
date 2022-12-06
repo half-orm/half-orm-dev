@@ -9,6 +9,7 @@ from getpass import getpass
 from configparser import ConfigParser, NoOptionError
 
 from half_orm.model import CONF_DIR
+from half_orm_packager import utils
 
 
 class DbConn:
@@ -63,10 +64,9 @@ class DbConn:
         if not os.access(self.__conf_dir, os.W_OK):
             sys.stderr.write(f"You don't have write access to {self.__conf_dir}.\n")
             if self.__conf_dir == '/etc/half_orm': # only on linux
-                sys.stderr.write(
+                utils.error(
                     "Set the HALFORM_CONF_DIR environment variable if you want to use a\n"
-                    "different directory.\n")
-            sys.exit(1)
+                    "different directory.\n", exit=1)
         print(f'Connection parameters to the database {self.__name}:')
         self.__user = os.environ['USER']
         self.__user = input(f'. user ({self.__user}): ') or self.__user
@@ -125,5 +125,4 @@ class DbConn:
                 # stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 **kwargs)
         except subprocess.CalledProcessError as err:
-            sys.stderr.write(f'{err.stderr}\n')
-            sys.exit(err.returncode)
+            utils.error(f'{err.stderr}\n', exit=err.returncode)
