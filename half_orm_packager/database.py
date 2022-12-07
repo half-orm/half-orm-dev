@@ -113,4 +113,4 @@ class Database:
         "Register the release into half_orm_meta.hop_release"
         return self.__model.get_relation_class('half_orm_meta.hop_release')(
                 major=major, minor=minor, patch=patch, changelog=changelog
-            ).insert()[0] # TODO: REMOVE [0] WHEN UPGRADING TO half_orm 0.8.0
+            ).insert()

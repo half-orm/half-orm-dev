@@ -116,7 +116,7 @@ git add .
 git commit -m "(wip) Second"
 
 cat > hop_test/public/b.py << EOF
-# hop release: 0.1.0
+# hop release: 0.1.0a0
 # pylint: disable=wrong-import-order, invalid-name, attribute-defined-outside-init
 
 """The module hop_test.public.b povides the B class.
