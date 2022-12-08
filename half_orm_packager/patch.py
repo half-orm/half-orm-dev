@@ -28,6 +28,7 @@ class Patch:
     @classmethod
     @property
     def levels(cls):
+        "Returns the levels"
         return cls.__levels
 
     def __get_sequence(self):
@@ -60,6 +61,7 @@ class Patch:
         return self.__sequence[-1]
 
     def __repr(self, release):
+        # pylint: disable=consider-using-f-string
         return '{major}.{minor}.{patch}'.format(**release)
 
     @property
@@ -68,7 +70,7 @@ class Patch:
         next_releases = {}
         for level in self.__levels:
             next_releases[level] = dict(current)
-            next_releases[level][level] = current[level] + 1 
+            next_releases[level][level] = current[level] + 1
         return next_releases
 
     def prep_next_release(self, release_level, message=None):
@@ -97,7 +99,6 @@ class Patch:
         # pylint: disable=consider-using-f-string
         new_release_s = '{major}.{minor}.{patch}'.format(**next_release)
         print(f'PREPARING: {new_release_s}')
-        # pylint: disable=consider-using-f-string
         patch_path = os.path.join(
             'Patches',
             str(next_release['major']),
@@ -216,8 +217,8 @@ class Patch:
         self.__repo.database.register_release(major, minor, patch, changelog_msg)
 
     @property
-    def status(self):
-        "The status of a patch"
+    def state(self):
+        "The state of a patch"
         return '[Patch]'
 
     def undo(self, database_only=False):

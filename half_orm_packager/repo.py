@@ -2,7 +2,6 @@
 """
 
 import os
-import sys
 from configparser import ConfigParser
 import half_orm
 from half_orm_packager import utils
@@ -103,8 +102,8 @@ class Repo:
         return utils.hop_version() != self.__self_hop_version
 
     @property
-    def status(self):
-        "Returns the status (str) of the repository."
+    def state(self):
+        "Returns the state (str) of the repository."
         res = [f'Half-ORM packager: {utils.hop_version()}\n']
         hop_version = utils.Color.red(self.__self_hop_version) if \
             self.__hop_version_mismatch() else \
@@ -115,9 +114,9 @@ class Repo:
             f'- package name: {self.__name}',
             f'- hop version: {hop_version}'
         ]
-        res.append(self.__database.status)
+        res.append(self.__database.state)
         res.append(str(self.__hgit))
-        res.append(Patch(self).status)
+        res.append(Patch(self).state)
         return '\n'.join(res)
 
     @property
@@ -164,14 +163,14 @@ class Repo:
         self.__database = Database().init(self.__name)
         modules.generate(self)
 
-        cmd = " ".join(sys.argv)
-        readme = readme.format(cmd=cmd, dbname=self.__name, package_name=self.__name)
+        readme = readme.format(
+            hop_version=self.__self_hop_version, dbname=self.__name, package_name=self.__name)
         utils.write(os.path.join(self.__base_dir, 'README.md'), readme)
         utils.write(os.path.join(self.__base_dir, '.gitignore'), git_ignore)
         self.__hgit = HGit().init(self.__base_dir)
 
         print(f"\nThe hop project '{self.__name}' has been created.")
-        print(self.status)
+        print(self.state)
 
 
     def upgrade(self):

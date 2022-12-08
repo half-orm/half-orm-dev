@@ -54,9 +54,9 @@ class Hop:
         return self.__repo.model
 
     @property
-    def status(self):
-        "Returns the status of the repo."
-        return self.__repo.status
+    def state(self):
+        "Returns the state of the repo."
+        return self.__repo.state
 
     @property
     def command(self):
@@ -140,7 +140,7 @@ def main(ctx):
     Generates/Synchronises/Patches a python package from a PostgreSQL database
     """
     if hop.repo_checked and ctx.invoked_subcommand is None:
-        click.echo(hop.status)
+        click.echo(hop.state)
     elif not hop.repo_checked and ctx.invoked_subcommand != 'new':
         utils.error(
             "You're not in a hop repository.\n"

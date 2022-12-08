@@ -53,8 +53,8 @@ class Database:
         return self.__model
 
     @property
-    def status(self):
-        "The status (str) of the database"
+    def state(self):
+        "The state (str) of the database"
         res = ['[Database]']
         prod = utils.Color.blue(True) if self.__connection_params.production else False
         res.append(f'- production: {prod}')
