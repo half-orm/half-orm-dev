@@ -32,11 +32,22 @@ class Patch:
 
     def __get_sequence(self):
         """Get the sequence of patches in .hop/CHANGLOG"""
-        return [elt.strip() for elt in utils.readlines(self.__changelog_file)]
+        return [elt.split()[0] for elt in utils.readlines(self.__changelog_file)]
 
-    def __update_changelog(self, release_level):
+    def __append_to_changelog(self, release_level):
         """Update with the release the .hop/CHANGELOG file"""
         utils.write(self.__changelog_file, f'{release_level}\n', mode='a+')
+
+    def __update_changelog(self, release_level):
+        "Add the commit sha1 to the release in the .hop/CHANGELOG file"
+        out = []
+        for line in utils.readlines(self.__changelog_file):
+            line = line.strip()
+            if line and line.split()[0] != release_level:
+                out.append(line)
+            else:
+                out.append(f'{release_level}\t{self.__repo.hgit.last_commit()}\n')
+        utils.write(self.__changelog_file, '\n'.join(out))
 
     @property
     def previous(self):
@@ -93,7 +104,7 @@ class Patch:
             str(next_release['minor']),
             str(next_release['patch']))
         if not os.path.exists(patch_path):
-            changelog_msg = message or input('CHANGELOG message - (leave empty to abort): ')
+            changelog_msg = message or input('Message - (leave empty to abort): ')
             if not changelog_msg:
                 print('Aborting')
                 return
@@ -107,7 +118,7 @@ class Patch:
         print('You can now add your patch scripts (*.py, *.sql)'
             f'in {patch_path}. See Patches/README.')
         modules.generate(self.__repo)
-        self.__update_changelog(new_release_s)
+        self.__append_to_changelog(new_release_s)
 
     def __check_apply_or_re_apply(self):
         """Return True if it's the first time.
@@ -156,6 +167,7 @@ class Patch:
         except (psycopg2.Error, psycopg2.OperationalError, psycopg2.InterfaceError) as err:
             utils.error(f'Problem with query in {file_.name}\n{err}\n')
             self.__restore_previous_db()
+            os.remove(self.__backup_file(self.previous))
             sys.exit(1)
 
     def __execute_script(self, file_):
@@ -167,6 +179,7 @@ class Patch:
         except subprocess.CalledProcessError as err:
             utils.error(f'Problem with script {file_}\n{err}\n')
             self.__restore_previous_db()
+            os.remove(self.__backup_file(self.previous))
             sys.exit(1)
 
     def apply(self, release, force=False):
@@ -237,3 +250,4 @@ class Patch:
             utils.error('Tests must pass in order to release the patch.\n', exit_code=1)
         # So far, so good
         self.__repo.hgit.rebase_to_hop_main(push)
+        self.__update_changelog(self.__repo.database.last_release_s)
