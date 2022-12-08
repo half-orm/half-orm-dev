@@ -25,10 +25,19 @@ perl -spi -e 's=True=False=' ~/.halform/hop_test
 git remote add origin git@gite.lirmm.fr:maizi/tmptest.git
 git push -uf origin hop_main
 
-hop prepare-patch -l patch -m "First import"
+hop prepare-patch -m "First patch release" << EOF
+patch
+EOF
+echo 'create table first ( a text primary key )' > Patches/0/0/1/a.sql
+hop apply-patch
+git add .
+git commit -m "First table"
+hop release-patch
 
-echo 'create table a ( a text primary key )' > Patches/0/0/1/a.sql
-echo 'print("I am a script without x permission...")' > Patches/0/0/1/a.py
+hop prepare-patch -l patch -m "Second patch release"
+
+echo 'create table a ( a text primary key )' > Patches/0/0/2/a.sql
+echo 'print("I am a script without x permission...")' > Patches/0/0/2/a.py
 
 hop apply-patch
 
@@ -44,7 +53,7 @@ git add .
 git commit -m "(wip) First"
 git status
 
-echo 'create table a ( a text primary key, bla text )' > Patches/0/0/1/a.sql
+echo 'create table a ( a text primary key, bla text )' > Patches/0/0/2/a.sql
 
 hop undo-patch
 
@@ -56,7 +65,7 @@ git hist
 
 set +e
 # should commit before release
-hop release-patch
+hop release-patch -m "First release"
 set -e
 
 git add .
@@ -101,9 +110,9 @@ git status
 
 hop
 
-hop prepare-patch -l patch -m "Second import"
+hop prepare-patch -l minor -m "First minor patch"
 
-echo 'create table b ( b text primary key, a text references a )' > Patches/0/0/2/b.sql
+echo 'create table b ( b text primary key, a text references a )' > Patches/0/1/0/b.sql
 
 hop apply-patch
 

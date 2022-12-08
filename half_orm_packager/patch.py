@@ -13,6 +13,8 @@ from half_orm_packager import modules
 
 class Patch:
     "The Patch class..."
+    __levels = ['patch', 'minor', 'major']
+
     def __init__(self, repo):
         self.__repo = repo
         self.__patches_base_dir = os.path.join(repo.base_dir, 'Patches')
@@ -22,6 +24,11 @@ class Patch:
         if not os.path.exists(self.__changelog_file):
             utils.write(self.__changelog_file, f'{self.__repo.database.last_release_s}\n')
         self.__sequence = self.__get_sequence()
+
+    @classmethod
+    @property
+    def levels(cls):
+        return cls.__levels
 
     def __get_sequence(self):
         """Get the sequence of patches in .hop/CHANGLOG"""
@@ -41,17 +48,36 @@ class Patch:
         "Return .hop/CHANGELOG last line"
         return self.__sequence[-1]
 
+    def __repr(self, release):
+        return '{major}.{minor}.{patch}'.format(**release)
+
+    @property
+    def __next_possible_releases(self):
+        current = dict(self.__repo.database.last_release)
+        next_releases = {}
+        for level in self.__levels:
+            next_releases[level] = dict(current)
+            next_releases[level][level] = current[level] + 1 
+        return next_releases
+
     def prep_next_release(self, release_level, message=None):
         """Returns the next (major, minor, patch) tuple according to the release_level
 
         Args:
             release_level (str): one of ['patch', 'minor', 'major']
         """
+        if release_level is None:
+            next_levels = '\n'.join(
+                [f"- {level}: {self.__repr(self.__next_possible_releases[level])}"
+                for level in self.__levels])
+            print(f'Next possible releases:\n{next_levels}')
+            release_level = input(f"Release level {self.__levels}? ")
+            if not release_level in self.__levels:
+                utils.error(f"Wrong release level ({release_level}).\n", exit_code=1)
         if str(self.__repo.hgit.branch) != 'hop_main':
             utils.error(
                 'ERROR! Wrong branch. Please, switch to the hop_main branch before.\n', exit_code=1)
-        current = self.__repo.database.last_release
-        next_release = dict(current)
+        next_release = dict(self.__repo.database.last_release)
         next_release[release_level] = next_release[release_level] + 1
         if release_level == 'major':
             next_release['minor'] = next_release['patch'] = 0
