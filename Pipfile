@@ -7,14 +7,4 @@ name = "pypi"
 gitpython = "3"
 click = "*"
 pydash = "5"
-half-orm = ">=0.7.4"
-
-[dev-packages]
-pytest = "*"
-half-orm-packager = {editable = true, path = "."}
-twine = "*"
-build = "*"
-pylint = "*"
-
-[scripts]
-hop = "python -m half_orm_packager.hop:main"
+half-orm = ">=0.8"

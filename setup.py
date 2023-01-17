@@ -10,28 +10,17 @@ def read(name):
 
 setup(
     name='half_orm_packager',
-    version=read('half_orm_packager/version.txt').strip(),
-    description="half_orm packager.",
+    version="0.1.0a1",
+    description="Deprecated half_orm packager. See half_orm.",
     long_description=read('README.md'),
     keywords='postgres, relation-object mapping',
     author='Joël Maïzi',
     author_email='joel.maizi@collorg.org',
-    url='https://github.com/collorg/halfORM_packager',
+    url='https://github.com/collorg/halORM',
     license='GNU General Public License v3 (GPLv3)',
-    packages=['half_orm_packager'],
-    package_data={'half_orm_packager': [
-        'templates/*', 'templates/.gitignore', 'db_patch_system/*', 'version.txt']},
     install_requires=[
-        'GitPython',
-        'click',
-        'pydash',
-        'half_orm>=0.7.4'
+        'half_orm>=0.8.0a1',
     ],
-    entry_points={
-        'console_scripts': [
-            'hop=half_orm_packager.hop:main',
-        ],
-    },
     classifiers=[
         # How mature is this project? Common values are
         #   3 - Alpha
