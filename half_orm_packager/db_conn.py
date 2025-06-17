@@ -6,11 +6,16 @@ import subprocess
 import sys
 
 from getpass import getpass
-from configparser import ConfigParser, NoOptionError
+from configparser import ConfigParser
 
 from half_orm.model import CONF_DIR
-from half_orm_packager import utils
+from half_orm import utils
 
+CONF_NOT_FOUND = '''
+The configuration file {} is missing.
+You must create it before proceeding.
+
+'''
 
 class DbConn:
     """Handles the connection parameters to the database.
@@ -25,9 +30,8 @@ class DbConn:
         self.__production = None
         if name:
             self.__connection_file = os.path.join(self.__conf_dir, self.__name)
-            if not os.path.exists(self.__connection_file):
-                raise FileNotFoundError
-            self.__init()
+            if os.path.exists(self.__connection_file):
+                self.__init()
 
     @property
     def production(self):
@@ -38,29 +42,32 @@ class DbConn:
         "Reads the config file and sets the connection parameters"
         config = ConfigParser()
         config.read([self.__connection_file])
+
         self.__name = config.get('database', 'name')
-        try:
-            self.__user = config.get('database', 'user')
-            self.__password = config.get('database', 'password')
-            self.__host = config.get('database', 'host')
-            self.__port = config.get('database', 'port')
-        except NoOptionError:
-            pass
-        try:
-            prod = config.get('database', 'production')
-        except NoOptionError:
-            prod = 'False'
-        if prod == 'True':
-            self.__production = True
-        elif prod == 'False':
-            self.__production = False
-        else:
-            raise Exception('production must be either False or True')
+
+        self.__user = config.get('database', 'user', fallback=None)
+        self.__password = config.get('database', 'password', fallback=None)
+        self.__host = config.get('database', 'host', fallback=None)
+        self.__port = config.get('database', 'port', fallback=None)
+
+        self.__production = config.getboolean('database', 'production', fallback=False)
+
+    @property
+    def host(self):
+        "Returns host name"
+        return self.__host
+    @property
+    def port(self):
+        "Returns port"
+        return self.__port
+    @property
+    def user(self):
+        "Returns user"
+        return self.__user
 
     def set_params(self, name):
         """Asks for the connection parameters.
         """
-        self.__name = name
         if not os.access(self.__conf_dir, os.W_OK):
             sys.stderr.write(f"You don't have write access to {self.__conf_dir}.\n")
             if self.__conf_dir == '/etc/half_orm': # only on linux
@@ -122,7 +129,6 @@ class DbConn:
         try:
             subprocess.run(
                 cmd_list, env=env, shell=False, check=True,
-                # stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 **kwargs)
         except subprocess.CalledProcessError as err:
-            utils.error(f'{err.stderr}\n', exit_code=err.returncode)
+            utils.error(f'{err}\ndatabase: {self.__name} with user: {self.__user}, host: {self.__host}, port: {self.__port}\n', exit_code=err.returncode)

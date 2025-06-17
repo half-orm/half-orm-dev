@@ -11,3 +11,6 @@ half_orm_packager.egg-info/
 .noseids
 .pdbrc
 pyproject.toml
+packager/test/hop_test
+.hop_venv
+hop_test

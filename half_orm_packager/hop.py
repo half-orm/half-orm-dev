@@ -23,8 +23,8 @@ import sys
 
 import click
 
-from half_orm_packager.repo import Repo
-from half_orm_packager import utils
+from half_orm.packager.repo import Repo
+from half_orm import utils
 
 class Hop:
     "Sets the options available to the hop command"
@@ -35,13 +35,14 @@ class Hop:
         if not self.repo_checked:
             Hop.__available_cmds = ['new']
         else:
-            if not self.__repo.production:
-                if self.__repo.hgit.branch == 'hop_main':
-                    Hop.__available_cmds = ['prepare-patch']
-                elif self.__repo.hgit.is_hop_patch_branch:
-                    Hop.__available_cmds = ['apply-patch', 'undo-patch', 'release-patch']
+            if not self.__repo.devel:
+                Hop.__available_cmds = ['sync-package']
+            elif not self.__repo.production:
+                Hop.__available_cmds = ['prepare']
+                if self.__repo.hgit.is_hop_patch_branch:
+                    Hop.__available_cmds += ['apply', 'undo', 'release']
             else:
-                Hop.__available_cmds = ['apply-patch']
+                Hop.__available_cmds = ['upgrade', 'restore']
 
     @property
     def repo_checked(self):
@@ -67,41 +68,41 @@ class Hop:
         "Adds the commands to the main click group."
         @click.command()
         @click.argument('package_name')
-        def new(package_name):
+        @click.option('-d', '--devel', is_flag=True, help="Development mode")
+        def new(package_name, devel=False):
             """ Creates a new hop project named <package_name>.
             """
-            self.__repo.new(package_name)
+            self.__repo.init(package_name, devel)
 
 
         @click.command()
         @click.option(
             '-l', '--level',
-            type=click.Choice(['patch', 'minor', 'major']), help="Patch level.")
-        @click.option('-m', '--message', type=str, help="The commit message")
-        def prepare_patch(level, message=None):
-            """ Prepares the next patch.
+            type=click.Choice(['patch', 'minor', 'major']), help="Release level.")
+        @click.option('-m', '--message', type=str, help="The git commit message")
+        def prepare(level, message=None):
+            """ Prepares the next release.
             """
-            self.__command = 'prepare-patch'
-            self.__repo.prepare_patch(level, message)
+            self.__command = 'prepare'
+            self.__repo.prepare_release(level, message)
             sys.exit()
 
         @click.command()
-        @click.option('-f', '--force', is_flag=True, help='Force')
-        def apply_patch(force=False):
-            """Apply the current patch.
+        def apply():
+            """Apply the current release.
             """
-            self.__command = 'apply-patch'
-            self.__repo.apply_patch(force)
+            self.__command = 'apply'
+            self.__repo.apply_release()
 
         @click.command()
         @click.option(
             '-d', '--database-only', is_flag=True,
             help='Restore the database to the previous release.')
-        def undo_patch(database_only):
-            """Undo the last patch.
+        def undo(database_only):
+            """Undo the last release.
             """
-            self.__command = 'undo-patch'
-            self.__repo.undo_patch(database_only)
+            self.__command = 'undo'
+            self.__repo.undo_release(database_only)
 
         @click.command()
         # @click.option('-d', '--dry-run', is_flag=True, help='Do nothing')
@@ -111,20 +112,33 @@ class Hop:
 
             switches to hop_main, pulls should check the tags
             """
-            self.__command = 'upgrade'
-            self.__repo.apply_patch()
+            self.__command = 'upgrade_prod'
+            self.__repo.upgrade_prod()
+
+        @click.command()
+        @click.argument('release')
+        def restore(release):
+            "Restore to release"
+            self.__repo.restore(release)
 
         @click.command()
         @click.option('-p', '--push', is_flag=True, help='Push git repo to origin')
-        def release_patch(push=False):
-            self.__repo.patch_release(push)
+        def release(push=False):
+            self.__repo.commit_release(push)
+
+        @click.command()
+        def sync_package():
+            self.__repo.sync_package()
 
         cmds = {
             'new': new,
-            'prepare-patch': prepare_patch,
-            'apply-patch': apply_patch,
-            'undo-patch': undo_patch,
-            'release-patch': release_patch,
+            'prepare': prepare,
+            'apply': apply,
+            'undo': undo,
+            'release': release,
+            'sync-package': sync_package,
+            'upgrade': upgrade,
+            'restore': restore
         }
 
         for cmd in self.__available_cmds:
@@ -142,9 +156,10 @@ def main(ctx):
     if hop.repo_checked and ctx.invoked_subcommand is None:
         click.echo(hop.state)
     elif not hop.repo_checked and ctx.invoked_subcommand != 'new':
-        utils.error(
-            "You're not in a hop repository.\n"
-            "Try `hop new <package name>` or change directory.\n", exit_code=1)
+        click.echo(hop.state)
+        print(
+            "\nNot in a hop repository.\n"
+            f"Try {utils.Color.bold('hop new [--devel] <package name>')} or change directory.\n")
 
 hop.add_commands(main)
 

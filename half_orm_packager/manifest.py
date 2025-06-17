@@ -4,10 +4,10 @@
 import json
 import os
 
-from half_orm_packager import utils
+from half_orm import utils
 
 class Manifest:
-    "Manages the manifest of a patch"
+    "Manages the manifest of a release"
     def __init__(self, path):
         self.__hop_version = None
         self.__changelog_msg = None
@@ -28,7 +28,7 @@ class Manifest:
 
     @property
     def hop_version(self):
-        "Returns the version of hop used to create this patch"
+        "Returns the version of hop used to create this release"
         return self.__hop_version
     @hop_version.setter
     def hop_version(self, release):

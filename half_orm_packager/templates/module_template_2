@@ -1,7 +1,5 @@
 
-__RCLS = base_relation_class('{fqtn}')
-
-class {class_name}({inherited_classes}__RCLS):
+class {class_name}({inherited_classes}MODEL.get_relation_class('{fqtn}', fields_aliases=fields_aliases), ho_dataclasses.{dc_name}):
     """
 {documentation}
     """
