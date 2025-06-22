@@ -9,7 +9,8 @@ from psycopg2 import OperationalError
 from half_orm.model import Model
 from half_orm.model_errors import UnknownRelation
 from half_orm import utils
-from half_orm.packager.db_conn import DbConn
+from half_orm_dev.db_conn import DbConn
+from .utils import HOP_PATH
 
 
 class Database:
@@ -106,7 +107,7 @@ class Database:
                 self.__model.get_relation_class('half_orm_meta.hop_release')
             except UnknownRelation:
                 hop_init_sql_file = os.path.join(
-                    utils.HOP_PATH, 'patches', 'sql', 'half_orm_meta.sql')
+                    HOP_PATH, 'patches', 'sql', 'half_orm_meta.sql')
                 self.execute_pg_command(
                     'psql', '-f', hop_init_sql_file, stdout=subprocess.DEVNULL)
                 self.__model.reconnect(reload=True)

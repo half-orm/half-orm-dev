@@ -9,17 +9,17 @@ def read(name):
         os.path.join(os.path.dirname(__file__), name), "r", "utf-8").read()
 
 setup(
-    name='half_orm_packager',
-    version=read('half_orm_packager/version.txt').strip(),
-    description="half_orm packager.",
+    name='half_orm_dev',
+    version=read('half_orm_dev/version.txt').strip(),
+    description="half_orm development Framework.",
     long_description=read('README.md'),
     keywords='postgres, relation-object mapping',
     author='Joël Maïzi',
     author_email='joel.maizi@collorg.org',
-    url='https://github.com/collorg/halfORM_packager',
+    url='https://github.com/collorg/halfORM_dev',
     license='GNU General Public License v3 (GPLv3)',
-    packages=['half_orm_packager'],
-    package_data={'half_orm_packager': [
+    packages=['half_orm_dev'],
+    package_data={'half_orm_dev': [
         'templates/*', 'templates/.gitignore', 'db_patch_system/*', 'patches/*', 'version.txt']},
     install_requires=[
         'GitPython',
@@ -30,7 +30,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'hop=half_orm_packager.hop:main',
+            'hop=half_orm_dev.hop:main',
         ],
     },
     classifiers=[

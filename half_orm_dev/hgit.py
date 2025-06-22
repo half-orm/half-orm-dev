@@ -7,7 +7,7 @@ import git
 from git.exc import GitCommandError
 
 from half_orm import utils
-from half_orm.packager.manifest import Manifest
+from half_orm_dev.manifest import Manifest
 
 class HGit:
     "Manages the git operations on the repo."

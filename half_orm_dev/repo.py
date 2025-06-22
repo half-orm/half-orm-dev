@@ -7,11 +7,13 @@ from configparser import ConfigParser
 from typing import Optional
 import half_orm
 from half_orm import utils
-from half_orm.packager.database import Database
-from half_orm.packager.hgit import HGit
-from half_orm.packager import modules
-from half_orm.packager.patch import Patch
-from half_orm.packager.changelog import Changelog
+from half_orm_dev.database import Database
+from half_orm_dev.hgit import HGit
+from half_orm_dev import modules
+from half_orm_dev.patch import Patch
+from half_orm_dev.changelog import Changelog
+
+from .utils import TEMPLATE_DIRS, hop_version
 
 class Config:
     """
@@ -40,7 +42,7 @@ class Config:
     def write(self):
         "Helper: write file in utf8"
         config = ConfigParser()
-        self.__hop_version = utils.hop_version()
+        self.__hop_version = hop_version()
         data = {
             'config_file': self.__name,
             'package_name': self.__name,
@@ -167,7 +169,7 @@ class Repo:
         """Returns a boolean indicating if current hop version is different from
         the last hop version used with this repository.
         """
-        return utils.hop_version() != self.__config.hop_version
+        return hop_version() != self.__config.hop_version
 
     @property
     def devel(self):
@@ -176,17 +178,18 @@ class Repo:
     @property
     def state(self):
         "Returns the state (str) of the repository."
-        res = [f'hop version: {utils.Color.bold(utils.hop_version())}']
+        print('XXX', hop_version())
+        res = [f'hop version: {utils.Color.bold(hop_version())}']
         res += [f'half-orm version: {utils.Color.bold(half_orm.__version__)}\n']
         if self.__config:
-            hop_version = utils.Color.red(self.__config.hop_version) if \
+            hop_version_display = utils.Color.red(self.__config.hop_version) if \
                 self.__hop_version_mismatch() else \
                 utils.Color.green(self.__config.hop_version)
             res += [
                 '[Hop repository]',
                 f'- base directory: {self.__base_dir}',
                 f'- package name: {self.__config.name}',
-                f'- hop version: {hop_version}'
+                f'- hop version: {hop_version_display}'
             ]
             res.append(self.database.state)
             res.append(str(self.hgit))
@@ -206,10 +209,10 @@ class Repo:
             os.makedirs(self.__base_dir)
         else:
             utils.error(f"ERROR! The path '{self.__base_dir}' already exists!\n", exit_code=1)
-        readme = utils.read(os.path.join(utils.TEMPLATE_DIRS, 'README'))
-        setup_template = utils.read(os.path.join(utils.TEMPLATE_DIRS, 'setup.py'))
-        git_ignore = utils.read(os.path.join(utils.TEMPLATE_DIRS, '.gitignore'))
-        pipfile = utils.read(os.path.join(utils.TEMPLATE_DIRS, 'Pipfile'))
+        readme = utils.read(os.path.join(TEMPLATE_DIRS, 'README'))
+        setup_template = utils.read(os.path.join(TEMPLATE_DIRS, 'setup.py'))
+        git_ignore = utils.read(os.path.join(TEMPLATE_DIRS, '.gitignore'))
+        pipfile = utils.read(os.path.join(TEMPLATE_DIRS, 'Pipfile'))
 
         setup = setup_template.format(
                 dbname=self.__config.name,
@@ -219,7 +222,7 @@ class Repo:
 
         pipfile = pipfile.format(
                 half_orm_version=half_orm.__version__,
-                hop_version=utils.hop_version())
+                hop_version=hop_version())
         utils.write(os.path.join(self.__base_dir, 'Pipfile'), pipfile)
 
         os.mkdir(os.path.join(self.__base_dir, '.hop'))
@@ -227,7 +230,7 @@ class Repo:
         modules.generate(self)
 
         readme = readme.format(
-            hop_version=utils.hop_version(), dbname=self.__config.name, package_name=self.__config.name)
+            hop_version=hop_version(), dbname=self.__config.name, package_name=self.__config.name)
         utils.write(os.path.join(self.__base_dir, 'README.md'), readme)
         utils.write(os.path.join(self.__base_dir, '.gitignore'), git_ignore)
         self.hgit = HGit().init(self.__base_dir)

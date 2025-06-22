@@ -8,8 +8,10 @@ import sys
 import psycopg2
 
 from half_orm import utils
-from half_orm.packager import modules
-from half_orm.packager.changelog import Changelog
+from half_orm_dev import modules
+from half_orm_dev.changelog import Changelog
+
+from .utils import hop_version
 
 try:
     PYTEST_OK = True
@@ -121,7 +123,7 @@ class Patch:
             os.makedirs(patch_path)
             with open(os.path.join(patch_path, 'MANIFEST.json'), 'w', encoding='utf-8') as manifest:
                 manifest.write(json.dumps({
-                    'hop_version': utils.hop_version(),
+                    'hop_version': hop_version(),
                     'changelog_msg': changelog_msg,
                 }))
         self.__changelog.new_release(new_release_s)

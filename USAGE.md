@@ -5,7 +5,7 @@ Notes for halfORM packager usage
 ## Initialization
 
 ```
-pipenv install half-orm-packager
+pipenv install half-orm-dev
 pipenv install half-orm
 pipenv shell
 export HALFORM_CONF_DIR=/path/to/half_orm/private/dir 

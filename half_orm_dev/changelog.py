@@ -16,6 +16,7 @@ A line is of the form:
 import os
 
 from half_orm import utils
+from .utils import hop_version
 
 class Changelog:
     "The Changelog class..."
@@ -28,7 +29,7 @@ class Changelog:
         if not os.path.exists(self.__file):
             utils.write(
                 self.__file,
-                f'{utils.hop_version()}\t{self.__repo.database.last_release_s}\tInitial\t\n')
+                f'{hop_version()}\t{self.__repo.database.last_release_s}\tInitial\t\n')
             self.__repo.hgit.add(self.__file)
             self.__repo.hgit.commit('-m', '[hop] Initial CHANGELOG')
         self.__seq()
@@ -59,7 +60,7 @@ class Changelog:
             if rel:
                 utils.write(self.__file, f'{rel[0]}\t{rel[1]}\t{rel[2]}\t{rel[3]}\n', mode='a+')
             else:
-                utils.write(self.__file, f'{utils.hop_version()}\t{release}\t\t\n', mode='a+')
+                utils.write(self.__file, f'{hop_version()}\t{release}\t\t\n', mode='a+')
         self.__seq()
 
     def update_release(self, release, commit, previous_commit):
@@ -73,7 +74,7 @@ class Changelog:
                 elt = line.split()
                 out.append(f'{elt[0]}\t{elt[1]}\t{elt[2]}\t{previous_commit}\n')
             else:
-                out.append(f'{utils.hop_version()}\t{release}\t{commit}\t\n')
+                out.append(f'{hop_version()}\t{release}\t{commit}\t\n')
         utils.write(self.__file, ''.join(out))
         self.__repo.hgit.add(self.__file)
         # self.__repo.hgit.commit('-m', f'[hop][{release}] CHANGELOG')

@@ -9,9 +9,7 @@ then
 fi
 
 cd -- "$( dirname -- "${BASH_SOURCE[0]}" )"
-HALFORM_DIR=$PWD/../../..
-CI_PROJECT_DIR=$HALFORM_DIR
-HALFORM_CONF_DIR=$PWD/.config
+export HALFORM_CONF_DIR=$PWD/.config
 
 cat $HALFORM_CONF_DIR/hop_test
 # switch to development mode
@@ -318,6 +316,7 @@ git push
 echo 'APPLY PATCH IN PRODUCTION'
 perl -spi -e 's=False=True=' $HALFORM_CONF_DIR/hop_test
 hop
+hop --help
 hop restore 0.0.1
 hop
 # It should upgrade to the latest version released (1.0.0)

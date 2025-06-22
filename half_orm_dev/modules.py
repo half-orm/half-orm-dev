@@ -33,10 +33,11 @@ from half_orm.model_errors import UnknownRelation
 from half_orm.sql_adapter import SQL_ADAPTER
 
 from half_orm import utils
+from .utils import TEMPLATE_DIRS, hop_version
 
 def read_template(file_name):
     "helper"
-    with open(os.path.join(utils.TEMPLATE_DIRS, file_name), encoding='utf-8') as file_:
+    with open(os.path.join(TEMPLATE_DIRS, file_name), encoding='utf-8') as file_:
         return file_.read()
 
 NO_APAPTER = {}
@@ -262,7 +263,7 @@ def __update_this_module(
         documentation = "\n".join([line and f"    {line}" or "" for line in str(rel).split("\n")])
         file_.write(
             module_template.format(
-                hop_release = utils.hop_version(),
+                hop_release = hop_version(),
                 module=f"{package_name}.{fqtn}",
                 package_name=package_name,
                 documentation=documentation,

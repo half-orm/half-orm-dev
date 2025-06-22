@@ -1,2 +1,2 @@
+python3.12:.hop_venv
 default:.hop_venv
-python:.hop_venv

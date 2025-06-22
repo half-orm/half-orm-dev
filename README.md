@@ -11,7 +11,7 @@ PostgreSQL &#8594; Python relation object mapper.
 
 ## Installation
 
-Run `pip install half_orm_packager`.
+Run `pip install half_orm_dev`.
 
 ## help
 

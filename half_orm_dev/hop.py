@@ -23,7 +23,7 @@ import sys
 
 import click
 
-from half_orm.packager.repo import Repo
+from half_orm_dev.repo import Repo
 from half_orm import utils
 
 class Hop:
@@ -36,14 +36,14 @@ class Hop:
             Hop.__available_cmds = ['new']
         else:
             if not self.__repo.devel:
+                # Sync-only mode
                 Hop.__available_cmds = ['sync-package']
-            elif not self.__repo.production:
-                Hop.__available_cmds = ['prepare']
-                if self.__repo.hgit.is_hop_patch_branch:
-                    Hop.__available_cmds += ['apply', 'undo', 'release']
             else:
-                Hop.__available_cmds = ['upgrade', 'restore']
-
+                # Full mode - check environment
+                if self.__repo.production:
+                    Hop.__available_cmds = ['upgrade', 'restore']
+                else:
+                    Hop.__available_cmds = ['prepare', 'apply', 'release', 'undo']
     @property
     def repo_checked(self):
         "Returns wether we are in a repo or not."
