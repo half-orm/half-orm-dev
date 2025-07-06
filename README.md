@@ -1,5 +1,30 @@
 # halfORM packager (early alpha stage)
 
+> **📢 Project Evolution Notice**
+>
+> **halfORM_dev is being redesigned to integrate with halfORM 0.16's new extension system.**
+>
+> This project will be refactored as `half-orm-dev` to provide development tools through the unified `half_orm` CLI interface. The core functionality (project management, database patches, code generation) will remain the same, but the integration and command structure will be modernized.
+>
+> **Current Status:**
+> - ✅ halfORM core 0.16 with extension is about to be released
+> - 🔄 halfORM_dev refactoring will start soon
+> - 📋 New `half-orm-dev` extension planned for Q3 2025
+>
+> **What's Changing:**
+> - Commands will integrate with `half_orm dev` instead of standalone `hop`
+> - Extension auto-discovery and security model
+> - Simplified installation and configuration
+> - Consistent CLI experience across all halfORM tools
+>
+> **For Current Users:**
+> The existing halfORM_dev will continue to work as-is. The new extension will provide a migration path when ready.
+>
+> **Stay Updated:**
+> Follow progress in [halfORM Discussions](https://github.com/collorg/halfORM/discussions) and [halfORM Issues](https://github.com/collorg/halfORM/issues).
+
+---
+
 THIS DOC IS A WORK IN PROGRESS...
 
 This package allows you to patch/test a PostgreSQL model and its associated
