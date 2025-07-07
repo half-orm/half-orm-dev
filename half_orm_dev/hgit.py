@@ -201,6 +201,10 @@ class HGit:
         "Checkout to hop_main branch"
         self.__git_repo.git.checkout('hop_main')
 
+    # ============================================================================
+    # NEW GIT-CENTRIC WORKFLOW METHODS (Test-Driven Implementation)
+    # ============================================================================
+
     def get_hop_branches(self):
         """Returns all HOP branches (local + remote)
         
@@ -228,48 +232,6 @@ class HGit:
             pass
         
         return hop_branches
-
-    def _is_hop_branch(self, branch_name):
-        """Check if a branch name follows HOP conventions
-        
-        Args:
-            branch_name (str): Branch name to check
-            
-        Returns:
-            bool: True if it's a HOP branch (hop_main, hop_X.Y.Z, hop_X.Y.x)
-        """
-        if branch_name == 'hop_main':
-            return True
-        
-        if branch_name.startswith('hop_'):
-            # Extract version part after 'hop_'
-            version_part = branch_name[4:]  # Remove 'hop_' prefix
-            
-            # Check for maintenance branch pattern (X.Y.x)
-            if version_part.endswith('.x'):
-                version_without_x = version_part[:-2]  # Remove '.x'
-                parts = version_without_x.split('.')
-                if len(parts) == 2:
-                    try:
-                        int(parts[0])  # major
-                        int(parts[1])  # minor
-                        return True
-                    except ValueError:
-                        pass
-            
-            # Check for development branch pattern (X.Y.Z)
-            else:
-                parts = version_part.split('.')
-                if len(parts) == 3:
-                    try:
-                        int(parts[0])  # major
-                        int(parts[1])  # minor  
-                        int(parts[2])  # patch
-                        return True
-                    except ValueError:
-                        pass
-        
-        return False
 
     def get_development_branches(self):
         """Returns development branches (hop_X.Y.Z)
@@ -448,3 +410,68 @@ class HGit:
         except Exception:
             # If local branch doesn't exist or other error, no rebase needed
             return False
+
+    # ============================================================================
+    # LEVEL 4: GIT ACTIONS
+    # ============================================================================
+
+    def immediate_branch_push(self, branch_name):
+        """Pushes branch immediately for version reservation
+        
+        This method pushes a branch immediately to the remote to reserve a version
+        and prevent conflicts between developers. Fails fast on conflicts.
+        
+        Args:
+            branch_name (str): Branch name to push (e.g., "hop_1.2.3")
+            
+        Raises:
+            SystemExit: If no origin configured or push conflicts
+        """
+        # Check if origin is configured
+        if not self.__repo.git_origin:
+            utils.error("Git: No remote specified for \"origin\". Can't push!\n", 1)
+        
+        try:
+            # Push branch with upstream tracking
+            self.__git_repo.git.push('-u', 'origin', branch_name)
+            print(f'✅ Reserved version: {branch_name} pushed to origin')
+            
+        except GitCommandError as err:
+            # Handle push conflicts (branch already exists on remote)
+            if 'already exists' in str(err) or 'rejected' in str(err):
+                utils.error(
+                    f'Version conflict: {branch_name} already exists on remote!\n'
+                    f'Another developer is already working on this version.\n', 1)
+            else:
+                utils.error(f'Failed to push {branch_name}: {err}\n', 1)
+
+    def apply_with_rebase_warning(self):
+        """Shows intelligent rebase notifications
+        
+        This method checks if the current branch needs rebasing and provides
+        intelligent warnings to help developers understand what actions are needed.
+        """
+        current_branch = self.branch
+        
+        # Check if current branch needs rebase against remote
+        if self.check_rebase_needed(current_branch):
+            utils.warning(
+                f'⚠️  WARNING: {current_branch} is behind remote\n'
+                f'💡 Consider rebasing: git rebase origin/{current_branch}\n'
+            )
+        
+        # Check if current branch is a development branch (hop_X.Y.Z)
+        if self._is_development_branch(current_branch):
+            # Extract version to find corresponding maintenance branch
+            version_part = current_branch[4:]  # Remove 'hop_' prefix
+            parts = version_part.split('.')
+            if len(parts) == 3:
+                major, minor = parts[0], parts[1]
+                maintenance_branch = f'hop_{major}.{minor}.x'
+                
+                # Check if maintenance branch has advanced
+                if self.check_rebase_needed(maintenance_branch):
+                    utils.warning(
+                        f'⚠️  WARNING: {maintenance_branch} has advanced\n'
+                        f'💡 Consider rebasing against maintenance: git rebase {maintenance_branch}\n'
+                    )
