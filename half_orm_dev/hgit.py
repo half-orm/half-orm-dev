@@ -270,3 +270,110 @@ class HGit:
                         pass
         
         return False
+
+    def get_development_branches(self):
+        """Returns development branches (hop_X.Y.Z)
+        
+        Development branches follow the pattern hop_X.Y.Z where X, Y, Z are integers.
+        These branches are used for developing specific versions.
+        
+        Returns:
+            set: Set of development branch names
+        """
+        hop_branches = self.get_hop_branches()
+        development_branches = set()
+        
+        for branch in hop_branches:
+            if self._is_development_branch(branch):
+                development_branches.add(branch)
+        
+        return development_branches
+
+    def get_maintenance_branches(self):
+        """Returns maintenance branches (hop_X.Y.x)
+        
+        Maintenance branches follow the pattern hop_X.Y.x where X, Y are integers.
+        These branches are used for maintaining specific major.minor version lines.
+        
+        Returns:
+            set: Set of maintenance branch names
+        """
+        hop_branches = self.get_hop_branches()
+        maintenance_branches = set()
+        
+        for branch in hop_branches:
+            if self._is_maintenance_branch(branch):
+                maintenance_branches.add(branch)
+        
+        return maintenance_branches
+
+    def _is_hop_branch(self, branch_name):
+        """Check if a branch name follows HOP conventions
+        
+        Args:
+            branch_name (str): Branch name to check
+            
+        Returns:
+            bool: True if it's a HOP branch (hop_main, hop_X.Y.Z, hop_X.Y.x)
+        """
+        if branch_name == 'hop_main':
+            return True
+        
+        return self._is_development_branch(branch_name) or self._is_maintenance_branch(branch_name)
+
+    def _is_development_branch(self, branch_name):
+        """Check if a branch is a development branch (hop_X.Y.Z)
+        
+        Args:
+            branch_name (str): Branch name to check
+            
+        Returns:
+            bool: True if it's a development branch
+        """
+        if not branch_name.startswith('hop_'):
+            return False
+        
+        # Extract version part after 'hop_'
+        version_part = branch_name[4:]  # Remove 'hop_' prefix
+        
+        # Check for development branch pattern (X.Y.Z)
+        parts = version_part.split('.')
+        if len(parts) == 3:
+            try:
+                int(parts[0])  # major
+                int(parts[1])  # minor  
+                int(parts[2])  # patch
+                return True
+            except ValueError:
+                pass
+        
+        return False
+
+    def _is_maintenance_branch(self, branch_name):
+        """Check if a branch is a maintenance branch (hop_X.Y.x)
+        
+        Args:
+            branch_name (str): Branch name to check
+            
+        Returns:
+            bool: True if it's a maintenance branch
+        """
+        if not branch_name.startswith('hop_'):
+            return False
+        
+        # Extract version part after 'hop_'
+        version_part = branch_name[4:]  # Remove 'hop_' prefix
+        
+        # Check for maintenance branch pattern (X.Y.x)
+        if version_part.endswith('.x'):
+            version_without_x = version_part[:-2]  # Remove '.x'
+            parts = version_without_x.split('.')
+            if len(parts) == 2:
+                try:
+                    int(parts[0])  # major
+                    int(parts[1])  # minor
+                    return True
+                except ValueError:
+                    pass
+        
+        return False
