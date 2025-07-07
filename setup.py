@@ -9,7 +9,7 @@ def read(name):
         os.path.join(os.path.dirname(__file__), name), "r", "utf-8").read()
 
 setup(
-    name='half_orm_dev',
+    name='half-orm-dev',
     version=read('half_orm_dev/version.txt').strip(),
     description="half_orm development Framework.",
     long_description=read('README.md'),
@@ -25,7 +25,7 @@ setup(
         'GitPython',
         'click',
         'pydash',
-        'half_orm>=0.14.0',
+        'half_orm>=0.16.0',
         'pytest'
     ],
     entry_points={
