@@ -475,3 +475,100 @@ class HGit:
                         f'⚠️  WARNING: {maintenance_branch} has advanced\n'
                         f'💡 Consider rebasing against maintenance: git rebase {maintenance_branch}\n'
                     )
+
+    # ============================================================================
+    # LEVEL 5: ADVANCED BUSINESS LOGIC
+    # ============================================================================
+
+    def create_maintenance_branch(self, version):
+        """Creates hop_X.Y.x branch for minor/major releases
+        
+        This method creates maintenance branches to enable future patching
+        of specific version lines. Only creates if the branch doesn't already exist.
+        
+        Args:
+            version (str): Version string (e.g., "1.2.0" creates "hop_1.2.x")
+            
+        Returns:
+            bool: True if branch was created, False if already exists
+        """
+        # Parse version to extract major.minor
+        parts = version.split('.')
+        if len(parts) < 2:
+            return False
+            
+        major, minor = parts[0], parts[1]
+        maintenance_branch = f'hop_{major}.{minor}.x'
+        
+        # Check if maintenance branch already exists
+        for head in self.__git_repo.heads:
+            if head.name == maintenance_branch:
+                print(f'ℹ️  Maintenance branch {maintenance_branch} already exists')
+                return False
+        
+        try:
+            # Create maintenance branch from current HEAD (should be on hop_main after release)
+            self.__git_repo.create_head(maintenance_branch)
+            print(f'✅ Created maintenance branch: {maintenance_branch}')
+            
+            # Push to reserve the maintenance branch
+            self.immediate_branch_push(maintenance_branch)
+            return True
+            
+        except Exception as err:
+            utils.warning(f'Failed to create maintenance branch {maintenance_branch}: {err}\n')
+            return False
+
+    def cleanup_merged_branches(self):
+        """Removes development branches that are tagged (released)
+        
+        This method cleans up development branches (hop_X.Y.Z) that have been
+        tagged, indicating they were released. Preserves maintenance branches
+        and branches still in development.
+        """
+        # Get all tags in the repository
+        tags = set()
+        try:
+            for tag in self.__git_repo.tags:
+                tags.add(tag.name)
+        except Exception:
+            # If no tags or error accessing tags, nothing to clean
+            return
+        
+        branches_to_delete = []
+        
+        # Check each local branch
+        for head in self.__git_repo.heads:
+            branch_name = head.name
+            
+            # Only consider development branches (hop_X.Y.Z)
+            if self._is_development_branch(branch_name):
+                # Extract version (remove 'hop_' prefix)
+                version = branch_name[4:]
+                
+                # If there's a tag for this version, the branch can be cleaned up
+                if version in tags:
+                    branches_to_delete.append(branch_name)
+        
+        # Delete the tagged development branches
+        for branch_name in branches_to_delete:
+            try:
+                # Don't delete if it's the current branch
+                if branch_name == self.branch:
+                    utils.warning(f'⚠️  Skipping cleanup of current branch: {branch_name}\n')
+                    continue
+                
+                # Delete local branch
+                self.__git_repo.delete_head(branch_name, force=True)
+                print(f'🧹 Cleaned up tagged branch: {branch_name}')
+                
+                # Try to delete remote branch too
+                try:
+                    self.__git_repo.git.push('origin', '--delete', branch_name)
+                    print(f'🧹 Cleaned up remote branch: origin/{branch_name}')
+                except Exception:
+                    # Remote branch might not exist or other error, continue
+                    pass
+                    
+            except Exception as err:
+                utils.warning(f'Failed to cleanup branch {branch_name}: {err}\n')
