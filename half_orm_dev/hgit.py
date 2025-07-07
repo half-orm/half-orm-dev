@@ -377,3 +377,74 @@ class HGit:
                     pass
         
         return False
+
+    # ============================================================================
+    # LEVEL 3: CONFLICT DETECTION
+    # ============================================================================
+
+    def check_version_conflict(self, version):
+        """Checks if version already exists (local or remote)
+        
+        This method prevents duplicate version development by checking if a branch
+        for the given version already exists locally or remotely.
+        
+        Args:
+            version (str): Version string (e.g., "1.2.3")
+            
+        Returns:
+            bool: True if version conflict exists, False if version is available
+        """
+        branch_name = f'hop_{version}'
+        
+        # Check local branches
+        for head in self.__git_repo.heads:
+            if head.name == branch_name:
+                return True
+        
+        # Check remote branches
+        try:
+            for remote in self.__git_repo.remotes:
+                for ref in remote.refs:
+                    # Remote refs are like 'origin/hop_1.2.3'
+                    remote_branch_name = ref.name.split('/')[-1]
+                    if remote_branch_name == branch_name:
+                        return True
+        except Exception:
+            # If no remotes or other issues, continue with local check only
+            pass
+        
+        return False
+
+    def check_rebase_needed(self, branch):
+        """Compares local vs remote commit SHA to detect if rebase is needed
+        
+        This method checks if the local branch is behind the remote branch
+        by comparing their commit SHAs.
+        
+        Args:
+            branch (str): Branch name to check (e.g., "hop_1.2.3")
+            
+        Returns:
+            bool: True if rebase is needed (local behind remote), False if up to date
+        """
+        try:
+            # Get local commit SHA
+            local_commit = self.__git_repo.commit(branch)
+            local_sha = local_commit.hexsha
+            
+            # Get remote commit SHA
+            remote_branch = f'origin/{branch}'
+            try:
+                remote_commit = self.__git_repo.commit(remote_branch)
+                remote_sha = remote_commit.hexsha
+                
+                # If SHAs are different, rebase is needed
+                return local_sha != remote_sha
+                
+            except Exception:
+                # If remote branch doesn't exist, no rebase needed
+                return False
+                
+        except Exception:
+            # If local branch doesn't exist or other error, no rebase needed
+            return False
