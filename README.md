@@ -7,9 +7,9 @@
 > This project will be refactored as `half-orm-dev` to provide development tools through the unified `half_orm` CLI interface. The core functionality (project management, database patches, code generation) will remain the same, but the integration and command structure will be modernized.
 >
 > **Current Status:**
-> - ✅ halfORM core 0.16 with extension is about to be released
-> - 🔄 halfORM_dev refactoring will start soon
-> - 📋 New `half-orm-dev` extension planned for Q3 2025
+> - halfORM core 0.16 with extension is about to be released
+> - halfORM_dev refactoring will start soon
+> - New `half-orm-dev` extension planned for Q3 2025
 >
 > **What's Changing:**
 > - Commands will integrate with `half_orm dev` instead of standalone `hop`
