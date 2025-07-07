@@ -49,8 +49,11 @@ class TestHGitGitCentricWorkflow(TestCase):
         self.git_repo.heads.hop_main.checkout()
         
         # Initialize HGit
-        self.hgit = HGit(self.mock_repo)
-    
+        with patch.object(HGit, '_HGit__post_init'):
+            self.hgit = HGit(self.mock_repo)
+            self.hgit._HGit__git_repo = self.git_repo
+            self.hgit._HGit__current_branch = 'hop_main'
+
     def tearDown(self):
         """Clean up test environment"""
         shutil.rmtree(self.test_dir)

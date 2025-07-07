@@ -200,3 +200,73 @@ class HGit:
     def checkout_to_hop_main(self):
         "Checkout to hop_main branch"
         self.__git_repo.git.checkout('hop_main')
+
+    def get_hop_branches(self):
+        """Returns all HOP branches (local + remote)
+        
+        Returns:
+            set: Set of branch names that follow HOP convention (hop_main, hop_X.Y.Z, hop_X.Y.x)
+        """
+        hop_branches = set()
+        
+        # Get local HOP branches
+        for head in self.__git_repo.heads:
+            branch_name = head.name
+            if self._is_hop_branch(branch_name):
+                hop_branches.add(branch_name)
+        
+        # Get remote HOP branches
+        try:
+            for remote in self.__git_repo.remotes:
+                for ref in remote.refs:
+                    # Remote refs are like 'origin/hop_main', extract the branch name
+                    branch_name = ref.name.split('/')[-1]
+                    if self._is_hop_branch(branch_name):
+                        hop_branches.add(branch_name)
+        except Exception:
+            # If no remotes or other issues, just continue with local branches
+            pass
+        
+        return hop_branches
+
+    def _is_hop_branch(self, branch_name):
+        """Check if a branch name follows HOP conventions
+        
+        Args:
+            branch_name (str): Branch name to check
+            
+        Returns:
+            bool: True if it's a HOP branch (hop_main, hop_X.Y.Z, hop_X.Y.x)
+        """
+        if branch_name == 'hop_main':
+            return True
+        
+        if branch_name.startswith('hop_'):
+            # Extract version part after 'hop_'
+            version_part = branch_name[4:]  # Remove 'hop_' prefix
+            
+            # Check for maintenance branch pattern (X.Y.x)
+            if version_part.endswith('.x'):
+                version_without_x = version_part[:-2]  # Remove '.x'
+                parts = version_without_x.split('.')
+                if len(parts) == 2:
+                    try:
+                        int(parts[0])  # major
+                        int(parts[1])  # minor
+                        return True
+                    except ValueError:
+                        pass
+            
+            # Check for development branch pattern (X.Y.Z)
+            else:
+                parts = version_part.split('.')
+                if len(parts) == 3:
+                    try:
+                        int(parts[0])  # major
+                        int(parts[1])  # minor  
+                        int(parts[2])  # patch
+                        return True
+                    except ValueError:
+                        pass
+        
+        return False
