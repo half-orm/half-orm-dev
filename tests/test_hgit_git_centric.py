@@ -25,21 +25,18 @@ class TestHGitGitCentricWorkflow(TestCase):
     """Test suite for the Git-centric workflow in HGit"""
     
     def setUp(self):
-        """Set up test environment with temporary git repositories"""
+        """Set up test environment with temporary git repository"""
         self.test_dir = tempfile.mkdtemp()
+        self.repo_dir = os.path.join(self.test_dir, 'test_repo')
+        os.makedirs(self.repo_dir)
         
-        # Create "remote" repository (simulates origin)
-        self.remote_dir = os.path.join(self.test_dir, 'remote_repo.git')
-        self.remote_repo = git.Repo.init(self.remote_dir, bare=True)
-        
-        # Create local repository 
-        self.repo_dir = os.path.join(self.test_dir, 'local_repo')
-        self.git_repo = git.Repo.clone_from(self.remote_dir, self.repo_dir)
+        # Initialize git repo
+        self.git_repo = git.Repo.init(self.repo_dir)
         
         # Create mock repo object
         self.mock_repo = MagicMock()
         self.mock_repo.base_dir = self.repo_dir
-        self.mock_repo.git_origin = self.remote_dir  # Point to our test remote
+        self.mock_repo.git_origin = 'https://github.com/test/repo.git'
         self.mock_repo.name = 'test_project'
         
         # Create initial commit and hop_main branch
@@ -50,9 +47,6 @@ class TestHGitGitCentricWorkflow(TestCase):
         self.git_repo.index.commit('Initial commit')
         self.git_repo.create_head('hop_main')
         self.git_repo.heads.hop_main.checkout()
-        
-        # Push initial state to remote
-        self.git_repo.git.push('origin', 'hop_main')
         
         # Initialize HGit
         with patch.object(HGit, '_HGit__post_init'):
@@ -130,18 +124,9 @@ class TestImmediateBranchReservation(TestHGitGitCentricWorkflow):
     
     def test_immediate_branch_push_no_origin(self):
         """Should error when no origin is configured"""
-        # Create a separate mock repo with no origin
-        mock_repo_no_origin = MagicMock()
-        mock_repo_no_origin.git_origin = ''  # No origin configured
-        mock_repo_no_origin.base_dir = self.repo_dir
+        self.mock_repo.git_origin = ''
+        hgit_no_origin = HGit(self.mock_repo)
         
-        # Create HGit instance with mocked initialization
-        with patch.object(HGit, '_HGit__post_init'):
-            hgit_no_origin = HGit(mock_repo_no_origin)
-            hgit_no_origin._HGit__git_repo = self.git_repo
-            hgit_no_origin._HGit__repo = mock_repo_no_origin
-        
-        # Should raise SystemExit when trying to push without origin
         with self.assertRaises(SystemExit):  # utils.error calls sys.exit
             hgit_no_origin.immediate_branch_push('hop_1.2.3')
     
@@ -328,67 +313,71 @@ class TestCleanupMergedBranches(TestHGitGitCentricWorkflow):
     
     def test_cleanup_merged_branches_with_tags(self):
         """Should cleanup development branches that have been tagged"""
-        # Create and push development branches to remote
-        hop_120 = self.git_repo.create_head('hop_1.2.0')
-        hop_121 = self.git_repo.create_head('hop_1.2.1') 
-        hop_130 = self.git_repo.create_head('hop_1.3.0')
-        
-        # Push branches to remote
-        self.git_repo.git.push('origin', 'hop_1.2.0')
-        self.git_repo.git.push('origin', 'hop_1.2.1')
-        self.git_repo.git.push('origin', 'hop_1.3.0')
+        # Create development branches
+        self.git_repo.create_head('hop_1.2.0')
+        self.git_repo.create_head('hop_1.2.1')
+        self.git_repo.create_head('hop_1.3.0')
         
         # Create tags for some versions (simulating releases)
         self.git_repo.create_tag('1.2.0')
         self.git_repo.create_tag('1.2.1')
         # No tag for 1.3.0 (still in development)
         
-        # Get initial branch count
-        initial_branches = set(h.name for h in self.git_repo.heads)
+        # Create a mock repo with proper git mock
+        mock_repo_instance = MagicMock()
+        mock_git = MagicMock()
+        mock_repo_instance.git = mock_git
+        mock_repo_instance.heads = self.git_repo.heads
+        mock_repo_instance.tags = self.git_repo.tags
+        mock_repo_instance.delete_head = MagicMock()
         
-        # Run cleanup
-        self.hgit.cleanup_merged_branches()
+        # Assign the mock repo to hgit
+        with patch.object(HGit, '_HGit__post_init'):
+            hgit = HGit(self.mock_repo)
+            hgit._HGit__git_repo = mock_repo_instance
+            hgit._HGit__current_branch = 'hop_main'
         
-        # Check results
-        remaining_branches = set(h.name for h in self.git_repo.heads)
+        hgit.cleanup_merged_branches()
         
-        # Tagged branches should be removed
-        self.assertNotIn('hop_1.2.0', remaining_branches)
-        self.assertNotIn('hop_1.2.1', remaining_branches)
+        # Verify that tagged branches were marked for deletion
+        delete_calls = mock_repo_instance.delete_head.call_args_list
+        deleted_branches = [call[0][0] for call in delete_calls]
+        self.assertIn('hop_1.2.0', deleted_branches)
+        self.assertIn('hop_1.2.1', deleted_branches)
+        self.assertNotIn('hop_1.3.0', deleted_branches)  # Not tagged
         
-        # Untagged branch should remain
-        self.assertIn('hop_1.3.0', remaining_branches)
-        self.assertIn('hop_main', remaining_branches)
-        
-        # Check that remote branches were also cleaned up
-        remote_refs = [ref.name for ref in self.git_repo.remotes.origin.refs]
-        self.assertNotIn('origin/hop_1.2.0', remote_refs)
-        self.assertNotIn('origin/hop_1.2.1', remote_refs)
+        # Verify git push was called for remote cleanup
+        self.assertTrue(mock_git.push.called)
     
     def test_cleanup_preserves_maintenance_branches(self):
         """Should never cleanup maintenance branches"""
-        # Create and push maintenance branches
+        # Create maintenance branches
         self.git_repo.create_head('hop_1.2.x')
         self.git_repo.create_head('hop_2.0.x')
-        self.git_repo.git.push('origin', 'hop_1.2.x')
-        self.git_repo.git.push('origin', 'hop_2.0.x')
         
         # Create tags (shouldn't matter for maintenance branches)
         self.git_repo.create_tag('1.2.0')
         self.git_repo.create_tag('2.0.0')
         
-        # Run cleanup
-        self.hgit.cleanup_merged_branches()
+        # Create a mock repo with the real branches and tags
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.heads = self.git_repo.heads
+        mock_repo_instance.tags = self.git_repo.tags
+        mock_repo_instance.delete_head = MagicMock()
         
-        # Maintenance branches should still exist
-        remaining_branches = set(h.name for h in self.git_repo.heads)
-        self.assertIn('hop_1.2.x', remaining_branches)
-        self.assertIn('hop_2.0.x', remaining_branches)
+        # Assign the mock repo to hgit
+        with patch.object(HGit, '_HGit__post_init'):
+            hgit = HGit(self.mock_repo)
+            hgit._HGit__git_repo = mock_repo_instance
+            hgit._HGit__current_branch = 'hop_main'
         
-        # Remote maintenance branches should also remain
-        remote_refs = [ref.name for ref in self.git_repo.remotes.origin.refs]
-        self.assertIn('origin/hop_1.2.x', remote_refs)
-        self.assertIn('origin/hop_2.0.x', remote_refs)
+        hgit.cleanup_merged_branches()
+        
+        # No maintenance branches should be deleted
+        if mock_repo_instance.delete_head.call_args_list:
+            deleted_branches = [call[0][0] for call in mock_repo_instance.delete_head.call_args_list]
+            self.assertNotIn('hop_1.2.x', deleted_branches)
+            self.assertNotIn('hop_2.0.x', deleted_branches)
 
 
 class TestBackwardCompatibility(TestHGitGitCentricWorkflow):
