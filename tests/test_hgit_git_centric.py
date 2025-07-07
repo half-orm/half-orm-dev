@@ -106,14 +106,21 @@ class TestBranchDetectionAndClassification(TestHGitGitCentricWorkflow):
 class TestImmediateBranchReservation(TestHGitGitCentricWorkflow):
     """Test immediate branch pushing for version reservation"""
     
-    @patch('half_orm_dev.hgit.HGit._HGit__git_repo')
-    def test_immediate_branch_push_success(self, mock_git_repo):
+    def test_immediate_branch_push_success(self):
         """Should push branch immediately to reserve version"""
-        mock_git_repo.git.push = MagicMock()
+        # Create a separate HGit instance with mocked git repo
+        mock_repo_instance = MagicMock()
+        mock_git = MagicMock()
+        mock_repo_instance.git = mock_git
         
-        self.hgit.immediate_branch_push('hop_1.2.3')
+        # Create HGit with the mocked repo
+        with patch.object(HGit, '_HGit__post_init'):
+            hgit = HGit(self.mock_repo)
+            hgit._HGit__git_repo = mock_repo_instance
         
-        mock_git_repo.git.push.assert_called_once_with('-u', 'origin', 'hop_1.2.3')
+        hgit.immediate_branch_push('hop_1.2.3')
+        
+        mock_git.push.assert_called_once_with('-u', 'origin', 'hop_1.2.3')
     
     def test_immediate_branch_push_no_origin(self):
         """Should error when no origin is configured"""
@@ -123,15 +130,23 @@ class TestImmediateBranchReservation(TestHGitGitCentricWorkflow):
         with self.assertRaises(SystemExit):  # utils.error calls sys.exit
             hgit_no_origin.immediate_branch_push('hop_1.2.3')
     
-    @patch('half_orm_dev.hgit.HGit._HGit__git_repo')
-    def test_immediate_branch_push_conflict(self, mock_git_repo):
+    def test_immediate_branch_push_conflict(self):
         """Should error when branch already exists on remote"""
-        mock_git_repo.git.push.side_effect = GitCommandError(
+        # Create a separate HGit instance with mocked git repo
+        mock_repo_instance = MagicMock()
+        mock_git = MagicMock()
+        mock_repo_instance.git = mock_git
+        mock_git.push.side_effect = GitCommandError(
             'git push', 128, 'already exists'
         )
         
+        # Create HGit with the mocked repo
+        with patch.object(HGit, '_HGit__post_init'):
+            hgit = HGit(self.mock_repo)
+            hgit._HGit__git_repo = mock_repo_instance
+        
         with self.assertRaises(SystemExit):
-            self.hgit.immediate_branch_push('hop_1.2.3')
+            hgit.immediate_branch_push('hop_1.2.3')
     
     def test_set_branch_with_immediate_push(self):
         """set_branch should push immediately after creating branch"""
@@ -162,16 +177,28 @@ class TestConflictDetection(TestHGitGitCentricWorkflow):
         conflict = self.hgit.check_version_conflict('1.2.3')
         self.assertTrue(conflict)
     
-    @patch('half_orm_dev.hgit.HGit._HGit__git_repo')
-    def test_check_version_conflict_remote_branch_exists(self, mock_git_repo):
-        """Should detect conflict when remote branch exists"""
-        # Mock remote branch
-        mock_remote = MagicMock()
-        mock_remote.refs = [MagicMock(name='origin/hop_1.2.3')]
-        mock_git_repo.remote.return_value = mock_remote
-        mock_git_repo.heads = []  # No local branches
+    def test_check_version_conflict_remote_branch_exists(self):
+        """Should detect conflict when remote branch exists - CORRECTED VERSION"""
+        # Create a separate HGit instance with mocked git repo
+        mock_repo_instance = MagicMock()
         
-        conflict = self.hgit.check_version_conflict('1.2.3')
+        # Mock local heads (empty - no local conflict)
+        mock_repo_instance.heads = []
+        
+        # Mock remote refs
+        mock_remote = MagicMock()
+        mock_ref = MagicMock()
+        mock_ref.name = 'origin/hop_1.2.3'
+        mock_remote.refs = [mock_ref]
+        mock_repo_instance.remotes = [mock_remote]
+        
+        # Create HGit with the mocked repo
+        with patch.object(HGit, '_HGit__post_init'):
+            hgit = HGit(self.mock_repo)
+            hgit._HGit__git_repo = mock_repo_instance
+        
+        # Test the conflict detection
+        conflict = hgit.check_version_conflict('1.2.3')
         self.assertTrue(conflict)
     
     def test_check_rebase_needed_up_to_date(self):
