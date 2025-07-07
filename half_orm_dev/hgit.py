@@ -105,10 +105,15 @@ class HGit:
         """Checks the branch
 
         Either hop_main or hop_<release>.
+        Uses Git-centric workflow with immediate push for version reservation.
         """
         rel_branch = f'hop_{release_s}'
         self.add(self.__repo.changelog.file)
         if str(self.branch) == 'hop_main' and rel_branch != 'hop_main':
+            # Check for version conflicts before creating branch
+            if self.check_version_conflict(release_s):
+                utils.error(f'Version conflict: {release_s} already exists!\n', 1)
+            
             # creates the new branch
             self.__git_repo.git.commit('-m', f'[hop][main] Add {release_s} to Changelog')
             self.__git_repo.create_head(rel_branch)
@@ -116,6 +121,10 @@ class HGit:
             self.__git_repo.git.add('Patches')
             self.__git_repo.git.commit('-m', f'[hop][{release_s}] Patch skeleton')
             self.cherry_pick_changelog(release_s)
+            
+            # NEW: Immediate push for version reservation
+            self.immediate_branch_push(rel_branch)
+            
             print(f'NEW branch {rel_branch}')
         elif str(self.branch) == rel_branch:
             print(f'On branch {rel_branch}')
@@ -158,7 +167,7 @@ class HGit:
             git.branch("-D", "hop_temp")
 
     def rebase_to_hop_main(self, push=False):
-        "Rebase a hop_X.Y.Z branch to hop_main"
+        "Rebase a hop_X.Y.Z branch to hop_main with Git-centric enhancements"
         release = self.current_release
         if push and not self.__repo.git_origin:
             utils.error("Git: No remote specified for \"origin\". Can't push!\n", 1)
@@ -178,6 +187,12 @@ class HGit:
             message = f'[{release}] {manifest.changelog_msg}'
             self.__git_repo.git.commit('-m', message)
             self.__git_repo.git.tag(release, '-m', release)
+            
+            # NEW: Create maintenance branch for minor/major releases
+            parts = release.split('.')
+            if len(parts) >= 3 and parts[2] == '0':  # X.Y.0 release
+                self.create_maintenance_branch(release)
+            
             self.cherry_pick_changelog(release)
             if push:
                 self.__git_repo.git.push()
