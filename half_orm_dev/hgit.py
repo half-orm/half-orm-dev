@@ -122,10 +122,14 @@ class HGit:
             self.__git_repo.git.commit('-m', f'[hop][{release_s}] Patch skeleton')
             self.cherry_pick_changelog(release_s)
             
-            # NEW: Immediate push for version reservation
-            self.immediate_branch_push(rel_branch)
-            
-            print(f'NEW branch {rel_branch}')
+            # NEW: Conditional immediate push for version reservation
+            if self.__repo.git_origin:
+                self.immediate_branch_push(rel_branch)
+                print(f'NEW branch {rel_branch} - pushed to origin for version reservation')
+            else:
+                utils.warning("No remote origin configured - branch created locally only")
+                print(f'NEW branch {rel_branch} - created locally (no remote push)')            
+
         elif str(self.branch) == rel_branch:
             print(f'On branch {rel_branch}')
 

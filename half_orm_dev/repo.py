@@ -178,7 +178,6 @@ class Repo:
     @property
     def state(self):
         "Returns the state (str) of the repository."
-        print('XXX', hop_version())
         res = [f'hop version: {utils.Color.bold(hop_version())}']
         res += [f'half-orm version: {utils.Color.bold(half_orm.__version__)}\n']
         if self.__config:
@@ -224,6 +223,7 @@ class Repo:
                 half_orm_version=half_orm.__version__,
                 hop_version=hop_version())
         utils.write(os.path.join(self.__base_dir, 'Pipfile'), pipfile)
+        utils.write(os.path.join(self.__base_dir, 'pytest.ini'), 'pytest.ini')
 
         os.mkdir(os.path.join(self.__base_dir, '.hop'))
         self.__config.write()

@@ -76,9 +76,12 @@ def add_commands(main_group):
     @click.command()
     @click.argument('package_name')
     @click.option('-d', '--devel', is_flag=True, help="Development mode")
-    def new(package_name, devel=False):
+    @click.option('-f', '--full', is_flag=True, help="Full development mode")
+    def new(package_name, devel=False, full=False):
         """Creates a new hop project named <package_name>."""
-        hop._Hop__repo.init(package_name, devel)
+        if devel:
+            utils.warning("--devel option is deprecated. Please use --full instead.")
+        hop._Hop__repo.init(package_name, devel or full)
 
     @click.command()
     @click.option(
