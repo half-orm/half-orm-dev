@@ -321,7 +321,7 @@ class Patch:
         # do we have pytest
         if PYTEST_OK:
             try:
-                subprocess.run(['pytest', self.__repo.name], check=True)
+                subprocess.run(['pytest', 'tests'], check=True)
             except subprocess.CalledProcessError:
                 utils.error('Tests must pass in order to release.\n', exit_code=1)
             # So far, so good

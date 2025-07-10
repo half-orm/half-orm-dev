@@ -212,6 +212,7 @@ class Repo:
         setup_template = utils.read(os.path.join(TEMPLATE_DIRS, 'setup.py'))
         git_ignore = utils.read(os.path.join(TEMPLATE_DIRS, '.gitignore'))
         pipfile = utils.read(os.path.join(TEMPLATE_DIRS, 'Pipfile'))
+        pytest_ini = utils.read(os.path.join(TEMPLATE_DIRS, 'pytest.ini'))
 
         setup = setup_template.format(
                 dbname=self.__config.name,
@@ -223,7 +224,7 @@ class Repo:
                 half_orm_version=half_orm.__version__,
                 hop_version=hop_version())
         utils.write(os.path.join(self.__base_dir, 'Pipfile'), pipfile)
-        utils.write(os.path.join(self.__base_dir, 'pytest.ini'), 'pytest.ini')
+        utils.write(os.path.join(self.__base_dir, 'pytest.ini'), pytest_ini)
 
         os.mkdir(os.path.join(self.__base_dir, '.hop'))
         self.__config.write()

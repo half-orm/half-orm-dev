@@ -60,12 +60,12 @@ DO_NOT_REMOVE = [INIT_PY, BASE_TEST_PY]
 
 MODEL = None
 
-def __get_full_class_name(schemaname, relationname):
+def _get_full_class_name(schemaname, relationname):
     schemaname = ''.join([elt.capitalize() for elt in schemaname.split('.')])
     relationname = ''.join([elt.capitalize() for elt in relationname.split('_')])
     return f'{schemaname}{relationname}'
 
-def __get_field_desc(field_name, field):
+def _get_field_desc(field_name, field):
     #TODO: REFACTOR
     sql_type = field._metadata['fieldtype']
     field_desc = SQL_ADAPTER.get(sql_type)
@@ -92,13 +92,13 @@ def __get_field_desc(field_name, field):
         field_desc = f'# {field_desc} FIX ME! {error}'
     return field_desc
 
-def __gen_dataclass(relation, fkeys):
+def _gen_dataclass(relation, fkeys):
     rel = relation()
     dc_name = relation._ho_dataclass_name()
     fields = []
     post_init = ['    def __post_init__(self):']
     for field_name, field in rel._ho_fields.items():
-        fields.append(__get_field_desc(field_name, field))
+        fields.append(_get_field_desc(field_name, field))
         post_init.append(f'        self.{field_name}: Field = None')
 
     fkeys = {value:key for key, value in fkeys.items() if key != ''}
@@ -109,7 +109,7 @@ def __gen_dataclass(relation, fkeys):
             post_init.append(f"        self.{fkey_alias} = {fdc_name}")
     return '\n'.join([f'@dataclasses.dataclass\nclass {dc_name}(DC_Relation):'] + fields + post_init)
 
-def __get_modules_list(dir, files_list, files):
+def _get_modules_list(dir, files_list, files):
     """
     Creates a list of Python modules to include in __all__ exports.
     
@@ -134,7 +134,7 @@ def __get_modules_list(dir, files_list, files):
     all_.sort()
     return all_
 
-def __update_init_files(package_dir, files_list, warning):
+def _update_init_files(package_dir, files_list, warning):
     """Update __all__ lists in __init__ files.
     """
     for dir, _, files in os.walk(package_dir):
@@ -143,7 +143,7 @@ def __update_init_files(package_dir, files_list, warning):
         reldir = dir.replace(package_dir, '')
         if re.findall(SKIP, reldir):
             continue
-        all_ = __get_modules_list(dir, files_list, files)
+        all_ = _get_modules_list(dir, files_list, files)
         dirs = next(os.walk(dir))[1]
 
         if len(all_) == 0 and dirs == ['__pycache__']:
@@ -154,7 +154,7 @@ def __update_init_files(package_dir, files_list, warning):
                 all_ = ",\n    ".join([f"'{elt}'" for elt in all_])
                 init_file.write(f'__all__ = [\n    {all_}\n]\n')
 
-def __get_inheritance_info(rel, package_name):
+def _get_inheritance_info(rel, package_name):
     """Returns inheritance informations for the rel relation.
     """
     inheritance_import_list = []
@@ -174,7 +174,7 @@ def __get_inheritance_info(rel, package_name):
         inherited_classes = f"{inherited_classes}, "
     return inheritance_import, inherited_classes
 
-def __get_fkeys(repo, class_name, module_path):
+def _get_fkeys(repo, class_name, module_path):
     try:
         mod_path = module_path.replace(repo.base_dir, '').replace(os.path.sep, '.')[1:-3]
         mod = importlib.import_module(mod_path)
@@ -186,7 +186,7 @@ def __get_fkeys(repo, class_name, module_path):
         pass
     return {}
 
-def __assemble_module_template(module_path):
+def _assemble_module_template(module_path):
     """Construct the module after slicing it if it already exists.
     """
     ALT_BEGIN_CODE = "#>>> PLACE YOUR CODE BELLOW THIS LINE. DO NOT REMOVE THIS LINE!\n"
@@ -211,7 +211,7 @@ def __assemble_module_template(module_path):
         user_s_class_attr=user_s_class_attr,
         user_s_code=user_s_code)
 
-def __create_tests_directory(repo):
+def _create_tests_directory(repo):
     """
     Creates the standard tests/ directory structure for Python projects.
     
@@ -242,7 +242,7 @@ def __create_tests_directory(repo):
     
     return tests_dir
 
-def __create_test_file(repo, module_name, class_name, fqtn, tests_dir):
+def _create_test_file(repo, module_name, class_name, fqtn, tests_dir):
     """
     Creates individual test files following Python testing conventions.
     
@@ -348,7 +348,7 @@ class Test{class_name}:
     print(f"✅ Created test file: {test_file_path}")
     return test_file_path
 
-def __update_this_module(repo, relation, package_dir, package_name):
+def _update_this_module(repo, relation, package_dir, package_name):
     """
     Updates or creates a Python module for a database relation.
     
@@ -393,8 +393,8 @@ def __update_this_module(repo, relation, package_dir, package_name):
     path_1 = os.path.join(*path[:-1])
     if not os.path.exists(path_1):
         os.makedirs(path_1)
-    module_template = __assemble_module_template(module_path)
-    inheritance_import, inherited_classes = __get_inheritance_info(
+    module_template = _assemble_module_template(module_path)
+    inheritance_import, inherited_classes = _get_inheritance_info(
         rel, package_name)
     with open(module_path, 'w', encoding='utf-8') as file_:
         documentation = "\n".join([line and f"    {line}" or "" for line in str(rel).split("\n")])
@@ -415,22 +415,22 @@ def __update_this_module(repo, relation, package_dir, package_name):
     
     # Generate corresponding test file in development mode
     if repo.devel:
-        tests_dir = __create_tests_directory(repo)
-        test_file_path = __create_test_file(repo, module_name, class_name, fqtn, tests_dir)
+        tests_dir = _create_tests_directory(repo)
+        test_file_path = _create_test_file(repo, module_name, class_name, fqtn, tests_dir)
     
-    HO_DATACLASSES.append(__gen_dataclass(
-        rel, __get_fkeys(repo, class_name, module_path)))
+    HO_DATACLASSES.append(_gen_dataclass(
+        rel, _get_fkeys(repo, class_name, module_path)))
     return module_path
 
-def __reset_dataclasses(repo, package_dir):
+def _reset_dataclasses(repo, package_dir):
     with open(os.path.join(package_dir, "ho_dataclasses.py"), "w", encoding='utf-8') as file_:
         for relation in repo.database.model._relations():
             t_qrn = relation[1][1:]
             if t_qrn[0].find('half_orm') == 0:
                 continue
-            file_.write(f'class DC_{__get_full_class_name(*t_qrn)}: ...\n')
+            file_.write(f'class DC_{_get_full_class_name(*t_qrn)}: ...\n')
 
-def __gen_dataclasses(package_dir, package_name):
+def _gen_dataclasses(package_dir, package_name):
     with open(os.path.join(package_dir, "ho_dataclasses.py"), "w", encoding='utf-8') as file_:
         file_.write(f"# dataclasses for {package_name}\n\n")
         hd_imports = list(HO_DATACLASSES_IMPORTS)
@@ -441,7 +441,7 @@ def __gen_dataclasses(package_dir, package_name):
         for dc in HO_DATACLASSES:
             file_.write(f"\n{dc}\n")
 
-def __create_pytest_config(repo):
+def _create_pytest_config(repo):
     """
     Creates pytest configuration file with appropriate settings.
     
@@ -467,7 +467,7 @@ collect_ignore = []
             f.write(pytest_config)
         print(f"✅ Created pytest.ini configuration")
 
-def __count_test_files_recursive(tests_dir):
+def _count_test_files_recursive(tests_dir):
     """
     Recursively counts all test files in the tests directory.
     
@@ -508,7 +508,7 @@ def generate(repo):
     if not os.path.exists(package_dir):
         os.mkdir(package_dir)
 
-    __reset_dataclasses(repo, package_dir)
+    _reset_dataclasses(repo, package_dir)
 
     with open(os.path.join(package_dir, INIT_PY), 'w', encoding='utf-8') as file_:
         file_.write(INIT_MODULE_TEMPLATE.format(package_name=package_name))
@@ -522,28 +522,28 @@ def generate(repo):
     
     warning = WARNING_TEMPLATE.format(package_name=package_name)
     for relation in repo.database.model._relations():
-        module_path = __update_this_module(repo, relation, package_dir, package_name)
+        module_path = _update_this_module(repo, relation, package_dir, package_name)
         if module_path:
             files_list.append(module_path)
 
-    __gen_dataclasses(package_dir, package_name)
+    _gen_dataclasses(package_dir, package_name)
     
     # Create pytest configuration in development mode
     if repo.devel:
-        __create_pytest_config(repo)
+        _create_pytest_config(repo)
 
     if len(NO_APAPTER):
         print("MISSING ADAPTER FOR SQL TYPE")
         print(f"Add the following items to __SQL_ADAPTER in {os.path.join(package_dir, 'sql_adapter.py')}")
         for key in NO_APAPTER.keys():
             print(f"  '{key}': typing.Any,")
-    __update_init_files(package_dir, files_list, warning)
+    _update_init_files(package_dir, files_list, warning)
     
     # Display test generation summary in development mode
     if repo.devel:
         tests_dir = os.path.join(repo.base_dir, 'tests')
         if os.path.exists(tests_dir):
-            test_count = __count_test_files_recursive(tests_dir)
+            test_count = _count_test_files_recursive(tests_dir)
             print(f"✅ Generated {test_count} auto-generated test files in tests/{repo.name}/ directory")
             print(f"💡 Custom tests can be placed directly in tests/ (outside {repo.name}/)")
             

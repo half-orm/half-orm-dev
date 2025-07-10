@@ -5,6 +5,7 @@ import sys
 import subprocess
 import git
 from git.exc import GitCommandError
+from datetime import datetime
 
 from half_orm import utils
 from half_orm_dev.manifest import Manifest
@@ -101,49 +102,136 @@ class HGit:
         "Returns True if branch is in branches"
         return branch in self.__git_repo.heads
 
-    def set_branch(self, release_s):
-        """Checks the branch
-
-        Either hop_main or hop_<release>.
-        Uses Git-centric workflow with immediate push for version reservation.
+    def set_branch(self, release_s, message=None):
         """
-        rel_branch = f'hop_{release_s}'
-        self.add(self.__repo.changelog.file)
-        if str(self.branch) == 'hop_main' and rel_branch != 'hop_main':
-            # Check for version conflicts before creating branch
-            if self.check_version_conflict(release_s):
-                utils.error(f'Version conflict: {release_s} already exists!\n', 1)
-            
-            # creates the new branch
-            self.__git_repo.git.commit('-m', f'[hop][main] Add {release_s} to Changelog')
+        Creates a new version branch with patch directory structure.
+        
+        This method:
+        1. Creates the version branch
+        2. Creates the patch directory structure
+        3. Adds a placeholder/message file
+        4. Updates changelog
+        5. Commits everything
+        6. Pushes for version reservation
+        
+        Args:
+            release_s (str): Version string (e.g., "1.2.3")
+            message (str, optional): Commit message for the release
+        """
+        rel_branch = f"hop_{release_s}"
+        
+        if not self.check_version_conflict(release_s):
+            # Create branch
             self.__git_repo.create_head(rel_branch)
-            self.__git_repo.git.checkout(rel_branch)
-            self.__git_repo.git.add('Patches')
-            self.__git_repo.git.commit('-m', f'[hop][{release_s}] Patch skeleton')
+            self.__git_repo.heads[rel_branch].checkout()
+            
+            # Parse version for patch directory structure
+            version_parts = release_s.split('.')
+            if len(version_parts) != 3:
+                utils.error(f"Invalid version format: {release_s}. Expected X.Y.Z")
+                return False
+            
+            major, minor, patch = version_parts
+            
+            # Create patch directory structure
+            patch_dir = os.path.join(
+                self.__repo.base_dir, 
+                'Patches', 
+                major, 
+                minor, 
+                patch
+            )
+            os.makedirs(patch_dir, exist_ok=True)
+            
+            # Create placeholder file so directory gets committed
+            placeholder_file = os.path.join(patch_dir, 'README.md')
+            with open(placeholder_file, 'w', encoding='utf-8') as f:
+                f.write(f"""# Patch {release_s}
+
+{message or 'Patch preparation'}
+
+## Instructions
+1. Add your SQL migration files to this directory
+2. Files are applied in alphabetical order
+3. Use naming convention: 01_description.sql, 02_another.sql, etc.
+
+## Example
+```sql
+-- 01_add_user_table.sql
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+""")
+            
+            # Update changelog (Git-centric version)
             self.cherry_pick_changelog(release_s)
             
-            # NEW: Conditional immediate push for version reservation
+            # Commit everything (patch directory + changelog)
+            self.__git_repo.git.add('--all')
+            self.__git_repo.git.commit('-m', f'[hop][{release_s}] {message or "Prepare patch"}')
+            
+            print(f'✅ Created patch structure: {patch_dir}')
+            
+            # Immediate push for version reservation (if remote exists)
             if self.__repo.git_origin:
                 self.immediate_branch_push(rel_branch)
                 print(f'NEW branch {rel_branch} - pushed to origin for version reservation')
             else:
                 utils.warning("No remote origin configured - branch created locally only")
-                print(f'NEW branch {rel_branch} - created locally (no remote push)')            
-
+                print(f'NEW branch {rel_branch} - created locally (no remote push)')
+        
         elif str(self.branch) == rel_branch:
             print(f'On branch {rel_branch}')
+        
+        else:
+            utils.error(f"Version {release_s} already exists")
+            return False
+        
+        return True
 
     def cherry_pick_changelog(self, release_s):
-        "Sync CHANGELOG on all hop_x.y.z branches in devel different from release_s"
-        branch = self.__git_repo.active_branch
-        self.__git_repo.git.checkout('hop_main')
-        commit_sha = self.__git_repo.head.commit.hexsha[0:8]
-        for release in self.__repo.changelog.releases_in_dev:
-            if release != release_s:
-                self.__git_repo.git.checkout(f'hop_{release}')
-                self.__git_repo.git.cherry_pick(commit_sha)
-                # self.__git_repo.git.commit('--amend', '-m', f'[hop][{release_s}] CHANGELOG')
-        self.__git_repo.git.checkout(branch)
+        """
+        Updates changelog for Git-centric workflow.
+        
+        Adds minimal entry without SHA (Git branches are source of truth).
+        """
+        changelog_file = self.__repo.changelog.file
+        
+        # Read current changelog
+        with open(changelog_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Add entry for this version
+        new_entry = f"""
+## [{release_s}] - {datetime.now().strftime('%Y-%m-%d')} - In Development
+- Branch: hop_{release_s}
+- Patch directory: Patches/{release_s.replace('.', '/')}
+- Status: Ready for SQL patches
+
+"""
+        
+        # Insert after the first line (usually "# Changelog")
+        lines = content.split('\n')
+        if len(lines) > 0:
+            # Find insertion point (after header)
+            insert_pos = 1
+            for i, line in enumerate(lines[1:], 1):
+                if line.strip() and not line.startswith('#'):
+                    insert_pos = i
+                    break
+            
+            lines.insert(insert_pos, new_entry.strip())
+            
+            # Write back
+            with open(changelog_file, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(lines))
+            
+            print(f"✅ Updated CHANGELOG for {release_s}")
+        
+        # No automatic commit - let set_branch handle it
 
     def rebase_devel_branches(self, release_s):
         "Rebase all hop_x.y.z branches in devel different from release_s on hop_main:HEAD"
@@ -499,44 +587,119 @@ class HGit:
     # LEVEL 5: ADVANCED BUSINESS LOGIC
     # ============================================================================
 
-    def create_maintenance_branch(self, version):
-        """Creates hop_X.Y.x branch for minor/major releases
+    def _validate_version_format(self, version):
+        """
+        Validates semantic version format for maintenance branch creation.
         
-        This method creates maintenance branches to enable future patching
-        of specific version lines. Only creates if the branch doesn't already exist.
+        Valid formats:
+        - X.Y.Z (e.g., "1.2.3", "10.0.5")
+        - Must have exactly 3 numeric components
+        - Each component must be a non-negative integer
         
         Args:
-            version (str): Version string (e.g., "1.2.0" creates "hop_1.2.x")
+            version (str): Version string to validate
             
         Returns:
-            bool: True if branch was created, False if already exists
-        """
-        # Parse version to extract major.minor
-        parts = version.split('.')
-        if len(parts) < 2:
-            return False
+            bool: True if valid, False otherwise
             
-        major, minor = parts[0], parts[1]
+        Examples:
+            >>> _validate_version_format("1.2.3")    # True
+            >>> _validate_version_format("1.2")      # False (missing patch)
+            >>> _validate_version_format("1.2.3.4")  # False (too many parts)
+            >>> _validate_version_format("invalid")  # False (not numeric)
+            >>> _validate_version_format("")         # False (empty)
+        """
+        if not version or not isinstance(version, str):
+            return False
+        
+        # Split by dots
+        parts = version.split('.')
+        
+        # Must have exactly 3 parts (major.minor.patch)
+        if len(parts) != 3:
+            return False
+        
+        # Each part must be a non-negative integer
+        try:
+            for part in parts:
+                # Check that it's a valid integer
+                num = int(part)
+                if num < 0:
+                    return False
+                # Check that there are no leading zeros (except for "0")
+                if len(part) > 1 and part[0] == '0':
+                    return False
+        except ValueError:
+            return False
+        
+        return True
+
+    def create_maintenance_branch(self, version):
+        """
+        Creates a maintenance branch for the given version.
+        
+        Enhanced with version validation for Git-centric workflow.
+        
+        Args:
+            version (str): Version in format "X.Y.Z"
+            
+        Returns:
+            bool: True if branch created successfully, False otherwise
+        """
+        # Validate version format first
+        if not self._validate_version_format(version):
+            utils.warning(f"Invalid version format: '{version}'. Expected format: X.Y.Z (e.g., '1.2.3')")
+            return False
+        
+        # Parse version components
+        major, minor, patch = version.split('.')
         maintenance_branch = f'hop_{major}.{minor}.x'
         
         # Check if maintenance branch already exists
-        for head in self.__git_repo.heads:
-            if head.name == maintenance_branch:
-                print(f'ℹ️  Maintenance branch {maintenance_branch} already exists')
-                return False
+        existing_branches = self.get_maintenance_branches()
+        if maintenance_branch in existing_branches:
+            utils.warning(f"Maintenance branch {maintenance_branch} already exists")
+            return False
         
         try:
-            # Create maintenance branch from current HEAD (should be on hop_main after release)
-            self.__git_repo.create_head(maintenance_branch)
-            print(f'✅ Created maintenance branch: {maintenance_branch}')
+            # Create maintenance branch from current position
+            current_branch = self.__git_repo.active_branch
             
-            # Push to reserve the maintenance branch
-            self.immediate_branch_push(maintenance_branch)
+            # Create the maintenance branch
+            maint_branch = self.__git_repo.create_head(maintenance_branch)
+            
+            # Push to reserve the branch
+            if self.__repo.git_origin:
+                self.immediate_branch_push(maintenance_branch)
+                print(f"✅ Created maintenance branch: {maintenance_branch}")
+                print(f"✅ Reserved version: {maintenance_branch} pushed to origin")
+            else:
+                print(f"✅ Created maintenance branch: {maintenance_branch} (local only)")
+            
+            # Return to original branch
+            current_branch.checkout()
+            
             return True
             
-        except Exception as err:
-            utils.warning(f'Failed to create maintenance branch {maintenance_branch}: {err}\n')
+        except Exception as e:
+            utils.error(f"Failed to create maintenance branch {maintenance_branch}: {e}")
             return False
+
+    def _extract_maintenance_version(self, version):
+        """
+        Extracts maintenance branch version from a release version.
+        
+        Args:
+            version (str): Release version (e.g., "1.2.3")
+            
+        Returns:
+            str: Maintenance branch version (e.g., "1.2.x") or None if invalid
+        """
+        if not self._validate_version_format(version):
+            return None
+        
+        major, minor, patch = version.split('.')
+        return f"{major}.{minor}.x"
 
     def cleanup_merged_branches(self):
         """Removes development branches that are tagged (released)
