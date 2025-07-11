@@ -23,8 +23,20 @@ class TestVersionParser:
     def test_version_parser_init_valid_version(self):
         """Test VersionParser initialization with valid current version"""
         parser = VersionParser("1.2.3")
-        # Should not raise any exception
         assert parser is not None
+        
+        # Test with pre-release versions
+        parser_alpha = VersionParser("1.2.3-alpha1")
+        assert parser_alpha is not None
+        
+        parser_beta = VersionParser("1.2.3-beta")
+        assert parser_beta is not None
+        
+        parser_rc = VersionParser("1.2.3-rc2")
+        assert parser_rc is not None
+        
+        parser_dev = VersionParser("1.2.3-dev")
+        assert parser_dev is not None
     
     def test_version_parser_init_invalid_version(self):
         """Test VersionParser initialization with invalid current version"""
@@ -39,6 +51,16 @@ class TestVersionParser:
             
         with pytest.raises(VersionParsingError):
             VersionParser("")  # Empty string
+            
+        # Invalid pre-release formats
+        with pytest.raises(VersionParsingError):
+            VersionParser("1.2.3-invalid")  # Invalid pre-release
+            
+        with pytest.raises(VersionParsingError):
+            VersionParser("1.2.3-alpha0")  # Zero not allowed
+            
+        with pytest.raises(VersionParsingError):
+            VersionParser("1.2.3-")  # Empty pre-release
     
     def test_parse_major_version_spec(self):
         """Test parsing major version specification (e.g., "2")"""
@@ -68,6 +90,92 @@ class TestVersionParser:
         assert version_info.production_branch == "ho/1.3.x"
         assert version_info.release_tag == "v1.3.0"
     
+    def test_parse_version_with_prerelease_valid(self):
+        """Test parsing versions with valid pre-release identifiers"""
+        parser = VersionParser("1.2.3")
+        
+        # No pre-release
+        base, pre = parser.parse_version_with_prerelease("1.3.0")
+        assert base == "1.3.0"
+        assert pre is None
+        
+        # Alpha pre-releases
+        base, pre = parser.parse_version_with_prerelease("1.3.0-alpha")
+        assert base == "1.3.0"
+        assert pre == "alpha"
+        
+        base, pre = parser.parse_version_with_prerelease("1.3.0-alpha1")
+        assert base == "1.3.0"
+        assert pre == "alpha1"
+        
+        # Beta pre-releases
+        base, pre = parser.parse_version_with_prerelease("1.3.0-beta3")
+        assert base == "1.3.0"
+        assert pre == "beta3"
+        
+        # RC pre-releases
+        base, pre = parser.parse_version_with_prerelease("2.0.0-rc2")
+        assert base == "2.0.0"
+        assert pre == "rc2"
+        
+        # Dev pre-releases
+        base, pre = parser.parse_version_with_prerelease("1.4.1-dev")
+        assert base == "1.4.1"
+        assert pre == "dev"
+    
+    def test_parse_version_with_prerelease_invalid(self):
+        """Test parsing versions with invalid pre-release identifiers"""
+        parser = VersionParser("1.2.3")
+        
+        with pytest.raises(VersionParsingError):
+            parser.parse_version_with_prerelease("1.3.0-invalid")
+            
+        with pytest.raises(VersionParsingError):
+            parser.parse_version_with_prerelease("1.3.0-alpha0")  # Zero not allowed
+            
+        with pytest.raises(VersionParsingError):
+            parser.parse_version_with_prerelease("1.3.0-betaX")  # Non-numeric suffix
+            
+        with pytest.raises(VersionParsingError):
+            parser.parse_version_with_prerelease("1.3.0-")  # Empty pre-release
+    
+    def test_is_valid_prerelease_identifier_valid(self):
+        """Test validation of valid pre-release identifiers"""
+        parser = VersionParser("1.2.3")
+        
+        # Basic identifiers
+        assert parser.is_valid_prerelease_identifier("alpha") is True
+        assert parser.is_valid_prerelease_identifier("beta") is True
+        assert parser.is_valid_prerelease_identifier("rc") is True
+        assert parser.is_valid_prerelease_identifier("dev") is True
+        
+        # Numbered identifiers
+        assert parser.is_valid_prerelease_identifier("alpha1") is True
+        assert parser.is_valid_prerelease_identifier("beta3") is True
+        assert parser.is_valid_prerelease_identifier("rc2") is True
+        assert parser.is_valid_prerelease_identifier("dev5") is True
+        
+        # Higher numbers
+        assert parser.is_valid_prerelease_identifier("alpha10") is True
+        assert parser.is_valid_prerelease_identifier("beta100") is True
+    
+    def test_is_valid_prerelease_identifier_invalid(self):
+        """Test validation of invalid pre-release identifiers"""
+        parser = VersionParser("1.2.3")
+        
+        # Invalid prefixes
+        assert parser.is_valid_prerelease_identifier("invalid") is False
+        assert parser.is_valid_prerelease_identifier("gamma") is False
+        assert parser.is_valid_prerelease_identifier("stable") is False
+        
+        # Invalid suffixes
+        assert parser.is_valid_prerelease_identifier("alpha0") is False  # Zero not allowed
+        assert parser.is_valid_prerelease_identifier("betaX") is False   # Non-numeric
+        assert parser.is_valid_prerelease_identifier("rc-1") is False    # Negative
+        
+        # Empty or malformed
+        assert parser.is_valid_prerelease_identifier("") is False
+        assert parser.is_valid_prerelease_identifier("alpha-beta") is False
     def test_parse_patch_version_spec(self):
         """Test parsing patch version specification (e.g., "1.2.4")"""
         parser = VersionParser("1.2.3")
@@ -77,10 +185,34 @@ class TestVersionParser:
         assert version_info.minor == 2
         assert version_info.patch == 4
         assert version_info.version_string == "1.2.4"
+        assert version_info.base_version == "1.2.4"
+        assert version_info.pre_release is None
+        assert version_info.is_pre_release is False
         assert version_info.release_type == ReleaseType.PATCH
         assert version_info.dev_branch == "ho-dev/1.2.x"
         assert version_info.production_branch == "ho/1.2.x"
         assert version_info.release_tag == "v1.2.4"
+    
+    def test_parse_prerelease_version_spec(self):
+        """Test parsing pre-release version specifications"""
+        parser = VersionParser("1.2.3")
+        
+        # Alpha pre-release
+        version_info = parser.parse("1.3.0-alpha1")
+        assert version_info.version_string == "1.3.0-alpha1"
+        assert version_info.base_version == "1.3.0"
+        assert version_info.pre_release == "alpha1"
+        assert version_info.is_pre_release is True
+        assert version_info.release_tag == "v1.3.0-alpha1"
+        assert version_info.dev_branch == "ho-dev/1.3.x"  # No pre-release in branch
+        
+        # Beta pre-release
+        version_info = parser.parse("2.0.0-beta")
+        assert version_info.version_string == "2.0.0-beta"
+        assert version_info.base_version == "2.0.0"
+        assert version_info.pre_release == "beta"
+        assert version_info.is_pre_release is True
+        assert version_info.release_tag == "v2.0.0-beta"
     
     def test_parse_invalid_version_spec(self):
         """Test parsing invalid version specifications"""
@@ -97,6 +229,13 @@ class TestVersionParser:
             
         with pytest.raises(VersionParsingError):
             parser.parse("1.2.03")  # Leading zero
+            
+        # Invalid pre-release formats
+        with pytest.raises(VersionParsingError):
+            parser.parse("1.3.0-invalid")  # Invalid pre-release
+            
+        with pytest.raises(VersionParsingError):
+            parser.parse("1.3.0-alpha0")  # Zero not allowed in pre-release
     
     def test_parse_backward_version_progression(self):
         """Test parsing version that goes backward"""

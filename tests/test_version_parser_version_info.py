@@ -24,6 +24,9 @@ class TestVersionInfo:
             minor=3,
             patch=1,
             version_string="1.3.1",
+            base_version="1.3.1",
+            pre_release=None,
+            is_pre_release=False,
             dev_branch="ho-dev/1.3.x",
             production_branch="ho/1.3.x",
             release_tag="v1.3.1",
@@ -35,6 +38,9 @@ class TestVersionInfo:
         assert version_info.minor == 3
         assert version_info.patch == 1
         assert version_info.version_string == "1.3.1"
+        assert version_info.base_version == "1.3.1"
+        assert version_info.pre_release is None
+        assert version_info.is_pre_release is False
         assert version_info.dev_branch == "ho-dev/1.3.x"
         assert version_info.production_branch == "ho/1.3.x"
         assert version_info.release_tag == "v1.3.1"
@@ -45,6 +51,7 @@ class TestVersionInfo:
         """Test VersionInfo equality comparison"""
         version1 = VersionInfo(
             major=1, minor=3, patch=1, version_string="1.3.1",
+            base_version="1.3.1", pre_release=None, is_pre_release=False,
             dev_branch="ho-dev/1.3.x", production_branch="ho/1.3.x",
             release_tag="v1.3.1", release_type=ReleaseType.PATCH,
             branch_type=BranchType.DEVELOPMENT
@@ -52,6 +59,7 @@ class TestVersionInfo:
         
         version2 = VersionInfo(
             major=1, minor=3, patch=1, version_string="1.3.1",
+            base_version="1.3.1", pre_release=None, is_pre_release=False,
             dev_branch="ho-dev/1.3.x", production_branch="ho/1.3.x",
             release_tag="v1.3.1", release_type=ReleaseType.PATCH,
             branch_type=BranchType.DEVELOPMENT
@@ -63,6 +71,7 @@ class TestVersionInfo:
         """Test VersionInfo inequality when fields differ"""
         version1 = VersionInfo(
             major=1, minor=3, patch=1, version_string="1.3.1",
+            base_version="1.3.1", pre_release=None, is_pre_release=False,
             dev_branch="ho-dev/1.3.x", production_branch="ho/1.3.x",
             release_tag="v1.3.1", release_type=ReleaseType.PATCH,
             branch_type=BranchType.DEVELOPMENT
@@ -70,6 +79,7 @@ class TestVersionInfo:
         
         version2 = VersionInfo(
             major=1, minor=3, patch=2, version_string="1.3.2",  # Different patch
+            base_version="1.3.2", pre_release=None, is_pre_release=False,
             dev_branch="ho-dev/1.3.x", production_branch="ho/1.3.x",
             release_tag="v1.3.2", release_type=ReleaseType.PATCH,
             branch_type=BranchType.DEVELOPMENT
@@ -84,6 +94,9 @@ class TestVersionInfo:
             minor=0,
             patch=0,
             version_string="2.0.0",
+            base_version="2.0.0",
+            pre_release=None,
+            is_pre_release=False,
             dev_branch="ho-dev/2.0.x",
             production_branch="ho/2.0.x",
             release_tag="v2.0.0",
@@ -94,6 +107,9 @@ class TestVersionInfo:
         assert version_info.major == 2
         assert version_info.minor == 0
         assert version_info.patch == 0
+        assert version_info.base_version == "2.0.0"
+        assert version_info.pre_release is None
+        assert version_info.is_pre_release is False
         assert version_info.release_type == ReleaseType.MAJOR
         assert "2.0.x" in version_info.dev_branch
         assert "2.0.x" in version_info.production_branch
@@ -106,6 +122,9 @@ class TestVersionInfo:
             minor=4,
             patch=0,
             version_string="1.4.0",
+            base_version="1.4.0",
+            pre_release=None,
+            is_pre_release=False,
             dev_branch="ho-dev/1.4.x",
             production_branch="ho/1.4.x",
             release_tag="v1.4.0",
@@ -116,11 +135,113 @@ class TestVersionInfo:
         assert version_info.major == 1
         assert version_info.minor == 4
         assert version_info.patch == 0
+        assert version_info.base_version == "1.4.0"
+        assert version_info.pre_release is None
+        assert version_info.is_pre_release is False
         assert version_info.release_type == ReleaseType.MINOR
         assert "1.4.x" in version_info.dev_branch
         assert "1.4.x" in version_info.production_branch
         assert version_info.release_tag == "v1.4.0"
     
+    def test_version_info_pre_release_alpha(self):
+        """Test VersionInfo for alpha pre-release (1.3.0-alpha1)"""
+        version_info = VersionInfo(
+            major=1,
+            minor=3,
+            patch=0,
+            version_string="1.3.0-alpha1",
+            base_version="1.3.0",
+            pre_release="alpha1",
+            is_pre_release=True,
+            dev_branch="ho-dev/1.3.x",
+            production_branch="ho/1.3.x",
+            release_tag="v1.3.0-alpha1",
+            release_type=ReleaseType.MINOR,
+            branch_type=BranchType.DEVELOPMENT
+        )
+        
+        assert version_info.major == 1
+        assert version_info.minor == 3
+        assert version_info.patch == 0
+        assert version_info.version_string == "1.3.0-alpha1"
+        assert version_info.base_version == "1.3.0"
+        assert version_info.pre_release == "alpha1"
+        assert version_info.is_pre_release is True
+        assert version_info.release_type == ReleaseType.MINOR
+        assert version_info.release_tag == "v1.3.0-alpha1"
+        # Branches should not include pre-release
+        assert "1.3.x" in version_info.dev_branch
+        assert "1.3.x" in version_info.production_branch
+    
+    def test_version_info_pre_release_beta(self):
+        """Test VersionInfo for beta pre-release (1.2.3-beta)"""
+        version_info = VersionInfo(
+            major=1,
+            minor=2,
+            patch=3,
+            version_string="1.2.3-beta",
+            base_version="1.2.3",
+            pre_release="beta",
+            is_pre_release=True,
+            dev_branch="ho-dev/1.2.x",
+            production_branch="ho/1.2.x",
+            release_tag="v1.2.3-beta",
+            release_type=ReleaseType.PATCH,
+            branch_type=BranchType.DEVELOPMENT
+        )
+        
+        assert version_info.version_string == "1.2.3-beta"
+        assert version_info.base_version == "1.2.3"
+        assert version_info.pre_release == "beta"
+        assert version_info.is_pre_release is True
+        assert version_info.release_tag == "v1.2.3-beta"
+    
+    def test_version_info_pre_release_rc(self):
+        """Test VersionInfo for release candidate (2.0.0-rc2)"""
+        version_info = VersionInfo(
+            major=2,
+            minor=0,
+            patch=0,
+            version_string="2.0.0-rc2",
+            base_version="2.0.0",
+            pre_release="rc2",
+            is_pre_release=True,
+            dev_branch="ho-dev/2.0.x",
+            production_branch="ho/2.0.x",
+            release_tag="v2.0.0-rc2",
+            release_type=ReleaseType.MAJOR,
+            branch_type=BranchType.DEVELOPMENT
+        )
+        
+        assert version_info.version_string == "2.0.0-rc2"
+        assert version_info.base_version == "2.0.0"
+        assert version_info.pre_release == "rc2"
+        assert version_info.is_pre_release is True
+        assert version_info.release_type == ReleaseType.MAJOR
+        assert version_info.release_tag == "v2.0.0-rc2"
+    
+    def test_version_info_pre_release_dev(self):
+        """Test VersionInfo for development pre-release (1.4.1-dev)"""
+        version_info = VersionInfo(
+            major=1,
+            minor=4,
+            patch=1,
+            version_string="1.4.1-dev",
+            base_version="1.4.1",
+            pre_release="dev",
+            is_pre_release=True,
+            dev_branch="ho-dev/1.4.x",
+            production_branch="ho/1.4.x",
+            release_tag="v1.4.1-dev",
+            release_type=ReleaseType.PATCH,
+            branch_type=BranchType.DEVELOPMENT
+        )
+        
+        assert version_info.version_string == "1.4.1-dev"
+        assert version_info.base_version == "1.4.1"
+        assert version_info.pre_release == "dev"
+        assert version_info.is_pre_release is True
+        assert version_info.release_tag == "v1.4.1-dev"
     def test_version_info_patch_release(self):
         """Test VersionInfo for patch release (1.3.5)"""
         version_info = VersionInfo(
@@ -128,6 +249,9 @@ class TestVersionInfo:
             minor=3,
             patch=5,
             version_string="1.3.5",
+            base_version="1.3.5",
+            pre_release=None,
+            is_pre_release=False,
             dev_branch="ho-dev/1.3.x",
             production_branch="ho/1.3.x",
             release_tag="v1.3.5",
@@ -138,6 +262,10 @@ class TestVersionInfo:
         assert version_info.major == 1
         assert version_info.minor == 3
         assert version_info.patch == 5
+        assert version_info.version_string == "1.3.5"
+        assert version_info.base_version == "1.3.5"
+        assert version_info.pre_release is None
+        assert version_info.is_pre_release is False
         assert version_info.release_type == ReleaseType.PATCH
         assert "1.3.x" in version_info.dev_branch
         assert "1.3.x" in version_info.production_branch
@@ -150,6 +278,9 @@ class TestVersionInfo:
             minor=3,
             patch=1,
             version_string="1.3.1",
+            base_version="1.3.1",
+            pre_release=None,
+            is_pre_release=False,
             dev_branch="ho-dev/1.3.x",
             production_branch="ho/1.3.x",
             release_tag="v1.3.1",
@@ -166,6 +297,9 @@ class TestVersionInfo:
             minor=0,
             patch=0,
             version_string="0.0.0",
+            base_version="0.0.0",
+            pre_release=None,
+            is_pre_release=False,
             dev_branch="ho-dev/0.0.x",
             production_branch="ho/0.0.x",
             release_tag="v0.0.0",
@@ -177,6 +311,9 @@ class TestVersionInfo:
         assert version_info.minor == 0
         assert version_info.patch == 0
         assert version_info.version_string == "0.0.0"
+        assert version_info.base_version == "0.0.0"
+        assert version_info.pre_release is None
+        assert version_info.is_pre_release is False
     
     def test_version_info_large_numbers(self):
         """Test VersionInfo with large version numbers"""
@@ -185,6 +322,9 @@ class TestVersionInfo:
             minor=25,
             patch=100,
             version_string="10.25.100",
+            base_version="10.25.100",
+            pre_release=None,
+            is_pre_release=False,
             dev_branch="ho-dev/10.25.x",
             production_branch="ho/10.25.x",
             release_tag="v10.25.100",
@@ -195,6 +335,9 @@ class TestVersionInfo:
         assert version_info.major == 10
         assert version_info.minor == 25
         assert version_info.patch == 100
+        assert version_info.base_version == "10.25.100"
+        assert version_info.pre_release is None
+        assert version_info.is_pre_release is False
         assert "10.25.x" in version_info.dev_branch
         assert "10.25.x" in version_info.production_branch
         assert version_info.release_tag == "v10.25.100"
@@ -206,6 +349,9 @@ class TestVersionInfo:
             minor=3,
             patch=1,
             version_string="1.3.1",
+            base_version="1.3.1",
+            pre_release=None,
+            is_pre_release=False,
             dev_branch="ho-dev/1.3.x",
             production_branch="ho/1.3.x",
             release_tag="v1.3.1",
@@ -226,6 +372,9 @@ class TestVersionInfo:
             minor=3,
             patch=1,
             version_string="1.3.1",
+            base_version="1.3.1",
+            pre_release=None,
+            is_pre_release=False,
             dev_branch="ho-dev/1.3.x",
             production_branch="ho/1.3.x",
             release_tag="v1.3.1",
@@ -246,6 +395,9 @@ class TestVersionInfo:
             minor=1,
             patch=3,
             version_string="2.1.3",
+            base_version="2.1.3",
+            pre_release=None,
+            is_pre_release=False,
             dev_branch="ho-dev/2.1.x",
             production_branch="ho/2.1.x",
             release_tag="v2.1.3",
@@ -262,6 +414,7 @@ class TestVersionInfo:
         
         # Version string should match components
         assert version_info.version_string == "2.1.3"
+        assert version_info.base_version == "2.1.3"
     
     def test_version_info_tag_format(self):
         """Test that release tags follow correct format (vX.Y.Z)"""
@@ -278,6 +431,9 @@ class TestVersionInfo:
                 minor=minor,
                 patch=patch,
                 version_string=f"{major}.{minor}.{patch}",
+                base_version=f"{major}.{minor}.{patch}",
+                pre_release=None,
+                is_pre_release=False,
                 dev_branch=f"ho-dev/{major}.{minor}.x",
                 production_branch=f"ho/{major}.{minor}.x",
                 release_tag=expected_tag,
@@ -295,6 +451,9 @@ class TestVersionInfo:
             minor=3,
             patch=1,
             version_string="1.3.1",
+            base_version="1.3.1",
+            pre_release=None,
+            is_pre_release=False,
             dev_branch="ho-dev/1.3.x",
             production_branch="ho/1.3.x",
             release_tag="v1.3.1",
@@ -368,10 +527,32 @@ def sample_version_info():
         minor=3,
         patch=1,
         version_string="1.3.1",
+        base_version="1.3.1",
+        pre_release=None,
+        is_pre_release=False,
         dev_branch="ho-dev/1.3.x",
         production_branch="ho/1.3.x",
         release_tag="v1.3.1",
         release_type=ReleaseType.PATCH,
+        branch_type=BranchType.DEVELOPMENT
+    )
+
+
+@pytest.fixture
+def prerelease_version_info():
+    """Fixture providing a pre-release VersionInfo for testing"""
+    return VersionInfo(
+        major=1,
+        minor=3,
+        patch=0,
+        version_string="1.3.0-alpha1",
+        base_version="1.3.0",
+        pre_release="alpha1",
+        is_pre_release=True,
+        dev_branch="ho-dev/1.3.x",
+        production_branch="ho/1.3.x",
+        release_tag="v1.3.0-alpha1",
+        release_type=ReleaseType.MINOR,
         branch_type=BranchType.DEVELOPMENT
     )
 
@@ -384,6 +565,9 @@ def major_release_version_info():
         minor=0,
         patch=0,
         version_string="2.0.0",
+        base_version="2.0.0",
+        pre_release=None,
+        is_pre_release=False,
         dev_branch="ho-dev/2.0.x",
         production_branch="ho/2.0.x",
         release_tag="v2.0.0",
@@ -398,14 +582,31 @@ class TestVersionInfoWithFixtures:
     def test_sample_version_info_fixture(self, sample_version_info):
         """Test using sample_version_info fixture"""
         assert sample_version_info.version_string == "1.3.1"
+        assert sample_version_info.base_version == "1.3.1"
+        assert sample_version_info.pre_release is None
+        assert sample_version_info.is_pre_release is False
         assert sample_version_info.release_type == ReleaseType.PATCH
         assert sample_version_info.major == 1
         assert sample_version_info.minor == 3
         assert sample_version_info.patch == 1
     
+    def test_prerelease_version_info_fixture(self, prerelease_version_info):
+        """Test using prerelease_version_info fixture"""
+        assert prerelease_version_info.version_string == "1.3.0-alpha1"
+        assert prerelease_version_info.base_version == "1.3.0"
+        assert prerelease_version_info.pre_release == "alpha1"
+        assert prerelease_version_info.is_pre_release is True
+        assert prerelease_version_info.release_type == ReleaseType.MINOR
+        assert prerelease_version_info.major == 1
+        assert prerelease_version_info.minor == 3
+        assert prerelease_version_info.patch == 0
+    
     def test_major_release_fixture(self, major_release_version_info):
         """Test using major_release_version_info fixture"""
         assert major_release_version_info.version_string == "2.0.0"
+        assert major_release_version_info.base_version == "2.0.0"
+        assert major_release_version_info.pre_release is None
+        assert major_release_version_info.is_pre_release is False
         assert major_release_version_info.release_type == ReleaseType.MAJOR
         assert major_release_version_info.major == 2
         assert major_release_version_info.minor == 0
