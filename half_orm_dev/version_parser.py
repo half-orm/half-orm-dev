@@ -413,6 +413,7 @@ class VersionParser:
         
         Analyzes the difference between current version and target version
         to determine whether this represents a major, minor, or patch release.
+        Pre-release suffixes are ignored for type determination.
         
         Logic:
         - Major: X changes (1.2.3 → 2.0.0)
@@ -431,10 +432,83 @@ class VersionParser:
             
         Example:
             >>> parser = VersionParser("1.2.3")
-            >>> parser.determine_release_type("1.3.0")  # ReleaseType.MINOR
-            >>> parser.determine_release_type("2.0.0")  # ReleaseType.MAJOR
+            >>> parser.determine_release_type("1.3.0")     # ReleaseType.MINOR
+            >>> parser.determine_release_type("2.0.0")     # ReleaseType.MAJOR
+            >>> parser.determine_release_type("1.2.4")     # ReleaseType.PATCH
+            >>> parser.determine_release_type("1.2.4-alpha")  # ReleaseType.PATCH (ignores pre-release)
         """
-        pass
+        try:
+            # Extract components from target version (handles pre-release)
+            target_major, target_minor, target_patch = self.get_version_components(target_version)
+            
+        except VersionParsingError as e:
+            raise VersionParsingError(f"Cannot determine release type for '{target_version}': {str(e)}")
+        
+        # Use current version components (already parsed and stored)
+        current_major = self._current_major
+        current_minor = self._current_minor
+        current_patch = self._current_patch
+        
+        # Validate that this is a valid progression
+        current_version_str = f"{current_major}.{current_minor}.{current_patch}"
+        if not self.validate_version_progression(current_version_str, target_version):
+            raise VersionProgressionError(
+                f"Invalid version progression from {current_version_str} to {target_version}. "
+                f"Target version must be greater and follow semantic versioning rules."
+            )
+        
+        # Determine release type based on component changes
+        
+        # Check major version change
+        if target_major != current_major:
+            # Major version changed - must be MAJOR release
+            # Validate that it follows semantic versioning (should be +1, minor=0, patch=0)
+            if target_major != current_major + 1:
+                raise VersionProgressionError(
+                    f"Invalid major version progression: {current_major} → {target_major}. "
+                    f"Major version should increment by 1."
+                )
+            if target_minor != 0 or target_patch != 0:
+                raise VersionProgressionError(
+                    f"Invalid major release format: {target_version}. "
+                    f"Major releases must reset minor and patch to 0 (expected: {target_major}.0.0)."
+                )
+            return ReleaseType.MAJOR
+        
+        # Major version same, check minor version change
+        elif target_minor != current_minor:
+            # Minor version changed - must be MINOR release
+            # Validate that it follows semantic versioning (minor > current, patch=0)
+            if target_minor <= current_minor:
+                raise VersionProgressionError(
+                    f"Invalid minor version progression: {current_minor} → {target_minor}. "
+                    f"Minor version must increase."
+                )
+            if target_patch != 0:
+                raise VersionProgressionError(
+                    f"Invalid minor release format: {target_version}. "
+                    f"Minor releases must reset patch to 0 (expected: {target_major}.{target_minor}.0)."
+                )
+            return ReleaseType.MINOR
+        
+        # Major and minor same, check patch version change
+        elif target_patch != current_patch:
+            # Patch version changed - must be PATCH release
+            # Validate that it follows semantic versioning (patch > current)
+            if target_patch <= current_patch:
+                raise VersionProgressionError(
+                    f"Invalid patch version progression: {current_patch} → {target_patch}. "
+                    f"Patch version must increase."
+                )
+            return ReleaseType.PATCH
+        
+        else:
+            # All components are identical - this should not happen after validate_version_progression
+            # But defensive programming in case validation logic changes
+            raise VersionProgressionError(
+                f"No version change detected: {current_version_str} → {target_version}. "
+                f"Target version must be different from current version."
+            )
     
     def validate_version_progression(self, from_version: str, to_version: str) -> bool:
         """
