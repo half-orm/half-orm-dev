@@ -362,8 +362,24 @@ class VersionParser:
             >>> parser = VersionParser("1.2.3")
             >>> parser.parse_version_with_prerelease("1.3.0-alpha1")  # ("1.3.0", "alpha1")
             >>> parser.parse_version_with_prerelease("1.3.0")         # ("1.3.0", None)
+            >>> parser.parse_version_with_prerelease("2.0.0-beta3")   # ("2.0.0", "beta3")
+            >>> parser.parse_version_with_prerelease("1.4.1-rc2")     # ("1.4.1", "rc2")
         """
-        pass
+        if not isinstance(version, str):
+            raise VersionParsingError(f"Version must be a string, got {type(version).__name__}")
+        
+        if not version or not version.strip():
+            raise VersionParsingError("Version cannot be empty")
+        
+        # Remove whitespace
+        version = version.strip()
+        
+        # Delegate to internal implementation
+        try:
+            return self._parse_version_with_prerelease(version)
+        except VersionParsingError as e:
+            # Re-raise with more context for public API
+            raise VersionParsingError(f"Failed to parse version with pre-release '{version}': {str(e)}")
     
     def is_valid_prerelease_identifier(self, prerelease: str) -> bool:
         """
@@ -384,9 +400,17 @@ class VersionParser:
         Example:
             >>> parser = VersionParser("1.2.3")
             >>> parser.is_valid_prerelease_identifier("alpha1")  # True
+            >>> parser.is_valid_prerelease_identifier("beta")    # True
+            >>> parser.is_valid_prerelease_identifier("rc2")     # True
+            >>> parser.is_valid_prerelease_identifier("dev")     # True
             >>> parser.is_valid_prerelease_identifier("invalid") # False
+            >>> parser.is_valid_prerelease_identifier("alpha0")  # False (zero not allowed)
         """
-        pass
+        if not isinstance(prerelease, str):
+            return False
+        
+        # Delegate to internal implementation
+        return self._is_valid_prerelease_identifier(prerelease)
     
     def list_possible_next_versions(self) -> List[VersionInfo]:
         """
@@ -397,15 +421,85 @@ class VersionParser:
         - Next minor version (X.Y+1.0)
         - Next patch version (X.Y.Z+1)
         
+        Each version includes complete metadata (branches, tags, release type).
+        
         Returns:
             List[VersionInfo]: All possible next versions with metadata
             
         Example:
             >>> parser = VersionParser("1.2.3")
             >>> versions = parser.list_possible_next_versions()
-            >>> # Returns: [2.0.0 (major), 1.3.0 (minor), 1.2.4 (patch)]
+            >>> # Returns: [
+            >>> #   VersionInfo(major=2, minor=0, patch=0, version_string="2.0.0", release_type=MAJOR, ...),
+            >>> #   VersionInfo(major=1, minor=3, patch=0, version_string="1.3.0", release_type=MINOR, ...),
+            >>> #   VersionInfo(major=1, minor=2, patch=4, version_string="1.2.4", release_type=PATCH, ...)
+            >>> # ]
+            >>> 
+            >>> for version in versions:
+            >>>     print(f"{version.release_type.value}: {version.version_string}")
+            >>> # Output:
+            >>> # major: 2.0.0
+            >>> # minor: 1.3.0  
+            >>> # patch: 1.2.4
         """
-        pass
+        possible_versions = []
+        
+        # Generate each type of next version
+        for release_type in [ReleaseType.MAJOR, ReleaseType.MINOR, ReleaseType.PATCH]:
+            try:
+                # Calculate next version for this release type
+                next_version = self.get_next_version(release_type)
+                
+                # Parse the version to create complete VersionInfo
+                version_info = self._create_version_info_from_string(next_version, release_type)
+                
+                possible_versions.append(version_info)
+                
+            except (VersionParsingError, VersionProgressionError) as e:
+                # This should not happen with valid current version and get_next_version implementation
+                # But defensive programming - skip this version type if there's an error
+                continue
+        
+        return possible_versions
+    
+    def _create_version_info_from_string(self, version_string: str, release_type: ReleaseType) -> VersionInfo:
+        """
+        Internal helper to create VersionInfo from version string.
+        
+        Args:
+            version_string (str): Version string (e.g., "1.3.0")
+            release_type (ReleaseType): Type of release
+            
+        Returns:
+            VersionInfo: Complete version information
+        """
+        # Parse version components
+        major, minor, patch = self.get_version_components(version_string)
+        
+        # Parse for potential pre-release (though get_next_version doesn't generate them)
+        base_version, pre_release = self._parse_version_with_prerelease(version_string)
+        is_pre_release = pre_release is not None
+        
+        # Generate Git metadata
+        dev_branch = self.generate_git_branch_name(version_string, BranchType.DEVELOPMENT)
+        production_branch = self.generate_git_branch_name(version_string, BranchType.PRODUCTION)
+        release_tag = self.generate_release_tag(version_string)
+        
+        # Create VersionInfo with all metadata
+        return VersionInfo(
+            major=major,
+            minor=minor,
+            patch=patch,
+            version_string=version_string,
+            base_version=base_version,
+            pre_release=pre_release,
+            is_pre_release=is_pre_release,
+            dev_branch=dev_branch,
+            production_branch=production_branch,
+            release_tag=release_tag,
+            release_type=release_type,
+            branch_type=BranchType.DEVELOPMENT  # Default to development for new versions
+        )
 
     def determine_release_type(self, target_version: str) -> ReleaseType:
         """
