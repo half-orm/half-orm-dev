@@ -811,6 +811,7 @@ class VersionParser:
         - All components are non-negative integers
         - No leading zeros (except for "0")
         - No extra characters or whitespace
+        - May include pre-release suffix: X.Y.Z-prerelease
         
         Args:
             version (str): Version string to validate
@@ -820,11 +821,30 @@ class VersionParser:
             
         Example:
             >>> parser = VersionParser("1.2.3")
-            >>> parser.is_valid_version_format("1.2.3")   # True
-            >>> parser.is_valid_version_format("1.2")     # False
-            >>> parser.is_valid_version_format("1.2.03")  # False (leading zero)
+            >>> parser.is_valid_version_format("1.2.3")       # True
+            >>> parser.is_valid_version_format("1.2.3-alpha1") # True
+            >>> parser.is_valid_version_format("1.2")         # False
+            >>> parser.is_valid_version_format("1.2.03")      # False (leading zero)
         """
-        pass
+        if not isinstance(version, str):
+            return False
+            
+        if not version or not version.strip():
+            return False
+        
+        # Remove whitespace
+        version = version.strip()
+        
+        try:
+            # Parse potential pre-release
+            base_version, pre_release = self._parse_version_with_prerelease(version)
+            
+            # Validate base version format
+            return self._is_valid_semantic_version(base_version)
+            
+        except VersionParsingError:
+            # If parsing fails, version is invalid
+            return False
     
     def compare_versions(self, version1: str, version2: str) -> int:
         """
