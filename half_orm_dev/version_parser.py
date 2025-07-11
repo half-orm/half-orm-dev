@@ -733,9 +733,10 @@ class VersionParser:
         
         Note: Individual releases are represented as tags (v1.3.1, v1.3.2) 
         on the appropriate production branch, not as separate branches.
+        Pre-release information is ignored for branch naming.
         
         Args:
-            version (str): Semantic version (X.Y.Z format)
+            version (str): Semantic version (X.Y.Z format or X.Y.Z-prerelease)
             branch_type (BranchType): Type of branch to generate
             
         Returns:
@@ -748,8 +749,34 @@ class VersionParser:
             >>> parser = VersionParser("1.2.3")
             >>> parser.generate_git_branch_name("1.3.1", BranchType.DEVELOPMENT)  # "ho-dev/1.3.x"
             >>> parser.generate_git_branch_name("1.3.0", BranchType.PRODUCTION)   # "ho/1.3.x"
+            >>> parser.generate_git_branch_name("1.3.1-alpha", BranchType.DEVELOPMENT)  # "ho-dev/1.3.x"
+            >>> parser.generate_git_branch_name("any", BranchType.MAIN)           # "main"
         """
-        pass
+        if not isinstance(branch_type, BranchType):
+            raise VersionParsingError(f"Branch type must be BranchType enum, got {type(branch_type).__name__}")
+        
+        # Handle main branch special case
+        if branch_type == BranchType.MAIN:
+            return "main"
+        
+        # For development and production branches, we need version components
+        try:
+            major, minor, patch = self.get_version_components(version)
+        except VersionParsingError as e:
+            raise VersionParsingError(f"Cannot generate branch name for '{version}': {str(e)}")
+        
+        # Create maintenance branch format (X.Y.x)
+        maintenance_version = f"{major}.{minor}.x"
+        
+        if branch_type == BranchType.DEVELOPMENT:
+            return f"ho-dev/{maintenance_version}"
+        
+        elif branch_type == BranchType.PRODUCTION:
+            return f"ho/{maintenance_version}"
+        
+        else:
+            # This should never happen with proper enum usage, but defensive programming
+            raise VersionParsingError(f"Unknown branch type: {branch_type}")
     
     def generate_release_tag(self, version: str) -> str:
         """
@@ -759,9 +786,10 @@ class VersionParser:
         - Release tags: "vX.Y.Z" (e.g., "v1.3.1") or "vX.Y.Z-prerelease" (e.g., "v1.3.1-alpha1")
         - Applied to production branches (ho/X.Y.x)
         - Used to mark specific release points
+        - Preserves pre-release information in tag name
         
         Args:
-            version (str): Semantic version (X.Y.Z format)
+            version (str): Semantic version (X.Y.Z format or X.Y.Z-prerelease)
             
         Returns:
             str: Git tag name for the release
@@ -771,9 +799,25 @@ class VersionParser:
             
         Example:
             >>> parser = VersionParser("1.2.3")
-            >>> parser.generate_release_tag("1.3.1")  # "v1.3.1"
+            >>> parser.generate_release_tag("1.3.1")         # "v1.3.1"
+            >>> parser.generate_release_tag("1.3.1-alpha1")  # "v1.3.1-alpha1"
+            >>> parser.generate_release_tag("2.0.0-beta")    # "v2.0.0-beta"
         """
-        pass
+        if not isinstance(version, str):
+            raise VersionParsingError(f"Version must be a string, got {type(version).__name__}")
+        
+        if not version or not version.strip():
+            raise VersionParsingError("Version cannot be empty")
+        
+        # Remove whitespace
+        version = version.strip()
+        
+        # Validate the version format (this will handle both regular and pre-release versions)
+        if not self.is_valid_version_format(version):
+            raise VersionParsingError(f"Invalid version format: '{version}'")
+        
+        # Simply prefix with 'v' - the version is already validated and properly formatted
+        return f"v{version}"
     
     def generate_maintenance_branch_name(self, version: str, for_production: bool = False) -> str:
         """
@@ -784,9 +828,10 @@ class VersionParser:
         - Production maintenance: "ho/X.Y.x" (e.g., "ho/1.3.x")
         - Used for patch releases within a minor version line
         - Individual patches are tagged (v1.3.1, v1.3.2) not branched
+        - Pre-release information is ignored for branch naming
         
         Args:
-            version (str): Semantic version (X.Y.Z format)
+            version (str): Semantic version (X.Y.Z format or X.Y.Z-prerelease)
             for_production (bool): Whether to generate production branch name
             
         Returns:
@@ -799,8 +844,13 @@ class VersionParser:
             >>> parser = VersionParser("1.2.3")
             >>> parser.generate_maintenance_branch_name("1.3.0")              # "ho-dev/1.3.x"
             >>> parser.generate_maintenance_branch_name("1.3.0", True)        # "ho/1.3.x"
+            >>> parser.generate_maintenance_branch_name("1.3.5-alpha")        # "ho-dev/1.3.x"
         """
-        pass
+        # Determine branch type based on for_production flag
+        branch_type = BranchType.PRODUCTION if for_production else BranchType.DEVELOPMENT
+        
+        # Reuse the generate_git_branch_name method which already handles all the logic
+        return self.generate_git_branch_name(version, branch_type)
     
     def is_valid_version_format(self, version: str) -> bool:
         """
