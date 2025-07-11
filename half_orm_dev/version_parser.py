@@ -167,7 +167,146 @@ class VersionParser:
         Raises:
             VersionParsingError: If current_version format is invalid
         """
-        pass
+        if not isinstance(current_version, str):
+            raise VersionParsingError(f"Version must be a string, got {type(current_version).__name__}")
+        
+        if not current_version or not current_version.strip():
+            raise VersionParsingError("Version cannot be empty")
+        
+        # Remove any whitespace
+        current_version = current_version.strip()
+        
+        # Parse base version and pre-release
+        self._current_version = current_version
+        self._base_version, self._pre_release = self._parse_version_with_prerelease(current_version)
+        self._is_pre_release = self._pre_release is not None
+        
+        # Validate base version format
+        if not self._is_valid_semantic_version(self._base_version):
+            raise VersionParsingError(f"Invalid version format: '{current_version}'. Expected X.Y.Z[-prerelease] format")
+        
+        # Parse and store components for quick access
+        self._current_major, self._current_minor, self._current_patch = self._parse_version_components(self._base_version)
+    
+    def _parse_version_with_prerelease(self, version: str) -> Tuple[str, Optional[str]]:
+        """
+        Internal method to parse version with optional pre-release.
+        
+        Args:
+            version (str): Version string potentially with pre-release
+            
+        Returns:
+            Tuple[str, Optional[str]]: (base_version, pre_release)
+            
+        Raises:
+            VersionParsingError: If pre-release format is invalid
+        """
+        if '-' not in version:
+            # No pre-release
+            return version, None
+        
+        # Split on first hyphen only
+        parts = version.split('-', 1)
+        if len(parts) != 2:
+            raise VersionParsingError(f"Invalid version format: '{version}'")
+        
+        base_version, pre_release = parts
+        
+        # Validate pre-release identifier
+        if not self._is_valid_prerelease_identifier(pre_release):
+            raise VersionParsingError(f"Invalid pre-release identifier: '{pre_release}'")
+        
+        return base_version, pre_release
+    
+    def _is_valid_prerelease_identifier(self, prerelease: str) -> bool:
+        """
+        Internal method to validate pre-release identifier.
+        
+        Valid formats: alpha, alpha1, beta, beta1, rc, rc1, dev, dev1, etc.
+        
+        Args:
+            prerelease (str): Pre-release identifier
+            
+        Returns:
+            bool: True if valid
+        """
+        if not prerelease:
+            return False
+        
+        # Valid prefixes
+        valid_prefixes = ['alpha', 'beta', 'rc', 'dev']
+        
+        # Check if it starts with a valid prefix
+        for prefix in valid_prefixes:
+            if prerelease.startswith(prefix):
+                # Check what follows the prefix
+                suffix = prerelease[len(prefix):]
+                
+                # Either nothing (just "alpha") or a number ("alpha1")
+                if suffix == "":
+                    return True
+                
+                # Must be a positive integer
+                if suffix.isdigit() and int(suffix) > 0:
+                    return True
+                
+                # Invalid suffix
+                return False
+        
+        # Doesn't start with valid prefix
+        return False
+    
+    def _is_valid_semantic_version(self, version: str) -> bool:
+        """
+        Internal method to validate semantic version format.
+        
+        Args:
+            version (str): Version string to validate
+            
+        Returns:
+            bool: True if format is valid
+        """
+        if not version:
+            return False
+        
+        # Split by dots
+        parts = version.split('.')
+        
+        # Must have exactly 3 parts
+        if len(parts) != 3:
+            return False
+        
+        # Each part must be a non-negative integer without leading zeros
+        for part in parts:
+            if not part:  # Empty part
+                return False
+            
+            # Check if it's numeric
+            if not part.isdigit():
+                return False
+            
+            # Check for leading zeros (except for "0")
+            if len(part) > 1 and part[0] == '0':
+                return False
+            
+            # Ensure it's non-negative (isdigit already ensures this)
+            if int(part) < 0:
+                return False
+        
+        return True
+    
+    def _parse_version_components(self, version: str) -> Tuple[int, int, int]:
+        """
+        Internal method to parse version components.
+        
+        Args:
+            version (str): Valid semantic version string
+            
+        Returns:
+            Tuple[int, int, int]: (major, minor, patch) components
+        """
+        parts = version.split('.')
+        return int(parts[0]), int(parts[1]), int(parts[2])
     
     def parse(self, version_spec: str) -> VersionInfo:
         """
