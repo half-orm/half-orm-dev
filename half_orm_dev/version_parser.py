@@ -340,7 +340,73 @@ class VersionParser:
             >>> info.release_tag         # "v1.3.0"
             >>> info.release_type        # ReleaseType.MINOR
         """
-        pass
+        # 1. Valider et nettoyer input
+        if not isinstance(version_spec, str):
+            raise VersionParsingError(f"Version spec must be a string, got {type(version_spec).__name__}")
+        
+        if not version_spec or not version_spec.strip():
+            raise VersionParsingError("Version spec cannot be empty")
+        
+        # Remove whitespace
+        version_spec = version_spec.strip()
+        
+        try:
+            # 2. Expand version_spec → version complète ("1.3" → "1.3.0")
+            expanded_version = self.expand_version_spec(version_spec)
+            
+            # 3. Valider progression (current → target)
+            current_base_version = f"{self._current_major}.{self._current_minor}.{self._current_patch}"
+            if not self.validate_version_progression(current_base_version, expanded_version):
+                raise VersionProgressionError(
+                    f"Invalid version progression from {current_base_version} to {expanded_version}. "
+                    f"Target version must be greater and follow semantic versioning rules."
+                )
+            
+            # 4. Déterminer release_type automatiquement
+            release_type = self.determine_release_type(expanded_version)
+            
+            # 5. Parser pre-release si présent
+            base_version, pre_release = self.parse_version_with_prerelease(expanded_version)
+            is_pre_release = pre_release is not None
+            
+            # 6. Extraire composants version
+            major, minor, patch = self.get_version_components(expanded_version)
+            
+            # 7. Générer métadonnées Git (branches, tags)
+            dev_branch = self.generate_git_branch_name(expanded_version, BranchType.DEVELOPMENT)
+            production_branch = self.generate_git_branch_name(expanded_version, BranchType.PRODUCTION)
+            release_tag = self.generate_release_tag(expanded_version)
+            
+            # 8. Construire VersionInfo complet
+            version_info = VersionInfo(
+                major=major,
+                minor=minor,
+                patch=patch,
+                version_string=expanded_version,
+                base_version=base_version,
+                pre_release=pre_release,
+                is_pre_release=is_pre_release,
+                dev_branch=dev_branch,
+                production_branch=production_branch,
+                release_tag=release_tag,
+                release_type=release_type,
+                branch_type=BranchType.DEVELOPMENT  # Default to development for new versions
+            )
+            
+            # 9. Retourner résultat
+            return version_info
+            
+        except VersionParsingError as e:
+            # Re-raise parsing errors with more context
+            raise VersionParsingError(f"Failed to parse version spec '{version_spec}': {str(e)}")
+        
+        except VersionProgressionError as e:
+            # Re-raise progression errors as-is (already have good context)
+            raise e
+        
+        except Exception as e:
+            # Catch any unexpected errors and wrap them
+            raise VersionParsingError(f"Unexpected error parsing version spec '{version_spec}': {str(e)}")
     
     def parse_version_with_prerelease(self, version: str) -> Tuple[str, Optional[str]]:
         """
