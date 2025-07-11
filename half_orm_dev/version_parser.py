@@ -720,7 +720,38 @@ class VersionParser:
             >>> parser.get_next_version(ReleaseType.MINOR)  # "1.3.0"
             >>> parser.get_next_version(ReleaseType.PATCH)  # "1.2.4"
         """
-        pass
+        if not isinstance(release_type, ReleaseType):
+            raise VersionParsingError(f"Release type must be ReleaseType enum, got {type(release_type).__name__}")
+        
+        # Use current version components (already parsed and stored)
+        current_major = self._current_major
+        current_minor = self._current_minor
+        current_patch = self._current_patch
+        
+        if release_type == ReleaseType.MAJOR:
+            # Increment major, reset minor and patch to 0
+            next_major = current_major + 1
+            next_minor = 0
+            next_patch = 0
+            
+        elif release_type == ReleaseType.MINOR:
+            # Increment minor, reset patch to 0, keep major
+            next_major = current_major
+            next_minor = current_minor + 1
+            next_patch = 0
+            
+        elif release_type == ReleaseType.PATCH:
+            # Increment patch, keep major and minor
+            next_major = current_major
+            next_minor = current_minor
+            next_patch = current_patch + 1
+            
+        else:
+            # This should never happen with proper enum usage, but defensive programming
+            raise VersionParsingError(f"Unknown release type: {release_type}")
+        
+        # Return formatted version string
+        return f"{next_major}.{next_minor}.{next_patch}"
     
     def generate_git_branch_name(self, version: str, branch_type: BranchType = BranchType.DEVELOPMENT) -> str:
         """
