@@ -445,7 +445,8 @@ class VersionParser:
         - Target version must be greater than source version
         - Version components must progress logically
         - No backward progression allowed
-        - No skipping multiple major versions
+        - No skipping multiple major versions (>1 major jump)
+        - Pre-release information is ignored for progression validation
         
         Args:
             from_version (str): Source version
@@ -461,8 +462,63 @@ class VersionParser:
             >>> parser = VersionParser("1.2.3")
             >>> parser.validate_version_progression("1.2.3", "1.3.0")  # True
             >>> parser.validate_version_progression("1.2.3", "1.2.2")  # False
+            >>> parser.validate_version_progression("1.2.3", "3.0.0")  # False (too big jump)
+            >>> parser.validate_version_progression("1.2.3-alpha", "1.2.3")  # True (pre-release ignored)
         """
-        pass
+        try:
+            # Extract components from both versions (handles pre-release automatically)
+            from_major, from_minor, from_patch = self.get_version_components(from_version)
+            to_major, to_minor, to_patch = self.get_version_components(to_version)
+            
+        except VersionParsingError as e:
+            # Re-raise with context about validation failure
+            raise VersionParsingError(f"Version progression validation failed: {str(e)}")
+        
+        # Check if versions are identical (not a valid progression)
+        if (from_major, from_minor, from_patch) == (to_major, to_minor, to_patch):
+            return False
+        
+        # Use compare_versions for main logic (reuse existing implementation)
+        comparison = self.compare_versions(from_version, to_version)
+        
+        # Target version must be greater than source version
+        if comparison >= 0:  # from >= to
+            return False
+        
+        # Check for reasonable progression (no massive jumps)
+        major_diff = to_major - from_major
+        
+        # Major version jumps should be reasonable (max 1 major version jump)
+        if major_diff > 1:
+            return False
+        
+        # If major version increases, minor and patch should reset to 0
+        if major_diff == 1:
+            if to_minor != 0 or to_patch != 0:
+                return False
+        
+        # If major version is same, check minor progression
+        if major_diff == 0:
+            minor_diff = to_minor - from_minor
+            
+            # Minor version can increase by any amount, but not decrease
+            if minor_diff < 0:
+                return False
+            
+            # If minor version increases, patch should reset to 0
+            if minor_diff > 0 and to_patch != 0:
+                return False
+            
+            # If minor version is same, check patch progression
+            if minor_diff == 0:
+                patch_diff = to_patch - from_patch
+                
+                # Patch version must increase by at least 1
+                if patch_diff <= 0:
+                    return False
+        
+        # All validation passed
+        return True
     
     def expand_version_spec(self, version_spec: str) -> str:
         """
