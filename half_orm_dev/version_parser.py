@@ -173,8 +173,9 @@ class VersionParser:
         if not current_version or not current_version.strip():
             raise VersionParsingError("Version cannot be empty")
         
-        # Remove any whitespace
-        current_version = current_version.strip()
+        # Reject versions with leading/trailing whitespace
+        if current_version != current_version.strip():
+            raise VersionParsingError(f"Version cannot have leading or trailing whitespace: '{current_version}'")
         
         # Parse base version and pre-release
         self._current_version = current_version
@@ -350,20 +351,32 @@ class VersionParser:
         # Remove whitespace
         version_spec = version_spec.strip()
         
+        # Rejeter seulement certains caractères spéciaux (pas les pre-release)
+        if version_spec.startswith('v'):
+            raise VersionParsingError(f"Version prefix 'v' not supported in version spec: '{version_spec}'. Use numeric version only.")
+        
+        if '+' in version_spec:
+            raise VersionParsingError(f"Build metadata not supported in version spec: '{version_spec}'. Use base version only.")
+        
         try:
             # 2. Expand version_spec → version complète ("1.3" → "1.3.0")
             expanded_version = self.expand_version_spec(version_spec)
             
             # 3. Valider progression (current → target)
             current_base_version = f"{self._current_major}.{self._current_minor}.{self._current_patch}"
-            if not self.validate_version_progression(current_base_version, expanded_version):
+            
+            # Extraire la version de base pour comparaison de progression
+            target_base_version, _ = self.parse_version_with_prerelease(expanded_version)
+            
+            # Comparer les versions de BASE seulement pour la progression
+            if not self.validate_version_progression(current_base_version, target_base_version):
                 raise VersionProgressionError(
-                    f"Invalid version progression from {current_base_version} to {expanded_version}. "
+                    f"Invalid version progression from {current_base_version} to {target_base_version}. "
                     f"Target version must be greater and follow semantic versioning rules."
                 )
             
-            # 4. Déterminer release_type automatiquement
-            release_type = self.determine_release_type(expanded_version)
+            # 4. Déterminer release_type automatiquement (basé sur version de base)
+            release_type = self.determine_release_type(target_base_version)
             
             # 5. Parser pre-release si présent
             base_version, pre_release = self.parse_version_with_prerelease(expanded_version)
@@ -609,6 +622,10 @@ class VersionParser:
         current_minor = self._current_minor
         current_patch = self._current_patch
         
+        # SPECIAL CASE: 0.0.0 is always considered MAJOR release
+        if target_major == 0 and target_minor == 0 and target_patch == 0:
+            return ReleaseType.MAJOR
+
         # Validate that this is a valid progression
         current_version_str = f"{current_major}.{current_minor}.{current_patch}"
         if not self.validate_version_progression(current_version_str, target_version):

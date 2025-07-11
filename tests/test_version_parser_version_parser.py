@@ -602,9 +602,6 @@ class TestVersionParserEdgeCases:
         parser = VersionParser("1.2.3")
         
         with pytest.raises(VersionParsingError):
-            parser.parse("1.2.3-alpha")  # Pre-release suffix
-            
-        with pytest.raises(VersionParsingError):
             parser.parse("v1.2.3")  # Version prefix
             
         with pytest.raises(VersionParsingError):
