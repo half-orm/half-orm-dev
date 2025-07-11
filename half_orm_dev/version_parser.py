@@ -19,7 +19,8 @@ Key Features:
 Branch & Tag Convention:
 - Development: ho-dev/X.Y.x (e.g., ho-dev/1.3.x) + commits
 - Production: ho/X.Y.x (e.g., ho/1.3.x) + tags
-- Release tags: vX.Y.Z (e.g., v1.3.1) on production branches
+- Release tags: vX.Y.Z (e.g., v1.3.1) or vX.Y.Z-prerelease (e.g., v1.3.1-alpha1)
+- Pre-release support: -alpha1, -beta3, -rc2, -dev formats
 - Main development: main
 
 Workflow:
@@ -74,16 +75,19 @@ class VersionInfo:
     
     Provides a comprehensive view of version information including
     semantic components, Git branch naming for both development and production,
-    release tags, and categorization.
+    release tags, pre-release information, and categorization.
     
     Attributes:
         major (int): Major version number (breaking changes)
         minor (int): Minor version number (new features)
         patch (int): Patch version number (bug fixes)
-        version_string (str): Full semantic version (e.g., "1.2.3")
+        version_string (str): Full semantic version (e.g., "1.2.3" or "1.2.3-alpha1")
+        base_version (str): Base version without pre-release (e.g., "1.2.3")
+        pre_release (Optional[str]): Pre-release identifier (e.g., "alpha1", "beta3", "rc2")
+        is_pre_release (bool): Whether this is a pre-release version
         dev_branch (str): Development branch name (e.g., "ho-dev/1.2.x")
         production_branch (str): Production branch name (e.g., "ho/1.2.x")
-        release_tag (str): Git tag for release (e.g., "v1.2.3")
+        release_tag (str): Git tag for release (e.g., "v1.2.3" or "v1.2.3-alpha1")
         release_type (ReleaseType): Type of release (major/minor/patch)
         branch_type (BranchType): Primary branch type for this version
     """
@@ -91,6 +95,9 @@ class VersionInfo:
     minor: int
     patch: int
     version_string: str
+    base_version: str
+    pre_release: Optional[str]
+    is_pre_release: bool
     dev_branch: str
     production_branch: str
     release_tag: str
@@ -155,10 +162,109 @@ class VersionParser:
         Initialize the version parser with the current project version.
         
         Args:
-            current_version (str): Current semantic version (e.g., "1.2.3")
+            current_version (str): Current semantic version (e.g., "1.2.3" or "1.2.3-alpha1")
             
         Raises:
             VersionParsingError: If current_version format is invalid
+        """
+        pass
+    
+    def parse(self, version_spec: str) -> VersionInfo:
+        """
+        Parse a version specification into structured version information.
+        
+        Converts user-friendly version specifications into complete VersionInfo
+        objects with all metadata needed for Git-centric operations.
+        
+        Supported formats:
+        - "1" → Major version (1.0.0)
+        - "1.3" → Minor version (1.3.0)  
+        - "1.3.1" → Patch version (1.3.1)
+        - "1.3.1-alpha1" → Pre-release version
+        
+        Args:
+            version_spec (str): Version specification from user input
+            
+        Returns:
+            VersionInfo: Complete version information with Git branch names
+            
+        Raises:
+            VersionParsingError: If version_spec format is invalid
+            VersionProgressionError: If version progression is invalid
+            
+        Example:
+            >>> parser = VersionParser("1.2.3")
+            >>> info = parser.parse("1.3")
+            >>> info.version_string      # "1.3.0"
+            >>> info.dev_branch          # "ho-dev/1.3.x"
+            >>> info.production_branch   # "ho/1.3.x"
+            >>> info.release_tag         # "v1.3.0"
+            >>> info.release_type        # ReleaseType.MINOR
+        """
+        pass
+    
+    def parse_version_with_prerelease(self, version: str) -> Tuple[str, Optional[str]]:
+        """
+        Parse a version string that may include pre-release information.
+        
+        Supports semantic versioning pre-release format: X.Y.Z-prerelease
+        Common pre-release identifiers: alpha, beta, rc, dev
+        
+        Args:
+            version (str): Version string (e.g., "1.2.3-alpha1", "1.2.3")
+            
+        Returns:
+            Tuple[str, Optional[str]]: (base_version, pre_release)
+            
+        Raises:
+            VersionParsingError: If format is invalid
+            
+        Example:
+            >>> parser = VersionParser("1.2.3")
+            >>> parser.parse_version_with_prerelease("1.3.0-alpha1")  # ("1.3.0", "alpha1")
+            >>> parser.parse_version_with_prerelease("1.3.0")         # ("1.3.0", None)
+        """
+        pass
+    
+    def is_valid_prerelease_identifier(self, prerelease: str) -> bool:
+        """
+        Validate pre-release identifier format.
+        
+        Valid formats:
+        - alpha, alpha1, alpha2, ...
+        - beta, beta1, beta2, ...
+        - rc, rc1, rc2, ...
+        - dev, dev1, dev2, ...
+        
+        Args:
+            prerelease (str): Pre-release identifier to validate
+            
+        Returns:
+            bool: True if valid pre-release identifier
+            
+        Example:
+            >>> parser = VersionParser("1.2.3")
+            >>> parser.is_valid_prerelease_identifier("alpha1")  # True
+            >>> parser.is_valid_prerelease_identifier("invalid") # False
+        """
+        pass
+    
+    def list_possible_next_versions(self) -> List[VersionInfo]:
+        """
+        Generate list of all possible next versions from current version.
+        
+        Returns all valid next versions according to semantic versioning:
+        - Next major version (X+1.0.0)
+        - Next minor version (X.Y+1.0)
+        - Next patch version (X.Y.Z+1)
+        
+        Returns:
+            List[VersionInfo]: All possible next versions with metadata
+            
+        Example:
+            >>> parser = VersionParser("1.2.3")
+            >>> versions = parser.list_possible_next_versions()
+            >>> # Returns: [2.0.0 (major), 1.3.0 (minor), 1.2.4 (patch)]
         """
         pass
     
@@ -336,7 +442,7 @@ class VersionParser:
         Generate the Git tag name for a release version.
         
         Creates release tags following semantic versioning convention:
-        - Release tags: "vX.Y.Z" (e.g., "v1.3.1")
+        - Release tags: "vX.Y.Z" (e.g., "v1.3.1") or "vX.Y.Z-prerelease" (e.g., "v1.3.1-alpha1")
         - Applied to production branches (ho/X.Y.x)
         - Used to mark specific release points
         
@@ -456,7 +562,51 @@ class VersionParser:
         """
         pass
     
-    def list_possible_next_versions(self) -> List[VersionInfo]:
+    def parse_version_with_prerelease(self, version: str) -> Tuple[str, Optional[str]]:
+        """
+        Parse a version string that may include pre-release information.
+        
+        Supports semantic versioning pre-release format: X.Y.Z-prerelease
+        Common pre-release identifiers: alpha, beta, rc, dev
+        
+        Args:
+            version (str): Version string (e.g., "1.2.3-alpha1", "1.2.3")
+            
+        Returns:
+            Tuple[str, Optional[str]]: (base_version, pre_release)
+            
+        Raises:
+            VersionParsingError: If format is invalid
+            
+        Example:
+            >>> parser = VersionParser("1.2.3")
+            >>> parser.parse_version_with_prerelease("1.3.0-alpha1")  # ("1.3.0", "alpha1")
+            >>> parser.parse_version_with_prerelease("1.3.0")         # ("1.3.0", None)
+        """
+        pass
+    
+    def is_valid_prerelease_identifier(self, prerelease: str) -> bool:
+        """
+        Validate pre-release identifier format.
+        
+        Valid formats:
+        - alpha, alpha1, alpha2, ...
+        - beta, beta1, beta2, ...
+        - rc, rc1, rc2, ...
+        - dev, dev1, dev2, ...
+        
+        Args:
+            prerelease (str): Pre-release identifier to validate
+            
+        Returns:
+            bool: True if valid pre-release identifier
+            
+        Example:
+            >>> parser = VersionParser("1.2.3")
+            >>> parser.is_valid_prerelease_identifier("alpha1")  # True
+            >>> parser.is_valid_prerelease_identifier("invalid") # False
+        """
+        pass
         """
         Generate list of all possible next versions from current version.
         
