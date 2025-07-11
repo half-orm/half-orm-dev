@@ -469,26 +469,104 @@ class VersionParser:
         Expand a partial version specification to a complete semantic version.
         
         Converts user-friendly short forms into complete X.Y.Z versions:
-        - "1" → "1.0.0" (next major)
-        - "1.3" → "1.3.0" (specific minor)
+        - "1" → "1.0.0" (major version)
+        - "1.3" → "1.3.0" (minor version)
         - "1.3.1" → "1.3.1" (complete version)
+        - "1.3.1-alpha1" → "1.3.1-alpha1" (pre-release, unchanged)
         
         Args:
             version_spec (str): Partial or complete version specification
             
         Returns:
-            str: Complete semantic version (X.Y.Z format)
+            str: Complete semantic version (X.Y.Z format, possibly with pre-release)
             
         Raises:
             VersionParsingError: If version_spec format is invalid
             
         Example:
             >>> parser = VersionParser("1.2.3")
-            >>> parser.expand_version_spec("1")     # "1.0.0"
-            >>> parser.expand_version_spec("1.4")   # "1.4.0"
-            >>> parser.expand_version_spec("1.4.2") # "1.4.2"
+            >>> parser.expand_version_spec("1")           # "1.0.0"
+            >>> parser.expand_version_spec("1.4")         # "1.4.0"
+            >>> parser.expand_version_spec("1.4.2")       # "1.4.2"
+            >>> parser.expand_version_spec("1.4.2-alpha") # "1.4.2-alpha"
         """
-        pass
+        if not isinstance(version_spec, str):
+            raise VersionParsingError(f"Version spec must be a string, got {type(version_spec).__name__}")
+        
+        if not version_spec or not version_spec.strip():
+            raise VersionParsingError("Version spec cannot be empty")
+        
+        # Remove whitespace
+        version_spec = version_spec.strip()
+        
+        # Check if it contains pre-release (has hyphen)
+        has_prerelease = '-' in version_spec
+        
+        if has_prerelease:
+            # Split base version and pre-release
+            try:
+                base_version, pre_release = self._parse_version_with_prerelease(version_spec)
+            except VersionParsingError as e:
+                raise VersionParsingError(f"Invalid version spec with pre-release: '{version_spec}'. {str(e)}")
+            
+            # Expand base version and add pre-release back
+            expanded_base = self._expand_base_version(base_version)
+            return f"{expanded_base}-{pre_release}"
+        
+        else:
+            # No pre-release, expand base version only
+            return self._expand_base_version(version_spec)
+    
+    def _expand_base_version(self, base_version: str) -> str:
+        """
+        Internal helper to expand base version (without pre-release).
+        
+        Args:
+            base_version (str): Base version to expand (e.g., "1", "1.3", "1.3.1")
+            
+        Returns:
+            str: Expanded base version (e.g., "1.0.0", "1.3.0", "1.3.1")
+            
+        Raises:
+            VersionParsingError: If base version format is invalid
+        """
+        # Split by dots
+        parts = base_version.split('.')
+        
+        # Validate number of parts (1, 2, or 3)
+        if len(parts) == 0 or len(parts) > 3:
+            raise VersionParsingError(f"Invalid version spec: '{base_version}'. Expected 1-3 components")
+        
+        # Validate each part is a valid integer
+        validated_parts = []
+        for i, part in enumerate(parts):
+            if not part:
+                raise VersionParsingError(f"Empty version component in: '{base_version}'")
+            
+            if not part.isdigit():
+                raise VersionParsingError(f"Non-numeric version component '{part}' in: '{base_version}'")
+            
+            # Check for leading zeros (except for "0")
+            if len(part) > 1 and part[0] == '0':
+                raise VersionParsingError(f"Leading zero in version component '{part}' in: '{base_version}'")
+            
+            # Convert to int to validate range
+            num = int(part)
+            if num < 0:
+                raise VersionParsingError(f"Negative version component '{part}' in: '{base_version}'")
+            
+            validated_parts.append(str(num))
+        
+        # Expand to full X.Y.Z format
+        if len(validated_parts) == 1:
+            # "1" → "1.0.0"
+            return f"{validated_parts[0]}.0.0"
+        elif len(validated_parts) == 2:
+            # "1.3" → "1.3.0"
+            return f"{validated_parts[0]}.{validated_parts[1]}.0"
+        else:
+            # "1.3.1" → "1.3.1" (already complete)
+            return f"{validated_parts[0]}.{validated_parts[1]}.{validated_parts[2]}"
     
     def get_next_version(self, release_type: ReleaseType) -> str:
         """
