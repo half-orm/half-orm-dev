@@ -651,10 +651,11 @@ class VersionParser:
         Extract major, minor, and patch components from a version string.
         
         Parses a semantic version string and returns the individual numeric
-        components as a tuple of integers.
+        components as a tuple of integers. Handles both regular versions
+        and pre-release versions by extracting the base version.
         
         Args:
-            version (str): Semantic version string (X.Y.Z format)
+            version (str): Semantic version string (X.Y.Z format or X.Y.Z-prerelease)
             
         Returns:
             Tuple[int, int, int]: (major, minor, patch) components
@@ -664,6 +665,27 @@ class VersionParser:
             
         Example:
             >>> parser = VersionParser("1.2.3")
-            >>> parser.get_version_components("1.4.2")  # (1, 4, 2)
+            >>> parser.get_version_components("1.4.2")          # (1, 4, 2)
+            >>> parser.get_version_components("2.0.1-alpha1")   # (2, 0, 1)
         """
-        pass
+        if not isinstance(version, str):
+            raise VersionParsingError(f"Version must be a string, got {type(version).__name__}")
+        
+        if not version or not version.strip():
+            raise VersionParsingError("Version cannot be empty")
+        
+        # Remove whitespace
+        version = version.strip()
+        
+        # Parse version to handle potential pre-release
+        try:
+            base_version, _ = self._parse_version_with_prerelease(version)
+        except VersionParsingError as e:
+            raise VersionParsingError(f"Invalid version format: '{version}'. {str(e)}")
+        
+        # Validate base version format
+        if not self._is_valid_semantic_version(base_version):
+            raise VersionParsingError(f"Invalid semantic version format: '{version}'")
+        
+        # Parse components using internal helper
+        return self._parse_version_components(base_version)
