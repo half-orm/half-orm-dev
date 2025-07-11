@@ -624,6 +624,7 @@ class VersionParser:
         
         Performs semantic version comparison following standard rules:
         - Compare major, then minor, then patch
+        - Pre-release versions are ignored (base version is compared)
         - Returns negative if version1 < version2
         - Returns zero if version1 == version2  
         - Returns positive if version1 > version2
@@ -640,11 +641,40 @@ class VersionParser:
             
         Example:
             >>> parser = VersionParser("1.2.3")
-            >>> parser.compare_versions("1.2.3", "1.3.0")  # -1 (1.2.3 < 1.3.0)
-            >>> parser.compare_versions("1.3.0", "1.2.3")  # 1  (1.3.0 > 1.2.3)
-            >>> parser.compare_versions("1.2.3", "1.2.3")  # 0  (equal)
+            >>> parser.compare_versions("1.2.3", "1.3.0")        # -1 (1.2.3 < 1.3.0)
+            >>> parser.compare_versions("1.3.0", "1.2.3")        # 1  (1.3.0 > 1.2.3)
+            >>> parser.compare_versions("1.2.3", "1.2.3")        # 0  (equal)
+            >>> parser.compare_versions("1.2.3-alpha", "1.2.3")  # 0  (base versions equal)
         """
-        pass
+        try:
+            # Extract components from both versions
+            major1, minor1, patch1 = self.get_version_components(version1)
+            major2, minor2, patch2 = self.get_version_components(version2)
+            
+        except VersionParsingError as e:
+            # Re-raise with more context about which version failed
+            raise VersionParsingError(f"Version comparison failed: {str(e)}")
+        
+        # Compare major version first
+        if major1 < major2:
+            return -1
+        elif major1 > major2:
+            return 1
+        
+        # Major versions are equal, compare minor
+        if minor1 < minor2:
+            return -1
+        elif minor1 > minor2:
+            return 1
+        
+        # Major and minor are equal, compare patch
+        if patch1 < patch2:
+            return -1
+        elif patch1 > patch2:
+            return 1
+        
+        # All components are equal
+        return 0
     
     def get_version_components(self, version: str) -> Tuple[int, int, int]:
         """
