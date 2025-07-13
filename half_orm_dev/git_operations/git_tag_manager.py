@@ -82,17 +82,19 @@ class VersionTag:
     @property
     def maintenance_line(self) -> str:
         """Get maintenance branch identifier (X.Y.x format)"""
-        pass
+        return f"{self.major}.{self.minor}.x"
     
     @property
     def version_string(self) -> str:
         """Get version string without 'v' prefix"""
-        pass
+        base = f"{self.major}.{self.minor}.{self.patch}"
+        if self.pre_release:
+            return f"{base}-{self.pre_release}"
+        return base
     
     def __str__(self) -> str:
         """String representation returns raw tag"""
-        pass
-
+        return self.raw_tag
 
 class GitTagManager:
     """
