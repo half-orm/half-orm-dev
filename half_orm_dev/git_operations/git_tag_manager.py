@@ -119,11 +119,6 @@ class GitTagManager:
     with minimal metadata. Integrates with halfORM HGit instances when available.
     """
     
-    # Tag patterns for schema patches
-    DEV_PATCH_PATTERN = re.compile(r'^dev-patch-(\d+\.\d+\.\d+)-(.+)$')
-    PATCH_PATTERN = re.compile(r'^patch-(\d+\.\d+\.\d+)-(.+)$')
-    VERSION_PATTERN = re.compile(r'^v(\d+\.\d+\.\d+)$')
-    
     def __init__(self, hgit_instance=None, repo_path: str = "."):
         """
         Initialize GitTagManager with HGit instance or repository path.
@@ -135,7 +130,29 @@ class GitTagManager:
         Raises:
             InvalidRepositoryError: If repository is invalid
         """
-        pass
+        if hgit_instance is not None:
+            # Use halfORM HGit instance (preferred mode)
+            self.repo = hgit_instance._HGit__git_repo
+            self.repo_path = Path(hgit_instance._HGit__repo.base_dir).resolve()
+        else:
+            # Standalone mode (fallback)
+            self.repo_path = Path(repo_path).resolve()
+            
+            # Check if path exists first
+            if not self.repo_path.exists():
+                raise InvalidRepositoryError(f"Path does not exist: {self.repo_path}")
+            
+            try:
+                self.repo = git.Repo(self.repo_path)
+            except (GitCommandError, InvalidGitRepositoryError, Exception) as e:
+                raise InvalidRepositoryError(f"Invalid Git repository at {self.repo_path}: {e}")
+        
+        # SchemaPatches directory
+        self.schema_patches_dir = self.repo_path / "SchemaPatches"
+        
+        # Ensure SchemaPatches directory exists
+        if not self.schema_patches_dir.exists():
+            self.schema_patches_dir.mkdir(parents=True, exist_ok=True)
     
     def get_all_tags_between(self, from_version: str, to_version: str) -> List[PatchTag]:
         """
