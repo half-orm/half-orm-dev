@@ -679,4 +679,439 @@ class TestGitOperations:
 
 
 class TestErrorHandling:
-    """Test error handling
+    """Test error handling and edge cases"""
+    
+    def test_git_command_error_handling(self, temp_git_repo):
+        """Should handle Git command errors gracefully"""
+        temp_dir, _ = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Mock Git operation failure
+        with patch.object(manager.repo, 'tags', side_effect=GitCommandError("git", 128, "error")):
+            with pytest.raises(GitTagManagerError):
+                manager.get_all_patch_tags()
+    
+    def test_tag_creation_git_error(self, temp_git_repo):
+        """Should raise TagCreationError when Git tag creation fails"""
+        temp_dir, _ = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Mock Git tag creation failure
+        with patch.object(manager.repo, 'create_tag', side_effect=GitCommandError("git", 128, "error")):
+            with pytest.raises(TagCreationError):
+                manager.create_tag("dev-patch-1.3.2-security", "123-security")
+    
+    def test_corrupted_tag_message(self, temp_git_repo):
+        """Should handle corrupted or missing tag messages"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Create tag with empty message
+        git_tag = repo.create_tag("dev-patch-1.3.2-test", message="")
+        
+        with pytest.raises(TagValidationError):
+            manager.parse_patch_tag("dev-patch-1.3.2-test", git_tag)
+    
+    def test_schema_patches_directory_permissions(self, temp_git_repo):
+        """Should handle SchemaPatches directory permission issues"""
+        temp_dir, _ = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Remove read permissions from SchemaPatches directory
+        schema_patches_path = manager.schema_patches_dir
+        os.chmod(schema_patches_path, 0o000)
+        
+        try:
+            # Should handle permission error gracefully
+            result = manager.validate_schema_patch_reference("123-security")
+            assert result is False
+        finally:
+            # Restore permissions for cleanup
+            os.chmod(schema_patches_path, 0o755)
+
+
+class TestPerformanceAndScalability:
+    """Test performance with large numbers of tags"""
+    
+    def test_large_number_of_tags(self, temp_git_repo):
+        """Should handle repositories with many patch tags efficiently"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Create many patch tags
+        import time
+        start_time = time.time()
+        
+        for i in range(50):  # Create 50 tags
+            version = f"1.{i // 10}.{i % 10}"
+            suffix = f"patch{i:03d}"
+            manager.create_tag(f"dev-patch-{version}-{suffix}", "123-security")
+        
+        creation_time = time.time() - start_time
+        
+        # Operations should still be reasonably fast
+        start_time = time.time()
+        all_tags = manager.get_all_patch_tags()
+        retrieval_time = time.time() - start_time
+        
+        assert len(all_tags) == 50
+        assert creation_time < 10.0  # Should create 50 tags in under 10 seconds
+        assert retrieval_time < 1.0   # Should retrieve all tags in under 1 second
+    
+    def test_tag_sorting_performance(self, temp_git_repo):
+        """Should sort tags by Git chronological order efficiently"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Create tags in reverse chronological order to test sorting
+        tags_to_create = []
+        for i in range(20):
+            suffix = f"patch{i:02d}"
+            tags_to_create.append(f"dev-patch-1.3.2-{suffix}")
+        
+        # Create in reverse order
+        for tag_name in reversed(tags_to_create):
+            manager.create_tag(tag_name, "123-security")
+            import time
+            time.sleep(0.01)  # Ensure different timestamps
+        
+        # Retrieve and verify they're sorted chronologically
+        tags = manager.get_dev_tags_for_version("1.3.2")
+        
+        # Should be sorted by creation time (earliest first)
+        for i in range(len(tags) - 1):
+            assert tags[i].timestamp <= tags[i + 1].timestamp
+
+
+class TestIntegrationScenarios:
+    """Test realistic integration scenarios"""
+    
+    def test_complete_dev_to_prod_workflow(self, temp_git_repo):
+        """Should support complete dev → prod workflow"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Step 1: Business decides patch order and creates dev tags
+        business_priorities = [
+            ("security", "123-security"),
+            ("performance", "456-performance"), 
+            ("audit", "789-audit")
+        ]
+        
+        for suffix, patch_id in business_priorities:
+            manager.create_tag(f"dev-patch-1.3.2-{suffix}", patch_id)
+            import time
+            time.sleep(0.1)  # Ensure chronological order
+        
+        # Step 2: Validate all dev tags exist
+        dev_tags = manager.get_dev_tags_for_version("1.3.2")
+        assert len(dev_tags) == 3
+        
+        # Step 3: Transfer to production (creates patch-* tags)
+        prod_tags = manager.transfer_dev_tags_to_prod("1.3.2")
+        assert len(prod_tags) == 3
+        
+        # Step 4: Validate consistency
+        assert manager.validate_dev_to_prod_consistency("1.3.2") is True
+        
+        # Step 5: Verify final state
+        all_patch_tags = manager.get_all_patch_tags()
+        assert len(all_patch_tags) == 6  # 3 dev + 3 prod
+        
+        # Dev and prod tags should have same order and messages
+        dev_suffixes = [tag.suffix for tag in dev_tags]
+        prod_suffixes = [tag.suffix for tag in prod_tags]
+        assert dev_suffixes == prod_suffixes == ["security", "performance", "audit"]
+    
+    def test_external_patch_compatibility(self, temp_git_repo):
+        """Should handle external patches (manual releases)"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Create development tags
+        manager.create_tag("dev-patch-1.3.2-security", "123-security")
+        manager.create_tag("dev-patch-1.3.2-performance", "456-performance")
+        
+        # Simulate external/manual patch (creates gap)
+        repo.create_tag("patch-1.3.2-hotfix", message="external-hotfix")
+        
+        # Transfer remaining dev tags
+        prod_tags = manager.transfer_dev_tags_to_prod("1.3.2")
+        
+        # Should handle external patches gracefully
+        all_prod_tags = manager.get_prod_tags_for_version("1.3.2")
+        assert len(all_prod_tags) == 3  # 2 transferred + 1 external
+        
+        # External patch should be included in chronological order
+        prod_suffixes = [tag.suffix for tag in all_prod_tags]
+        assert "hotfix" in prod_suffixes
+    
+    def test_multiple_version_lines(self, temp_git_repo):
+        """Should handle multiple version lines independently"""
+        temp_dir, _ = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Create patches for different versions
+        versions_and_patches = [
+            ("1.3.2", "security", "123-security"),
+            ("1.3.2", "performance", "456-performance"),
+            ("1.4.0", "audit", "789-audit"),
+            ("1.4.0", "bugfix", "101-bugfix"),
+            ("2.0.0", "migration", "202-migration")
+        ]
+        
+        for version, suffix, patch_id in versions_and_patches:
+            manager.create_tag(f"dev-patch-{version}-{suffix}", patch_id)
+        
+        # Each version should be independent
+        tags_1_3_2 = manager.get_dev_tags_for_version("1.3.2")
+        tags_1_4_0 = manager.get_dev_tags_for_version("1.4.0")
+        tags_2_0_0 = manager.get_dev_tags_for_version("2.0.0")
+        
+        assert len(tags_1_3_2) == 2
+        assert len(tags_1_4_0) == 2
+        assert len(tags_2_0_0) == 1
+        
+        # Transfer each version independently
+        prod_tags_1_3_2 = manager.transfer_dev_tags_to_prod("1.3.2")
+        prod_tags_1_4_0 = manager.transfer_dev_tags_to_prod("1.4.0")
+        
+        assert len(prod_tags_1_3_2) == 2
+        assert len(prod_tags_1_4_0) == 2
+        
+        # Version 2.0.0 should remain unaffected
+        remaining_dev_tags = manager.get_dev_tags_for_version("2.0.0")
+        assert len(remaining_dev_tags) == 1
+
+
+class TestEdgeCases:
+    """Test edge cases and boundary conditions"""
+    
+    def test_zero_version_handling(self, temp_git_repo):
+        """Should handle version 0.0.0 correctly"""
+        temp_dir, _ = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        manager.create_tag("dev-patch-0.0.1-initial", "123-security")
+        
+        tags = manager.get_dev_tags_for_version("0.0.1")
+        assert len(tags) == 1
+        assert tags[0].version == "0.0.1"
+    
+    def test_large_version_numbers(self, temp_git_repo):
+        """Should handle very large version numbers"""
+        temp_dir, _ = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        manager.create_tag("dev-patch-999.999.999-test", "123-security")
+        
+        tags = manager.get_dev_tags_for_version("999.999.999")
+        assert len(tags) == 1
+        assert tags[0].version == "999.999.999"
+    
+    def test_special_characters_in_suffix(self, temp_git_repo):
+        """Should handle special characters in tag suffixes"""
+        temp_dir, _ = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Valid special characters
+        valid_suffixes = [
+            "security-fix",
+            "performance_optimization", 
+            "audit123",
+            "hotfix-urgent"
+        ]
+        
+        for suffix in valid_suffixes:
+            tag_name = f"dev-patch-1.3.2-{suffix}"
+            manager.create_tag(tag_name, "123-security")
+            assert manager.tag_exists(tag_name)
+    
+    def test_concurrent_tag_operations(self, temp_git_repo):
+        """Should handle concurrent tag operations safely"""
+        temp_dir, _ = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Simulate concurrent operations
+        import threading
+        import time
+        
+        results = []
+        errors = []
+        
+        def create_tag_worker(suffix, patch_id):
+            try:
+                tag = manager.create_tag(f"dev-patch-1.3.2-{suffix}", patch_id)
+                results.append(tag)
+            except Exception as e:
+                errors.append(e)
+        
+        # Create multiple threads
+        threads = []
+        for i in range(5):
+            thread = threading.Thread(
+                target=create_tag_worker,
+                args=(f"concurrent{i}", "123-security")
+            )
+            threads.append(thread)
+        
+        # Start all threads
+        for thread in threads:
+            thread.start()
+        
+        # Wait for completion
+        for thread in threads:
+            thread.join()
+        
+        # Should handle concurrency gracefully
+        assert len(results) + len(errors) == 5
+        assert len(results) >= 1  # At least one should succeed
+
+
+class TestBackwardCompatibility:
+    """Test integration with existing halfORM systems"""
+    
+    def test_hgit_integration(self, temp_git_repo):
+        """Should integrate seamlessly with halfORM HGit"""
+        temp_dir, repo = temp_git_repo
+        
+        # Mock halfORM HGit instance
+        mock_hgit = Mock()
+        mock_hgit._HGit__git_repo = repo
+        mock_hgit._HGit__repo = Mock()
+        mock_hgit._HGit__repo.base_dir = temp_dir
+        
+        # Should work with HGit instance
+        manager = GitTagManager(hgit_instance=mock_hgit)
+        
+        # Basic operations should work
+        tag = manager.create_tag("dev-patch-1.3.2-security", "123-security")
+        assert tag is not None
+        
+        tags = manager.get_all_patch_tags()
+        assert len(tags) == 1
+    
+    def test_existing_tag_formats(self, temp_git_repo):
+        """Should coexist with existing halfORM tag formats"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Create existing halfORM tags (should be ignored)
+        repo.create_tag("v1.3.2", message="Version release")
+        repo.create_tag("1.3.2", message="Release tag")
+        repo.create_tag("hop_release_1.3.2", message="HOP release")
+        
+        # Create new patch tags
+        manager.create_tag("dev-patch-1.3.2-security", "123-security")
+        
+        # Should only return patch tags
+        patch_tags = manager.get_all_patch_tags()
+        assert len(patch_tags) == 1
+        assert patch_tags[0].name == "dev-patch-1.3.2-security"
+    
+    def test_schema_patches_directory_structure(self, temp_git_repo):
+        """Should work with existing SchemaPatches directory structures"""
+        temp_dir, _ = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # The fixture already creates SchemaPatches structure
+        # Verify it works with existing directories
+        assert manager.validate_schema_patch_reference("123-security")
+        assert manager.validate_schema_patch_reference("456-performance")
+        assert manager.validate_schema_patch_reference("789-audit")
+
+
+class TestDocumentationAndExamples:
+    """Test examples from documentation and README"""
+    
+    def test_basic_usage_example(self, temp_git_repo):
+        """Should work with basic usage example from docs"""
+        temp_dir, _ = temp_git_repo
+        
+        # Example from documentation
+        tag_manager = GitTagManager(repo_path=temp_dir)
+        
+        # Create development validation tag
+        tag_manager.create_tag("dev-patch-1.3.2-security", "123-security")
+        
+        # Get all patch tags between versions
+        tags = tag_manager.get_all_patch_tags()
+        assert len(tags) == 1
+        
+        # Transfer to production
+        prod_tags = tag_manager.transfer_dev_tags_to_prod("1.3.2")
+        assert len(prod_tags) == 1
+        
+        # Verify final state
+        assert tag_manager.validate_dev_to_prod_consistency("1.3.2")
+    
+    def test_workflow_example(self, temp_git_repo):
+        """Should support the workflow example from architecture docs"""
+        temp_dir, _ = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Phase 1: Development on ho-dev/X.Y.x
+        # Developers create tickets in SchemaPatches/XXX-name/
+        
+        # Phase 2: Validation dev with tags dev-patch-*
+        # Business decides the order of application
+        manager.create_tag("dev-patch-1.3.2-security", "123-security")
+        manager.create_tag("dev-patch-1.3.2-perf", "456-performance") 
+        manager.create_tag("dev-patch-1.3.2-audit", "789-audit")
+        
+        # Phase 3: Transfer to production
+        prod_tags = manager.transfer_dev_tags_to_prod("1.3.2")
+        
+        # Phase 4: Application in production
+        # Auto-discovery of all tags patch-X.Y.Z-* between versions
+        tags = manager.get_prod_tags_for_version("1.3.2")
+        
+        assert len(tags) == 3
+        # For each tag in Git history order:
+        # - Checkout on the tag ✓
+        # - Message of tag = directory SchemaPatches/XXX ✓
+        # - Application of files in lexicographic order ✓
+
+
+# Integration with pytest fixtures and utilities
+@pytest.fixture
+def manager_with_sample_tags(temp_git_repo):
+    """Fixture providing GitTagManager with sample tags for testing"""
+    temp_dir, repo = temp_git_repo
+    manager = GitTagManager(repo_path=temp_dir)
+    
+    # Create sample dev tags
+    sample_tags = [
+        ("dev-patch-1.3.2-security", "123-security"),
+        ("dev-patch-1.3.2-performance", "456-performance"),
+        ("dev-patch-1.4.0-audit", "789-audit")
+    ]
+    
+    for tag_name, message in sample_tags:
+        manager.create_tag(tag_name, message)
+        import time
+        time.sleep(0.1)  # Ensure chronological order
+    
+    return manager
+
+
+class TestWithSampleTags:
+    """Test suite using the sample tags fixture"""
+    
+    def test_sample_tags_fixture(self, manager_with_sample_tags):
+        """Should work with pre-created sample tags"""
+        manager = manager_with_sample_tags
+        
+        all_tags = manager.get_all_patch_tags()
+        assert len(all_tags) == 3
+        
+        tags_1_3_2 = manager.get_dev_tags_for_version("1.3.2")
+        assert len(tags_1_3_2) == 2
+        
+        tags_1_4_0 = manager.get_dev_tags_for_version("1.4.0")
+        assert len(tags_1_4_0) == 1
+
+
+if __name__ == "__main__":
+    # Run tests with pytest
+    pytest.main([__file__, "-v", "--tb=short"])

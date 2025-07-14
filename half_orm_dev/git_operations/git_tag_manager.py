@@ -33,6 +33,7 @@ Usage:
 
 import os
 import re
+from datetime import datetime
 from typing import List, Optional, Set, Dict
 from dataclasses import dataclass
 from pathlib import Path
@@ -86,8 +87,29 @@ class PatchTag:
     message: str
     commit_hash: str
     is_dev_tag: bool
-    timestamp: int
-
+    timestamp: datetime
+    
+    @property
+    def maintenance_line(self) -> str:
+        """Get maintenance line (X.Y.x) from version"""
+        parts = self.version.split('.')
+        if len(parts) >= 2:
+            return f"{parts[0]}.{parts[1]}.x"
+        return self.version
+    
+    @property
+    def schema_patches_directory(self) -> str:
+        """Get SchemaPatches directory from tag message"""
+        return self.message
+    
+    def __lt__(self, other: 'PatchTag') -> bool:
+        """Enable sorting by timestamp (Git chronological order)"""
+        return self.timestamp < other.timestamp
+    
+    def __str__(self) -> str:
+        """String representation with key information"""
+        status = "DEV" if self.is_dev_tag else "PROD"
+        return f"PatchTag({self.name}, {self.message}, {self.commit_hash[:8]}, {status})"
 
 class GitTagManager:
     """
