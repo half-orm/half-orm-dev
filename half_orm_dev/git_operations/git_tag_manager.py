@@ -118,7 +118,10 @@ class GitTagManager:
     Handles creation, validation, and transfer of dev-patch-* and patch-* tags
     with minimal metadata. Integrates with halfORM HGit instances when available.
     """
-    
+
+    DEV_PATCH_PATTERN = re.compile(r'^dev-patch-(\d+\.\d+\.\d+)-([a-zA-Z0-9_-]+)$')
+    PATCH_PATTERN = re.compile(r'^patch-(\d+\.\d+\.\d+)-([a-zA-Z0-9_-]+)$')
+
     def __init__(self, hgit_instance=None, repo_path: str = "."):
         """
         Initialize GitTagManager with HGit instance or repository path.
@@ -213,7 +216,25 @@ class GitTagManager:
         Returns:
             bool: True if format is valid
         """
-        pass
+        if not tag_name or not isinstance(tag_name, str):
+            return False
+        
+        # Check if matches dev-patch or patch pattern
+        dev_match = self.DEV_PATCH_PATTERN.match(tag_name)
+        patch_match = self.PATCH_PATTERN.match(tag_name)
+        
+        if dev_match or patch_match:
+            # Additional validation: suffix cannot be empty
+            match = dev_match or patch_match
+            version, suffix = match.groups()
+            
+            # Suffix must not be empty and must be valid
+            if not suffix or suffix.endswith('-') or suffix.startswith('-'):
+                return False
+            
+            return True
+        
+        return False
     
     def validate_schema_patch_reference(self, message: str) -> bool:
         """
@@ -225,7 +246,16 @@ class GitTagManager:
         Returns:
             bool: True if directory exists
         """
-        pass
+        if not message or not isinstance(message, str):
+            return False
+        
+        # Check for path traversal attempts
+        if '..' in message or message.startswith('/'):
+            return False
+        
+        # Check if directory exists
+        patch_dir = self.schema_patches_dir / message
+        return patch_dir.exists() and patch_dir.is_dir()
     
     def parse_patch_tag(self, tag_name: str, git_tag) -> Optional[PatchTag]:
         """

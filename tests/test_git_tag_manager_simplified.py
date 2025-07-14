@@ -298,7 +298,11 @@ class TestTagPatternValidation:
         ]
         
         for tag_name in invalid_tags:
-            assert manager.validate_tag_format(tag_name) is False
+            try:
+                assert manager.validate_tag_format(tag_name) is False
+            except AssertionError as exc:
+                print('TEST FAILED FOR', tag_name)
+                raise exc
     
     def test_validate_schema_patches_reference_valid(self, temp_git_repo, schema_patches_dir):
         """Should validate existing SchemaPatches directory references"""
