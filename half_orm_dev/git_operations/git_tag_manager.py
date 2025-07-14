@@ -267,9 +267,72 @@ class GitTagManager:
             
         Returns:
             Optional[PatchTag]: Parsed tag info or None if not a patch tag
+            
+        Raises:
+            TagValidationError: If tag format is valid but content is invalid
         """
-        pass
+        # Try dev-patch pattern
+        dev_match = self.DEV_PATCH_PATTERN.match(tag_name)
+        if dev_match:
+            version, suffix = dev_match.groups()
+            is_dev_tag = True
+        else:
+            # Try patch pattern
+            patch_match = self.PATCH_PATTERN.match(tag_name)
+            if patch_match:
+                version, suffix = patch_match.groups()
+                is_dev_tag = False
+            else:
+                # Not a patch tag
+                return None
+        
+        # Get tag message and validate
+        message = git_tag.tag.message.strip() if git_tag.tag else ""
+        if not message:
+            raise TagValidationError(f"Tag {tag_name} has empty message")
+        
+        if not self.validate_schema_patch_reference(message):
+            raise TagValidationError(f"Tag {tag_name} references non-existent SchemaPatches directory: {message}")
+        
+        # Get commit hash and timestamp
+        commit_hash = git_tag.commit.hexsha
+        
+        # Handle timestamp - prefer tag object timestamp, fallback to commit timestamp
+        if git_tag.tag and hasattr(git_tag.tag, 'tagged_date'):
+            timestamp = datetime.fromtimestamp(git_tag.tag.tagged_date)
+        else:
+            timestamp = datetime.fromtimestamp(git_tag.commit.committed_date)
+        
+        return PatchTag(
+            name=tag_name,
+            version=version,
+            suffix=suffix,
+            message=message,
+            commit_hash=commit_hash,
+            is_dev_tag=is_dev_tag,
+            timestamp=timestamp
+        )
     
+    def validate_tag_branch_consistency(self, patch_tag: PatchTag) -> bool:
+        """
+        Validate that tag type matches current branch (utility for higher layers).
+        
+        Args:
+            patch_tag (PatchTag): Tag to validate
+            
+        Returns:
+            bool: True if tag type is consistent with current branch
+        """
+        try:
+            current_branch = self.repo.active_branch.name
+            if patch_tag.is_dev_tag:
+                return current_branch.startswith('ho-dev/')
+            else:
+                return current_branch.startswith('ho/')
+        except Exception:
+            # If we can't determine branch, assume consistency
+            return True
+
     def transfer_dev_tags_to_prod(self, version: str) -> List[PatchTag]:
         """
         Transfer all dev-patch-X.Y.Z-* tags to corresponding patch-X.Y.Z-* tags.
