@@ -63,8 +63,18 @@ def temp_git_repo():
     schema_patches_dir = os.path.join(temp_dir, "SchemaPatches")
     os.makedirs(schema_patches_dir)
     
-    # Create sample patch directories
-    sample_patches = ["123-security", "456-performance", "789-audit"]
+    # Create sample patch directories - Extended for all test cases
+    sample_patches = [
+        "123-security",         # Basic tests
+        "456-performance",      # Basic tests
+        "789-audit",           # Basic tests
+        "101-bugfix",          # Multiple version lines test
+        "202-migration",       # Multiple version lines test
+        "external-hotfix",     # External patch compatibility test
+        "999-test",            # Additional test cases
+        "001-initial",         # Additional test cases
+    ]
+    
     for patch_id in sample_patches:
         patch_dir = os.path.join(schema_patches_dir, patch_id)
         os.makedirs(patch_dir)
@@ -73,6 +83,11 @@ def temp_git_repo():
         sql_file = os.path.join(patch_dir, "00_sample.sql")
         with open(sql_file, 'w') as f:
             f.write(f"-- Sample SQL for {patch_id}\nSELECT 1;\n")
+            
+        # Create README for documentation
+        readme_file = os.path.join(patch_dir, "README.md")
+        with open(readme_file, 'w') as f:
+            f.write(f"# Patch {patch_id}\n\nSample patch for testing.\n")
     
     repo.index.add([schema_patches_dir])
     repo.index.commit("Add SchemaPatches structure")
@@ -81,7 +96,6 @@ def temp_git_repo():
     
     # Cleanup
     shutil.rmtree(temp_dir)
-
 
 @pytest.fixture
 def schema_patches_dir(temp_git_repo):
@@ -837,6 +851,7 @@ class TestIntegrationScenarios:
         manager = GitTagManager(repo_path=temp_dir)
         
         # Step 1: Business decides patch order and creates dev tags
+        # Each tag should be on a separate commit (realistic workflow)
         business_priorities = [
             ("security", "123-security"),
             ("performance", "456-performance"), 
@@ -844,9 +859,15 @@ class TestIntegrationScenarios:
         ]
         
         for suffix, patch_id in business_priorities:
+            # Create a commit for this patch (realistic workflow)
+            patch_file = os.path.join(temp_dir, f"patch_{suffix}.txt")
+            with open(patch_file, 'w') as f:
+                f.write(f"Patch content for {suffix}")
+            repo.index.add([patch_file])
+            repo.index.commit(f"Implement {suffix} patch")
+            
+            # Create tag on this commit
             manager.create_tag(f"dev-patch-1.3.2-{suffix}", patch_id)
-            import time
-            time.sleep(0.1)  # Ensure chronological order
         
         # Step 2: Validate all dev tags exist
         dev_tags = manager.get_dev_tags_for_version("1.3.2")
@@ -863,10 +884,15 @@ class TestIntegrationScenarios:
         all_patch_tags = manager._get_all_patch_tags()
         assert len(all_patch_tags) == 6  # 3 dev + 3 prod
         
-        # Dev and prod tags should have same order and messages
+        # Dev and prod tags should have same order (Git chronological order)
         dev_suffixes = [tag.suffix for tag in dev_tags]
         prod_suffixes = [tag.suffix for tag in prod_tags]
-        assert dev_suffixes == prod_suffixes == ["security", "performance", "audit"]
+        assert dev_suffixes == prod_suffixes
+        
+        # Should be in business priority order (chronological creation)
+        expected_order = ["security", "performance", "audit"]
+        assert dev_suffixes == expected_order
+        assert prod_suffixes == expected_order
     
     def test_external_patch_compatibility(self, temp_git_repo):
         """Should handle external patches (manual releases)"""

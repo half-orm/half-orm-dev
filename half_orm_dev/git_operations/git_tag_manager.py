@@ -476,8 +476,8 @@ class GitTagManager:
                 if patch_tag is not None:
                     patch_tags.append(patch_tag)
                     
-            # Sort by timestamp (Git chronological order)
-            return sorted(patch_tags)
+            # Sort by Git commit order (more reliable than timestamp)
+            return self.sort_tags_by_commit_order(patch_tags)
             
         except GitCommandError as e:
             raise GitTagManagerError(f"Failed to retrieve Git tags: {e}")
@@ -542,8 +542,29 @@ class GitTagManager:
         Returns:
             List[PatchTag]: Tags sorted by Git history order
         """
-        pass
-    
+        if not tags:
+            return tags
+            
+        try:
+            # Get all commits in chronological order
+            commits = list(self.repo.iter_commits())
+            
+            # Create a mapping from commit hash to its position in history
+            # Earlier commits have higher index (reverse chronological)
+            commit_order = {commit.hexsha: i for i, commit in enumerate(commits)}
+            
+            # Sort tags by their commit's position in Git history
+            # Lower index = more recent = should come later in the list
+            def sort_key(tag: PatchTag) -> int:
+                return commit_order.get(tag.commit_hash, float('inf'))
+            
+            # Sort in reverse order (most recent commits last)
+            return sorted(tags, key=sort_key, reverse=True)
+            
+        except Exception:
+            # Fallback to timestamp sorting if Git operations fail
+            return sorted(tags)
+
     def tag_exists(self, tag_name: str) -> bool:
         """
         Check if a tag exists in the repository.
