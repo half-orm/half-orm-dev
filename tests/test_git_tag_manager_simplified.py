@@ -407,7 +407,7 @@ class TestTagRetrieval:
         temp_dir, _ = temp_git_repo
         manager = GitTagManager(repo_path=temp_dir)
         
-        tags = manager.get_all_patch_tags()
+        tags = manager._get_all_patch_tags()
         assert tags == []
     
     def test_get_all_patch_tags_mixed(self, temp_git_repo):
@@ -421,7 +421,7 @@ class TestTagRetrieval:
         repo.create_tag("v1.3.2", message="Version release")  # Not a patch tag
         repo.create_tag("random-tag", message="Random")  # Not a patch tag
         
-        tags = manager.get_all_patch_tags()
+        tags = manager._get_all_patch_tags()
         
         assert len(tags) == 2
         tag_names = [tag.name for tag in tags]
@@ -435,23 +435,50 @@ class TestTagRetrieval:
         temp_dir, repo = temp_git_repo
         manager = GitTagManager(repo_path=temp_dir)
         
-        # Create version tags and patch tags
+        # Create version tag v1.3.1 on current commit
         repo.create_tag("v1.3.1", message="Version 1.3.1")
         
-        # Create patch tags with artificial timing
+        # Create new commits with patch tags
         import time
+        
+        # First patch commit
+        patch_file1 = os.path.join(temp_dir, "patch1.txt")
+        with open(patch_file1, 'w') as f:
+            f.write("First patch")
+        repo.index.add([patch_file1])
+        repo.index.commit("First patch commit")
+        
+        # Create first patch tag
         repo.create_tag("dev-patch-1.3.2-first", message="123-security")
         time.sleep(0.1)  # Ensure different timestamps
+        
+        # Second patch commit  
+        patch_file2 = os.path.join(temp_dir, "patch2.txt")
+        with open(patch_file2, 'w') as f:
+            f.write("Second patch")
+        repo.index.add([patch_file2])
+        repo.index.commit("Second patch commit")
+        
+        # Create second patch tag
         repo.create_tag("dev-patch-1.3.2-second", message="456-performance")
         time.sleep(0.1)
+        
+        # Create version tag v1.3.2 on current commit
         repo.create_tag("v1.3.2", message="Version 1.3.2")
         
+        # Test: Get patch tags between versions
         tags = manager.get_patch_tags_between("v1.3.1", "v1.3.2", dev_tags=True)
         
         assert len(tags) == 2
         # Should be in chronological order
         assert tags[0].suffix == "first"
         assert tags[1].suffix == "second"
+        
+        # Verify they are dev tags
+        assert all(tag.is_dev_tag for tag in tags)
+        
+        # Verify versions
+        assert all(tag.version == "1.3.2" for tag in tags)
     
     def test_get_dev_tags_for_version(self, temp_git_repo):
         """Should get dev-patch tags for specific version"""
@@ -693,7 +720,7 @@ class TestErrorHandling:
         # Mock Git operation failure
         with patch.object(manager.repo, 'tags', side_effect=GitCommandError("git", 128, "error")):
             with pytest.raises(GitTagManagerError):
-                manager.get_all_patch_tags()
+                manager._get_all_patch_tags()
     
     def test_tag_creation_git_error(self, temp_git_repo):
         """Should raise TagCreationError when Git tag creation fails"""
@@ -755,7 +782,7 @@ class TestPerformanceAndScalability:
         
         # Operations should still be reasonably fast
         start_time = time.time()
-        all_tags = manager.get_all_patch_tags()
+        all_tags = manager._get_all_patch_tags()
         retrieval_time = time.time() - start_time
         
         assert len(all_tags) == 50
@@ -819,7 +846,7 @@ class TestIntegrationScenarios:
         assert manager.validate_dev_to_prod_consistency("1.3.2") is True
         
         # Step 5: Verify final state
-        all_patch_tags = manager.get_all_patch_tags()
+        all_patch_tags = manager._get_all_patch_tags()
         assert len(all_patch_tags) == 6  # 3 dev + 3 prod
         
         # Dev and prod tags should have same order and messages
@@ -992,7 +1019,7 @@ class TestBackwardCompatibility:
         tag = manager.create_tag("dev-patch-1.3.2-security", "123-security")
         assert tag is not None
         
-        tags = manager.get_all_patch_tags()
+        tags = manager._get_all_patch_tags()
         assert len(tags) == 1
     
     def test_existing_tag_formats(self, temp_git_repo):
@@ -1009,7 +1036,7 @@ class TestBackwardCompatibility:
         manager.create_tag("dev-patch-1.3.2-security", "123-security")
         
         # Should only return patch tags
-        patch_tags = manager.get_all_patch_tags()
+        patch_tags = manager._get_all_patch_tags()
         assert len(patch_tags) == 1
         assert patch_tags[0].name == "dev-patch-1.3.2-security"
     
@@ -1039,7 +1066,7 @@ class TestDocumentationAndExamples:
         tag_manager.create_tag("dev-patch-1.3.2-security", "123-security")
         
         # Get all patch tags between versions
-        tags = tag_manager.get_all_patch_tags()
+        tags = tag_manager._get_all_patch_tags()
         assert len(tags) == 1
         
         # Transfer to production
@@ -1106,7 +1133,7 @@ class TestWithSampleTags:
         """Should work with pre-created sample tags"""
         manager = manager_with_sample_tags
         
-        all_tags = manager.get_all_patch_tags()
+        all_tags = manager._get_all_patch_tags()
         assert len(all_tags) == 3
         
         tags_1_3_2 = manager.get_dev_tags_for_version("1.3.2")

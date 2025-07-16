@@ -186,7 +186,28 @@ class GitTagManager:
         Returns:
             List[PatchTag]: Patch tags in Git chronological order
         """
-        pass
+        try:
+            # Get commits between version tags
+            commit_range = f"{from_version}..{to_version}"
+            commits_in_range = set(commit.hexsha for commit in self.repo.iter_commits(commit_range))
+            
+            # Get all patch tags and filter by type and commit range
+            all_patch_tags = self._get_all_patch_tags()
+            filtered_tags = []
+            
+            for tag in all_patch_tags:
+                # Filter by tag type (dev vs prod)
+                if tag.is_dev_tag != dev_tags:
+                    continue
+                
+                # Check if tag's commit is in the range
+                if tag.commit_hash in commits_in_range:
+                    filtered_tags.append(tag)
+            
+            return sorted(filtered_tags)
+            
+        except GitCommandError as e:
+            raise GitTagManagerError(f"Failed to get tags between versions {from_version}..{to_version}: {e}")
     
     def create_tag(self, tag_name: str, message: str, commit_ref: str = "HEAD") -> PatchTag:
         """
@@ -358,7 +379,11 @@ class GitTagManager:
         Returns:
             List[PatchTag]: Development tags for version
         """
-        pass
+        all_tags = self._get_all_patch_tags()
+        dev_tags = [tag for tag in all_tags 
+                if tag.is_dev_tag and tag.version == version]
+        return sorted(dev_tags)
+
     
     def get_prod_tags_for_version(self, version: str) -> List[PatchTag]:
         """
@@ -370,8 +395,35 @@ class GitTagManager:
         Returns:
             List[PatchTag]: Production tags for version
         """
-        pass
-    
+        all_tags = self._get_all_patch_tags()
+        prod_tags = [tag for tag in all_tags 
+                    if not tag.is_dev_tag and tag.version == version]
+        return sorted(prod_tags)
+
+    def _get_all_patch_tags(self) -> List[PatchTag]:
+        """
+        Internal method to get all patch tags (dev-patch-* and patch-*) sorted by Git chronological order.
+        
+        Returns:
+            List[PatchTag]: All patch tags in chronological order
+            
+        Raises:
+            GitTagManagerError: If Git operations fail
+        """
+        patch_tags = []
+        
+        try:
+            for git_tag in self.repo.tags:
+                patch_tag = self.parse_patch_tag(git_tag.name, git_tag)
+                if patch_tag is not None:
+                    patch_tags.append(patch_tag)
+                    
+            # Sort by timestamp (Git chronological order)
+            return sorted(patch_tags)
+            
+        except GitCommandError as e:
+            raise GitTagManagerError(f"Failed to retrieve Git tags: {e}")
+
     def validate_dev_to_prod_consistency(self, version: str) -> bool:
         """
         Validate that dev-patch-* and patch-* tags are consistent for a version.
