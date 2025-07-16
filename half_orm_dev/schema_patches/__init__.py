@@ -39,12 +39,12 @@ Usage:
 """
 
 # Core classes
-from .schema_patches import SchemaPatches
+# from .schema_patches import SchemaPatches
 from .temporary_key import TemporaryKey
 from .patch_entry import PatchEntry
 from .patch_directory import PatchDirectory
-from .sequence_file import SequenceFile
-from .git_tag_manager import GitTagManager
+# from .sequence_file import SequenceFile
+from half_orm_dev.git_operations.git_tag_manager import GitTagManager
 
 # Exceptions
 from .exceptions import (
@@ -94,7 +94,7 @@ DEFAULT_DEV_SEQUENCE_FILE_PATTERN = "ho_dev_schema_patches_sequence_{version}.js
 DEFAULT_PROD_SEQUENCE_FILE_PATTERN = "ho_schema_patches_sequence_{version}.json"
 
 # Convenience functions for common operations
-def create_schema_patches(version_line: str, base_dir=None, repo_path=None) -> SchemaPatches:
+def create_schema_patches(version_line: str, base_dir=None, repo_path=None) -> 'SchemaPatches':
     """
     Convenience function to create SchemaPatches instance.
     
