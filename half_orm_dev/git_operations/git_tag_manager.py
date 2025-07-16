@@ -393,7 +393,39 @@ class GitTagManager:
         Raises:
             TransferError: If transfer validation fails
         """
-        pass
+        try:
+            # Get all dev tags for this version
+            dev_tags = self.get_dev_tags_for_version(version)
+            
+            # If no dev tags, return empty list
+            if not dev_tags:
+                return []
+            
+            # Check for existing prod tags that would conflict
+            for dev_tag in dev_tags:
+                prod_tag_name = f"patch-{dev_tag.version}-{dev_tag.suffix}"
+                if self.tag_exists(prod_tag_name):
+                    raise TransferError(f"Production tag already exists: {prod_tag_name}")
+            
+            # Create corresponding prod tags
+            prod_tags = []
+            for dev_tag in dev_tags:
+                prod_tag_name = f"patch-{dev_tag.version}-{dev_tag.suffix}"
+                
+                # Create prod tag with same message and commit
+                prod_tag = self.create_tag(
+                    tag_name=prod_tag_name,
+                    message=dev_tag.message,
+                    commit_ref=dev_tag.commit_hash
+                )
+                prod_tags.append(prod_tag)
+            
+            return prod_tags
+            
+        except (GitTagManagerError, TagCreationError, TagValidationError) as e:
+            raise TransferError(f"Failed to transfer dev tags to prod for version {version}: {e}")
+        except Exception as e:
+            raise TransferError(f"Unexpected error during transfer for version {version}: {e}")
     
     def get_dev_tags_for_version(self, version: str) -> List[PatchTag]:
         """
