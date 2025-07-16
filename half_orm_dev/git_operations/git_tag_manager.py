@@ -225,7 +225,33 @@ class GitTagManager:
             TagCreationError: If tag creation fails
             TagValidationError: If tag format is invalid
         """
-        pass
+        # Validate tag format
+        if not self.validate_tag_format(tag_name):
+            raise TagValidationError(f"Invalid tag format: {tag_name}")
+        
+        # Validate schema patch reference
+        if not self.validate_schema_patch_reference(message):
+            raise TagValidationError(f"Invalid schema patch reference: {message}")
+        
+        # Check if tag already exists
+        if self.tag_exists(tag_name):
+            raise TagCreationError(f"Tag already exists: {tag_name}")
+        
+        try:
+            # Create the Git tag
+            git_tag = self.repo.create_tag(tag_name, ref=commit_ref, message=message)
+            
+            # Parse the created tag and return PatchTag
+            patch_tag = self.parse_patch_tag(tag_name, git_tag)
+            if patch_tag is None:
+                raise TagCreationError(f"Failed to parse created tag: {tag_name}")
+            
+            return patch_tag
+            
+        except GitCommandError as e:
+            raise TagCreationError(f"Failed to create Git tag {tag_name}: {e}")
+        except Exception as e:
+            raise TagCreationError(f"Unexpected error creating tag {tag_name}: {e}")
     
     def validate_tag_format(self, tag_name: str) -> bool:
         """
@@ -458,7 +484,12 @@ class GitTagManager:
         Returns:
             bool: True if tag exists
         """
-        pass
+        try:
+            # Check if tag exists in the repository
+            return tag_name in [tag.name for tag in self.repo.tags]
+        except GitCommandError:
+            return False
+
     
     def delete_tag(self, tag_name: str, remote: bool = False) -> bool:
         """
