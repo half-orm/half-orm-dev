@@ -575,7 +575,30 @@ class GitTagManager:
         Raises:
             TagCreationError: If deletion fails
         """
-        pass
+        try:
+            # Check if tag exists first
+            if not self.tag_exists(tag_name):
+                return False
+            
+            # Delete the local tag
+            self.repo.delete_tag(tag_name)
+            
+            # Delete from remote if requested
+            if remote:
+                try:
+                    self.repo.git.push('origin', f':refs/tags/{tag_name}')
+                except GitCommandError:
+                    # Remote deletion failed, but local deletion succeeded
+                    # This is not considered a failure for the method
+                    pass
+            
+            return True
+            
+        except GitCommandError as e:
+            raise TagCreationError(f"Failed to delete tag {tag_name}: {e}")
+        except Exception as e:
+            raise TagCreationError(f"Unexpected error deleting tag {tag_name}: {e}")
+
     
     def get_latest_version_tag(self) -> Optional[str]:
         """
