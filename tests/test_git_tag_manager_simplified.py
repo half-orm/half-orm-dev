@@ -1000,7 +1000,7 @@ class TestEdgeCases:
             manager.create_tag(tag_name, "123-security")
             assert manager.tag_exists(tag_name)
     
-    @pytest.mark.skip()
+    @pytest.mark.skip(reason="Git operations are not thread-safe in GitPython - concurrent operations should be handled at application level")
     def test_concurrent_tag_operations(self, temp_git_repo):
         """Should handle concurrent tag operations safely"""
         temp_dir, _ = temp_git_repo
