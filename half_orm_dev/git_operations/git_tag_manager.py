@@ -106,6 +106,16 @@ class PatchTag:
         """Enable sorting by timestamp (Git chronological order)"""
         return self.timestamp < other.timestamp
     
+    def __eq__(self, other) -> bool:
+        """Compare tags by name and commit hash (ignore timestamp)"""
+        if not isinstance(other, PatchTag):
+            return False
+        return self.name == other.name and self.commit_hash == other.commit_hash
+    
+    def __hash__(self) -> int:
+        """Hash by name and commit hash for consistency with __eq__"""
+        return hash((self.name, self.commit_hash))
+    
     def __str__(self) -> str:
         """String representation with key information"""
         status = "DEV" if self.is_dev_tag else "PROD"
