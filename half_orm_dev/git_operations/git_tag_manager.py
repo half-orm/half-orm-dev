@@ -492,7 +492,45 @@ class GitTagManager:
         Returns:
             bool: True if dev and prod tags match
         """
-        pass
+        try:
+            # Get dev and prod tags for this version
+            dev_tags = self.get_dev_tags_for_version(version)
+            prod_tags = self.get_prod_tags_for_version(version)
+            
+            # If no tags exist for this version, consider it consistent
+            if not dev_tags and not prod_tags:
+                return True
+            
+            # Check if number of tags match
+            if len(dev_tags) != len(prod_tags):
+                return False
+            
+            # Create maps by suffix for comparison
+            dev_tags_by_suffix = {tag.suffix: tag for tag in dev_tags}
+            prod_tags_by_suffix = {tag.suffix: tag for tag in prod_tags}
+            
+            # Check if all suffixes match
+            if set(dev_tags_by_suffix.keys()) != set(prod_tags_by_suffix.keys()):
+                return False
+            
+            # Check if corresponding tags have same message and commit
+            for suffix in dev_tags_by_suffix:
+                dev_tag = dev_tags_by_suffix[suffix]
+                prod_tag = prod_tags_by_suffix[suffix]
+                
+                # Check message consistency
+                if dev_tag.message != prod_tag.message:
+                    return False
+                
+                # Check commit consistency
+                if dev_tag.commit_hash != prod_tag.commit_hash:
+                    return False
+            
+            return True
+            
+        except Exception:
+            # If any error occurs during validation, consider inconsistent
+            return False
     
     def sort_tags_by_commit_order(self, tags: List[PatchTag]) -> List[PatchTag]:
         """
