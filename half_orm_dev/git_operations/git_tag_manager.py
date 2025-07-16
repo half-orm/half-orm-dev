@@ -310,9 +310,13 @@ class GitTagManager:
         if '..' in message or message.startswith('/'):
             return False
         
-        # Check if directory exists
-        patch_dir = self.schema_patches_dir / message
-        return patch_dir.exists() and patch_dir.is_dir()
+        try:
+            # Check if directory exists
+            patch_dir = self.schema_patches_dir / message
+            return patch_dir.exists() and patch_dir.is_dir()
+        except (PermissionError, OSError):
+            # Handle permission errors gracefully
+            return False
     
     def parse_patch_tag(self, tag_name: str, git_tag) -> Optional[PatchTag]:
         """
