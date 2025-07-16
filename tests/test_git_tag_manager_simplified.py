@@ -676,11 +676,25 @@ class TestGitOperations:
         temp_dir, repo = temp_git_repo
         manager = GitTagManager(repo_path=temp_dir)
         
-        # Create and checkout tag
+        # Create tag on current commit
         tag = manager.create_tag("dev-patch-1.3.2-security", "123-security")
+        original_commit = tag.commit_hash
+        
+        # Create a new commit to move HEAD forward
+        new_file = os.path.join(temp_dir, "after_tag.txt")
+        with open(new_file, 'w') as f:
+            f.write("Content after tag")
+        repo.index.add([new_file])
+        repo.index.commit("Commit after tag creation")
+        
+        # Verify HEAD has moved to new commit
+        assert repo.head.commit.hexsha != original_commit
+        
+        # Checkout to the tag
         manager.checkout(tag.name)
         
-        # Verify checkout
+        # Verify checkout worked - HEAD should be back to tag commit
+        assert repo.head.commit.hexsha == original_commit
         assert repo.head.commit.hexsha == tag.commit_hash
     
     def test_tag_exists(self, temp_git_repo):

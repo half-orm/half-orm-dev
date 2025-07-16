@@ -596,4 +596,10 @@ class GitTagManager:
         Raises:
             GitTagManagerError: If checkout fails
         """
-        pass
+        try:
+            # Checkout to the specified reference
+            self.repo.git.checkout(ref)
+        except GitCommandError as e:
+            raise GitTagManagerError(f"Failed to checkout to {ref}: {e}")
+        except Exception as e:
+            raise GitTagManagerError(f"Unexpected error during checkout to {ref}: {e}")
