@@ -22,6 +22,7 @@ Usage:
     >>> patch_dir.apply_all_files()
 """
 
+import re
 import os
 import subprocess
 import sys
@@ -130,7 +131,64 @@ class PatchDirectory:
             PatchValidationError: If patch_id format is invalid
             SchemaPatchesError: If hgit_instance is invalid
         """
-        pass
+        # Validate patch_id
+        if not patch_id or not isinstance(patch_id, str):
+            raise PatchValidationError("Patch ID must be a non-empty string")
+        
+        # Remove whitespace and validate format
+        patch_id = patch_id.strip()
+        if not patch_id:
+            raise PatchValidationError("Patch ID cannot be empty or whitespace only")
+        
+        # Check for path traversal attempts
+        if '..' in patch_id or patch_id.startswith('/') or patch_id.startswith('\\'):
+            raise PatchValidationError(f"Invalid patch ID format (path traversal attempt): '{patch_id}'")
+        
+        # Check for invalid characters (spaces, special chars that could cause issues)
+        if ' ' in patch_id:
+            raise PatchValidationError(f"Patch ID cannot contain spaces: '{patch_id}'")
+        
+        # Basic format validation - should be like "456-performance", "123-security", etc.
+        if not re.match(r'^[a-zA-Z0-9_-]+$', patch_id):
+            raise PatchValidationError(f"Patch ID contains invalid characters: '{patch_id}'")
+        
+        # Validate hgit_instance
+        if hgit_instance is None:
+            raise SchemaPatchesError("HGit instance cannot be None")
+        
+        # Check that hgit_instance has required attributes
+        if not hasattr(hgit_instance, '_HGit__repo'):
+            raise SchemaPatchesError("Invalid HGit instance: missing _HGit__repo attribute")
+        
+        if not hasattr(hgit_instance._HGit__repo, 'base_dir'):
+            raise SchemaPatchesError("Invalid HGit instance: missing base_dir attribute")
+        
+        if not hasattr(hgit_instance._HGit__repo, 'model'):
+            raise SchemaPatchesError("Invalid HGit instance: missing model attribute")
+        
+        # Store core attributes
+        self._patch_id = patch_id
+        self._hgit_instance = hgit_instance
+        
+        # Set base directory - use custom or default from repo
+        if base_dir is not None:
+            self._base_dir = Path(base_dir).resolve()
+        else:
+            self._base_dir = Path(hgit_instance._HGit__repo.base_dir).resolve()
+        
+        # Set up patch directory path
+        self._patch_directory = self._base_dir / "SchemaPatches" / patch_id
+        
+        # Initialize execution state
+        self._files_cache = None  # Cache for scanned files
+        self._last_execution_result = None  # Last execution results
+        self._rollback_points = []  # Stack of rollback points
+        self._execution_summary = {
+            'files_executed': 0,
+            'total_time': 0,
+            'success_rate': 0.0,
+            'last_execution': None
+        }
     
     def validate_structure(self) -> bool:
         """
