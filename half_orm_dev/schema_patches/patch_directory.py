@@ -96,7 +96,15 @@ class PatchFile:
     
     def __lt__(self, other: 'PatchFile') -> bool:
         """Enable sorting by sequence number."""
-        pass
+        if not isinstance(other, PatchFile):
+            return NotImplemented
+        
+        # Sort by sequence number first
+        if self.sequence != other.sequence:
+            return self.sequence < other.sequence
+        
+        # If sequence numbers are equal, sort by name for stability
+        return self.name < other.name
 
 
 class PatchDirectory:
@@ -232,7 +240,70 @@ class PatchDirectory:
             >>> files[1].name  # "01_create_tables.sql"
             >>> files[2].name  # "02_populate_data.py"
         """
-        pass
+        # Check if directory exists
+        if not self._patch_directory.exists():
+            raise PatchValidationError(f"Patch directory does not exist: {self._patch_directory}")
+        
+        if not self._patch_directory.is_dir():
+            raise PatchValidationError(f"Patch directory is not a directory: {self._patch_directory}")
+        
+        patch_files = []
+        
+        try:
+            # Scan all files in the directory
+            for file_path in self._patch_directory.iterdir():
+                # Skip directories
+                if not file_path.is_file():
+                    continue
+                
+                filename = file_path.name
+                
+                # Skip hidden files (starting with .)
+                if filename.startswith('.'):
+                    continue
+                
+                # Check if it's a patch file (.sql or .py)
+                if not (filename.endswith('.sql') or filename.endswith('.py')):
+                    continue
+                
+                # Validate filename format
+                if not self._validate_filename_format(filename):
+                    # Skip invalid files instead of raising error for flexibility
+                    # But could be changed to raise error if strict validation needed
+                    continue
+                
+                try:
+                    # Extract sequence number
+                    sequence = self._extract_sequence_number(filename)
+                    
+                    # Determine extension
+                    extension = filename.split('.')[-1]
+                    
+                    # Create PatchFile object
+                    patch_file = PatchFile(
+                        name=filename,
+                        path=file_path,
+                        extension=extension,
+                        sequence=sequence
+                    )
+                    
+                    patch_files.append(patch_file)
+                    
+                except PatchValidationError as e:
+                    # Skip files with invalid format, but could log warning
+                    # In a real implementation, we might want to log this
+                    continue
+        
+        except PermissionError:
+            raise PatchValidationError(f"Permission denied accessing patch directory: {self._patch_directory}")
+        except OSError as e:
+            raise PatchValidationError(f"Error scanning patch directory: {self._patch_directory}: {e}")
+        
+        # Cache the results
+        self._files_cache = patch_files
+        
+        # Return files sorted by sequence number (execution order)
+        return sorted(patch_files, key=lambda f: (f.sequence, f.name))
     
     def get_execution_order(self) -> List[PatchFile]:
         """
@@ -249,7 +320,17 @@ class PatchDirectory:
             >>> [f.name for f in order]
             ['00_prerequisites.sql', '01_create_tables.sql', '02_populate_data.py']
         """
-        pass
+        # Use cached files if available, otherwise scan
+        if self._files_cache is not None:
+            files = self._files_cache.copy()  # Work with a copy
+        else:
+            files = self.scan_files()
+        
+        # Sort by sequence number first, then by filename for stability
+        # This ensures deterministic ordering when sequence numbers are the same
+        sorted_files = sorted(files, key=lambda f: (f.sequence, f.name))
+        
+        return sorted_files
     
     def is_applicable(self) -> bool:
         """
