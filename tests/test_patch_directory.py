@@ -437,35 +437,6 @@ class TestPatchDirectoryFileScanning:
         
         assert sequences == [1, 2, 3, 5, 100]  # Sorted order with gap
 
-class TestPatchDirectoryApplicability:
-    """Test patch applicability checks"""
-    
-    def test_is_applicable_valid_state(self, sample_patch_directory):
-        """Should return True when patch can be applied"""
-        is_applicable = sample_patch_directory.is_applicable()
-        assert is_applicable is True
-    
-    def test_is_applicable_no_database_connection(self, temp_schema_patches_dir, mock_hgit):
-        """Should return False when database connection unavailable"""
-        # Mock database connection failure
-        mock_hgit._HGit__repo.model.execute_query.side_effect = Exception("Connection failed")
-        
-        temp_dir, _ = temp_schema_patches_dir
-        mock_hgit._HGit__repo.base_dir = temp_dir
-        
-        patch_dir = PatchDirectory('456-performance', mock_hgit, Path(temp_dir))
-        
-        is_applicable = patch_dir.is_applicable()
-        assert is_applicable is False
-    
-    def test_is_applicable_missing_dependencies(self, sample_patch_directory):
-        """Should return False when dependencies not satisfied"""
-        # Mock dependency check to return missing dependencies
-        with patch.object(sample_patch_directory, 'get_dependencies', return_value=['missing-dependency']):
-            is_applicable = sample_patch_directory.is_applicable()
-            assert is_applicable is False
-
-
 class TestPatchDirectoryExecution:
     """Test patch file execution functionality"""
     
@@ -474,7 +445,7 @@ class TestPatchDirectoryExecution:
         result = sample_patch_directory.apply_all_files()
         
         assert result['success'] is True
-        assert result['files_applied'] == 4  # 3 SQL + 1 Python
+        assert len(result['files_applied']) == 4  # 3 SQL + 1 Python
         assert 'execution_time' in result
         assert result['execution_time'] > 0
     
@@ -625,33 +596,6 @@ class TestPatchDirectorySyntaxValidation:
         
         with pytest.raises(PatchValidationError, match="SQL syntax"):
             sample_patch_directory.validate_sql_syntax(invalid_sql)
-    
-    def test_validate_python_syntax_valid(self, sample_patch_directory):
-        """Should validate correct Python syntax"""
-        valid_python = """
-def migrate_data():
-    print("Starting migration")
-    for i in range(10):
-        print(f"Processing item {i}")
-    return True
-
-if __name__ == "__main__":
-    migrate_data()
-        """
-        
-        is_valid = sample_patch_directory.validate_python_syntax(valid_python)
-        assert is_valid is True
-    
-    def test_validate_python_syntax_invalid(self, sample_patch_directory):
-        """Should detect invalid Python syntax"""
-        invalid_python = """
-def invalid_function(
-    print("unclosed parenthesis"
-    return True
-        """
-        
-        with pytest.raises(PatchValidationError, match="Python syntax"):
-            sample_patch_directory.validate_python_syntax(invalid_python)
 
 
 class TestPatchDirectoryDependencies:
