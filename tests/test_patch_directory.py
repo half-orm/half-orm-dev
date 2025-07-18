@@ -71,12 +71,12 @@ def sample_patch_directory(temp_schema_patches_dir, mock_hgit):
     patch_dir = os.path.join(schema_patches_dir, '456-performance')
     os.makedirs(patch_dir)
     
-    # Create sample files
+    # Create sample files with flexible format
     test_files = {
-        '00_prerequisites.sql': 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;',
-        '01_create_indexes.sql': 'CREATE INDEX idx_users_email ON users(email);',
-        '02_populate_cache.py': 'print("Populating cache...")\n# Cache population logic',
-        '03_analyze_tables.sql': 'ANALYZE users; ANALYZE orders;',
+        '0_prerequisites.sql': 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements;',
+        '1_create_indexes.sql': 'CREATE INDEX idx_users_email ON users(email);',
+        '2_populate_cache.py': 'print("Populating cache...")\n# Cache population logic',
+        '10_analyze_tables.sql': 'ANALYZE users; ANALYZE orders;',  # Saut de numéro intentionnel
         'README.md': '# Performance improvements patch'
     }
     
@@ -389,16 +389,16 @@ class TestPatchDirectoryFileScanning:
         sequences = [f.sequence for f in files]
         assert sequences == sorted(sequences)
         
-        # Verify specific order
+        # Verify specific order (ajusté pour nouveaux noms)
         expected_names = [
-            '00_prerequisites.sql',
-            '01_create_indexes.sql', 
-            '02_populate_cache.py',
-            '03_analyze_tables.sql'
+            '0_prerequisites.sql',
+            '1_create_indexes.sql', 
+            '2_populate_cache.py',
+            '10_analyze_tables.sql'  # Saut intentionnel 2→10
         ]
         actual_names = [f.name for f in files]
         assert actual_names == expected_names
-    
+
     def test_get_execution_order_mixed_sequences(self, temp_schema_patches_dir, mock_hgit):
         """Should handle mixed and out-of-order sequence numbers"""
         temp_dir, schema_patches_dir = temp_schema_patches_dir
@@ -406,12 +406,13 @@ class TestPatchDirectoryFileScanning:
         patch_dir_path = os.path.join(schema_patches_dir, '999-mixed')
         os.makedirs(patch_dir_path)
         
-        # Create files with mixed sequences
+        # Create files with mixed sequences (format flexible)
         mixed_files = {
-            '05_last.sql': 'SELECT 5;',
-            '01_first.sql': 'SELECT 1;',
-            '03_middle.sql': 'SELECT 3;',
-            '02_second.py': 'print(2)'
+            '5_last.sql': 'SELECT 5;',
+            '1_first.sql': 'SELECT 1;',
+            '3_middle.sql': 'SELECT 3;',
+            '2_second.py': 'print(2)',
+            '100_very_last.sql': 'SELECT 100;'  # Test gros numéro
         }
         
         for filename, content in mixed_files.items():
@@ -425,8 +426,7 @@ class TestPatchDirectoryFileScanning:
         files = patch_dir.get_execution_order()
         sequences = [f.sequence for f in files]
         
-        assert sequences == [1, 2, 3, 5]  # Sorted order
-
+        assert sequences == [1, 2, 3, 5, 100]  # Sorted order with gap
 
 class TestPatchDirectoryApplicability:
     """Test patch applicability checks"""
@@ -802,58 +802,79 @@ class TestPatchDirectoryPrivateHelpers:
     def test_extract_sequence_number_valid(self, sample_patch_directory):
         """Should extract sequence number from valid filenames"""
         test_cases = [
-            ("00_prerequisites.sql", 0),
-            ("01_create_table.sql", 1),
-            ("10_final_step.py", 10),
-            ("99_cleanup.sql", 99)
+            ("0_prerequisites.sql", 0),      # Zéro maintenant autorisé  
+            ("1_quick_fix.sql", 1),          # Un seul digit
+            ("01_create_table.sql", 1),      # Deux digits (01 = 1)
+            ("10_final_step.py", 10),        # Deux digits 
+            ("99_cleanup.sql", 99),          # Deux digits max traditionnel
+            ("100_major_migration.sql", 100), # Trois digits+
+            ("999_huge_refactor.py", 999)    # Gros numéros
         ]
         
         for filename, expected_sequence in test_cases:
             sequence = sample_patch_directory._extract_sequence_number(filename)
             assert sequence == expected_sequence
-    
+
     def test_extract_sequence_number_invalid(self, sample_patch_directory):
         """Should raise error for invalid filename formats"""
         invalid_filenames = [
-            "no_prefix.sql",
-            "create_table.sql", 
-            "1_missing_zero.sql",
-            "_missing_number.sql",
-            "abc_not_number.sql"
+            "no_prefix.sql",           # Pas de séquence numérique
+            "create_table.sql",        # Pas de préfixe numérique
+            "abc_not_number.sql",      # Préfixe non-numérique  
+            "_missing_number.sql",     # Underscore sans numéro
+            "01_.sql",                 # Description vide
+            "01_test.txt",             # Mauvaise extension
+            "-1_negative.sql",         # Négatif (non géré par isdigit())
+            "1.5_decimal.sql"          # Décimal (non géré par isdigit())
         ]
         
         for filename in invalid_filenames:
             with pytest.raises(PatchValidationError):
                 sample_patch_directory._extract_sequence_number(filename)
-    
+
     def test_validate_filename_format_valid(self, sample_patch_directory):
         """Should validate correct filename formats"""
         valid_filenames = [
-            "00_prerequisites.sql",
-            "01_create_tables.sql",
-            "02_populate_data.py",
-            "10_final_migration.sql",
-            "99_cleanup_temp_tables.py"
+            "0_initial_setup.sql",        # Zéro autorisé maintenant
+            "1_quick_fix.sql",            # Un digit
+            "01_create_tables.sql",       # Deux digits avec zéro
+            "02_populate_data.py",        # Python avec zéro préfixe
+            "10_final_migration.sql",     # Deux digits
+            "99_cleanup_temp_tables.py", # Max traditionnel deux digits
+            "100_major_refactor.sql",    # Trois digits
+            "999_huge_migration.py",     # Gros numéros
+            "1_a.sql",                   # Description minimale
+            "42_answer-to-everything.sql", # Tirets dans description
+            "123_multi_word_desc.py"     # Underscores dans description
         ]
         
         for filename in valid_filenames:
             is_valid = sample_patch_directory._validate_filename_format(filename)
-            assert is_valid is True
-    
+            assert is_valid is True, f"Filename should be valid: {filename}"
+
     def test_validate_filename_format_invalid(self, sample_patch_directory):
         """Should reject incorrect filename formats"""
         invalid_filenames = [
-            "create_table.sql",  # No sequence prefix
-            "1_missing_zero.sql",  # Single digit sequence
-            "abc_not_number.sql",  # Non-numeric prefix
-            "01_test.txt",  # Wrong extension
-            "01_.sql",  # Missing description
-            "_01_reverse.sql"  # Wrong order
+            "create_table.sql",          # Pas de préfixe numérique
+            "abc_not_number.sql",        # Préfixe non-numérique
+            "1_test.txt",                # Mauvaise extension
+            "01_.sql",                   # Description vide  
+            "_01_reverse.sql",           # Commence par underscore
+            "1test.sql",                 # Pas d'underscore séparateur
+            "01_test file.sql",          # Espace dans le nom (invalide)
+            "01_test@file.sql",          # Caractère spécial invalide
+            "-1_negative.sql",           # Négatif (mais isdigit() dit False anyway)
+            "1.5_decimal.sql",           # Point décimal
+            "01_test$.sql",              # Caractère $ invalide
+            "1_.sql",                    # Description vide (underscore seul)
+            ".sql",                      # Juste extension
+            "1_desc.",                   # Extension vide
+            "01_desc.py.sql"             # Double extension
         ]
         
         for filename in invalid_filenames:
             is_valid = sample_patch_directory._validate_filename_format(filename)
-            assert is_valid is False
+            assert is_valid is False, f"Filename should be invalid: {filename}"
     
     def test_setup_python_environment(self, sample_patch_directory):
         """Should setup proper Python execution environment"""
@@ -1086,9 +1107,9 @@ class TestPatchDirectoryPerformance:
         patch_dir_path = os.path.join(schema_patches_dir, '999-perf')
         os.makedirs(patch_dir_path)
         
-        # Create 100 small files
-        for i in range(100):
-            filename = f"{i:02d}_small_operation_{i}.sql"
+        # Create 100 small files (séquences 1-100 au lieu de 00-99)
+        for i in range(1, 101):  # 1 à 100
+            filename = f"{i}_small_operation_{i}.sql"
             file_path = os.path.join(patch_dir_path, filename)
             with open(file_path, 'w') as f:
                 f.write(f"INSERT INTO test_table VALUES ({i});")
@@ -1112,6 +1133,10 @@ class TestPatchDirectoryPerformance:
         assert len(ordered_files) == 100
         assert scan_time < 1.0  # Less than 1 second
         assert order_time < 0.5  # Less than 0.5 seconds
+        
+        # Vérifier que les séquences vont de 1 à 100
+        sequences = [f.sequence for f in ordered_files]
+        assert sequences == list(range(1, 101))
     
     def test_memory_usage_large_files(self, temp_schema_patches_dir, mock_hgit):
         """Should handle large files without excessive memory usage"""

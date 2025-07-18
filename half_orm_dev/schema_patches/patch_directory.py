@@ -535,7 +535,42 @@ class PatchDirectory:
             >>> finally:
             >>>     patch_dir.cleanup_resources()
         """
-        pass
+        try:
+            # Clear file cache
+            if self._files_cache is not None:
+                # Clear content from cached files to free memory
+                for patch_file in self._files_cache:
+                    if hasattr(patch_file, 'content') and patch_file.content is not None:
+                        patch_file.content = None
+                
+                self._files_cache.clear()
+                self._files_cache = None
+            
+            # Clear rollback points
+            if self._rollback_points:
+                # Note: In a real implementation, we would properly release
+                # database savepoints here
+                self._rollback_points.clear()
+            
+            # Clear execution results
+            self._last_execution_result = None
+            
+            # Reset execution summary (but keep basic stats)
+            if self._execution_summary:
+                # Keep the historical data but clear temporary state
+                self._execution_summary['last_execution'] = None
+            
+            # Note: We don't close the hgit_instance or database connections
+            # as they are managed by the parent system and may be used elsewhere
+            
+        except Exception as e:
+            # Cleanup should never fail catastrophically
+            # Log the error but don't raise (in real implementation, use logging)
+            pass  # In real implementation: logging.warning(f"Cleanup warning: {e}")
+        
+        # Always ensure some cleanup happened
+        if not hasattr(self, '_cleanup_performed'):
+            self._cleanup_performed = True
     
     def __str__(self) -> str:
         """
@@ -548,8 +583,24 @@ class PatchDirectory:
             >>> str(patch_dir)
             "PatchDirectory(456-performance, 3 files, SchemaPatches/456-performance)"
         """
-        pass
-    
+        try:
+            # Try to get file count if possible
+            if self._files_cache is not None:
+                file_count = len(self._files_cache)
+            else:
+                # Try to scan files quickly without caching
+                try:
+                    files = self.scan_files()
+                    file_count = len(files)
+                except:
+                    file_count = "unknown"
+            
+            return f"PatchDirectory({self._patch_id}, {file_count} files, {self._patch_directory.name})"
+        except:
+            # Fallback if anything fails
+            return f"PatchDirectory({self._patch_id})"
+
+
     def __repr__(self) -> str:
         """
         Detailed representation for debugging.
@@ -557,7 +608,32 @@ class PatchDirectory:
         Returns:
             str: Detailed representation with all key attributes
         """
-        pass
+        try:
+            # Get file count
+            if self._files_cache is not None:
+                file_count = len(self._files_cache)
+            else:
+                try:
+                    files = self.scan_files()
+                    file_count = len(files)
+                except:
+                    file_count = "unknown"
+            
+            # Get execution summary
+            summary = self._execution_summary
+            
+            return (
+                f"PatchDirectory("
+                f"patch_id='{self._patch_id}', "
+                f"files={file_count}, "
+                f"directory='{self._patch_directory}', "
+                f"executed={summary['files_executed']}, "
+                f"success_rate={summary['success_rate']}%"
+                f")"
+            )
+        except:
+            # Fallback if anything fails
+            return f"PatchDirectory(patch_id='{self._patch_id}', directory='{self._patch_directory}')"
     
     # Private helper methods
     
@@ -574,7 +650,46 @@ class PatchDirectory:
         Raises:
             PatchValidationError: If filename format is invalid
         """
-        pass
+        if not filename or not isinstance(filename, str):
+            raise PatchValidationError("Filename must be a non-empty string")
+        
+        # Remove extension to get name_without_ext
+        name_parts = filename.rsplit('.', 1)
+        if len(name_parts) != 2:
+            raise PatchValidationError(f"Filename must have an extension: '{filename}'")
+        
+        name_without_ext, extension = name_parts
+        
+        # Validate extension
+        if extension not in ['sql', 'py']:
+            raise PatchValidationError(f"Invalid file extension '{extension}' in '{filename}'. Only .sql and .py are supported")
+        
+        # Extract sequence number using split('_', 1)
+        if '_' not in name_without_ext:
+            raise PatchValidationError(f"Filename must follow format 'seq_description.ext': '{filename}'")
+        
+        parts = name_without_ext.split('_', 1)
+        if len(parts) != 2:
+            raise PatchValidationError(f"Filename must follow format 'seq_description.ext': '{filename}'")
+        
+        seq_part, description_part = parts
+        
+        # Validate sequence part is numeric
+        if not seq_part.isdigit():
+            raise PatchValidationError(f"Sequence prefix must be numeric: '{seq_part}' in '{filename}'")
+        
+        # Validate description part is not empty
+        if not description_part.strip():
+            raise PatchValidationError(f"Description part cannot be empty: '{filename}'")
+        
+        # Convert to int
+        sequence_number = int(seq_part)
+        
+        # Additional validation for reasonable range (0-999999)
+        if sequence_number < 0 or sequence_number > 999999:
+            raise PatchValidationError(f"Sequence number must be between 0 and 999999: '{sequence_number}' in '{filename}'")
+        
+        return sequence_number
     
     def _validate_filename_format(self, filename: str) -> bool:
         """
@@ -586,7 +701,52 @@ class PatchDirectory:
         Returns:
             bool: True if format is valid
         """
-        pass
+        if not filename or not isinstance(filename, str):
+            return False
+        
+        try:
+            # Try to extract sequence number - if it succeeds, format is valid
+            self._extract_sequence_number(filename)
+            
+            # Additional format validations
+            name_parts = filename.rsplit('.', 1)
+            if len(name_parts) != 2:
+                return False
+            
+            name_without_ext, extension = name_parts
+            
+            # Check for invalid characters in the filename
+            # Allow alphanumeric, underscore, hyphen
+            import re
+            if not re.match(r'^[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$', filename):
+                return False
+            
+            # Check that filename doesn't start with underscore
+            if filename.startswith('_'):
+                return False
+            
+            # Check for spaces (not allowed)
+            if ' ' in filename:
+                return False
+            
+            # Check for invalid special characters
+            invalid_chars = ['@', '$', '%', '&', '*', '(', ')', '+', '=', '{', '}', '[', ']', '|', '\\', ':', ';', '"', "'", '<', '>', ',', '?', '/', '!']
+            if any(char in filename for char in invalid_chars):
+                return False
+            
+            # Check for double extensions (e.g., .py.sql)
+            if filename.count('.') > 1:
+                return False
+            
+            # Check for empty description (just underscore)
+            parts = name_without_ext.split('_', 1)
+            if len(parts) == 2 and not parts[1].strip():
+                return False
+            
+            return True
+            
+        except PatchValidationError:
+            return False
     
     def _setup_python_environment(self) -> Dict[str, str]:
         """
