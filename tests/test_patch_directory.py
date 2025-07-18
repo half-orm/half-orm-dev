@@ -317,18 +317,19 @@ class TestPatchDirectoryValidation:
         
         with pytest.raises(PatchValidationError, match="naming convention"):
             patch_dir.validate_structure()
-    
+
     def test_validate_structure_duplicate_sequence_numbers(self, temp_schema_patches_dir, mock_hgit):
-        """Should reject duplicate sequence numbers"""
+        """Should ALLOW duplicate sequence numbers with lexicographic ordering"""
         temp_dir, schema_patches_dir = temp_schema_patches_dir
         
-        # Create patch directory with duplicate sequences
+        # Create patch directory with duplicate sequences (now ALLOWED)
         patch_dir_path = os.path.join(schema_patches_dir, '999-duplicate')
         os.makedirs(patch_dir_path)
         
         duplicate_files = {
-            '01_first.sql': 'CREATE TABLE first();',
-            '01_second.sql': 'CREATE TABLE second();'  # Duplicate sequence 01
+            '01_create_users.sql': 'CREATE TABLE users();',
+            '01_create_roles.sql': 'CREATE TABLE roles();',  # Same sequence - OK
+            '02_populate_users.sql': 'INSERT INTO users VALUES (1);'
         }
         
         for filename, content in duplicate_files.items():
@@ -339,8 +340,16 @@ class TestPatchDirectoryValidation:
         mock_hgit._HGit__repo.base_dir = temp_dir
         patch_dir = PatchDirectory('999-duplicate', mock_hgit, Path(temp_dir))
         
-        with pytest.raises(PatchValidationError, match="duplicate sequence"):
-            patch_dir.validate_structure()
+        # Should now PASS (duplicate sequences allowed)
+        is_valid = patch_dir.validate_structure()
+        assert is_valid is True
+        
+        # Verify execution order is lexicographic for same sequence
+        files = patch_dir.get_execution_order()
+        names = [f.name for f in files]
+        
+        # Should be ordered: 01_create_roles.sql, 01_create_users.sql, 02_populate_users.sql
+        assert names == ['01_create_roles.sql', '01_create_users.sql', '02_populate_users.sql']
 
 
 class TestPatchDirectoryFileScanning:

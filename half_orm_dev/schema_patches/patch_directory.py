@@ -206,7 +206,7 @@ class PatchDirectory:
         - Directory exists and is readable
         - Contains at least one .sql or .py file
         - All files follow naming convention (NN_description.ext)
-        - No duplicate sequence numbers
+        - Files with same sequence number are ordered lexicographically
         - All files have valid syntax
         
         Returns:
@@ -218,8 +218,109 @@ class PatchDirectory:
         Example:
             >>> patch_dir.validate_structure()  # True
             >>> # Validates SchemaPatches/456-performance/ structure
+            >>> # Allows: 10_users.sql, 10_roles.sql (same seq, alphabetical order)
         """
-        pass
+        # Check if directory exists
+        if not self._patch_directory.exists():
+            raise PatchValidationError(f"Patch directory does not exist: {self._patch_directory}")
+        
+        if not self._patch_directory.is_dir():
+            raise PatchValidationError(f"Path is not a directory: {self._patch_directory}")
+        
+        # Check directory permissions
+        try:
+            # Test if we can list the directory
+            list(self._patch_directory.iterdir())
+        except PermissionError:
+            raise PatchValidationError(f"Permission denied accessing patch directory: {self._patch_directory}")
+        except OSError as e:
+            raise PatchValidationError(f"Error accessing patch directory: {self._patch_directory}: {e}")
+        
+        # FIRST: Validate file naming convention for all potential patch files
+        # This ensures we catch invalid names BEFORE filtering them out
+        try:
+            patch_candidates = []
+            invalid_patch_files = []
+            
+            for file_path in self._patch_directory.iterdir():
+                if not file_path.is_file():
+                    continue
+                
+                filename = file_path.name
+                
+                # Skip hidden files
+                if filename.startswith('.'):
+                    continue
+                
+                # Check if it's a potential patch file (.sql or .py)
+                if filename.endswith('.sql') or filename.endswith('.py'):
+                    patch_candidates.append(filename)
+                    
+                    # Validate naming convention
+                    if not self._validate_filename_format(filename):
+                        invalid_patch_files.append(filename)
+            
+            # If we found invalid patch files, report them
+            if invalid_patch_files:
+                raise PatchValidationError(
+                    f"Files do not follow naming convention 'seq_description.ext': {', '.join(invalid_patch_files)}"
+                )
+            
+        except PermissionError:
+            raise PatchValidationError(f"Permission denied reading files in: {self._patch_directory}")
+        
+        # SECOND: Scan for valid patch files (this will now only find valid ones)
+        try:
+            patch_files = self.scan_files()
+        except PatchValidationError:
+            # Re-raise scan errors
+            raise
+        except Exception as e:
+            raise PatchValidationError(f"Error scanning patch files: {e}")
+        
+        # Check that we have at least one applicable file
+        if not patch_files:
+            raise PatchValidationError(f"Patch directory contains no applicable files (.sql or .py): {self._patch_directory}")
+        
+        # Group files by sequence number for validation
+        sequences = {}
+        for patch_file in patch_files:
+            if patch_file.sequence not in sequences:
+                sequences[patch_file.sequence] = []
+            sequences[patch_file.sequence].append(patch_file)
+        
+        # Validate that files with same sequence are properly ordered
+        for sequence_num, files_with_same_seq in sequences.items():
+            if len(files_with_same_seq) > 1:
+                # Multiple files with same sequence - validate lexicographic order
+                sorted_files = sorted(files_with_same_seq, key=lambda f: f.name)
+                
+                # Log info about files with same sequence (in real implementation)
+                file_names = [f.name for f in sorted_files]
+                # In real implementation: logging.info(f"Sequence {sequence_num} has multiple files (lexicographic order): {file_names}")
+        
+        # Validate syntax of all patch files
+        for patch_file in patch_files:
+            try:
+                # Load content and validate syntax
+                if patch_file.content is None:
+                    content = patch_file.load_content()
+                else:
+                    content = patch_file.content
+                
+                # Validate syntax based on file type
+                if patch_file.extension == 'sql':
+                    self.validate_sql_syntax(content)
+                elif patch_file.extension == 'py':
+                    self.validate_python_syntax(content)
+                    
+            except PatchValidationError:
+                # Re-raise validation errors with file context
+                raise
+            except Exception as e:
+                raise PatchValidationError(f"Error validating file '{patch_file.name}': {e}")
+        
+        return True
     
     def scan_files(self) -> List[PatchFile]:
         """
@@ -311,6 +412,7 @@ class PatchDirectory:
         
         Returns files sorted by sequence number extracted from filename prefix.
         Files with same sequence number are sorted alphabetically by name.
+        This allows for flexible insertion of patches without renumbering.
         
         Returns:
             List[PatchFile]: Files ordered for execution
@@ -318,7 +420,8 @@ class PatchDirectory:
         Example:
             >>> order = patch_dir.get_execution_order()
             >>> [f.name for f in order]
-            ['00_prerequisites.sql', '01_create_tables.sql', '02_populate_data.py']
+            ['10_create_users.sql', '10_create_roles.sql', '11_populate_data.py']
+            # Note: 10_create_roles.sql can be inserted without renumbering
         """
         # Use cached files if available, otherwise scan
         if self._files_cache is not None:
@@ -326,8 +429,8 @@ class PatchDirectory:
         else:
             files = self.scan_files()
         
-        # Sort by sequence number first, then by filename for stability
-        # This ensures deterministic ordering when sequence numbers are the same
+        # Sort by sequence number first, then by filename for deterministic order
+        # This allows multiple files with same sequence number
         sorted_files = sorted(files, key=lambda f: (f.sequence, f.name))
         
         return sorted_files
