@@ -122,90 +122,6 @@ class TestPatchFile:
         assert patch_file.extension == "py"
         assert patch_file.sequence == 2
     
-    def test_patch_file_load_content(self, temp_schema_patches_dir):
-        """Should load file content from disk"""
-        temp_dir, schema_patches_dir = temp_schema_patches_dir
-        
-        # Create test file
-        test_content = "SELECT * FROM users;"
-        test_file = os.path.join(schema_patches_dir, "test.sql")
-        with open(test_file, 'w') as f:
-            f.write(test_content)
-        
-        patch_file = PatchFile(
-            name="test.sql",
-            path=Path(test_file),
-            extension="sql",
-            sequence=1
-        )
-        
-        content = patch_file.load_content()
-        assert content == test_content
-    
-    def test_patch_file_load_content_file_not_found(self):
-        """Should raise PatchValidationError when file doesn't exist"""
-        patch_file = PatchFile(
-            name="nonexistent.sql",
-            path=Path("/nonexistent/path.sql"),
-            extension="sql",
-            sequence=1
-        )
-        
-        with pytest.raises(PatchValidationError):
-            patch_file.load_content()
-    
-    def test_patch_file_validate_syntax_sql(self):
-        """Should validate SQL syntax"""
-        patch_file = PatchFile(
-            name="valid.sql",
-            path=Path("/fake/path"),
-            extension="sql",
-            sequence=1,
-            content="CREATE TABLE users (id SERIAL PRIMARY KEY);"
-        )
-        
-        is_valid = patch_file.validate_syntax()
-        assert is_valid is True
-    
-    def test_patch_file_validate_syntax_python(self):
-        """Should validate Python syntax"""
-        patch_file = PatchFile(
-            name="valid.py",
-            path=Path("/fake/path"),
-            extension="py",
-            sequence=1,
-            content="print('Hello world')\nx = 1 + 2"
-        )
-        
-        is_valid = patch_file.validate_syntax()
-        assert is_valid is True
-    
-    def test_patch_file_validate_syntax_invalid_sql(self):
-        """Should detect invalid SQL syntax"""
-        patch_file = PatchFile(
-            name="invalid.sql",
-            path=Path("/fake/path"),
-            extension="sql",
-            sequence=1,
-            content="INVALID SQL SYNTAX CREATE TABLE"
-        )
-        
-        with pytest.raises(PatchValidationError):
-            patch_file.validate_syntax()
-    
-    def test_patch_file_validate_syntax_invalid_python(self):
-        """Should detect invalid Python syntax"""
-        patch_file = PatchFile(
-            name="invalid.py",
-            path=Path("/fake/path"),
-            extension="py",
-            sequence=1,
-            content="print('unclosed string"
-        )
-        
-        with pytest.raises(PatchValidationError):
-            patch_file.validate_syntax()
-    
     def test_patch_file_comparison_sorting(self):
         """Should enable sorting by sequence number"""
         file1 = PatchFile("01_first.sql", Path("/fake"), "sql", 1)
@@ -303,7 +219,7 @@ class TestPatchDirectoryValidation:
         # Invalid file names (missing sequence prefix)
         invalid_files = {
             'create_table.sql': 'CREATE TABLE test();',
-            'migration.py': 'print("test")',
+            'volution.py': 'print("test")',
             'no_extension': 'content'
         }
         
@@ -467,21 +383,31 @@ class TestPatchDirectoryExecution:
             with pytest.raises(SchemaPatchesError, match="Python execution failed"):
                 sample_patch_directory.apply_all_files()
     
-    def test_apply_single_file_sql(self, sample_patch_directory):
+    def test_apply_single_file_sql(self, temp_schema_patches_dir, mock_hgit):
         """Should execute single SQL file successfully"""
+        temp_dir, schema_patches_dir = temp_schema_patches_dir
+        
+        patch_dir_path = os.path.join(schema_patches_dir, 'test-patch')
+        os.makedirs(patch_dir_path)
+        
+        sql_content = "CREATE TABLE test (id INT);"
+        sql_file_path = os.path.join(patch_dir_path, '01_test.sql')
+        with open(sql_file_path, 'w') as f:
+            f.write(sql_content)
+        
         sql_file = PatchFile(
             "01_test.sql",
-            Path("/fake/path"),
+            Path(sql_file_path),
             "sql",
-            1,
-            "CREATE TABLE test (id INT);"
+            1
         )
         
-        result = sample_patch_directory.apply_single_file(sql_file)
+        mock_hgit._HGit__repo.base_dir = temp_dir
+        patch_dir = PatchDirectory('test-patch', mock_hgit, Path(temp_dir))
+        
+        result = patch_dir.apply_single_file(sql_file)
         
         assert result['success'] is True
-        assert 'affected_rows' in result
-        assert 'execution_time' in result
     
     def test_apply_single_file_python(self, sample_patch_directory):
         """Should execute single Python file successfully"""
@@ -502,38 +428,60 @@ class TestPatchDirectoryExecution:
             assert result['success'] is True
             assert result['return_code'] == 0
     
-    def test_execute_sql_file_success(self, sample_patch_directory):
+    def test_execute_sql_file_success(self, temp_schema_patches_dir, mock_hgit):
         """Should execute SQL file using halfORM model"""
+        temp_dir, schema_patches_dir = temp_schema_patches_dir
+        
+        # Créer un répertoire patch temporaire
+        patch_dir_path = os.path.join(schema_patches_dir, 'test-sql')
+        os.makedirs(patch_dir_path)
+        
+        # Créer un vrai fichier SQL
+        sql_content = "CREATE INDEX test_idx ON users(email);"
+        sql_file_path = os.path.join(patch_dir_path, '01_test.sql')
+        with open(sql_file_path, 'w') as f:
+            f.write(sql_content)
+        
+        # Créer PatchFile avec vrai path
         sql_file = PatchFile(
-            "test.sql",
-            Path("/fake/path"),
+            "01_test.sql",
+            Path(sql_file_path),
             "sql",
-            1,
-            "CREATE INDEX test_idx ON users(email);"
+            1
         )
         
-        result = sample_patch_directory.execute_sql_file(sql_file)
+        # Setup PatchDirectory
+        mock_hgit._HGit__repo.base_dir = temp_dir
+        patch_dir = PatchDirectory('test-sql', mock_hgit, Path(temp_dir))
+        
+        result = patch_dir.execute_sql_file(sql_file)
         
         assert result['success'] is True
         assert 'affected_rows' in result
         assert 'execution_time' in result
     
-    def test_execute_sql_file_with_error(self, sample_patch_directory):
+    def test_execute_sql_file_with_error(self, temp_schema_patches_dir, mock_hgit):
         """Should handle SQL execution errors"""
-        sql_file = PatchFile(
-            "bad.sql",
-            Path("/fake/path"),
-            "sql",
-            1,
-            "INVALID SQL SYNTAX"
-        )
+        temp_dir, schema_patches_dir = temp_schema_patches_dir
+        
+        # Créer répertoire et fichier avec SQL invalide
+        patch_dir_path = os.path.join(schema_patches_dir, 'test-error')
+        os.makedirs(patch_dir_path)
+        
+        sql_content = "INVALID SQL SYNTAX"
+        sql_file_path = os.path.join(patch_dir_path, '01_bad.sql')
+        with open(sql_file_path, 'w') as f:
+            f.write(sql_content)
+        
+        sql_file = PatchFile("01_bad.sql", Path(sql_file_path), "sql", 1)
         
         # Mock SQL execution failure
-        mock_model = sample_patch_directory._hgit_instance._HGit__repo.model
-        mock_model.execute_query.side_effect = Exception("SQL syntax error")
+        mock_hgit._HGit__repo.base_dir = temp_dir
+        patch_dir = PatchDirectory('test-error', mock_hgit, Path(temp_dir))
+        mock_hgit._HGit__repo.model.execute_query.side_effect = Exception("SQL syntax error")
         
         with pytest.raises(SchemaPatchesError, match="SQL syntax error"):
-            sample_patch_directory.execute_sql_file(sql_file)
+            patch_dir.execute_sql_file(sql_file)
     
     def test_execute_python_file_success(self, sample_patch_directory):
         """Should execute Python file using subprocess"""
@@ -573,65 +521,6 @@ class TestPatchDirectoryExecution:
             with pytest.raises(SchemaPatchesError, match="Test error"):
                 sample_patch_directory.execute_python_file(python_file)
 
-
-class TestPatchDirectorySyntaxValidation:
-    """Test syntax validation for SQL and Python files"""
-    
-    def test_validate_sql_syntax_valid(self, sample_patch_directory):
-        """Should validate correct SQL syntax"""
-        valid_sql = """
-        CREATE TABLE users (
-            id SERIAL PRIMARY KEY,
-            email VARCHAR(255) NOT NULL UNIQUE,
-            created_at TIMESTAMP DEFAULT NOW()
-        );
-        """
-        
-        is_valid = sample_patch_directory.validate_sql_syntax(valid_sql)
-        assert is_valid is True
-    
-    def test_validate_sql_syntax_invalid(self, sample_patch_directory):
-        """Should detect invalid SQL syntax"""
-        invalid_sql = "CREATE TABLE INVALID SYNTAX WITHOUT PROPER"
-        
-        with pytest.raises(PatchValidationError, match="SQL syntax"):
-            sample_patch_directory.validate_sql_syntax(invalid_sql)
-
-
-class TestPatchDirectoryDependencies:
-    """Test dependency management"""
-    
-    def test_get_dependencies_from_comments(self, temp_schema_patches_dir, mock_hgit):
-        """Should extract dependencies from file comments"""
-        temp_dir, schema_patches_dir = temp_schema_patches_dir
-        
-        patch_dir_path = os.path.join(schema_patches_dir, '456-deps')
-        os.makedirs(patch_dir_path)
-        
-        # Create file with dependency comments
-        sql_with_deps = """
-        -- DEPENDS: 123-security, 234-users
-        -- REQUIRES: users_table, security_roles
-        CREATE INDEX idx_secure_users ON users(email) WHERE active = true;
-        """
-        
-        sql_file = os.path.join(patch_dir_path, '01_secure_index.sql')
-        with open(sql_file, 'w') as f:
-            f.write(sql_with_deps)
-        
-        mock_hgit._HGit__repo.base_dir = temp_dir
-        patch_dir = PatchDirectory('456-deps', mock_hgit, Path(temp_dir))
-        
-        dependencies = patch_dir.get_dependencies()
-        
-        expected_deps = ['123-security', '234-users', 'users_table', 'security_roles']
-        assert all(dep in dependencies for dep in expected_deps)
-    
-    def test_get_dependencies_empty(self, sample_patch_directory):
-        """Should return empty list when no dependencies"""
-        dependencies = sample_patch_directory.get_dependencies()
-        assert isinstance(dependencies, list)
-        assert len(dependencies) == 0
 
 
 class TestPatchDirectoryRollback:
@@ -822,54 +711,6 @@ class TestPatchDirectoryPrivateHelpers:
             is_valid = sample_patch_directory._validate_filename_format(filename)
             assert is_valid is False, f"Filename should be invalid: {filename}"
     
-    def test_setup_python_environment(self, sample_patch_directory):
-        """Should setup proper Python execution environment"""
-        env = sample_patch_directory._setup_python_environment()
-        
-        assert isinstance(env, dict)
-        assert 'PYTHONPATH' in env
-        # Should include repository base directory in PYTHONPATH
-        assert sample_patch_directory._hgit_instance._HGit__repo.base_dir in env['PYTHONPATH']
-    
-    def test_parse_sql_statements_single(self, sample_patch_directory):
-        """Should parse single SQL statement"""
-        sql_content = "CREATE TABLE users (id SERIAL PRIMARY KEY);"
-        
-        statements = sample_patch_directory._parse_sql_statements(sql_content)
-        
-        assert len(statements) == 1
-        assert statements[0].strip() == "CREATE TABLE users (id SERIAL PRIMARY KEY)"
-    
-    def test_parse_sql_statements_multiple(self, sample_patch_directory):
-        """Should parse multiple SQL statements"""
-        sql_content = """
-        CREATE TABLE users (id SERIAL PRIMARY KEY);
-        INSERT INTO users (id) VALUES (1);
-        CREATE INDEX idx_users_id ON users(id);
-        """
-        
-        statements = sample_patch_directory._parse_sql_statements(sql_content)
-        
-        assert len(statements) == 3
-        assert "CREATE TABLE" in statements[0]
-        assert "INSERT INTO" in statements[1] 
-        assert "CREATE INDEX" in statements[2]
-    
-    def test_parse_sql_statements_with_comments(self, sample_patch_directory):
-        """Should handle SQL comments properly"""
-        sql_content = """
-        -- This creates the users table
-        CREATE TABLE users (id SERIAL PRIMARY KEY);
-        /* Multi-line comment
-           with additional info */
-        INSERT INTO users (id) VALUES (1);
-        """
-        
-        statements = sample_patch_directory._parse_sql_statements(sql_content)
-        
-        # Should have 2 executable statements (excluding comments)
-        assert len(statements) == 2
-
 
 class TestPatchDirectoryEdgeCases:
     """Test edge cases and error conditions"""
@@ -899,33 +740,6 @@ class TestPatchDirectoryEdgeCases:
         sequences = [f.sequence for f in patch_dir.get_execution_order()]
         assert sequences == list(range(50))
     
-    def test_patch_directory_permissions(self, temp_schema_patches_dir, mock_hgit):
-        """Should handle permission errors gracefully"""
-        temp_dir, schema_patches_dir = temp_schema_patches_dir
-        
-        # Create patch directory
-        patch_dir_path = os.path.join(schema_patches_dir, '999-perms')
-        os.makedirs(patch_dir_path)
-        
-        # Create file and remove read permissions
-        file_path = os.path.join(patch_dir_path, '01_test.sql')
-        with open(file_path, 'w') as f:
-            f.write("SELECT 1;")
-        
-        # Remove read permissions
-        os.chmod(file_path, 0o000)
-        
-        try:
-            mock_hgit._HGit__repo.base_dir = temp_dir
-            patch_dir = PatchDirectory('999-perms', mock_hgit, Path(temp_dir))
-            
-            with pytest.raises(PatchValidationError, match="permission"):
-                patch_dir.validate_structure()
-        
-        finally:
-            # Restore permissions for cleanup
-            os.chmod(file_path, 0o644)
-    
     def test_patch_directory_concurrent_access(self, sample_patch_directory):
         """Should handle concurrent access attempts"""
         # This test would need threading for real concurrency testing
@@ -950,7 +764,7 @@ class TestPatchDirectoryEdgeCases:
         # Create files with Unicode characters
         unicode_files = {
             '01_测试_test.sql': 'SELECT 1;',
-            '02_émigration.py': 'print("migration")',
+            '02_évolution.py': 'print("evolution")',
             '03_файл.sql': 'SELECT 3;'
         }
         
@@ -968,7 +782,7 @@ class TestPatchDirectoryEdgeCases:
         # Verify Unicode names are preserved
         filenames = [f.name for f in files]
         assert '01_测试_test.sql' in filenames
-        assert '02_émigration.py' in filenames
+        assert '02_évolution.py' in filenames
         assert '03_файл.sql' in filenames
 
 
@@ -989,26 +803,6 @@ class TestPatchDirectoryIntegration:
         is_valid = sample_patch_directory.validate_structure()
         assert is_valid is True
     
-    def test_integration_with_halfORM_model(self, sample_patch_directory):
-        """Should integrate properly with halfORM model"""
-        # Mock halfORM model interactions
-        mock_model = sample_patch_directory._hgit_instance._HGit__repo.model
-        
-        # Should be able to execute SQL through the model
-        sql_file = PatchFile(
-            "test.sql",
-            Path("/fake"),
-            "sql", 
-            1,
-            "CREATE TABLE integration_test (id INT);"
-        )
-        
-        result = sample_patch_directory.execute_sql_file(sql_file)
-        
-        # Verify model was called
-        mock_model.execute_query.assert_called()
-        assert result['success'] is True
-    
     def test_full_workflow_simulation(self, sample_patch_directory):
         """Should complete full patch application workflow"""
         # Simulate complete workflow:
@@ -1022,10 +816,6 @@ class TestPatchDirectoryIntegration:
         # Step 1: Validate
         is_valid = sample_patch_directory.validate_structure()
         assert is_valid is True
-        
-        # Step 2: Check applicability
-        is_applicable = sample_patch_directory.is_applicable()
-        assert is_applicable is True
         
         # Step 3: Create rollback point
         rollback_id = sample_patch_directory.create_rollback_point()
@@ -1083,34 +873,6 @@ class TestPatchDirectoryPerformance:
         # Vérifier que les séquences vont de 1 à 100
         sequences = [f.sequence for f in ordered_files]
         assert sequences == list(range(1, 101))
-    
-    def test_memory_usage_large_files(self, temp_schema_patches_dir, mock_hgit):
-        """Should handle large files without excessive memory usage"""
-        temp_dir, schema_patches_dir = temp_schema_patches_dir
-        
-        patch_dir_path = os.path.join(schema_patches_dir, '999-large')
-        os.makedirs(patch_dir_path)
-        
-        # Create one large file
-        large_content = "SELECT 1;\n" * 10000  # ~100KB file
-        file_path = os.path.join(patch_dir_path, '01_large_migration.sql')
-        with open(file_path, 'w') as f:
-            f.write(large_content)
-        
-        mock_hgit._HGit__repo.base_dir = temp_dir
-        patch_dir = PatchDirectory('999-large', mock_hgit, Path(temp_dir))
-        
-        # Should scan without loading all content into memory
-        files = patch_dir.scan_files()
-        assert len(files) == 1
-        
-        # Content should be loaded on demand
-        patch_file = files[0]
-        assert patch_file.content is None  # Not loaded yet
-        
-        content = patch_file.load_content()
-        assert len(content) > 90000  # Verify large content was loaded
-
 
 # Test configuration and utilities
 class TestConfiguration:

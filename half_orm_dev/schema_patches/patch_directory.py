@@ -204,7 +204,6 @@ class PatchDirectory:
         - Directory exists and is readable
         - Contains at least one .sql or .py file
         - All patch files follow naming convention (seq_description.ext)
-        - No duplicate sequence numbers for identical filenames
         - Ignores non-patch files (README.md, etc.)
         
         Does NOT validate syntax - that happens at execution time.
@@ -230,8 +229,8 @@ class PatchDirectory:
         except OSError as e:
             raise PatchValidationError(f"Error accessing patch directory: {self._patch_directory}: {e}")
         
-        # Validate file naming convention for potential patch files
-        patch_candidates = []
+        # Find and validate patch files - single pass, no redundancy
+        patch_files_found = []
         invalid_patch_files = []
         
         try:
@@ -241,19 +240,17 @@ class PatchDirectory:
                 
                 filename = file_path.name
                 
-                # Skip hidden files
-                if filename.startswith('.'):
+                # Skip hidden files and non-patch files
+                if filename.startswith('.') or not (filename.endswith('.sql') or filename.endswith('.py')):
                     continue
                 
-                # Check if it's a potential patch file (.sql or .py)
-                if filename.endswith('.sql') or filename.endswith('.py'):
-                    patch_candidates.append(filename)
-                    
-                    # Validate naming convention
-                    if not self._validate_filename_format(filename):
-                        invalid_patch_files.append(filename)
+                # Validate naming convention for patch files
+                if self._validate_filename_format(filename):
+                    patch_files_found.append(filename)
+                else:
+                    invalid_patch_files.append(filename)
             
-            # If we found invalid patch files, report them
+            # Report invalid patch files
             if invalid_patch_files:
                 raise PatchValidationError(
                     f"Files do not follow naming convention 'seq_description.ext': {', '.join(invalid_patch_files)}"
@@ -263,63 +260,11 @@ class PatchDirectory:
             raise PatchValidationError(f"Permission denied reading files in: {self._patch_directory}")
         
         # Check that we have at least one patch file
-        if not patch_candidates:
+        if not patch_files_found:
             raise PatchValidationError(f"Patch directory contains no applicable files (.sql or .py): {self._patch_directory}")
         
-        # Scan for valid patch files and check for duplicates
-        try:
-            patch_files = self.scan_files()
-        except Exception as e:
-            raise PatchValidationError(f"Error scanning patch files: {e}")
-        
-        # Check for duplicate sequence numbers (flexible: allow same seq with different names)
-        sequences = {}
-        for patch_file in patch_files:
-            if patch_file.sequence not in sequences:
-                sequences[patch_file.sequence] = []
-            sequences[patch_file.sequence].append(patch_file)
-        
-        # Log info about files with same sequence (in real implementation)
-        for sequence_num, files_with_same_seq in sequences.items():
-            if len(files_with_same_seq) > 1:
-                file_names = [f.name for f in sorted(files_with_same_seq, key=lambda f: f.name)]
-                # In real implementation: logging.info(f"Sequence {sequence_num} has multiple files: {file_names}")
-        
         return True
 
-        # Group files by sequence number for validation
-        sequences = {}
-        for patch_file in patch_files:
-            if patch_file.sequence not in sequences:
-                sequences[patch_file.sequence] = []
-            sequences[patch_file.sequence].append(patch_file)
-
-        # Validate that files with same sequence are properly ordered
-        for sequence_num, files_with_same_seq in sequences.items():
-            if len(files_with_same_seq) > 1:
-                # Multiple files with same sequence - validate lexicographic order
-                sorted_files = sorted(files_with_same_seq, key=lambda f: f.name)
-
-                # Log info about files with same sequence (in real implementation)
-                file_names = [f.name for f in sorted_files]
-                # In real implementation: logging.info(f"Sequence {sequence_num} has multiple files (lexicographic order): {file_names}")
-
-        # Validate syntax of all patch files
-        for patch_file in patch_files:
-            try:
-                # Load content and validate syntax
-                if patch_file.content is None:
-                    content = patch_file.load_content()
-                else:
-                    content = patch_file.content
-
-            except PatchValidationError:
-                # Re-raise validation errors with file context
-                raise
-            except Exception as e:
-                raise PatchValidationError(f"Error validating file '{patch_file.name}': {e}")
-
-        return True
 
     def scan_files(self) -> List[PatchFile]:
         """
@@ -593,6 +538,7 @@ class PatchDirectory:
         """
         Execute a SQL patch file using halfORM model connection.
         
+        Simple file reading - let OS handle file errors naturally.
         No syntax validation - let psycopg2/halfORM handle SQL errors naturally.
         """
         import time
@@ -603,11 +549,9 @@ class PatchDirectory:
         start_time = time.time()
         
         try:
-            # Load content
-            if patch_file.content is None:
-                content = patch_file.load_content()
-            else:
-                content = patch_file.content
+            # Simple file reading - KISS approach
+            with open(patch_file.path, 'r', encoding='utf-8') as f:
+                content = f.read()
             
             # Get halfORM model
             model = self._hgit_instance._HGit__repo.model
@@ -626,8 +570,10 @@ class PatchDirectory:
                 'file_name': patch_file.name
             }
             
+        except (OSError, PermissionError, UnicodeDecodeError) as e:
+            raise SchemaPatchesError(f"Failed to read SQL file {patch_file.name}: {e}")
         except Exception as e:
-            # Native SQL error from psycopg2/halfORM - much better than our validation
+            # Native SQL error from psycopg2/halfORM
             raise SchemaPatchesError(f"SQL execution failed for {patch_file.name}: {e}")
 
     def execute_python_file(self, patch_file: PatchFile) -> Dict[str, Any]:
@@ -1137,6 +1083,8 @@ class PatchDirectory:
     def _validate_filename_format(self, filename: str) -> bool:
         """
         Validate that filename follows naming convention.
+        
+        Supports Unicode characters in filenames - more flexible approach.
 
         Args:
             filename (str): File name to validate
@@ -1158,23 +1106,17 @@ class PatchDirectory:
 
             name_without_ext, extension = name_parts
 
-            # Check for invalid characters in the filename
-            # Allow alphanumeric, underscore, hyphen
-            import re
-            if not re.match(r'^[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$', filename):
-                return False
-
             # Check that filename doesn't start with underscore
             if filename.startswith('_'):
                 return False
 
-            # Check for spaces (not allowed)
+            # Check for spaces (not allowed - causes issues with shell/paths)
             if ' ' in filename:
                 return False
 
-            # Check for invalid special characters
-            invalid_chars = ['@', '$', '%', '&', '*', '(', ')', '+', '=', '{', '}', '[', ']', '|', '\\', ':', ';', '"', "'", '<', '>', ',', '?', '/', '!']
-            if any(char in filename for char in invalid_chars):
+            # Check for dangerous special characters (but allow Unicode)
+            dangerous_chars = ['@', '$', '%', '&', '*', '(', ')', '+', '=', '{', '}', '[', ']', '|', '\\', ':', ';', '"', "'", '<', '>', ',', '?', '/', '!']
+            if any(char in filename for char in dangerous_chars):
                 return False
 
             # Check for double extensions (e.g., .py.sql)
@@ -1190,24 +1132,3 @@ class PatchDirectory:
 
         except PatchValidationError:
             return False
-
-    def _setup_python_environment(self) -> Dict[str, str]:
-        """
-        Setup environment variables for Python execution.
-
-        Returns:
-            Dict[str, str]: Environment variables
-        """
-        pass
-
-    def _parse_sql_statements(self, sql_content: str) -> List[str]:
-        """
-        Parse SQL content into individual statements.
-
-        Args:
-            sql_content (str): SQL content to parse
-
-        Returns:
-            List[str]: Individual SQL statements
-        """
-        pass
