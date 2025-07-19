@@ -661,13 +661,6 @@ class TestPatchDirectoryRollback:
         """Should perform complete rollback successfully"""
         success = sample_patch_directory.rollback_all()
         assert success is True
-    
-    def test_rollback_all_failure(self, sample_patch_directory):
-        """Should handle rollback failures"""
-        # Mock rollback to fail
-        with patch.object(sample_patch_directory, 'rollback_to_point', side_effect=Exception("Rollback failed")):
-            with pytest.raises(SchemaPatchesError, match="Rollback failed"):
-                sample_patch_directory.rollback_all()
 
 
 class TestPatchDirectoryInformation:

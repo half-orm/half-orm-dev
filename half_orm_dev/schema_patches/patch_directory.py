@@ -688,11 +688,14 @@ class PatchDirectory:
         """
         Create a rollback point before applying patches.
 
-        Establishes a database savepoint or backup mechanism to enable
-        rollback if patch application fails.
+        Simple approach using PostgreSQL savepoints via halfORM model.
+        Each rollback point gets a unique identifier for later reference.
 
         Returns:
-            str: Rollback point identifier
+            str: Rollback point identifier (savepoint name)
+
+        Raises:
+            SchemaPatchesError: If savepoint creation fails
 
         Example:
             >>> rollback_id = patch_dir.create_rollback_point()
@@ -701,37 +704,107 @@ class PatchDirectory:
             >>> except Exception:
             >>>     patch_dir.rollback_to_point(rollback_id)
         """
-        pass
+        import time
+        import uuid
+        
+        try:
+            # Generate unique savepoint name - simple and reliable
+            timestamp = int(time.time() * 1000)  # milliseconds for uniqueness
+            rollback_id = f"patch_rollback_{timestamp}_{uuid.uuid4().hex[:8]}"
+            
+            # Get halfORM model
+            model = self._hgit_instance._HGit__repo.model
+            if model is None:
+                raise SchemaPatchesError("halfORM model not available for rollback point creation")
+            
+            # Create PostgreSQL savepoint - KISS approach
+            savepoint_sql = f"SAVEPOINT {rollback_id};"
+            model.execute_query(savepoint_sql)
+            
+            # Store in our rollback stack for tracking
+            if not hasattr(self, '_rollback_points') or self._rollback_points is None:
+                self._rollback_points = []
+            
+            self._rollback_points.append({
+                'id': rollback_id,
+                'created_at': time.time(),
+                'active': True
+            })
+            
+            return rollback_id
+            
+        except Exception as e:
+            # Native PostgreSQL errors are better than our custom validation
+            raise SchemaPatchesError(f"Failed to create rollback point: {e}")
 
     def rollback_to_point(self, rollback_point: str) -> bool:
         """
         Rollback database to a specific rollback point.
 
-        Restores database state to the specified rollback point,
-        undoing any changes made since that point.
+        Simple approach using PostgreSQL ROLLBACK TO SAVEPOINT.
+        Validates rollback_point exists in our tracking stack.
 
         Args:
-            rollback_point (str): Rollback point identifier
+            rollback_point (str): Rollback point identifier from create_rollback_point()
 
         Returns:
             bool: True if rollback successful
 
         Raises:
-            SchemaPatchesError: If rollback fails
+            SchemaPatchesError: If rollback fails or rollback_point is invalid
 
         Example:
             >>> rollback_id = patch_dir.create_rollback_point()
             >>> # ... apply patches ...
             >>> patch_dir.rollback_to_point(rollback_id)  # Undo changes
         """
-        pass
+        if not rollback_point or not isinstance(rollback_point, str):
+            raise SchemaPatchesError("Invalid rollback point: must be a non-empty string")
+        
+        try:
+            # Check if rollback point exists in our tracking
+            if not hasattr(self, '_rollback_points') or not self._rollback_points:
+                raise SchemaPatchesError(f"Invalid rollback point: no rollback points available")
+            
+            # Find the rollback point in our stack
+            rollback_entry = None
+            for entry in self._rollback_points:
+                if entry['id'] == rollback_point and entry['active']:
+                    rollback_entry = entry
+                    break
+            
+            if rollback_entry is None:
+                raise SchemaPatchesError(f"Invalid rollback point: '{rollback_point}' not found or already used")
+            
+            # Get halfORM model
+            model = self._hgit_instance._HGit__repo.model
+            if model is None:
+                raise SchemaPatchesError("halfORM model not available for rollback")
+            
+            # Execute PostgreSQL rollback - KISS approach
+            rollback_sql = f"ROLLBACK TO SAVEPOINT {rollback_point};"
+            model.execute_query(rollback_sql)
+            
+            # Mark rollback point and all newer ones as inactive
+            for entry in self._rollback_points:
+                if entry['created_at'] >= rollback_entry['created_at']:
+                    entry['active'] = False
+            
+            return True
+            
+        except SchemaPatchesError:
+            # Re-raise our validation errors
+            raise
+        except Exception as e:
+            # Native PostgreSQL errors - better than our custom handling
+            raise SchemaPatchesError(f"Rollback failed for point '{rollback_point}': {e}")
 
     def rollback_all(self) -> bool:
         """
         Rollback all changes made by this patch application.
 
-        Complete rollback of all database changes made by the current
-        patch directory application.
+        Simple approach: rollback to the earliest active rollback point.
+        If no rollback points exist, this is a no-op that succeeds.
 
         Returns:
             bool: True if rollback successful
@@ -745,7 +818,31 @@ class PatchDirectory:
             >>> except Exception:
             >>>     patch_dir.rollback_all()  # Complete rollback
         """
-        pass
+        try:
+            # If no rollback points, nothing to rollback - success
+            if not hasattr(self, '_rollback_points') or not self._rollback_points:
+                return True
+            
+            # Find the earliest active rollback point
+            earliest_rollback = None
+            for entry in self._rollback_points:
+                if entry['active']:
+                    if earliest_rollback is None or entry['created_at'] < earliest_rollback['created_at']:
+                        earliest_rollback = entry
+            
+            # If no active rollback points, nothing to do
+            if earliest_rollback is None:
+                return True
+            
+            # Rollback to earliest point - this handles everything
+            return self.rollback_to_point(earliest_rollback['id'])
+            
+        except SchemaPatchesError:
+            # Re-raise rollback_to_point errors
+            raise
+        except Exception as e:
+            # Unexpected error during rollback_all
+            raise SchemaPatchesError(f"Complete rollback failed: {e}")
 
     def get_patch_info(self) -> Dict[str, Any]:
         """
