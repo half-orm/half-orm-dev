@@ -167,7 +167,8 @@ class TestPatchTag:
             message="123-security",
             commit_hash="abc123",
             is_dev_tag=True,
-            timestamp=1642790400
+            timestamp=1642790400,
+            tag_type=TagType.DEV_RELEASE
         )
         
         assert tag.name == "dev-patch-1.3.2-security"
@@ -177,6 +178,7 @@ class TestPatchTag:
         assert tag.commit_hash == "abc123"
         assert tag.is_dev_tag is True
         assert tag.timestamp == 1642790400
+        assert tag.tag_type == TagType.DEV_RELEASE
     
     def test_patch_tag_creation_prod(self):
         """Should create PatchTag for prod patch tag"""
@@ -187,7 +189,8 @@ class TestPatchTag:
             message="123-security",
             commit_hash="def456",
             is_dev_tag=False,
-            timestamp=1642876800
+            timestamp=1642876800,
+            tag_type=TagType.PROD_RELEASE
         )
         
         assert tag.name == "patch-1.3.2-security"
@@ -202,7 +205,8 @@ class TestPatchTag:
             message="456-performance",
             commit_hash="abc123",
             is_dev_tag=True,
-            timestamp=1642790400
+            timestamp=1642790400,
+            tag_type=TagType.DEV_RELEASE
         )
         
         # Should derive maintenance line
@@ -214,9 +218,9 @@ class TestPatchTag:
     def test_patch_tag_comparison(self):
         """Should enable sorting by timestamp (Git chronological order)"""
         tag1 = PatchTag("dev-patch-1.3.2-first", "1.3.2", "first", "123-first", 
-                       "abc", True, 1642790400)
+                       "abc", True, 1642790400, tag_type=TagType.DEV_RELEASE)
         tag2 = PatchTag("dev-patch-1.3.2-second", "1.3.2", "second", "456-second",
-                       "def", True, 1642876800)
+                       "def", True, 1642876800, tag_type=TagType.DEV_RELEASE)
         
         assert tag1 < tag2  # Earlier timestamp
         assert tag2 > tag1
@@ -225,22 +229,104 @@ class TestPatchTag:
     def test_patch_tag_equality(self):
         """Should compare tags by name and commit hash"""
         tag1 = PatchTag("patch-1.3.2-test", "1.3.2", "test", "123-test", 
-                       "abc123", False, 1642790400)
+                       "abc123", False, 1642790400, tag_type=TagType.DEV_RELEASE)
         tag2 = PatchTag("patch-1.3.2-test", "1.3.2", "test", "123-test",
-                       "abc123", False, 1642876800)  # Different timestamp
+                       "abc123", False, 1642876800, tag_type=TagType.DEV_RELEASE)  # Different timestamp
         
         assert tag1 == tag2  # Same name and commit
     
     def test_patch_tag_string_representation(self):
         """Should provide readable string representation"""
         tag = PatchTag("dev-patch-1.3.2-security", "1.3.2", "security", 
-                      "123-security", "abc123", True, 1642790400)
+                      "123-security", "abc123", True, 1642790400,
+                      tag_type=TagType.DEV_RELEASE)
         
         str_repr = str(tag)
         assert "dev-patch-1.3.2-security" in str_repr
         assert "123-security" in str_repr
         assert "abc123" in str_repr
 
+    def test_patch_tag_creation_create_type(self):
+        """Should create PatchTag for create-patch tag"""
+        tag = PatchTag(
+            name="create-patch-456-performance",
+            version=None,  # Pas de version pour create-patch
+            suffix="456-performance",
+            message="456-performance", 
+            commit_hash="abc123",
+            is_dev_tag=False,  # DEPRECATED
+            timestamp=datetime.fromtimestamp(1642790400),
+            tag_type=TagType.CREATE
+        )
+        
+        assert tag.tag_type == TagType.CREATE
+        assert tag.version is None
+        assert tag.is_create_tag is True
+        assert tag.is_dev_release_tag is False
+        assert tag.is_prod_release_tag is False
+    
+    def test_patch_tag_creation_dev_release_type(self):
+        """Should create PatchTag for dev-patch tag"""
+        tag = PatchTag(
+            name="dev-patch-1.3.2-security",
+            version="1.3.2",
+            suffix="security",
+            message="123-security",
+            commit_hash="abc123", 
+            is_dev_tag=True,  # DEPRECATED
+            timestamp=datetime.fromtimestamp(1642790400),
+            tag_type=TagType.DEV_RELEASE
+        )
+        
+        assert tag.tag_type == TagType.DEV_RELEASE
+        assert tag.version == "1.3.2"
+        assert tag.is_create_tag is False
+        assert tag.is_dev_release_tag is True
+        assert tag.is_prod_release_tag is False
+    
+    def test_patch_tag_creation_prod_release_type(self):
+        """Should create PatchTag for patch tag"""
+        tag = PatchTag(
+            name="patch-1.3.2-performance",
+            version="1.3.2",
+            suffix="performance",
+            message="456-performance",
+            commit_hash="def456",
+            is_dev_tag=False,  # DEPRECATED
+            timestamp=datetime.fromtimestamp(1642876800),
+            tag_type=TagType.PROD_RELEASE
+        )
+        
+        assert tag.tag_type == TagType.PROD_RELEASE
+        assert tag.version == "1.3.2"
+        assert tag.is_create_tag is False
+        assert tag.is_dev_release_tag is False
+        assert tag.is_prod_release_tag is True
+    
+    def test_patch_tag_properties_convenience(self):
+        """Should provide convenient boolean properties"""
+        create_tag = PatchTag(
+            name="create-patch-789-audit", version=None, suffix="789-audit",
+            message="789-audit", commit_hash="abc", is_dev_tag=False,
+            timestamp=datetime.fromtimestamp(1642790400), tag_type=TagType.CREATE
+        )
+        
+        dev_tag = PatchTag(
+            name="dev-patch-1.3.2-test", version="1.3.2", suffix="test", 
+            message="test", commit_hash="def", is_dev_tag=True,
+            timestamp=datetime.fromtimestamp(1642790400), tag_type=TagType.DEV_RELEASE
+        )
+        
+        prod_tag = PatchTag(
+            name="patch-1.3.2-final", version="1.3.2", suffix="final",
+            message="final", commit_hash="ghi", is_dev_tag=False, 
+            timestamp=datetime.fromtimestamp(1642790400), tag_type=TagType.PROD_RELEASE
+        )
+        
+        # Test boolean properties
+        assert create_tag.is_create_tag and not create_tag.is_dev_release_tag and not create_tag.is_prod_release_tag
+        assert not dev_tag.is_create_tag and dev_tag.is_dev_release_tag and not dev_tag.is_prod_release_tag  
+        assert not prod_tag.is_create_tag and not prod_tag.is_dev_release_tag and prod_tag.is_prod_release_tag
 
 class TestGitTagManagerInitialization:
     """Test GitTagManager initialization for ultra-simplified workflow"""

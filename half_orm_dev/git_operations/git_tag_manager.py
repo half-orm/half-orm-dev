@@ -89,20 +89,37 @@ class PatchTag:
     
     Attributes:
         name (str): Full tag name (e.g., "dev-patch-1.3.2-security")
-        version (str): Version part (e.g., "1.3.2")
+        version (Optional[str]): Version part (e.g., "1.3.2", None for create-patch)
         suffix (str): Tag suffix (e.g., "security")
         message (str): Tag message = SchemaPatches directory reference
         commit_hash (str): Git commit hash
-        is_dev_tag (bool): True if dev-patch-*, False if patch-*
-        timestamp (int): Creation timestamp for ordering
+        is_dev_tag (bool): DEPRECATED - use tag_type instead
+        timestamp (datetime): Creation timestamp for ordering
+        tag_type (TagType): Type of tag (CREATE, DEV_RELEASE, PROD_RELEASE)
     """
     name: str
-    version: str
+    version: Optional[str]  # None for create-patch-*
     suffix: str
     message: str
     commit_hash: str
-    is_dev_tag: bool
+    is_dev_tag: bool  # DEPRECATED
     timestamp: datetime
+    tag_type: TagType  # NEW
+    
+    @property
+    def is_create_tag(self) -> bool:
+        """True if this is a reservation tag (create-patch-*)"""
+        return self.tag_type == TagType.CREATE
+    
+    @property 
+    def is_dev_release_tag(self) -> bool:
+        """True if this is a development release tag (dev-patch-*)"""
+        return self.tag_type == TagType.DEV_RELEASE
+        
+    @property
+    def is_prod_release_tag(self) -> bool:
+        """True if this is a production release tag (patch-*)"""
+        return self.tag_type == TagType.PROD_RELEASE
     
     @property
     def maintenance_line(self) -> str:
