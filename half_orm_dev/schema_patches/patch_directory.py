@@ -848,22 +848,86 @@ class PatchDirectory:
         """
         Get comprehensive information about the patch directory.
 
+        Scans files and calculates metadata. Simple aggregation approach.
+
         Returns:
             Dict[str, Any]: Patch metadata and statistics
 
         Example:
             >>> info = patch_dir.get_patch_info()
             >>> info['patch_id']  # "456-performance"
-            >>> info['file_count']  # 3
-            >>> info['sql_files']  # 2
+            >>> info['file_count']  # 4
+            >>> info['sql_files']  # 3
             >>> info['python_files']  # 1
             >>> info['total_size']  # 1024 bytes
         """
-        pass
+        try:
+            # Get files using existing scan_files method
+            patch_files = self.scan_files()
+            
+            # Count files by type
+            sql_files = [f for f in patch_files if f.extension == 'sql']
+            python_files = [f for f in patch_files if f.extension == 'py']
+            
+            # Calculate total size - simple approach
+            total_size = 0
+            for patch_file in patch_files:
+                try:
+                    # Get file size from filesystem
+                    if patch_file.path.exists():
+                        total_size += patch_file.path.stat().st_size
+                except (OSError, PermissionError):
+                    # Skip files we can't read - continue with others
+                    continue
+            
+            # Build info dictionary
+            info = {
+                'patch_id': self._patch_id,
+                'patch_directory': str(self._patch_directory),
+                'file_count': len(patch_files),
+                'sql_files': len(sql_files),
+                'python_files': len(python_files),
+                'total_size': total_size,
+                'files': [
+                    {
+                        'name': f.name,
+                        'extension': f.extension,
+                        'sequence': f.sequence,
+                        'path': str(f.path)
+                    }
+                    for f in patch_files
+                ]
+            }
+            
+            # Add execution info if available
+            if hasattr(self, '_execution_summary') and self._execution_summary:
+                info['last_execution'] = {
+                    'files_executed': self._execution_summary.get('files_executed', 0),
+                    'success_rate': self._execution_summary.get('success_rate', 0.0),
+                    'last_execution_time': self._execution_summary.get('last_execution')
+                }
+            
+            return info
+            
+        except Exception as e:
+            # Fallback info if scanning fails
+            return {
+                'patch_id': self._patch_id,
+                'patch_directory': str(self._patch_directory),
+                'error': f"Failed to scan patch info: {e}",
+                'file_count': 0,
+                'sql_files': 0,
+                'python_files': 0,
+                'total_size': 0,
+                'files': []
+            }
 
     def get_execution_summary(self) -> Dict[str, Any]:
         """
         Get summary of the last execution attempt.
+
+        Simple approach: return the internal execution summary that's updated
+        during apply_all_files(). No complex calculations needed.
 
         Returns:
             Dict[str, Any]: Execution summary with metrics and results
@@ -874,7 +938,33 @@ class PatchDirectory:
             >>> summary['total_time']  # 5.67 seconds
             >>> summary['success_rate']  # 100.0
         """
-        pass
+        # Return copy of execution summary to prevent external modification
+        if hasattr(self, '_execution_summary') and self._execution_summary:
+            # Create a copy with all current values
+            summary = dict(self._execution_summary)
+            
+            # Ensure all expected keys exist with defaults
+            summary.setdefault('files_executed', 0)
+            summary.setdefault('total_time', 0)
+            summary.setdefault('success_rate', 0.0)
+            summary.setdefault('last_execution', None)
+            
+            # Add some computed fields for convenience
+            if summary['files_executed'] > 0 and summary['total_time'] > 0:
+                summary['avg_time_per_file'] = summary['total_time'] / summary['files_executed']
+            else:
+                summary['avg_time_per_file'] = 0.0
+                
+            return summary
+        else:
+            # Default summary if no execution yet
+            return {
+                'files_executed': 0,
+                'total_time': 0,
+                'success_rate': 0.0,
+                'last_execution': None,
+                'avg_time_per_file': 0.0
+            }
 
     def cleanup_resources(self) -> None:
         """
