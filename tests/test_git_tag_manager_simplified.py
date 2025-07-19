@@ -27,12 +27,14 @@ import os
 import tempfile
 import shutil
 import pytest
+from enum import Enum
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock, PropertyMock
 from datetime import datetime
 
 import git
 from git.exc import GitCommandError, InvalidGitRepositoryError
+from half_orm_dev.git_operations.git_tag_manager import TagType
 
 # Import the classes we're testing (TDD - will fail initially)
 from half_orm_dev.git_operations.git_tag_manager import (
@@ -44,6 +46,41 @@ from half_orm_dev.git_operations.git_tag_manager import (
     TagValidationError,
     TransferError
 )
+
+
+# Nouvelle classe de test après les imports
+
+class TestTagType:
+    """Test TagType enum for 3-tag workflow classification"""
+    
+    def test_tag_type_values(self):
+        """Should have correct enum values"""
+        assert TagType.CREATE.value == "create"
+        assert TagType.DEV_RELEASE.value == "dev_release"
+        assert TagType.PROD_RELEASE.value == "prod_release"
+    
+    def test_tag_type_comparison(self):
+        """Should enable enum comparison"""
+        assert TagType.CREATE == TagType.CREATE
+        assert TagType.DEV_RELEASE != TagType.CREATE
+        assert TagType.PROD_RELEASE != TagType.DEV_RELEASE
+    
+    def test_tag_type_string_representation(self):
+        """Should provide readable string representation"""
+        assert str(TagType.CREATE) == "TagType.CREATE"
+        assert str(TagType.DEV_RELEASE) == "TagType.DEV_RELEASE"
+        assert str(TagType.PROD_RELEASE) == "TagType.PROD_RELEASE"
+    
+    def test_tag_type_workflow_mapping(self):
+        """Should map to correct workflow phases"""
+        # CREATE = Reservation phase
+        assert TagType.CREATE.value == "create"
+        
+        # DEV_RELEASE = Development validation phase  
+        assert TagType.DEV_RELEASE.value == "dev_release"
+        
+        # PROD_RELEASE = Production deployment phase
+        assert TagType.PROD_RELEASE.value == "prod_release"
 
 
 @pytest.fixture

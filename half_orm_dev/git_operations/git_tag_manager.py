@@ -34,12 +34,27 @@ Usage:
 import os
 import re
 from datetime import datetime
+from enum import Enum
 from typing import List, Optional, Set, Dict
 from dataclasses import dataclass
 from pathlib import Path
 
 import git
 from git.exc import GitCommandError, InvalidGitRepositoryError
+
+
+class TagType(Enum):
+    """
+    Enumeration of Git tag types in the ultra-simplified SchemaPatches workflow.
+    
+    Separates the 3 phases of patch lifecycle:
+    - CREATE: Reservation tags (create-patch-*) for anti-conflict
+    - DEV_RELEASE: Development validation tags (dev-patch-*) 
+    - PROD_RELEASE: Production deployment tags (patch-*)
+    """
+    CREATE = "create"           # create-patch-456-performance
+    DEV_RELEASE = "dev_release" # dev-patch-1.3.2-performance
+    PROD_RELEASE = "prod_release" # patch-1.3.2-performance
 
 
 class GitTagManagerError(Exception):
