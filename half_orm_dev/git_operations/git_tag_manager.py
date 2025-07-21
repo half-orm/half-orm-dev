@@ -365,22 +365,57 @@ class GitTagManager:
         Raises:
             TagValidationError: If tag format is valid but content is invalid
         """
+        # Try create-patch pattern FIRST
+        create_match = self.CREATE_PATCH_PATTERN.match(tag_name)
+        if create_match:
+            patch_id = create_match.group(1)
+            
+            # Get tag message and validate
+            message = git_tag.tag.message.strip() if git_tag.tag else ""
+            if not message:
+                raise TagValidationError(f"Tag {tag_name} has empty message")
+            
+            if not self.validate_schema_patch_reference(message):
+                raise TagValidationError(f"Tag {tag_name} references non-existent SchemaPatches directory: {message}")
+            
+            # Get commit hash and timestamp
+            commit_hash = git_tag.commit.hexsha
+            
+            # Handle timestamp - prefer tag object timestamp, fallback to commit timestamp
+            if git_tag.tag and hasattr(git_tag.tag, 'tagged_date'):
+                timestamp = datetime.fromtimestamp(git_tag.tag.tagged_date)
+            else:
+                timestamp = datetime.fromtimestamp(git_tag.commit.committed_date)
+            
+            return PatchTag(
+                name=tag_name,
+                version=None,  # Pas de version pour create-patch
+                suffix=patch_id,
+                message=message,
+                commit_hash=commit_hash,
+                is_dev_tag=False,  # DEPRECATED - create-patch n'est pas dev
+                timestamp=timestamp,
+                tag_type=TagType.CREATE
+            )
+        
         # Try dev-patch pattern
         dev_match = self.DEV_PATCH_PATTERN.match(tag_name)
         if dev_match:
             version, suffix = dev_match.groups()
             is_dev_tag = True
+            tag_type = TagType.DEV_RELEASE
         else:
-            # Try patch pattern
+            # Try patch pattern  
             patch_match = self.PATCH_PATTERN.match(tag_name)
             if patch_match:
                 version, suffix = patch_match.groups()
                 is_dev_tag = False
+                tag_type = TagType.PROD_RELEASE
             else:
                 # Not a patch tag
                 return None
         
-        # Get tag message and validate
+        # Get tag message and validate (pour dev-patch et patch)
         message = git_tag.tag.message.strip() if git_tag.tag else ""
         if not message:
             raise TagValidationError(f"Tag {tag_name} has empty message")
@@ -403,8 +438,9 @@ class GitTagManager:
             suffix=suffix,
             message=message,
             commit_hash=commit_hash,
-            is_dev_tag=is_dev_tag,
-            timestamp=timestamp
+            is_dev_tag=is_dev_tag,  # DEPRECATED
+            timestamp=timestamp,
+            tag_type=tag_type
         )
     
     def validate_tag_branch_consistency(self, patch_tag: PatchTag) -> bool:

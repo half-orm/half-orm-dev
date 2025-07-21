@@ -617,6 +617,72 @@ class TestTagParsing:
         with pytest.raises(TagValidationError):
             manager.parse_patch_tag("dev-patch-1.3.2-test", git_tag)
 
+    def test_parse_create_patch_tag(self, temp_git_repo):
+        """Should parse create-patch tags correctly"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Create a real Git tag
+        git_tag = repo.create_tag("create-patch-456-performance", 
+                                message="456-performance")
+        
+        patch_tag = manager.parse_patch_tag("create-patch-456-performance", git_tag)
+        
+        assert patch_tag is not None
+        assert patch_tag.name == "create-patch-456-performance"
+        assert patch_tag.version is None  # Pas de version pour create-patch
+        assert patch_tag.suffix == "456-performance"
+        assert patch_tag.message == "456-performance"
+        assert patch_tag.tag_type == TagType.CREATE
+        assert patch_tag.is_create_tag is True
+        assert patch_tag.is_dev_tag is False  # DEPRECATED field
+        assert patch_tag.commit_hash == git_tag.commit.hexsha
+
+    def test_parse_create_patch_tag_various_patch_ids(self, temp_git_repo):
+        """Should parse create-patch tags with various patch_id formats"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        test_cases = [
+            ("create-patch-123-security", "123-security"),
+            ("create-patch-external-hotfix", "external-hotfix"),
+            ("create-patch-a1-test", "a1-test"),
+            ("create-patch-999-cleanup-final", "999-cleanup-final")
+        ]
+        
+        for tag_name, expected_patch_id in test_cases:
+            # Créer le répertoire SchemaPatches correspondant
+            patch_dir = manager.schema_patches_dir / expected_patch_id
+            patch_dir.mkdir(parents=True, exist_ok=True)
+            
+            git_tag = repo.create_tag(tag_name, message=expected_patch_id)
+            patch_tag = manager.parse_patch_tag(tag_name, git_tag)
+            
+            assert patch_tag is not None
+            assert patch_tag.suffix == expected_patch_id
+            assert patch_tag.tag_type == TagType.CREATE
+            assert patch_tag.version is None
+
+    def test_parse_tag_type_consistency(self, temp_git_repo):
+        """Should assign correct tag_type for each pattern"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Test all 3 tag types
+        test_cases = [
+            ("create-patch-456-performance", TagType.CREATE, None, "456-performance"),
+            ("dev-patch-1.3.2-security", TagType.DEV_RELEASE, "1.3.2", "security"),
+            ("patch-1.3.2-performance", TagType.PROD_RELEASE, "1.3.2", "performance")
+        ]
+        
+        for tag_name, expected_type, expected_version, expected_suffix in test_cases:
+            git_tag = repo.create_tag(tag_name, message="123-security")
+            patch_tag = manager.parse_patch_tag(tag_name, git_tag)
+            
+            assert patch_tag is not None
+            assert patch_tag.tag_type == expected_type
+            assert patch_tag.version == expected_version
+            assert patch_tag.suffix == expected_suffix
 
 class TestTagRetrieval:
     """Test retrieving and filtering patch tags"""
