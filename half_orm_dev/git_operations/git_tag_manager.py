@@ -161,6 +161,7 @@ class GitTagManager:
     with minimal metadata. Integrates with halfORM HGit instances when available.
     """
 
+    CREATE_PATCH_PATTERN = re.compile(r'^create-patch-([a-zA-Z0-9_-]+)$')
     DEV_PATCH_PATTERN = re.compile(r'^dev-patch-(\d+\.\d+\.\d+)-([a-zA-Z0-9_-]+)$')
     PATCH_PATTERN = re.compile(r'^patch-(\d+\.\d+\.\d+)-([a-zA-Z0-9_-]+)$')
 

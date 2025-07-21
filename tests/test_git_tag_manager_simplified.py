@@ -471,6 +471,88 @@ class TestTagPatternValidation:
         for reference in invalid_references:
             assert manager.validate_schema_patch_reference(reference) is False
 
+    def test_validate_create_patch_tag_valid(self, temp_git_repo):
+        """Should validate correct create-patch tag patterns"""
+        temp_dir, _ = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        valid_tags = [
+            "create-patch-123-security",
+            "create-patch-456-performance", 
+            "create-patch-789-audit",
+            "create-patch-001-initial",
+            "create-patch-999-cleanup",
+            "create-patch-external-hotfix",
+            "create-patch-a1-test",
+            "create-patch-bug_fix_urgent"
+        ]
+        
+        for tag_name in valid_tags:
+            match = manager.CREATE_PATCH_PATTERN.match(tag_name)
+            assert match is not None, f"Should match create-patch pattern: {tag_name}"
+            patch_id = match.group(1)
+            assert len(patch_id) > 0, f"Should extract patch_id: {tag_name}"
+    
+    def test_validate_create_patch_tag_invalid(self, temp_git_repo):
+        """Should reject invalid create-patch tag patterns"""
+        temp_dir, _ = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        invalid_tags = [
+            "create-patch-",  # Empty patch_id
+            "create-patch",   # No patch_id
+            "dev-patch-1.3.2-security",  # Wrong prefix
+            "patch-1.3.2-performance",   # Wrong prefix
+            "create-patch-with spaces",  # Spaces not allowed
+            "create-patch-123@invalid",  # Invalid characters
+            "create-patch-123.security"  # Dots might be problematic
+        ]
+        
+        for tag_name in invalid_tags:
+            match = manager.CREATE_PATCH_PATTERN.match(tag_name)
+            assert match is None, f"Should NOT match create-patch pattern: {tag_name}"
+    
+    def test_create_patch_pattern_extraction(self, temp_git_repo):
+        """Should correctly extract patch_id from create-patch tags"""
+        temp_dir, _ = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        test_cases = [
+            ("create-patch-456-performance", "456-performance"),
+            ("create-patch-123-security", "123-security"),
+            ("create-patch-external-hotfix", "external-hotfix"),
+            ("create-patch-a1", "a1"),
+            ("create-patch-bug_fix", "bug_fix")
+        ]
+        
+        for tag_name, expected_patch_id in test_cases:
+            match = manager.CREATE_PATCH_PATTERN.match(tag_name)
+            assert match is not None
+            actual_patch_id = match.group(1)
+            assert actual_patch_id == expected_patch_id
+    
+    def test_create_patch_pattern_vs_existing_patterns(self, temp_git_repo):
+        """Should distinguish create-patch from dev-patch and patch patterns"""
+        temp_dir, _ = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # create-patch should only match CREATE_PATCH_PATTERN
+        create_tag = "create-patch-456-performance"
+        assert manager.CREATE_PATCH_PATTERN.match(create_tag) is not None
+        assert manager.DEV_PATCH_PATTERN.match(create_tag) is None
+        assert manager.PATCH_PATTERN.match(create_tag) is None
+        
+        # dev-patch should only match DEV_PATCH_PATTERN
+        dev_tag = "dev-patch-1.3.2-performance"
+        assert manager.CREATE_PATCH_PATTERN.match(dev_tag) is None
+        assert manager.DEV_PATCH_PATTERN.match(dev_tag) is not None
+        assert manager.PATCH_PATTERN.match(dev_tag) is None
+        
+        # patch should only match PATCH_PATTERN
+        prod_tag = "patch-1.3.2-performance"
+        assert manager.CREATE_PATCH_PATTERN.match(prod_tag) is None
+        assert manager.DEV_PATCH_PATTERN.match(prod_tag) is None
+        assert manager.PATCH_PATTERN.match(prod_tag) is not None
 
 class TestTagParsing:
     """Test parsing Git tags into PatchTag objects"""
