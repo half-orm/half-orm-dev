@@ -752,7 +752,7 @@ class TestTagRetrieval:
         # Create version tag v1.3.2 on current commit
         repo.create_tag("v1.3.2", message="Version 1.3.2")
         
-        # Test: Get patch tags between versions
+        # Test: Get patch tags between versions (legacy dev_tags parameter)
         tags = manager.get_patch_tags_between("v1.3.1", "v1.3.2", dev_tags=True)
         
         assert len(tags) == 2
@@ -765,6 +765,123 @@ class TestTagRetrieval:
         
         # Verify versions
         assert all(tag.version == "1.3.2" for tag in tags)
+    
+    def test_get_patch_tags_between_with_tag_type_filter(self, temp_git_repo):
+        """Should filter patch tags by TagType"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Create version tags
+        repo.create_tag("v1.3.1", message="Version 1.3.1")
+        
+        # Create commits with different tag types
+        import time
+        
+        # Create-patch tag
+        patch_file1 = os.path.join(temp_dir, "create_patch.txt")
+        with open(patch_file1, 'w') as f:
+            f.write("Create patch")
+        repo.index.add([patch_file1])
+        repo.index.commit("Create patch commit")
+        repo.create_tag("create-patch-456-performance", message="456-performance")
+        time.sleep(0.1)
+        
+        # Dev-patch tag
+        patch_file2 = os.path.join(temp_dir, "dev_patch.txt")
+        with open(patch_file2, 'w') as f:
+            f.write("Dev patch")
+        repo.index.add([patch_file2])
+        repo.index.commit("Dev patch commit")
+        repo.create_tag("dev-patch-1.3.2-security", message="123-security")
+        time.sleep(0.1)
+        
+        # Prod-patch tag
+        patch_file3 = os.path.join(temp_dir, "prod_patch.txt")
+        with open(patch_file3, 'w') as f:
+            f.write("Prod patch")
+        repo.index.add([patch_file3])
+        repo.index.commit("Prod patch commit")
+        repo.create_tag("patch-1.3.2-audit", message="789-audit")
+        time.sleep(0.1)
+        
+        repo.create_tag("v1.3.2", message="Version 1.3.2")
+        
+        # Test filtering by CREATE tags
+        create_tags = manager.get_patch_tags_between("v1.3.1", "v1.3.2", tag_type=TagType.CREATE)
+        assert len(create_tags) == 1
+        assert create_tags[0].tag_type == TagType.CREATE
+        assert create_tags[0].name == "create-patch-456-performance"
+        
+        # Test filtering by DEV_RELEASE tags
+        dev_tags = manager.get_patch_tags_between("v1.3.1", "v1.3.2", tag_type=TagType.DEV_RELEASE)
+        assert len(dev_tags) == 1
+        assert dev_tags[0].tag_type == TagType.DEV_RELEASE
+        assert dev_tags[0].name == "dev-patch-1.3.2-security"
+        
+        # Test filtering by PROD_RELEASE tags
+        prod_tags = manager.get_patch_tags_between("v1.3.1", "v1.3.2", tag_type=TagType.PROD_RELEASE)
+        assert len(prod_tags) == 1
+        assert prod_tags[0].tag_type == TagType.PROD_RELEASE
+        assert prod_tags[0].name == "patch-1.3.2-audit"
+    
+    def test_get_patch_tags_between_with_tag_type_filter(self, temp_git_repo):
+        """Should filter patch tags by TagType"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Create version tags
+        repo.create_tag("v1.3.1", message="Version 1.3.1")
+        
+        # Create commits with different tag types - EACH ON SEPARATE COMMIT
+        import time
+        
+        # Create-patch tag on its own commit
+        patch_file1 = os.path.join(temp_dir, "create_patch.txt")
+        with open(patch_file1, 'w') as f:
+            f.write("Create patch")
+        repo.index.add([patch_file1])
+        repo.index.commit("Create patch commit")
+        repo.create_tag("create-patch-456-performance", message="456-performance")
+        time.sleep(0.1)
+        
+        # Dev-patch tag on its own commit
+        patch_file2 = os.path.join(temp_dir, "dev_patch.txt")
+        with open(patch_file2, 'w') as f:
+            f.write("Dev patch")
+        repo.index.add([patch_file2])
+        repo.index.commit("Dev patch commit")
+        repo.create_tag("dev-patch-1.3.2-security", message="123-security")
+        time.sleep(0.1)
+        
+        # Prod-patch tag on its own commit
+        patch_file3 = os.path.join(temp_dir, "prod_patch.txt")
+        with open(patch_file3, 'w') as f:
+            f.write("Prod patch")
+        repo.index.add([patch_file3])
+        repo.index.commit("Prod patch commit")
+        repo.create_tag("patch-1.3.2-audit", message="789-audit")
+        time.sleep(0.1)
+        
+        # Create final version tag AFTER all patch commits
+        repo.create_tag("v1.3.2", message="Version 1.3.2")
+        
+        # Test filtering by CREATE tags
+        create_tags = manager.get_patch_tags_between("v1.3.1", "v1.3.2", tag_type=TagType.CREATE)
+        assert len(create_tags) == 1
+        assert create_tags[0].tag_type == TagType.CREATE
+        assert create_tags[0].name == "create-patch-456-performance"
+        
+        # Test filtering by DEV_RELEASE tags
+        dev_tags = manager.get_patch_tags_between("v1.3.1", "v1.3.2", tag_type=TagType.DEV_RELEASE)
+        assert len(dev_tags) == 1
+        assert dev_tags[0].tag_type == TagType.DEV_RELEASE
+        assert dev_tags[0].name == "dev-patch-1.3.2-security"
+        
+        # Test filtering by PROD_RELEASE tags
+        prod_tags = manager.get_patch_tags_between("v1.3.1", "v1.3.2", tag_type=TagType.PROD_RELEASE)
+        assert len(prod_tags) == 1
+        assert prod_tags[0].tag_type == TagType.PROD_RELEASE
+        assert prod_tags[0].name == "patch-1.3.2-audit"
     
     def test_get_dev_tags_for_version(self, temp_git_repo):
         """Should get dev-patch tags for specific version"""

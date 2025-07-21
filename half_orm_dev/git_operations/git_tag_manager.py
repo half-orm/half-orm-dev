@@ -221,17 +221,28 @@ class GitTagManager:
         pass
     
     def get_patch_tags_between(self, from_version: str, to_version: str, 
-                              dev_tags: bool = False) -> List[PatchTag]:
+                              dev_tags: bool = False, tag_type: Optional[TagType] = None) -> List[PatchTag]:
         """
-        Get patch-* or dev-patch-* tags between versions in chronological order.
+        Get patch tags between versions in chronological order, filtered by type.
         
         Args:
             from_version (str): Starting version (e.g., "v1.3.1")
             to_version (str): Ending version (e.g., "v1.3.2")
-            dev_tags (bool): If True, return dev-patch-*, else patch-*
+            dev_tags (bool): DEPRECATED - use tag_type parameter instead
+            tag_type (Optional[TagType]): Filter by specific tag type (CREATE, DEV_RELEASE, PROD_RELEASE)
             
         Returns:
             List[PatchTag]: Patch tags in Git chronological order
+            
+        Examples:
+            >>> # Get all dev-patch tags (old way)
+            >>> tags = manager.get_patch_tags_between("v1.3.1", "v1.3.2", dev_tags=True)
+            >>> 
+            >>> # Get all dev-patch tags (new way)
+            >>> tags = manager.get_patch_tags_between("v1.3.1", "v1.3.2", tag_type=TagType.DEV_RELEASE)
+            >>> 
+            >>> # Get all create-patch tags (new functionality)
+            >>> tags = manager.get_patch_tags_between("v1.3.1", "v1.3.2", tag_type=TagType.CREATE)
         """
         try:
             # Get commits between version tags
@@ -243,9 +254,15 @@ class GitTagManager:
             filtered_tags = []
             
             for tag in all_patch_tags:
-                # Filter by tag type (dev vs prod)
-                if tag.is_dev_tag != dev_tags:
-                    continue
+                # Handle filtering logic with backward compatibility
+                if tag_type is not None:
+                    # New filtering by TagType (preferred)
+                    if tag.tag_type != tag_type:
+                        continue
+                else:
+                    # Legacy filtering by dev_tags boolean (deprecated but maintained)
+                    if tag.is_dev_tag != dev_tags:
+                        continue
                 
                 # Check if tag's commit is in the range
                 if tag.commit_hash in commits_in_range:
