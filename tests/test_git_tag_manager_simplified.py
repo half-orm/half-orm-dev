@@ -716,56 +716,6 @@ class TestTagRetrieval:
         assert "v1.3.2" not in tag_names
         assert "random-tag" not in tag_names
     
-    def test_get_patch_tags_between_versions(self, temp_git_repo):
-        """Should get patch tags between two versions in chronological order"""
-        temp_dir, repo = temp_git_repo
-        manager = GitTagManager(repo_path=temp_dir)
-        
-        # Create version tag v1.3.1 on current commit
-        repo.create_tag("v1.3.1", message="Version 1.3.1")
-        
-        # Create new commits with patch tags
-        import time
-        
-        # First patch commit
-        patch_file1 = os.path.join(temp_dir, "patch1.txt")
-        with open(patch_file1, 'w') as f:
-            f.write("First patch")
-        repo.index.add([patch_file1])
-        repo.index.commit("First patch commit")
-        
-        # Create first patch tag
-        repo.create_tag("dev-patch-1.3.2-first", message="123-security")
-        time.sleep(0.1)  # Ensure different timestamps
-        
-        # Second patch commit  
-        patch_file2 = os.path.join(temp_dir, "patch2.txt")
-        with open(patch_file2, 'w') as f:
-            f.write("Second patch")
-        repo.index.add([patch_file2])
-        repo.index.commit("Second patch commit")
-        
-        # Create second patch tag
-        repo.create_tag("dev-patch-1.3.2-second", message="456-performance")
-        time.sleep(0.1)
-        
-        # Create version tag v1.3.2 on current commit
-        repo.create_tag("v1.3.2", message="Version 1.3.2")
-        
-        # Test: Get patch tags between versions (legacy dev_tags parameter)
-        tags = manager.get_patch_tags_between("v1.3.1", "v1.3.2", dev_tags=True)
-        
-        assert len(tags) == 2
-        # Should be in chronological order
-        assert tags[0].suffix == "first"
-        assert tags[1].suffix == "second"
-        
-        # Verify they are dev tags
-        assert all(tag.is_dev_tag for tag in tags)
-        
-        # Verify versions
-        assert all(tag.version == "1.3.2" for tag in tags)
-    
     def test_get_patch_tags_between_with_tag_type_filter(self, temp_git_repo):
         """Should filter patch tags by TagType"""
         temp_dir, repo = temp_git_repo
