@@ -35,6 +35,7 @@ from datetime import datetime
 import git
 from git.exc import GitCommandError, InvalidGitRepositoryError
 from half_orm_dev.git_operations.git_tag_manager import TagType
+from half_orm_dev.git_operations.git_tag_manager import PatchReservationError
 
 # Import the classes we're testing (TDD - will fail initially)
 from half_orm_dev.git_operations.git_tag_manager import (
@@ -1528,6 +1529,80 @@ class TestPatchReservationConflicts:
         conflicts = manager.check_patch_reservation_conflicts("  456-performance  ")
         assert isinstance(conflicts, list)
 
+    def test_create_patch_reservation_success(self, temp_git_repo):
+        """Should create patch reservation tag successfully"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        reservation_tag = manager.create_patch_reservation("456-performance")
+        
+        assert reservation_tag.name == "create-patch-456-performance"
+        assert reservation_tag.tag_type == TagType.CREATE
+        assert reservation_tag.message == "456-performance"
+        assert reservation_tag.version is None
+        
+        # Verify tag exists in repo
+        assert manager.tag_exists("create-patch-456-performance")
+
+    def test_create_patch_reservation_conflict(self, temp_git_repo):
+        """Should detect and prevent reservation conflicts"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Create first reservation
+        manager.create_patch_reservation("456-performance")
+        
+        # Try to create same reservation again
+        with pytest.raises(GitTagManagerError, match="already exists"):
+            manager.create_patch_reservation("456-performance")
+
+    def test_create_patch_reservation_invalid_patch_id(self, temp_git_repo):
+        """Should reject invalid patch_id formats"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        invalid_patch_ids = ["", "   ", "invalid spaces", "bad@char", "../traversal"]
+        
+        for invalid_id in invalid_patch_ids:
+            with pytest.raises(PatchReservationError):
+                manager.create_patch_reservation(invalid_id)
+
+    def test_create_patch_with_full_workflow_success(self, temp_git_repo):
+        """Should execute complete patch creation workflow"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Remove existing directory to test creation
+        test_patch_dir = manager.schema_patches_dir / "999-new-feature"
+        if test_patch_dir.exists():
+            import shutil
+            shutil.rmtree(test_patch_dir)
+        
+        result = manager.create_patch_with_full_workflow("999-new-feature")
+        
+        assert result['patch_id'] == "999-new-feature"
+        assert result['created_directory'] is True
+        assert result['reservation_tag'] == "create-patch-999-new-feature"
+        assert test_patch_dir.exists()
+        
+        # Verify README was created
+        readme_file = test_patch_dir / "README.md"
+        assert readme_file.exists()
+        
+        # Verify reservation tag
+        assert manager.tag_exists("create-patch-999-new-feature")
+
+    def test_create_patch_with_full_workflow_existing_directory(self, temp_git_repo):
+        """Should work with existing SchemaPatches directory"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Use existing directory from fixture
+        result = manager.create_patch_with_full_workflow("456-performance")
+        
+        assert result['patch_id'] == "456-performance"
+        assert result['created_directory'] is False  # Already existed
+        assert result['reservation_tag'] == "create-patch-456-performance"
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, "-v", "--tb=short"])

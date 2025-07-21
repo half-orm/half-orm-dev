@@ -38,10 +38,10 @@ from enum import Enum
 from typing import List, Optional, Set, Dict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import git
 from git.exc import GitCommandError, InvalidGitRepositoryError
-
 
 class TagType(Enum):
     """
@@ -79,6 +79,10 @@ class TagValidationError(GitTagManagerError):
 
 class TransferError(GitTagManagerError):
     """Raised when dev-patch → patch transfer fails"""
+    pass
+
+class PatchReservationError(GitTagManagerError):
+    """Raised when patch reservation operations fail"""
     pass
 
 
@@ -309,11 +313,19 @@ class GitTagManager:
         if not tag_name or not isinstance(tag_name, str):
             return False
         
-        # Check if matches dev-patch or patch pattern
+        # Check if matches create-patch, dev-patch or patch pattern
+        create_patch_match = self.CREATE_PATCH_PATTERN.match(tag_name)
         dev_match = self.DEV_PATCH_PATTERN.match(tag_name)
         patch_match = self.PATCH_PATTERN.match(tag_name)
         
-        if dev_match or patch_match:
+        if create_patch_match:
+            # For create-patch tags, just validate patch_id is not empty
+            patch_id = create_patch_match.group(1)
+            if not patch_id or patch_id.endswith('-') or patch_id.startswith('-'):
+                return False
+            return True
+        
+        elif dev_match or patch_match:
             # Additional validation: suffix cannot be empty
             match = dev_match or patch_match
             version, suffix = match.groups()
@@ -800,6 +812,154 @@ class GitTagManager:
             
         except Exception as e:
             raise GitTagManagerError(f"Failed to check patch reservation conflicts: {e}")
+
+    def create_patch_reservation(self, patch_id: str) -> PatchTag:
+        """
+        Create a patch reservation tag to prevent conflicts.
+        
+        Creates a create-patch-{patch_id} tag after checking for conflicts
+        across all remote branches. This reserves the patch_id globally.
+        
+        Args:
+            patch_id (str): Patch identifier to reserve (e.g., "456-performance")
+            
+        Returns:
+            PatchTag: Created reservation tag information
+            
+        Raises:
+            GitTagManagerError: If patch_id is already reserved or creation fails
+            PatchReservationError: If patch_id format is invalid
+            
+        Example:
+            >>> tag = manager.create_patch_reservation("456-performance")
+            >>> print(f"Reserved: {tag.name}")
+        """
+        if not patch_id or not isinstance(patch_id, str):
+            raise PatchReservationError("patch_id must be a non-empty string")
+        
+        # Remove whitespace and validate format
+        patch_id = patch_id.strip()
+        if not patch_id:
+            raise PatchReservationError("patch_id cannot be empty or whitespace only")
+        
+        # Basic format validation for patch_id
+        if not re.match(r'^[a-zA-Z0-9_-]+$', patch_id):
+            raise PatchReservationError(f"patch_id contains invalid characters: '{patch_id}'")
+        
+        try:
+            # 1. Check for conflicts first
+            conflicts = self.check_patch_reservation_conflicts(patch_id)
+            if conflicts:
+                raise GitTagManagerError(
+                    f"Patch '{patch_id}' already reserved in branches: {', '.join(conflicts)}"
+                )
+            
+            # 2. Validate that SchemaPatches directory exists
+            if not self.validate_schema_patch_reference(patch_id):
+                raise PatchReservationError(
+                    f"SchemaPatches directory does not exist: {patch_id}. "
+                    f"Create SchemaPatches/{patch_id}/ before reserving."
+                )
+            
+            # 3. Create the reservation tag
+            tag_name = f'create-patch-{patch_id}'
+            
+            # Check if tag already exists locally
+            if self.tag_exists(tag_name):
+                raise GitTagManagerError(f"Reservation tag already exists: {tag_name}")
+            
+            # Create the Git tag with patch_id as message
+            reservation_tag = self.create_tag(tag_name, patch_id)
+            
+            return reservation_tag
+            
+        except (GitTagManagerError, PatchReservationError):
+            # Re-raise our exceptions as-is
+            raise
+        except Exception as e:
+            raise GitTagManagerError(f"Failed to create patch reservation '{patch_id}': {e}")
+
+    def create_patch_with_full_workflow(self, patch_id: str) -> Dict[str, Any]:
+        """
+        Create patch with complete workflow: directory + reservation + push.
+        
+        Orchestrates the complete patch creation workflow:
+        1. Create SchemaPatches/{patch_id}/ directory if not exists
+        2. Create reservation tag (create-patch-{patch_id})
+        3. Push reservation to remote for global conflict prevention
+        
+        Args:
+            patch_id (str): Patch identifier (e.g., "456-performance")
+            
+        Returns:
+            Dict[str, Any]: Workflow status and created resources
+            
+        Raises:
+            GitTagManagerError: If any step fails
+            PatchReservationError: If patch_id is invalid
+            
+        Example:
+            >>> result = manager.create_patch_with_full_workflow("456-performance")
+            >>> print(f"Created: {result['patch_directory']}")
+            >>> print(f"Reserved: {result['reservation_tag']}")
+        """
+        if not patch_id or not isinstance(patch_id, str):
+            raise PatchReservationError("patch_id must be a non-empty string")
+        
+        patch_id = patch_id.strip()
+        if not patch_id:
+            raise PatchReservationError("patch_id cannot be empty")
+        
+        workflow_result = {
+            'patch_id': patch_id,
+            'patch_directory': None,
+            'reservation_tag': None,
+            'pushed_to_remote': False,
+            'created_directory': False
+        }
+        
+        try:
+            # 1. Create SchemaPatches directory if it doesn't exist
+            patch_dir = self.schema_patches_dir / patch_id
+            if not patch_dir.exists():
+                patch_dir.mkdir(parents=True, exist_ok=True)
+                
+                # Create a README.md placeholder
+                readme_file = patch_dir / "README.md"
+                with open(readme_file, 'w') as f:
+                    f.write(f"# Patch {patch_id}\n\n")
+                    f.write("Add your SQL migration files to this directory.\n")
+                    f.write("Files are applied in alphabetical order.\n\n")
+                    f.write("## Example\n")
+                    f.write("```sql\n")
+                    f.write("-- 01_create_table.sql\n")
+                    f.write("CREATE TABLE example (id SERIAL PRIMARY KEY);\n")
+                    f.write("```\n")
+                
+                workflow_result['created_directory'] = True
+            
+            workflow_result['patch_directory'] = str(patch_dir)
+            
+            # 2. Create reservation tag
+            reservation_tag = self.create_patch_reservation(patch_id)
+            workflow_result['reservation_tag'] = reservation_tag.name
+            
+            # 3. Push to remote if configured
+            try:
+                if hasattr(self.repo, 'remotes') and self.repo.remotes:
+                    # Push the tag to origin
+                    self.repo.git.push('origin', reservation_tag.name)
+                    workflow_result['pushed_to_remote'] = True
+            except Exception as push_error:
+                # Push failure is not fatal - tag is created locally
+                workflow_result['push_error'] = str(push_error)
+            
+            return workflow_result
+            
+        except (GitTagManagerError, PatchReservationError):
+            raise
+        except Exception as e:
+            raise GitTagManagerError(f"Workflow failed for patch '{patch_id}': {e}")
 
     def get_all_remote_branches(self) -> List[str]:
         """
