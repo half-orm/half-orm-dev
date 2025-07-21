@@ -730,3 +730,98 @@ class GitTagManager:
             raise GitTagManagerError(f"Failed to checkout to {ref}: {e}")
         except Exception as e:
             raise GitTagManagerError(f"Unexpected error during checkout to {ref}: {e}")
+
+    def check_patch_reservation_conflicts(self, patch_id: str) -> List[str]:
+        """
+        Check for patch reservation conflicts across all remote branches.
+        
+        Scans all remote branches for existing create-patch-{patch_id} tags
+        to detect version conflicts before creating a new patch reservation.
+        
+        Args:
+            patch_id (str): Patch identifier to check (e.g., "456-performance")
+            
+        Returns:
+            List[str]: List of branch names where patch_id is already reserved
+            
+        Raises:
+            GitTagManagerError: If Git operations fail
+            
+        Example:
+            >>> conflicts = manager.check_patch_reservation_conflicts("456-performance")
+            >>> if conflicts:
+            >>>     print(f"Patch already reserved in: {conflicts}")
+        """
+        if not patch_id or not isinstance(patch_id, str):
+            raise GitTagManagerError("patch_id must be a non-empty string")
+        
+        # Remove whitespace and validate
+        patch_id = patch_id.strip()
+        if not patch_id:
+            raise GitTagManagerError("patch_id cannot be empty or whitespace only")
+        
+        try:
+            # Fetch latest remote state
+            for remote in self.repo.remotes:
+                remote.fetch()
+            
+            conflicts = []
+            reservation_tag_name = f"create-patch-{patch_id}"
+            
+            # Check all remote branches for the reservation tag
+            for remote in self.repo.remotes:
+                for ref in remote.refs:
+                    branch_name = ref.name  # e.g., "origin/ho-dev/1.3.x"
+                    
+                    try:
+                        # Check if reservation tag exists in this branch
+                        commit = ref.commit
+                        
+                        # Look for our reservation tag in this branch's history
+                        for tag in self.repo.tags:
+                            if tag.name == reservation_tag_name:
+                                # Check if this tag is reachable from this branch
+                                try:
+                                    # Use git merge-base to check if tag is in branch history
+                                    merge_base = self.repo.git.merge_base(tag.commit.hexsha, commit.hexsha)
+                                    if merge_base == tag.commit.hexsha:
+                                        # Tag is in this branch's history
+                                        conflicts.append(branch_name)
+                                        break
+                                except Exception:
+                                    # If merge-base fails, skip this check
+                                    continue
+                                    
+                    except Exception:
+                        # Skip branches we can't access
+                        continue
+            
+            return conflicts
+            
+        except Exception as e:
+            raise GitTagManagerError(f"Failed to check patch reservation conflicts: {e}")
+
+    def get_all_remote_branches(self) -> List[str]:
+        """
+        Get list of all remote branch names.
+        
+        Returns:
+            List[str]: Remote branch names (e.g., ["origin/main", "origin/ho-dev/1.3.x"])
+            
+        Raises:
+            GitTagManagerError: If Git operations fail
+        """
+        try:
+            # Fetch latest remote state
+            for remote in self.repo.remotes:
+                remote.fetch()
+            
+            remote_branches = []
+            for remote in self.repo.remotes:
+                for ref in remote.refs:
+                    remote_branches.append(ref.name)
+            
+            return remote_branches
+            
+        except Exception as e:
+            raise GitTagManagerError(f"Failed to get remote branches: {e}")

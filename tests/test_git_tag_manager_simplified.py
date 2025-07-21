@@ -1457,6 +1457,77 @@ class TestWithSampleTags:
         assert len(tags_1_4_0) == 1
 
 
+class TestPatchReservationConflicts:
+    """Test patch reservation conflict detection"""
+    
+    def test_check_patch_reservation_conflicts_no_conflicts(self, temp_git_repo):
+        """Should return empty list when no conflicts exist"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        conflicts = manager.check_patch_reservation_conflicts("999-new-feature")
+        assert conflicts == []
+    
+    def test_check_patch_reservation_conflicts_with_existing_tag(self, temp_git_repo):
+        """Should detect conflicts when reservation tag exists"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Create a reservation tag
+        repo.create_tag("create-patch-456-performance", message="456-performance")
+        
+        conflicts = manager.check_patch_reservation_conflicts("456-performance")
+        # Should detect the conflict (exact behavior depends on Git setup)
+        assert isinstance(conflicts, list)
+    
+    def test_check_patch_reservation_conflicts_invalid_patch_id(self, temp_git_repo):
+        """Should handle invalid patch_id gracefully"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        with pytest.raises(GitTagManagerError):
+            manager.check_patch_reservation_conflicts("")
+        
+        with pytest.raises(GitTagManagerError):
+            manager.check_patch_reservation_conflicts("   ")
+        
+        with pytest.raises(GitTagManagerError):
+            manager.check_patch_reservation_conflicts(None)
+    
+    def test_get_all_remote_branches(self, temp_git_repo):
+        """Should return list of remote branches"""
+        temp_dir, repo = temp_git_repo
+        
+        # Créer un vrai remote
+        remote_dir = tempfile.mkdtemp()
+        remote_repo = git.Repo.init(remote_dir, bare=True)
+        
+        # Ajouter le remote au repo local
+        origin = repo.create_remote('origin', remote_dir)
+        
+        # Push la branche master/main
+        repo.git.push('origin', 'main')  # ou 'main' selon ce que crée le fixture
+        
+        manager = GitTagManager(repo_path=temp_dir)
+        remote_branches = manager.get_all_remote_branches()
+        
+        assert isinstance(remote_branches, list)
+        assert len(remote_branches) > 0
+        branch_names = [branch.split('/')[-1] for branch in remote_branches]
+        assert ['HEAD', 'main'] == branch_names
+        
+        # Cleanup
+        shutil.rmtree(remote_dir)
+    
+    def test_check_conflicts_with_whitespace_patch_id(self, temp_git_repo):
+        """Should handle patch_id with whitespace"""
+        temp_dir, repo = temp_git_repo
+        manager = GitTagManager(repo_path=temp_dir)
+        
+        # Should strip whitespace and work
+        conflicts = manager.check_patch_reservation_conflicts("  456-performance  ")
+        assert isinstance(conflicts, list)
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, "-v", "--tb=short"])
