@@ -11,7 +11,7 @@ import tempfile
 import shutil
 import subprocess
 from unittest import TestCase
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, PropertyMock
 import git
 from git.exc import GitCommandError
 
@@ -20,6 +20,7 @@ from half_orm_dev.hgit import HGit
 from half_orm_dev.repo import Repo
 from half_orm import utils
 
+from integration_setup import IntegrationTestBase
 
 class TestHGitGitCentricWorkflow(TestCase):
     """Test suite for the Git-centric workflow in HGit"""
@@ -472,6 +473,168 @@ class TestIntegrationWithRepo(TestHGitGitCentricWorkflow):
             
             mock_error.assert_called()
 
+
+class TestHGitBranchClassification(IntegrationTestBase):
+    """Test HGit branch classification methods"""
+    
+    def test_is_dev_branch_on_ho_dev(self):
+        """Should return True on ho-dev/* branches"""
+        # Create and switch to ho-dev branch
+        self.create_and_push_branch('1.3.0', push=False)  # Creates ho_1.3.0
+        
+        # Create proper ho-dev branch
+        ho_dev_branch = self.git_repo.create_head('ho-dev/1.3.x')
+        ho_dev_branch.checkout()
+        
+        self.assertTrue(self.hgit.is_dev_branch())
+        self.assertFalse(self.hgit.is_prod_branch())
+        self.assertFalse(self.hgit.is_main_branch())
+    
+    def test_is_prod_branch_on_ho(self):
+        """Should return True on ho/* branches (but not ho-dev/*)"""
+        # Create and switch to ho branch
+        ho_branch = self.git_repo.create_head('ho/1.3.x')
+        ho_branch.checkout()
+        
+        self.assertFalse(self.hgit.is_dev_branch())
+        self.assertTrue(self.hgit.is_prod_branch())
+        self.assertFalse(self.hgit.is_main_branch())
+    
+    def test_is_main_branch_on_hop_main(self):
+        """Should return True on hop_main branch"""
+        # Switch to hop_main
+        self.switch_to_main()
+        
+        self.assertFalse(self.hgit.is_dev_branch())
+        self.assertFalse(self.hgit.is_prod_branch())
+        self.assertTrue(self.hgit.is_main_branch())
+    
+    def test_branch_classification_on_other_branches(self):
+        """Should return False for all classifications on non-HOP branches"""
+        # Create and switch to random branch
+        random_branch = self.git_repo.create_head('feature/some-feature')
+        random_branch.checkout()
+        
+        self.assertFalse(self.hgit.is_dev_branch())
+        self.assertFalse(self.hgit.is_prod_branch())
+        self.assertFalse(self.hgit.is_main_branch())
+    
+    def test_get_branch_type_dev(self):
+        """Should return 'dev' for ho-dev branches"""
+        ho_dev_branch = self.git_repo.create_head('ho-dev/2.0.x')
+        ho_dev_branch.checkout()
+        
+        self.assertEqual(self.hgit.get_branch_type(), 'dev')
+    
+    def test_get_branch_type_prod(self):
+        """Should return 'prod' for ho branches"""
+        ho_branch = self.git_repo.create_head('ho/2.0.x')
+        ho_branch.checkout()
+        
+        self.assertEqual(self.hgit.get_branch_type(), 'prod')
+    
+    def test_get_branch_type_main(self):
+        """Should return 'main' for hop_main branch"""
+        self.switch_to_main()
+        
+        self.assertEqual(self.hgit.get_branch_type(), 'main')
+    
+    def test_get_branch_type_other(self):
+        """Should return 'other' for non-HOP branches"""
+        feature_branch = self.git_repo.create_head('feature/new-feature')
+        feature_branch.checkout()
+        
+        self.assertEqual(self.hgit.get_branch_type(), 'other')
+    
+    def test_validate_branch_for_operation_create_patch(self):
+        """Should validate create_patch operation only on dev branches"""
+        # On dev branch - should be allowed
+        ho_dev_branch = self.git_repo.create_head('ho-dev/1.4.x')
+        ho_dev_branch.checkout()
+        self.assertTrue(self.hgit.validate_branch_for_operation('create_patch'))
+        
+        # On prod branch - should be denied
+        ho_branch = self.git_repo.create_head('ho/1.4.x')
+        ho_branch.checkout()
+        self.assertFalse(self.hgit.validate_branch_for_operation('create_patch'))
+        
+        # On main branch - should be denied
+        self.switch_to_main()
+        self.assertFalse(self.hgit.validate_branch_for_operation('create_patch'))
+    
+    def test_validate_branch_for_operation_dev_tag(self):
+        """Should validate dev_tag operation only on dev branches"""
+        # On dev branch - should be allowed
+        ho_dev_branch = self.git_repo.create_head('ho-dev/1.5.x')
+        ho_dev_branch.checkout()
+        self.assertTrue(self.hgit.validate_branch_for_operation('dev_tag'))
+        
+        # On prod branch - should be denied
+        ho_branch = self.git_repo.create_head('ho/1.5.x')
+        ho_branch.checkout()
+        self.assertFalse(self.hgit.validate_branch_for_operation('dev_tag'))
+    
+    def test_validate_branch_for_operation_prod_tag(self):
+        """Should validate prod_tag operation only on prod branches"""
+        # On prod branch - should be allowed
+        ho_branch = self.git_repo.create_head('ho/1.6.x')
+        ho_branch.checkout()
+        self.assertTrue(self.hgit.validate_branch_for_operation('prod_tag'))
+        
+        # On dev branch - should be denied
+        ho_dev_branch = self.git_repo.create_head('ho-dev/1.6.x')
+        ho_dev_branch.checkout()
+        self.assertFalse(self.hgit.validate_branch_for_operation('prod_tag'))
+    
+    def test_validate_branch_for_operation_release(self):
+        """Should validate release operation on main and prod branches"""
+        # On main branch - should be allowed
+        self.switch_to_main()
+        self.assertTrue(self.hgit.validate_branch_for_operation('release'))
+        
+        # On prod branch - should be allowed
+        ho_branch = self.git_repo.create_head('ho/1.7.x')
+        ho_branch.checkout()
+        self.assertTrue(self.hgit.validate_branch_for_operation('release'))
+        
+        # On dev branch - should be denied
+        ho_dev_branch = self.git_repo.create_head('ho-dev/1.7.x')
+        ho_dev_branch.checkout()
+        self.assertFalse(self.hgit.validate_branch_for_operation('release'))
+    
+    def test_validate_branch_for_operation_prepare(self):
+        """Should validate prepare operation only on main branch"""
+        # On main branch - should be allowed
+        self.switch_to_main()
+        self.assertTrue(self.hgit.validate_branch_for_operation('prepare'))
+        
+        # On other branches - should be denied
+        ho_dev_branch = self.git_repo.create_head('ho-dev/1.8.x')
+        ho_dev_branch.checkout()
+        self.assertFalse(self.hgit.validate_branch_for_operation('prepare'))
+        
+        ho_branch = self.git_repo.create_head('ho/1.8.x')
+        ho_branch.checkout()
+        self.assertFalse(self.hgit.validate_branch_for_operation('prepare'))
+    
+    def test_validate_branch_for_operation_unknown(self):
+        """Should deny unknown operations"""
+        self.switch_to_main()
+        self.assertFalse(self.hgit.validate_branch_for_operation('unknown_operation'))
+    
+    def test_branch_classification_error_handling(self):
+        """Should handle errors gracefully when branch detection fails"""
+        # Mock the branch property to raise an exception
+        with patch.object(type(self.hgit), 'branch', new_callable=PropertyMock) as mock_branch:
+            mock_branch.side_effect = Exception("Git error")
+            
+            # Should return False for all classifications when error occurs
+            self.assertFalse(self.hgit.is_dev_branch())
+            self.assertFalse(self.hgit.is_prod_branch())
+            self.assertFalse(self.hgit.is_main_branch())
+            
+            # get_branch_type should return 'other' on error
+            self.assertEqual(self.hgit.get_branch_type(), 'other')
 
 if __name__ == '__main__':
     import unittest

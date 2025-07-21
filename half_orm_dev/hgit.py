@@ -754,3 +754,139 @@ CREATE TABLE users (
                     
             except Exception as err:
                 utils.warning(f'Failed to cleanup branch {branch_name}: {err}\n')
+
+
+    def is_dev_branch(self) -> bool:
+        """
+        Check if current branch is a development branch (ho-dev/*).
+        
+        Development branches are used for:
+        - Creating patch reservations (create-patch-*)
+        - Development validation tags (dev-patch-*)
+        
+        Returns:
+            bool: True if current branch is ho-dev/*
+            
+        Examples:
+            >>> hgit.is_dev_branch()  # On ho-dev/1.3.x
+            True
+            >>> hgit.is_dev_branch()  # On ho/1.3.x  
+            False
+        """
+        try:
+            current_branch = self.branch
+            return current_branch.startswith('ho-dev/')
+        except Exception:
+            # If we can't determine branch, assume False for safety
+            return False
+
+
+    def is_prod_branch(self) -> bool:
+        """
+        Check if current branch is a production branch (ho/*).
+        
+        Production branches are used for:
+        - Production deployment tags (patch-*)
+        - Release management
+        
+        Note: ho-dev/* branches are NOT considered production branches.
+        
+        Returns:
+            bool: True if current branch is ho/* but not ho-dev/*
+            
+        Examples:
+            >>> hgit.is_prod_branch()  # On ho/1.3.x
+            True
+            >>> hgit.is_prod_branch()  # On ho-dev/1.3.x
+            False
+            >>> hgit.is_prod_branch()  # On hop_main
+            False
+        """
+        try:
+            current_branch = self.branch
+            return current_branch.startswith('ho/') and not current_branch.startswith('ho-dev/')
+        except Exception:
+            # If we can't determine branch, assume False for safety
+            return False
+
+
+    def is_main_branch(self) -> bool:
+        """
+        Check if current branch is the main development branch (hop_main).
+        
+        Main branch is used for:
+        - Overall project coordination
+        - Integration of completed features
+        
+        Returns:
+            bool: True if current branch is hop_main
+            
+        Examples:
+            >>> hgit.is_main_branch()  # On hop_main
+            True
+            >>> hgit.is_main_branch()  # On ho-dev/1.3.x
+            False
+        """
+        try:
+            current_branch = self.branch
+            return current_branch == 'hop_main'
+        except Exception:
+            # If we can't determine branch, assume False for safety
+            return False
+
+
+    def get_branch_type(self) -> str:
+        """
+        Get the type of the current branch.
+        
+        Returns:
+            str: Branch type - 'dev', 'prod', 'main', or 'other'
+            
+        Examples:
+            >>> hgit.get_branch_type()  # On ho-dev/1.3.x
+            'dev'
+            >>> hgit.get_branch_type()  # On ho/1.3.x
+            'prod'
+            >>> hgit.get_branch_type()  # On hop_main
+            'main'
+            >>> hgit.get_branch_type()  # On feature/something
+            'other'
+        """
+        if self.is_dev_branch():
+            return 'dev'
+        elif self.is_prod_branch():
+            return 'prod'
+        elif self.is_main_branch():
+            return 'main'
+        else:
+            return 'other'
+
+
+    def validate_branch_for_operation(self, operation: str) -> bool:
+        """
+        Validate if current branch is appropriate for a given operation.
+        
+        Args:
+            operation (str): Operation to validate ('create_patch', 'dev_tag', 'prod_tag', 'release')
+            
+        Returns:
+            bool: True if operation is allowed on current branch
+            
+        Examples:
+            >>> hgit.validate_branch_for_operation('create_patch')  # On ho-dev/1.3.x
+            True
+            >>> hgit.validate_branch_for_operation('prod_tag')     # On ho-dev/1.3.x
+            False
+        """
+        branch_type = self.get_branch_type()
+        
+        operation_rules = {
+            'create_patch': ['dev'],           # create-patch-* tags
+            'dev_tag': ['dev'],               # dev-patch-* tags
+            'prod_tag': ['prod'],             # patch-* tags
+            'release': ['main', 'prod'],      # Version releases
+            'prepare': ['main'],              # hop prepare
+        }
+        
+        allowed_branches = operation_rules.get(operation, [])
+        return branch_type in allowed_branches
