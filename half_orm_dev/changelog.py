@@ -24,14 +24,14 @@ class Changelog:
     __log_dict = {}
     __releases = []
     def __init__(self, repo):
-        self.__repo = repo
-        self.__file = os.path.join(self.__repo.base_dir, '.hop', 'CHANGELOG')
+        self._repo = repo
+        self.__file = os.path.join(self._repo.base_dir, '.hop', 'CHANGELOG')
         if not os.path.exists(self.__file):
             utils.write(
                 self.__file,
-                f'{hop_version()}\t{self.__repo.database.last_release_s}\tInitial\t\n')
-            self.__repo.hgit.add(self.__file)
-            self.__repo.hgit.commit('-m', '[hop] Initial CHANGELOG')
+                f'{hop_version()}\t{self._repo.database.last_release_s}\tInitial\t\n')
+            self._repo.hgit.add(self.__file)
+            self._repo.hgit.commit('-m', '[hop] Initial CHANGELOG')
         self.__seq()
 
     def __seq(self):
@@ -76,8 +76,8 @@ class Changelog:
             else:
                 out.append(f'{hop_version()}\t{release}\t{commit}\t\n')
         utils.write(self.__file, ''.join(out))
-        self.__repo.hgit.add(self.__file)
-        # self.__repo.hgit.commit('-m', f'[hop][{release}] CHANGELOG')
+        self._repo.hgit.add(self.__file)
+        # self._repo.hgit.commit('-m', f'[hop][{release}] CHANGELOG')
         self.__seq()
 
     def previous(self, release, index):
@@ -104,7 +104,7 @@ class Changelog:
     @property
     def releases_to_apply_in_prod(self):
         "Returns the list of releases to apply in production"
-        current = self.__repo.database.last_release_s
+        current = self._repo.database.last_release_s
         releases_to_apply = []
         to_apply = False
         for elt in self.__log_list:

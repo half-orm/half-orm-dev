@@ -14,7 +14,7 @@ class HGit:
     "Manages the git operations on the repo."
     def __init__(self, repo=None):
         self.__origin = None
-        self.__repo = repo
+        self._repo = repo
         self.__base_dir = None
         self.__git_repo: git.Repo = None
         if repo:
@@ -30,7 +30,7 @@ class HGit:
         except Exception as err:
             utils.warning(utils.Color.red(f"No origin\n{err}\n"))
         if self.__origin == '' and origin:
-            self.__repo.git_origin = origin
+            self._repo.git_origin = origin
             self.add(os.path.join('.hop', 'config'))
             self.commit("-m", f"[hop] Set remote for origin: {origin}.")
             self.__git_repo.git.push('-u', 'origin', 'hop_main')
@@ -135,7 +135,7 @@ class HGit:
             
             # Create patch directory structure
             patch_dir = os.path.join(
-                self.__repo.base_dir, 
+                self._repo.base_dir, 
                 'Patches', 
                 major, 
                 minor, 
@@ -176,7 +176,7 @@ CREATE TABLE users (
             print(f'✅ Created patch structure: {patch_dir}')
             
             # Immediate push for version reservation (if remote exists)
-            if self.__repo.git_origin:
+            if self._repo.git_origin:
                 self.immediate_branch_push(rel_branch)
                 print(f'NEW branch {rel_branch} - pushed to origin for version reservation')
             else:
@@ -198,7 +198,7 @@ CREATE TABLE users (
         
         Adds minimal entry without SHA (Git branches are source of truth).
         """
-        changelog_file = self.__repo.changelog.file
+        changelog_file = self._repo.changelog.file
         
         # Read current changelog
         with open(changelog_file, 'r', encoding='utf-8') as f:
@@ -235,7 +235,7 @@ CREATE TABLE users (
 
     def rebase_devel_branches(self, release_s):
         "Rebase all hop_x.y.z branches in devel different from release_s on hop_main:HEAD"
-        for release in self.__repo.changelog.releases_in_dev:
+        for release in self._repo.changelog.releases_in_dev:
             if release != release_s:
                 self.__git_repo.git.checkout(f'hop_{release}')
                 self.__git_repo.git.rebase('hop_main')
@@ -246,7 +246,7 @@ CREATE TABLE users (
             git.branch("-D", "hop_temp")
         except GitCommandError:
             pass
-        for release in self.__repo.changelog.releases_in_dev:
+        for release in self._repo.changelog.releases_in_dev:
             git.checkout(f'hop_{release}')
             git.checkout("HEAD", b="hop_temp")
             try:
@@ -261,7 +261,7 @@ CREATE TABLE users (
     def rebase_to_hop_main(self, push=False):
         "Rebase a hop_X.Y.Z branch to hop_main with Git-centric enhancements"
         release = self.current_release
-        if push and not self.__repo.git_origin:
+        if push and not self._repo.git_origin:
             utils.error("Git: No remote specified for \"origin\". Can't push!\n", 1)
         try:
             if self.__origin:
@@ -270,9 +270,9 @@ CREATE TABLE users (
             self.__git_repo.git.rebase('hop_main')
             self.__git_repo.git.checkout('hop_main')
             self.__git_repo.git.rebase(f'hop_{release}')
-            self.__repo.changelog.update_release(
-                self.__repo.database.last_release_s,
-                self.__repo.hgit.last_commit(),
+            self._repo.changelog.update_release(
+                self._repo.database.last_release_s,
+                self._repo.hgit.last_commit(),
                 hop_main_last_commit)
             patch_dir = os.path.join(self.__base_dir, 'Patches', *release.split('.'))
             manifest = Manifest(patch_dir)
@@ -535,7 +535,7 @@ CREATE TABLE users (
             SystemExit: If no origin configured or push conflicts
         """
         # Check if origin is configured
-        if not self.__repo.git_origin:
+        if not self._repo.git_origin:
             utils.error("Git: No remote specified for \"origin\". Can't push!\n", 1)
         
         try:
@@ -669,7 +669,7 @@ CREATE TABLE users (
             maint_branch = self.__git_repo.create_head(maintenance_branch)
             
             # Push to reserve the branch
-            if self.__repo.git_origin:
+            if self._repo.git_origin:
                 self.immediate_branch_push(maintenance_branch)
                 print(f"✅ Created maintenance branch: {maintenance_branch}")
                 print(f"✅ Reserved version: {maintenance_branch} pushed to origin")

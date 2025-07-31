@@ -24,9 +24,9 @@ class Patch:
     __levels = ['patch', 'minor', 'major']
 
     def __init__(self, repo):
-        self.__repo = repo
+        self._repo = repo
         self.__patches_base_dir = os.path.join(repo.base_dir, 'Patches')
-        if self.__repo.devel:
+        if self._repo.devel:
             self.__changelog = Changelog(repo)
             if not os.path.exists(self.__patches_base_dir):
                 os.makedirs(self.__patches_base_dir)
@@ -43,13 +43,13 @@ class Patch:
 
     @property
     def __next_releases(self):
-        db_last_release = self.__repo.database.last_release_s
+        db_last_release = self._repo.database.last_release_s
         ch_last_release = self.__changelog.last_release
         if db_last_release != ch_last_release:
             utils.error(
                 f'Last release mismatch between database {db_last_release}'
                 f' and CHANGELOG {ch_last_release}!\n', 1)
-        current = dict(self.__repo.database.last_release)
+        current = dict(self._repo.database.last_release)
         releases_in_dev = self.__changelog.releases_in_dev
         n_rels = {}
         for level in self.__levels:
@@ -67,7 +67,7 @@ class Patch:
         return n_rels
 
     def __assert_main_branch(self):
-        if str(self.__repo.hgit.branch) != 'hop_main':
+        if str(self._repo.hgit.branch) != 'hop_main':
             utils.error(
                 'ERROR! Wrong branch. Please, switch to the hop_main branch before.\n', exit_code=1)
 
@@ -79,14 +79,14 @@ class Patch:
         Args:
             release_level (str): one of ['patch', 'minor', 'major']
         """
-        if not self.__repo.hgit.repos_is_clean():
+        if not self._repo.hgit.repos_is_clean():
             utils.error('There are uncommited changes. Please commit your changes before using `hop prepare`\n', exit_code=1)
-        if self.__repo.database.last_release_s != self.__changelog.last_release:
+        if self._repo.database.last_release_s != self.__changelog.last_release:
             try:
                 self.__restore_db(self.__changelog.last_release)
             except FileNotFoundError as exc:
                 utils.error(f'No backup file for release {self.__changelog.last_release}\n{exc}\n', exit_code=1)
-        self.__repo.hgit.checkout_to_hop_main()
+        self._repo.hgit.checkout_to_hop_main()
         next_releases = self.__next_releases
         if release_level is None:
             next_levels = '\n'.join(
@@ -99,7 +99,7 @@ class Patch:
                 utils.error(f"Wrong release level ({release_level}).\n", exit_code=1)
         elif next_releases[release_level]['in_dev']:
             utils.error(f'{release_level} is alredy in development!\n', 1)
-        next_release = dict(self.__repo.database.last_release)
+        next_release = dict(self._repo.database.last_release)
         next_release[release_level] = next_release[release_level] + 1
         if release_level == 'major':
             next_release['minor'] = next_release['patch'] = 0
@@ -107,7 +107,7 @@ class Patch:
             next_release['patch'] = 0
         new_release_s = '{major}.{minor}.{patch}'.format(**next_release)
         rel_branch = f'hop_{new_release_s}'
-        if self.__repo.hgit.branch_exists(rel_branch):
+        if self._repo.hgit.branch_exists(rel_branch):
             utils.error(f'{rel_branch} already exists!\n', 1)
         print(f'PREPARING: {new_release_s}')
         patch_path = os.path.join(
@@ -127,24 +127,24 @@ class Patch:
                     'changelog_msg': changelog_msg,
                 }))
         self.__changelog.new_release(new_release_s)
-        self.__repo.hgit.set_branch(new_release_s)
+        self._repo.hgit.set_branch(new_release_s)
         print('You can now add your patch scripts (*.py, *.sql)'
             f'in {patch_path}. See Patches/README.')
-        modules.generate(self.__repo)
+        modules.generate(self._repo)
 
     def __check_apply_or_re_apply(self):
         """Return True if it's the first time.
         False otherwise.
         """
-        if self.__repo.database.last_release_s == self.__repo.hgit.current_release:
+        if self._repo.database.last_release_s == self._repo.hgit.current_release:
             return 're-apply'
         return 'apply'
 
     def __backup_file(self, directory, release, commit=None):
-        backup_dir = os.path.join(self.__repo.base_dir, directory)
+        backup_dir = os.path.join(self._repo.base_dir, directory)
         if not os.path.isdir(backup_dir):
             os.mkdir(backup_dir)
-        file_name = f'{self.__repo.name}-{release}'
+        file_name = f'{self._repo.name}-{release}'
         if commit:
             file_name = f'{file_name}-{commit}'
         return os.path.join(backup_dir, f'{file_name}.sql')
@@ -153,8 +153,8 @@ class Patch:
         """Save the database
         """
         commit = None
-        if self.__repo.production:
-            commit = self.__repo.hgit.last_commit()
+        if self._repo.production:
+            commit = self._repo.hgit.last_commit()
         svg_file = self.__backup_file('Backups', release, commit)
         print(f'Saving the database into {svg_file}')
         if os.path.isfile(svg_file):
@@ -163,7 +163,7 @@ class Patch:
             utils.warning("Please remove it if you really want to proceed.\n")
             sys.exit(1)
 
-        self.__repo.database.execute_pg_command(
+        self._repo.database.execute_pg_command(
             'pg_dump', '-f', svg_file, stderr=subprocess.PIPE)
 
     def __restore_db(self, release):
@@ -173,15 +173,15 @@ class Patch:
         if not os.path.exists(backup_file):
             raise FileNotFoundError(backup_file)
         print(f'{utils.Color.green("Restoring the database to")} {utils.Color.bold(release)}')
-        self.__repo.model.disconnect()
-        self.__repo.database.execute_pg_command('dropdb')
-        self.__repo.database.execute_pg_command('createdb')
-        self.__repo.database.execute_pg_command(
+        self._repo.model.disconnect()
+        self._repo.database.execute_pg_command('dropdb')
+        self._repo.database.execute_pg_command('createdb')
+        self._repo.database.execute_pg_command(
             'psql', '-f', backup_file, stdout=subprocess.DEVNULL)
-        self.__repo.model.ping()
+        self._repo.model.ping()
 
     def __restore_previous_release(self):
-        db_release = self.__repo.database.last_release_s
+        db_release = self._repo.database.last_release_s
         self.__restore_db(db_release)
         os.remove(self.__backup_file('Backups', db_release))
         sys.exit(1)
@@ -192,7 +192,7 @@ class Patch:
         if len(query) == 0:
             return
         try:
-            self.__repo.model.execute_query(query)
+            self._repo.model.execute_query(query)
         except psycopg2.Error as err:
             utils.error(f'Problem with query in {file_.name}\n{err}\n')
             self.__restore_previous_release()
@@ -204,11 +204,11 @@ class Patch:
                 python_path = python_path.split(':')
             else:
                 python_path = []
-            if self.__repo.base_dir:
-                os.environ.update({'PYTHONPATH': ':'.join([self.__repo.base_dir] + python_path)})
+            if self._repo.base_dir:
+                os.environ.update({'PYTHONPATH': ':'.join([self._repo.base_dir] + python_path)})
             subprocess.run(
                 ['python', file_.path],
-                cwd=self.__repo.base_dir,
+                cwd=self._repo.base_dir,
                 env=os.environ,
                 shell=False, check=True)
         except subprocess.CalledProcessError as err:
@@ -240,36 +240,36 @@ class Patch:
 
         The history is first rebased on hop_main
         """
-        if self.__repo.hgit.repos_is_clean():
-            self.__repo.hgit.rebase('hop_main')
-        db_release = self.__repo.database.last_release_s
+        if self._repo.hgit.repos_is_clean():
+            self._repo.hgit.rebase('hop_main')
+        db_release = self._repo.database.last_release_s
         changelog_msg = ''
         if self.__check_apply_or_re_apply() == 'apply' and save_db:
             self.__save_db(db_release)
-        elif not self.__repo.production:
+        elif not self._repo.production:
             if not force:
                 okay = input(f'Do you want to re-apply the release {release} [y/N]?') or 'y'
                 if okay.upper() != 'Y':
                     sys.exit()
             self.__restore_db(self.previous(db_release, 1))
-        app_upg = utils.Color.green('Upgrading to') if self.__repo.production else utils.Color.bold('Applying')
+        app_upg = utils.Color.green('Upgrading to') if self._repo.production else utils.Color.bold('Applying')
         major, minor, patch = release.split('.')
         print(utils.Color.green("Pre patch:"))
         self.__apply(os.path.join(self.__patches_base_dir, 'pre'))
         print(f'{app_upg} {utils.Color.green(release)}:')
         self.__apply(os.path.join(self.__patches_base_dir, major, minor, patch))
-        if not self.__repo.production:
-            modules.generate(self.__repo)
+        if not self._repo.production:
+            modules.generate(self._repo)
         print(utils.Color.green("Post patch:"))
         self.__apply(os.path.join(self.__patches_base_dir, 'post'))
-        self.__repo.database.register_release(major, minor, patch, changelog_msg)
+        self._repo.database.register_release(major, minor, patch, changelog_msg)
 
     @property
     def state(self):
         "The state of a patch"
-        if not self.__repo.devel:
+        if not self._repo.devel:
             return 'This repo is not in developement mode.'
-        if not self.__repo.production:
+        if not self._repo.production:
             resp = ['[Releases in development]']
             if len(self.__changelog.releases_in_dev) == 0:
                 resp.append("No release in development.\nUse `hop prepare`.")
@@ -286,35 +286,35 @@ class Patch:
 
     def undo(self, database_only=False):
         "Undo a patch."
-        db_release = self.__repo.database.last_release_s
+        db_release = self._repo.database.last_release_s
         previous_release = self.previous(db_release, 1)
         self.__restore_db(previous_release)
         if not database_only:
-            modules.generate(self.__repo)
+            modules.generate(self._repo)
         os.remove(self.__backup_file('Backups', previous_release))
 
     def sync_package(self):
         "Synchronise the package with the current database model"
-        modules.generate(self.__repo)
+        modules.generate(self._repo)
 
     def release(self, push):
         "Release a patch"
         # We must be on the first branch in devel (see CHANGELOG)
-        next_release = self.__repo.changelog.releases_in_dev[0]
+        next_release = self._repo.changelog.releases_in_dev[0]
         next_branch = f'hop_{next_release}'
-        if next_branch != self.__repo.hgit.branch:
+        if next_branch != self._repo.hgit.branch:
             utils.error(f'Next release is {next_release} Please switch to the branch {next_branch}!\n', 1)
         # Git repo must be clean
-        if not self.__repo.hgit.repos_is_clean():
+        if not self._repo.hgit.repos_is_clean():
             utils.error(
                 f'Please `git commit` your changes before releasing {next_release}.\n', exit_code=1)
         # The patch must be applied and the last to apply
-        if self.__repo.database.last_release_s != next_release:
+        if self._repo.database.last_release_s != next_release:
             utils.error(f'Please `hop test` before releasing {next_release}.\n', exit_code=1)
         # If we undo the patch (db only) and re-apply it the repo must still be clear.
         self.undo(database_only=True)
         self.apply(next_release, force=True)
-        if not self.__repo.hgit.repos_is_clean():
+        if not self._repo.hgit.repos_is_clean():
             utils.error(
                 'Something has changed when re-applying the release. This should not happen.\n',
                 exit_code=1)
@@ -327,19 +327,19 @@ class Patch:
             # So far, so good
             svg_file = self.__backup_file('Releases', next_release)
             print(f'Saving the database into {svg_file}')
-            self.__repo.database.execute_pg_command(
+            self._repo.database.execute_pg_command(
                 'pg_dump', '-xO', '-f', svg_file, stderr=subprocess.PIPE)
-            self.__repo.hgit.add(svg_file)
-            self.__repo.hgit.commit("-m", f"Add sql for release {next_release}")
-            self.__repo.hgit.rebase_to_hop_main(push)
+            self._repo.hgit.add(svg_file)
+            self._repo.hgit.commit("-m", f"Add sql for release {next_release}")
+            self._repo.hgit.rebase_to_hop_main(push)
         else:
             utils.error('pytest is not installed!\n', 1)
 
     def upgrade_prod(self):
         "Upgrade the production"
         self.__assert_main_branch()
-        self.__save_db(self.__repo.database.last_release_s)
-        for release in self.__repo.changelog.releases_to_apply_in_prod:
+        self.__save_db(self._repo.database.last_release_s)
+        for release in self._repo.changelog.releases_to_apply_in_prod:
             self.apply(release, save_db=False)
 
     def restore(self, release):

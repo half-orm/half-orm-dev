@@ -18,25 +18,25 @@ class Database:
     """
 
     def __init__(self, repo, get_release=True):
-        self.__repo = repo
+        self._repo = repo
         self.__model = None
         self.__last_release = None
-        self.__connection_params: DbConn = DbConn(self.__repo.name)
-        if self.__repo.name:
+        self.__connection_params: DbConn = DbConn(self._repo.name)
+        if self._repo.name:
             try:
-                self.__model = Model(self.__repo.name)
-                self.__init(self.__repo.name, get_release)
+                self.__model = Model(self._repo.name)
+                self.__init(self._repo.name, get_release)
             except OperationalError as err:
-                if not self.__repo.new:
+                if not self._repo.new:
                     utils.error(err, 1)
 
     def __call__(self, name):
-        return self.__class__(self.__repo)
+        return self.__class__(self._repo)
 
     def __init(self, name, get_release=True):
         self.__name = name
         self.__connection_params = DbConn(name)
-        if get_release and self.__repo.devel:
+        if get_release and self._repo.devel:
             self.__last_release = self.last_release
 
     @property
@@ -67,7 +67,7 @@ class Database:
         prod = utils.Color.blue(
             True) if self.__connection_params.production else False
         res.append(f'- production: {prod}')
-        if self.__repo.devel:
+        if self._repo.devel:
             res.append(f'- last release: {self.last_release_s}')
         return '\n'.join(res)
 
@@ -102,7 +102,7 @@ class Database:
                 utils.error(
                     f'Aborting! Please remove {self.__name} directory.\n', exit_code=1)
         self.__model = Model(self.__name)
-        if self.__repo.devel:
+        if self._repo.devel:
             try:
                 self.__model.get_relation_class('half_orm_meta.hop_release')
             except UnknownRelation:

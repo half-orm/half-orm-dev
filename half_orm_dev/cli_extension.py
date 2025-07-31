@@ -5,7 +5,10 @@
 CLI extension integration for half-orm-dev
 
 Provides the halfORM development tools through the unified half_orm CLI interface.
-Generates/Patches/Synchronizes a hop Python package with a PostgreSQL database.
+Ultra-simplified Git-centric patch management for database schema evolution.
+
+Current commands: new, status, create-patch
+Other commands will be implemented in separate CLI modules.
 """
 
 import sys
@@ -16,45 +19,70 @@ from half_orm.cli_utils import create_and_register_extension
 from half_orm_dev.repo import Repo
 from half_orm import utils
 
-class Hop:
-    """Sets the options available to the hop command"""
-    __available_cmds = []
-    __command = None
+# Import half-orm-dev CLI modules
+from half_orm_dev.cli.status import add_status_commands
+from half_orm_dev.cli.new import add_new_commands
+from half_orm_dev.cli.create_patch import add_create_patch_commands
+
+
+class HalfOrmDev:
+    """
+    Sets the options available to the half_orm dev command.
+    
+    Provides adaptive CLI behavior based on repository context and branch state
+    following the ultra-simplified Git-centric workflow architecture.
+    """
     
     def __init__(self):
-        self.__repo: Repo = Repo()
+        """Initialize with current repository context."""
+        self._repo: Repo = Repo()
+        self.__available_cmds = self._determine_available_commands()
+        self.__command = None
+    
+    def _determine_available_commands(self) -> list:
+        """
+        Determine available commands based on repository state and branch context.
+        
+        Simplified logic for initial implementation:
+        - No repo: ['new', 'status']  
+        - Valid repo: ['status', 'create-patch']
+        
+        Returns:
+            list: Available command names for current context
+        """
+        # Status is always available (adaptive behavior)
+        base_commands = ['status']
+        
         if not self.repo_checked:
-            Hop.__available_cmds = ['new']
+            return ['new'] + base_commands
+        
+        # Valid repo - add create-patch if in development mode
+        if self._repo.devel:
+            return ['create-patch'] + base_commands
         else:
-            if not self.__repo.devel:
-                # Sync-only mode
-                Hop.__available_cmds = ['sync-package']
-            else:
-                # Full mode - check environment
-                if self.__repo.production:
-                    Hop.__available_cmds = ['upgrade', 'restore']
-                else:
-                    Hop.__available_cmds = ['prepare', 'apply', 'release', 'undo']
+            # Sync-only mode - just status for now
+            return base_commands
     
     @property
     def repo_checked(self):
         """Returns whether we are in a repo or not."""
-        return self.__repo.checked
+        return self._repo.checked
 
     @property
     def model(self):
         """Returns the model (half_orm.model.Model) associated to the repo."""
-        return self.__repo.model
+        return self._repo.model
 
     @property
     def state(self):
         """Returns the state of the repo."""
-        return self.__repo.state
+        return self._repo.state
 
     @property
     def command(self):
         """The command invoked (click)"""
         return self.__command
+
 
 def add_commands(main_group):
     """
@@ -64,108 +92,58 @@ def add_commands(main_group):
         main_group: The main Click group for the half_orm command
     """
     
-    # Create hop instance to determine available commands
-    hop = Hop()
+    # Create half-orm-dev instance to determine available commands
+    dev_instance = HalfOrmDev()
     
     @create_and_register_extension(main_group, sys.modules[__name__])
     def dev():
-        """halfORM development tools - project management, patches, and database synchronization"""
+        """halfORM development tools - Git-centric patch management and database synchronization"""
         pass
     
-    # Define all possible commands
-    @click.command()
-    @click.argument('package_name')
-    @click.option('-d', '--devel', is_flag=True, help="Development mode")
-    @click.option('-f', '--full', is_flag=True, help="Full development mode")
-    def new(package_name, devel=False, full=False):
-        """Creates a new hop project named <package_name>."""
-        if devel:
-            utils.warning("--devel option is deprecated. Please use --full instead.")
-        hop._Hop__repo.init(package_name, devel or full)
-
-    @click.command()
-    @click.option(
-        '-l', '--level',
-        type=click.Choice(['patch', 'minor', 'major']), help="Release level.")
-    @click.option('-m', '--message', type=str, help="The git commit message")
-    def prepare(level, message=None):
-        """Prepares the next release."""
-        hop._Hop__command = 'prepare'
-        hop._Hop__repo.prepare_release(level, message)
-        sys.exit()
-
-    @click.command()
-    def apply():
-        """Apply the current release."""
-        hop._Hop__command = 'apply'
-        hop._Hop__repo.apply_release()
-
-    @click.command()
-    @click.option(
-        '-d', '--database-only', is_flag=True,
-        help='Restore the database to the previous release.')
-    def undo(database_only):
-        """Undo the last release."""
-        hop._Hop__command = 'undo'
-        hop._Hop__repo.undo_release(database_only)
-
-    @click.command()
-    def upgrade():
-        """Apply one or many patches.
-        
-        Switches to hop_main, pulls should check the tags.
-        """
-        hop._Hop__command = 'upgrade_prod'
-        hop._Hop__repo.upgrade_prod()
-
-    @click.command()
-    @click.argument('release')
-    def restore(release):
-        """Restore to release."""
-        hop._Hop__repo.restore(release)
-
-    @click.command()
-    @click.option('-p', '--push', is_flag=True, help='Push git repo to origin')
-    def release(push=False):
-        """Commit and optionally push the current release."""
-        hop._Hop__repo.commit_release(push)
-
-    @click.command()
-    def sync_package():
-        """Synchronize the Python package with the database model."""
-        hop._Hop__repo.sync_package()
-
-    # Map command names to command functions
-    all_commands = {
-        'new': new,
-        'prepare': prepare,
-        'apply': apply,
-        'undo': undo,
-        'release': release,
-        'sync-package': sync_package,
-        'upgrade': upgrade,
-        'restore': restore
-    }
+    # ==================== ADD MODULAR CLI COMMANDS ====================
     
-    # 🎯 COMPORTEMENT ADAPTATIF RESTAURÉ
-    # Only add commands that are available in the current context
-    for cmd_name in hop._Hop__available_cmds:
-        if cmd_name in all_commands:
-            dev.add_command(all_commands[cmd_name])
+    # Add status commands (always available)
+    add_new_commands(dev, dev_instance)
+    add_status_commands(dev, dev_instance)
     
-    # Add callback to show state when no subcommand (like original hop)
+    # Add create-patch commands (when available)
+    if 'create-patch' in dev_instance._HalfOrmDev__available_cmds:
+        add_create_patch_commands(dev, dev_instance)
+    
+    # ==================== DEFAULT BEHAVIOR (NO SUBCOMMAND) ====================
+    
     original_callback = dev.callback
     
     @click.pass_context
     def enhanced_callback(ctx, *args, **kwargs):
+        """Enhanced callback with repository state display."""
         if ctx.invoked_subcommand is None:
             # Show repo state when no subcommand is provided
-            if hop.repo_checked:
-                click.echo(hop.state)
+            if dev_instance.repo_checked:
+                click.echo(dev_instance.state)
+                
+                # Show available commands based on context
+                click.echo(f"\n📋 Available commands:")
+                for cmd_name in sorted(dev_instance._HalfOrmDev__available_cmds):
+                    if cmd_name in all_commands:
+                        cmd_obj = all_commands[cmd_name]
+                        help_text = getattr(cmd_obj, 'help', '') or getattr(cmd_obj, '__doc__', '').split('\n')[0]
+                        click.echo(f"   {utils.Color.bold(cmd_name)}: {help_text}")
+                    elif cmd_name == 'status':
+                        click.echo(f"   {utils.Color.bold('status')}: Show repository and development status")
+                    elif cmd_name == 'create-patch':
+                        click.echo(f"   {utils.Color.bold('create-patch')}: Create new patch branch and directory")
+                
+                # Show context info
+                if dev_instance._HalfOrmDev__repo.devel:
+                    click.echo(f"\n🔧 Development mode enabled - full half-orm-dev workflow available")
+                else:
+                    click.echo(f"\n📋 Limited mode - use 'half_orm dev new <name> --full' for development features")
+                
             else:
-                click.echo(hop.state)
-                click.echo("\nNot in a hop repository.")
-                click.echo(f"Try {utils.Color.bold('half_orm dev new [--devel] <package_name>')} or change directory.\n")
+                click.echo(dev_instance.state)
+                click.echo("\n❌ Not in a half-orm-dev repository.")
+                click.echo(f"Try {utils.Color.bold('half_orm dev new <package_name> --full')} to get started.\n")
         else:
             # Call original callback if there is one
             if original_callback:
