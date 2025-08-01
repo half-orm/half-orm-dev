@@ -27,10 +27,19 @@ def add_create_patch_commands(dev_group, hop_instance):
     """
     Add create-patch commands to the dev group.
     
+    Only registers command when conditions are met:
+    - In half-orm-dev repository with meta tables
+    - On ho-prod branch
+    - Repository is clean
+    
     Args:
         dev_group: Click group for dev commands
-        hop_instance: Hop instance with repo context
+        hop_instance: HalfOrmDev instance with repo context
     """
+    
+    # Check if create-patch should be available
+    if not _can_create_patch(hop_instance):
+        return
     
     @click.command(name='create-patch')
     @click.argument('patch_id')
@@ -57,10 +66,6 @@ def add_create_patch_commands(dev_group, hop_instance):
         half_orm dev create-patch "456" --dry-run          # Preview what would be created
         """
         try:
-            # Validate repository context first
-            if not _validate_repository_context(hop_instance):
-                sys.exit(1)
-            
             # Create command instance
             cmd = CreatePatchCommand(hop_instance._repo.hgit)
             
@@ -97,36 +102,49 @@ def add_create_patch_commands(dev_group, hop_instance):
                 utils.error(traceback.format_exc())
             sys.exit(1)
     
-    # Add to dev group
+    # Command is only registered when conditions are met
     dev_group.add_command(create_patch)
 
 
-def _validate_repository_context(hop_instance) -> bool:
+def _can_create_patch(hop_instance) -> bool:
     """
-    Validate repository is suitable for patch creation.
+    Check if create-patch command should be available.
+    
+    Requirements:
+    - In a half-orm-dev repository
+    - Has meta tables (development mode)
+    - On ho-prod branch
+    - Repository is clean
     
     Args:
-        hop_instance: Hop instance with repo context
+        hop_instance: HalfOrmDev instance with repo context
         
     Returns:
-        bool: True if repository is valid for patch creation
+        bool: True if create-patch should be available
     """
-    if not hop_instance.repo_checked:
-        utils.error("❌ Not in a half-orm-dev repository.")
-        utils.info(f"Run {utils.Color.bold('half_orm dev new <package_name> --full')} first.")
+    try:
+        # Must be in a repo with meta tables
+        if not hop_instance.repo_checked or not hop_instance._repo.devel:
+            return False
+        
+        # Must have hgit instance
+        if not hasattr(hop_instance._repo, 'hgit') or not hop_instance._repo.hgit:
+            return False
+        
+        hgit = hop_instance._repo.hgit
+        
+        # Must be on ho-prod branch
+        if hgit.branch != 'ho-prod':
+            return False
+        
+        # Repository must be clean
+        if not hgit.repos_is_clean():
+            return False
+        
+        return True
+        
+    except Exception:
         return False
-    
-    if not hasattr(hop_instance._repo, 'hgit') or not hop_instance._repo.hgit:
-        utils.error("❌ HGit instance not available. Repository may be corrupted.")
-        return False
-    
-    # Check if we're in development mode
-    if not hop_instance._repo.devel:
-        utils.error("❌ Repository not in development mode.")
-        utils.info("Patch creation requires full development mode.")
-        return False
-    
-    return True
 
 
 def _looks_like_ticket_number(patch_id: str) -> bool:

@@ -2,12 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-SchemaPatches Status - Commande universelle adaptative
+Status CLI - Commande universelle adaptative + comportement par défaut
 
-Commande `status` disponible partout qui s'adapte au contexte :
-- Hors repo : informe sur l'absence de repo
-- Repo sans SchemaPatches : propose l'initialisation
-- Repo avec SchemaPatches : montre l'état complet
+Commande `status` disponible partout qui s'adapte au contexte ET
+gère l'affichage par défaut quand aucune sous-commande n'est invoquée.
 """
 
 import click
@@ -20,7 +18,7 @@ from half_orm import utils
 
 def add_status_commands(dev_group, hop_instance):
     """
-    Add SchemaPatches commands to the dev group.
+    Add status commands to the dev group and configure default behavior.
     
     Args:
         dev_group: Click group for dev commands
@@ -31,7 +29,7 @@ def add_status_commands(dev_group, hop_instance):
     @click.option('--verbose', '-v', is_flag=True, help='Show detailed information')
     @click.option('--patch-id', help='Show status for specific patch')
     def status(verbose, patch_id):
-        """Show SchemaPatches status (available everywhere)"""
+        """Show comprehensive repository and development status"""
         try:
             status_info = _get_comprehensive_status(hop_instance, verbose)
             _display_status(status_info, patch_id, verbose)
@@ -43,8 +41,63 @@ def add_status_commands(dev_group, hop_instance):
                 utils.error(traceback.format_exc())
             sys.exit(1)
     
-    # Add schema-patches group to dev commands
+    # Add status command
     dev_group.add_command(status)
+    
+    # ==================== CONFIGURE DEFAULT BEHAVIOR ====================
+    
+    # Store original callback
+    original_callback = dev_group.callback
+    
+    @click.pass_context
+    def enhanced_callback(ctx, *args, **kwargs):
+        """Enhanced callback that shows status when no subcommand is provided."""
+        if ctx.invoked_subcommand is None:
+            # No subcommand invoked - show status and available commands
+            _display_default_behavior(hop_instance)
+        else:
+            # Call original callback if there is one
+            if original_callback:
+                return original_callback(*args, **kwargs)
+    
+    # Replace dev group callback
+    dev_group.callback = enhanced_callback
+
+
+def _display_default_behavior(hop_instance):
+    """
+    Display default behavior when no subcommand is invoked.
+    
+    Args:
+        hop_instance: Hop instance with repo context
+    """
+    # Show basic repo state
+    if hop_instance.repo_checked:
+        click.echo(hop_instance.state)
+        
+        # Show available commands based on context
+        click.echo(f"\n📋 Available commands:")
+        
+        # Status is always available
+        click.echo(f"   {utils.Color.bold('status')}: Show repository and development status")
+        
+        # Context-specific commands
+        if 'create-patch' in hop_instance.available_commands:
+            click.echo(f"   {utils.Color.bold('create-patch')}: Create new patch branch and directory")
+        
+        if 'new' in hop_instance.available_commands:
+            click.echo(f"   {utils.Color.bold('new')}: Create new halfORM project")
+        
+        # Show context info
+        if hop_instance._repo.devel:
+            click.echo(f"\n🔧 Development mode enabled - full half-orm-dev workflow available")
+        else:
+            click.echo(f"\n📋 Limited mode - use 'half_orm dev new <name>' for development features")
+        
+    else:
+        click.echo(hop_instance.state)
+        click.echo("\n❌ Not in a half-orm-dev repository.")
+        click.echo(f"Try {utils.Color.bold('half_orm dev new <package_name>')} to get started.\n")
 
 
 def _get_comprehensive_status(hop_instance, verbose=False) -> dict:
@@ -175,9 +228,9 @@ def _display_no_repo_status(status_info: dict, verbose: bool):
     utils.info("   SchemaPatches requires a halfORM project.")
     utils.info("")
     utils.info("🚀 To get started:")
-    utils.info("   1. Create new project: half_orm dev new my_project --full")
+    utils.info("   1. Create new project: half_orm dev new my_project")
     utils.info("   2. Navigate to project: cd my_project")
-    utils.info("   3. Check status again: half_orm dev schema-patches status")
+    utils.info("   3. Check status again: half_orm dev status")
 
 
 def _display_repo_no_schema_patches_status(status_info: dict, verbose: bool):
@@ -266,9 +319,6 @@ def _display_specific_patch_status(status_info: dict, patch_id: str, verbose: bo
     
     except Exception as e:
         utils.error(f"   ❌ Error reading patch directory: {e}")
-    
-    # TODO: Add Git tag information when GitTagManager is available
-    utils.info(f"   🏷️  Tags: (Git tag integration coming soon)")
 
 
 def _display_all_patches_summary(patches_info: dict):
@@ -282,35 +332,14 @@ def _display_available_operations(branch_type: str):
     """Display available operations based on branch type."""
     utils.info(f"\n🔧 Available operations (on {branch_type} branch):")
     
-    if branch_type == 'dev':
-        utils.info("   • Create patches and dev tags")
-        utils.info("   • Development workflow")
+    if branch_type == 'patch':
+        utils.info("   • Apply patches: half_orm dev apply-patch")
+        utils.info("   • Run tests: half_orm dev test")
+        utils.info("   • Add to release: half_orm dev add-to-release")
     elif branch_type == 'prod':
-        utils.info("   • Create production tags")
-        utils.info("   • Transfer dev tags to production")
-    elif branch_type == 'main':
-        utils.info("   • View status and information")
-        utils.info("   • General maintenance")
+        utils.info("   • Create patches: half_orm dev create-patch")
+        utils.info("   • Manage releases: half_orm dev prepare-release")
+        utils.info("   • Deploy to production: half_orm dev deploy-to-prod")
     else:
-        utils.info("   • Limited operations available")
-        utils.info("   • Switch to ho-dev/X.Y.x or ho/X.Y.x for full workflow")
-
-
-# ========================================================================
-# INTEGRATION INSTRUCTIONS
-# ========================================================================
-
-"""
-Pour intégrer avec cli_extension.py, ajouter dans add_commands():
-
-    # Import SchemaPatches CLI (status only)
-    from half_orm_dev.schema_patches.cli_status import add_schema_patches_commands
-    
-    # Add schema-patches commands to dev group  
-    add_schema_patches_commands(dev, hop)
-
-Puis tester avec:
-    half_orm dev schema-patches status                    # Partout
-    half_orm dev schema-patches status --verbose          # Détails
-    half_orm dev schema-patches status --patch-id="456-performance"  # Patch spécifique
-"""
+        utils.info("   • Check repository status: half_orm dev status")
+        utils.info("   • Switch to appropriate branch for development")
