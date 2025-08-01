@@ -102,20 +102,30 @@ def _setup_half_orm_dev_structure(package_name: str):
     # Create SchemaPatches directory
     schema_patches_dir = project_path / "SchemaPatches"
     if not schema_patches_dir.exists():
-        schema_patches_dir.mkdir(parents=True)
-        utils.info(f"📁 Created SchemaPatches directory")
-        
-        # Create SchemaPatches README
-        _create_schema_patches_readme(schema_patches_dir)
+        try:
+            schema_patches_dir.mkdir(parents=True)
+            utils.info(f"📁 Created SchemaPatches directory")
+            
+            # Create SchemaPatches README
+            _create_schema_patches_readme(schema_patches_dir)
+        except PermissionError:
+            utils.error(f"❌ Permission denied creating {schema_patches_dir}")
+        except Exception as e:
+            utils.error(f"❌ Failed to create SchemaPatches directory: {e}")
     
     # Create releases directory
     releases_dir = project_path / "releases"
     if not releases_dir.exists():
-        releases_dir.mkdir(parents=True)
-        utils.info(f"📁 Created releases directory")
-        
-        # Create releases README
-        _create_releases_readme(releases_dir)
+        try:
+            releases_dir.mkdir(parents=True)
+            utils.info(f"📁 Created releases directory")
+            
+            # Create releases README
+            _create_releases_readme(releases_dir)
+        except PermissionError:
+            utils.error(f"❌ Permission denied creating {releases_dir}")
+        except Exception as e:
+            utils.error(f"❌ Failed to create releases directory: {e}")
 
 
 def _create_schema_patches_readme(schema_patches_dir: Path):
@@ -158,8 +168,13 @@ Files are executed in lexicographic order.
 
 See documentation for complete workflow details.
 """
-    (schema_patches_dir / "README.md").write_text(readme_content)
-    utils.info(f"📝 Created SchemaPatches/README.md")
+    try:
+        (schema_patches_dir / "README.md").write_text(readme_content)
+        utils.info(f"📝 Created SchemaPatches/README.md")
+    except PermissionError:
+        utils.error(f"❌ Permission denied writing SchemaPatches/README.md")
+    except Exception as e:
+        utils.error(f"❌ Failed to create SchemaPatches/README.md: {e}")
 
 
 def _create_releases_readme(releases_dir: Path):
@@ -194,8 +209,13 @@ Files evolve through Git operations:
 
 This preserves complete history with `git log --follow`.
 """
-    (releases_dir / "README.md").write_text(readme_content)
-    utils.info(f"📝 Created releases/README.md")
+    try:
+        (releases_dir / "README.md").write_text(readme_content)
+        utils.info(f"📝 Created releases/README.md")
+    except PermissionError:
+        utils.error(f"❌ Permission denied writing releases/README.md")
+    except Exception as e:
+        utils.error(f"❌ Failed to create releases/README.md: {e}")
 
 
 def _has_meta_tables(hop_instance) -> bool:
