@@ -39,9 +39,7 @@ jobs:
         id
         sudo su - postgres -c "psql template1 -c \"create user runner with password 'root';\" "
         sudo su - postgres -c "psql template1 -c 'ALTER USER runner WITH SUPERUSER'"
-        sudo su - postgres -c "createdb halftest -O halftest"
         sudo su - postgres -c "createdb hop_test -O halftest"
-        PGPASSWORD=root psql halftest -h localhost -f $PWD/test/sql/halftest.sql
 
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         python -m pip install --upgrade pip coveralls coverage
