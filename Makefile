@@ -7,4 +7,4 @@ build: clean_build
 	python -m build
 
 publish: build
-	twine upload -r half-orm dist/*
+	twine upload -r half-orm-dev dist/*
