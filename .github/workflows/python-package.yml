@@ -5,9 +5,9 @@ name: Test on different versions of Python
 
 on:
   push:
-    branches: [ "main", "devel", "test_ci" ]
+    branches: [ "main", "devel", "test_ci", "0.16.x" ]
   pull_request:
-    branches: [ "main", "devel", "test_ci" ]
+    branches: [ "main", "devel", "test_ci", "0.16.x" ]
 
 jobs:
   test:
