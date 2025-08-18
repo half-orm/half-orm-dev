@@ -7,6 +7,7 @@ WARNING!
 {warning}
 """
 
-from {package_name} import MODEL, ho_dataclasses, register
+from half_orm.model import register
+from {package_name} import MODEL, ho_dataclasses
 {inheritance_import}
 fields_aliases=None

@@ -88,6 +88,10 @@ def add_new_commands(dev_group, hop_instance):
     # INIT-META command: Only when in repo WITHOUT meta tables
     elif hop_instance.repo_checked and not _has_meta_tables(hop_instance):
         dev_group.add_command(init_meta)
+    
+    # CREATE-PATCH command: Only when ready for patch creation
+    elif _can_create_patch(hop_instance):
+        add_create_patch_commands(dev_group, hop_instance)
 
 
 def _setup_half_orm_dev_structure(package_name: str):
@@ -102,30 +106,20 @@ def _setup_half_orm_dev_structure(package_name: str):
     # Create SchemaPatches directory
     schema_patches_dir = project_path / "SchemaPatches"
     if not schema_patches_dir.exists():
-        try:
-            schema_patches_dir.mkdir(parents=True)
-            utils.info(f"📁 Created SchemaPatches directory")
-            
-            # Create SchemaPatches README
-            _create_schema_patches_readme(schema_patches_dir)
-        except PermissionError:
-            utils.error(f"❌ Permission denied creating {schema_patches_dir}")
-        except Exception as e:
-            utils.error(f"❌ Failed to create SchemaPatches directory: {e}")
+        schema_patches_dir.mkdir(parents=True)
+        utils.info(f"📁 Created SchemaPatches directory")
+        
+        # Create SchemaPatches README
+        _create_schema_patches_readme(schema_patches_dir)
     
     # Create releases directory
     releases_dir = project_path / "releases"
     if not releases_dir.exists():
-        try:
-            releases_dir.mkdir(parents=True)
-            utils.info(f"📁 Created releases directory")
-            
-            # Create releases README
-            _create_releases_readme(releases_dir)
-        except PermissionError:
-            utils.error(f"❌ Permission denied creating {releases_dir}")
-        except Exception as e:
-            utils.error(f"❌ Failed to create releases directory: {e}")
+        releases_dir.mkdir(parents=True)
+        utils.info(f"📁 Created releases directory")
+        
+        # Create releases README
+        _create_releases_readme(releases_dir)
 
 
 def _create_schema_patches_readme(schema_patches_dir: Path):
@@ -168,13 +162,8 @@ Files are executed in lexicographic order.
 
 See documentation for complete workflow details.
 """
-    try:
-        (schema_patches_dir / "README.md").write_text(readme_content)
-        utils.info(f"📝 Created SchemaPatches/README.md")
-    except PermissionError:
-        utils.error(f"❌ Permission denied writing SchemaPatches/README.md")
-    except Exception as e:
-        utils.error(f"❌ Failed to create SchemaPatches/README.md: {e}")
+    (schema_patches_dir / "README.md").write_text(readme_content)
+    utils.info(f"📝 Created SchemaPatches/README.md")
 
 
 def _create_releases_readme(releases_dir: Path):
@@ -209,13 +198,49 @@ Files evolve through Git operations:
 
 This preserves complete history with `git log --follow`.
 """
+    (releases_dir / "README.md").write_text(readme_content)
+    utils.info(f"📝 Created releases/README.md")
+
+
+def _can_create_patch(hop_instance) -> bool:
+    """
+    Check if create-patch command should be available.
+    
+    Requirements:
+    - In a half-orm-dev repository
+    - Has meta tables (development mode)
+    - On ho-prod branch
+    - Repository is clean
+    
+    Args:
+        hop_instance: HalfOrmDev instance with repo context
+        
+    Returns:
+        bool: True if create-patch should be available
+    """
     try:
-        (releases_dir / "README.md").write_text(readme_content)
-        utils.info(f"📝 Created releases/README.md")
-    except PermissionError:
-        utils.error(f"❌ Permission denied writing releases/README.md")
-    except Exception as e:
-        utils.error(f"❌ Failed to create releases/README.md: {e}")
+        # Must be in a repo with meta tables
+        if not hop_instance.repo_checked or not hop_instance._repo.devel:
+            return False
+        
+        # Must have hgit instance
+        if not hasattr(hop_instance._repo, 'hgit') or not hop_instance._repo.hgit:
+            return False
+        
+        hgit = hop_instance._repo.hgit
+        
+        # Must be on ho-prod branch
+        if hgit.branch != 'ho-prod':
+            return False
+        
+        # Repository must be clean
+        if not hgit.repos_is_clean():
+            return False
+        
+        return True
+        
+    except Exception:
+        return False
 
 
 def _has_meta_tables(hop_instance) -> bool:

@@ -1,0 +1,33 @@
+Auto-generated tests for {repo.name}.{fqtn}
+
+Generated automatically by halfORM.
+These tests are regenerated on each 'half_orm dev apply'.
+Place custom tests outside the {repo.name}/ directory.
+"""
+import pytest
+from {repo.name}.{fqtn} import {class_name}
+
+{utils.BEGIN_CODE}
+# Place your additional imports here
+{utils.END_CODE}
+
+class Test{class_name}:
+    """Auto-generated test class for {class_name}"""
+    
+    def test_instantiation(self):
+        """Test basic instantiation"""
+        obj = {class_name}()
+        assert obj is not None
+    
+    def test_fields_access(self):
+        """Test field access"""
+        obj = {class_name}()
+        # Add field-specific tests here
+        pass
+    
+    {utils.BEGIN_CODE}
+    # Place your additional test methods here
+    def test_custom_behavior(self):
+        """Add your custom tests here"""
+        pass
+    {utils.END_CODE}

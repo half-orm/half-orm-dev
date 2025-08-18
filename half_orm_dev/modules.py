@@ -56,7 +56,7 @@ MODULE_FORMAT = (
 AP_EPILOG = """"""
 INIT_PY = '__init__.py'
 BASE_TEST_PY = 'base_test.py'
-DO_NOT_REMOVE = [INIT_PY, BASE_TEST_PY]
+DO_NOT_REMOVE = [INIT_PY]
 
 MODEL = None
 
@@ -512,13 +512,6 @@ def generate(repo):
 
     with open(os.path.join(package_dir, INIT_PY), 'w', encoding='utf-8') as file_:
         file_.write(INIT_MODULE_TEMPLATE.format(package_name=package_name))
-
-    if not os.path.exists(os.path.join(package_dir, BASE_TEST_PY)):
-        with open(os.path.join(package_dir, BASE_TEST_PY), 'w', encoding='utf-8') as file_:
-            file_.write(BASE_TEST.format(
-                BEGIN_CODE=utils.BEGIN_CODE,
-                END_CODE=utils.END_CODE,
-                package_name=package_name))
     
     warning = WARNING_TEMPLATE.format(package_name=package_name)
     for relation in repo.database.model._relations():
@@ -542,6 +535,13 @@ def generate(repo):
     # Display test generation summary in development mode
     if repo.devel:
         tests_dir = os.path.join(repo.base_dir, 'tests')
+        if not os.path.exists(os.path.join(tests_dir, BASE_TEST_PY)):
+            with open(os.path.join(tests_dir, BASE_TEST_PY), 'w', encoding='utf-8') as file_:
+                file_.write(BASE_TEST.format(
+                    BEGIN_CODE=utils.BEGIN_CODE,
+                    END_CODE=utils.END_CODE,
+                    package_name=package_name))
+
         if os.path.exists(tests_dir):
             test_count = _count_test_files_recursive(tests_dir)
             print(f"✅ Generated {test_count} auto-generated test files in tests/{repo.name}/ directory")
