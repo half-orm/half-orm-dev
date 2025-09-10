@@ -25,7 +25,7 @@ setup(
         'GitPython',
         'click',
         'pydash',
-        'half_orm>=0.14.0',
+        'half_orm>=0.16.0',
         'pytest'
     ],
     classifiers=[
