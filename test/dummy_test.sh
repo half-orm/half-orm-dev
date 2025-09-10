@@ -79,6 +79,7 @@ half_orm dev prepare -l patch -m "Second patch release"
 if [ `git branch --show-current` != 'hop_0.0.2' ] ; then echo "It should be on branch hop_0.0.2" ; exit 1 ; fi
 
 echo 'create table a ( a text primary key, class int, "class + 1" int )' > Patches/0/0/2/00_a.sql
+echo 'create table ab ( a text primary key, class int, "class + 1" int ) inherits (a)' > Patches/0/0/2/01_b.sql
 cat > Patches/0/0/2/a.py << EOF
 from hop_test.public.first import First
 list(First())
@@ -153,6 +154,10 @@ git remote add origin /tmp/hop_test.git
 git status
 
 sync; sync
+echo 'XXX LE DROP DEVRAIT ÊTRE FAIT AUTOMATIQUEMENT'
+dropdb hop_test ; createdb hop_test ; psql hop_test -f Backups/hop_test-0.0.1.sql
+rm Backups/hop_test-0.0.1.sql
+half_orm dev apply
 half_orm dev release --push # 0.0.2
 
 git status

@@ -28,11 +28,6 @@ setup(
         'half_orm>=0.14.0',
         'pytest'
     ],
-    entry_points={
-        'console_scripts': [
-            'hop=half_orm_dev.hop:main',
-        ],
-    },
     classifiers=[
         # How mature is this project? Common values are
         #   3 - Alpha
