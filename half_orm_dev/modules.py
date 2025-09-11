@@ -165,7 +165,7 @@ def __get_inheritance_info(rel, package_name):
     inheritance_import_list = []
     inherited_classes_aliases_list = []
     for base in rel.__class__.__bases__:
-        if base.__name__ != 'Relation':
+        if base.__name__ != 'Relation' and hasattr(base, '_t_fqrn'):
             inh_sfqrn = list(base._t_fqrn)
             inh_sfqrn[0] = package_name
             inh_cl_alias = f"{camel_case(inh_sfqrn[1])}{camel_case(inh_sfqrn[2])}"
