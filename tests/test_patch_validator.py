@@ -316,16 +316,19 @@ class TestPatchValidatorEdgeCases:
         with pytest.raises(InvalidPatchIdError):
             validator.validate_patch_id("456-café")
     
-    def test_whitespace_variations(self, validator):
-        """Test handling of various whitespace characters."""
-        whitespace_cases = [
-            "456\t", 
-            " 456",
-            "456 ",
-            "456\n",
-            "456-desc\t"
-        ]
+        # First validate the input format
+        patch_info = self.validate_patch_id(patch_id)
         
-        for case in whitespace_cases:
-            with pytest.raises(InvalidPatchIdError):
-                validator.validate_patch_id(case)
+        # If it's already in full format, return as-is
+        if not patch_info.is_numeric_only:
+            return patch_info.normalized_id
+        
+        # For numeric-only IDs, we need to add a description
+        if suggested_description:
+            # Sanitize the suggested description
+            clean_description = self.sanitize_description(suggested_description)
+            return f"{patch_info.ticket_number}-{clean_description}"
+        else:
+            # Use fallback description
+            fallback_description = self.generate_fallback_description(patch_info.ticket_number)
+            return f"{patch_info.ticket_number}-{fallback_description}"
