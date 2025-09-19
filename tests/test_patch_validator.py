@@ -179,31 +179,18 @@ class TestPatchValidator:
     # Tests for generate_fallback_description method
     
     def test_generate_fallback_description_default(self, validator):
-        """Test fallback description generation without context."""
+        """Test fallback description generation returns 'patch'."""
         result = validator.generate_fallback_description("456")
-        assert isinstance(result, str)
-        assert len(result) > 0
+        assert result == "patch"
         assert validator.is_valid_description(result)
     
-    @patch('half_orm_dev.patch_validator.subprocess')
-    def test_generate_fallback_description_with_git_context(self, mock_subprocess, validator):
-        """Test fallback description generation with Git context."""
-        # Mock git log output suggesting feature work
-        mock_subprocess.run.return_value.stdout = "Add user authentication feature\nImplement login system"
-        
-        result = validator.generate_fallback_description("456")
-        assert isinstance(result, str)
-        assert validator.is_valid_description(result)
-        # Should contain context-based keywords
-        assert any(keyword in result for keyword in ["feature", "auth", "user"])
-    
-    @patch('half_orm_dev.patch_validator.subprocess')
-    def test_generate_fallback_description_git_failure(self, mock_subprocess, validator):
-        """Test fallback description when Git commands fail."""
-        mock_subprocess.run.side_effect = Exception("Git not available")
-        
-        result = validator.generate_fallback_description("456")
-        assert result == "patch"  # default fallback
+    def test_generate_fallback_description_any_ticket_number(self, validator):
+        """Test fallback description is consistent for any ticket number."""
+        test_numbers = ["1", "123", "999999", "42"]
+        for ticket_num in test_numbers:
+            result = validator.generate_fallback_description(ticket_num)
+            assert result == "patch"
+            assert validator.is_valid_description(result)
     
     # Tests for sanitize_description method
     
