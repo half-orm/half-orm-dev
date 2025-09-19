@@ -28,7 +28,7 @@
 THIS DOC IS A WORK IN PROGRESS...
 
 This package allows you to patch/test a PostgreSQL model and its associated
-Python code using the `hop` command.
+Python code using the `half_orm dev` command.
 
 It is based on the [half_orm](https://github.com/collorg/halfORM)
 PostgreSQL &#8594; Python relation object mapper.
@@ -41,8 +41,8 @@ Run `pip install half_orm_dev`.
 ## help
 
 ```
-$ hop --help
-Usage: hop [OPTIONS] COMMAND [ARGS]...
+$ half_orm dev --help
+Usage: half_orm dev [OPTIONS] COMMAND [ARGS]...
 
   Generates/Synchronises/Patches a python package from a PostgreSQL database
 
@@ -51,33 +51,33 @@ Options:
   --help         Show this message and exit.
 
 Commands:
-  new     Creates a new hop project named <package_name>.
+  new     Creates a new half_orm dev project named <package_name>.
   patch   Applies the next patch
   test    Tests some common pitfalls.
   update  Updates the Python code with the changes made to the model.
   ```
 
-## Create a new package for your database: *`hop new`*
+## Create a new package for your database: *`half_orm dev new`*
 
 ```
-hop new <package name>
+half_orm dev new <package name>
 ```
 
-**WARNING!** The `hop new` command will add to your database
+**WARNING!** The `half_orm dev new` command will add to your database
 two new schemas: `half_orm_meta` and "`half_orm_meta.view`".
 The table `half_orm_meta.release` will containt the patch history
-of your model (see `hop patch` bellow).
+of your model (see `half_orm dev patch` bellow).
 
 
 ```
-$ hop new pagila
+$ half_orm dev new pagila
 HALFORM_CONF_DIR: /home/joel/.halform
 Using '/home/joel/.halform/pagila' file for connexion.
 Initializing git with a 'main' branch.
 Initializing the patch system for the 'pagila' database.
 Patch system initialized at release '0.0.0'.
 
-The hop project 'pagila' has been created.
+The half_orm dev project 'pagila' has been created.
 ```
 
 The tree command shows you the repartition of the modules in your package.
@@ -173,12 +173,12 @@ $ tree -d
 └── Patches
 ```
 
-You will now be able to manage your package with the `hop` command.
+You will now be able to manage your package with the `half_orm dev` command.
 
-## Get the status of your package: *`hop`*
+## Get the status of your package: *`half_orm dev`*
 
 ```
-$ hop 
+$ half_orm dev 
 STATUS
 
         connection_file_name: pagila
@@ -187,23 +187,23 @@ STATUS
 CURRENT RELEASE: 0.0.0: 2021-09-03 at 11:54:22+02:00
 No new release to apply after 0.0.0.
 Next possible releases: 0.0.1, 0.1.0, 1.0.0.
-hop --help to get help.
+half_orm dev --help to get help.
 ```
 
-## Patch your model: *`hop patch`*
+## Patch your model: *`half_orm dev patch`*
 
 ```
-$ hop patch
+$ half_orm dev patch
 No new release to apply after 0.0.0.
 Next possible releases: 0.0.1, 0.1.0, 1.0.0.
 ```
 
 The patch system will try to find a next suitable patch to apply from the
-last release number. If the last patch is X.Y.Z, `hop patch` will try in order
+last release number. If the last patch is X.Y.Z, `half_orm dev patch` will try in order
 X.Y.<Z+1>, X.<Y+1>.Z, <X+1>.Y.Z.
 
 
-To prepare a new patch, run `hop patch -p <patch_level>` where patch_level is one
+To prepare a new patch, run `half_orm dev patch -p <patch_level>` where patch_level is one
 of ['patch', 'minor', 'major']. The command will create a directory in 
 `Patches/X/Y/Z` with a CHANGELOG.md description file. You can add in this
 directory a series of patches scripts.
@@ -213,27 +213,27 @@ The scripts are applied in alphabetical order and can only be of two types:
 * SQL with .sql extension
 * Python with .py extension
 
-If there is a suitable patch to apply, hop will create a branch `hop_<release>`,
+If there is a suitable patch to apply, half_orm dev will create a branch `hop_<release>`,
 backup the database in `Backups/<dbname>-<release>.sql`, apply the patch and
 update the Python code.
 
 In development, you will frequently need to adjust a patch.
-To replay a patch, simply run `hop patch` again.
+To replay a patch, simply run `half_orm dev patch` again.
 
-To revert to the previous patch run `hop patch -r`.
-If your git repo is not clean, `hop patch` will complain. You can use `hop patch -f`
+To revert to the previous patch run `half_orm dev patch -r`.
+If your git repo is not clean, `half_orm dev patch` will complain. You can use `half_orm dev patch -f`
 to avoid the warning.
 
 You can use git as you wish during this phase.
-## Generate a release (CI): *`hop release`* NotImplented
+## Generate a release (CI): *`half_orm dev release`* NotImplented
 
-* `hop release -a` for alpha
-* `hop release -c` for release candidate
-* `hop release -p` for production
+* `half_orm dev release -a` for alpha
+* `half_orm dev release -c` for release candidate
+* `half_orm dev release -p` for production
 
 ## Test your code
 
-Each `hop patch` should test and report any error.
+Each `half_orm dev patch` should test and report any error.
 
 The package is test ready. For each module there is a test
 
