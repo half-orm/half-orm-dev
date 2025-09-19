@@ -446,7 +446,53 @@ class PatchDirectory:
                 structure = patch_dir.get_patch_structure(patch_id)
                 print(f"{patch_id}: {'valid' if structure.is_valid else 'invalid'}")
         """
-        pass
+        valid_patches = []
+
+        try:
+            # Scan SchemaPatches directory
+            if not self._schema_patches_dir.exists():
+                return []
+
+            for item in self._schema_patches_dir.iterdir():
+                # Skip files, only process directories
+                if not item.is_dir():
+                    continue
+
+                # Basic patch ID validation - must start with number
+                if not item.name or not item.name[0].isdigit():
+                    continue
+
+                # Check for required README.md file
+                readme_path = item / "README.md"
+                try:
+                    if readme_path.exists() and readme_path.is_file():
+                        valid_patches.append(item.name)
+                except PermissionError:
+                    # Skip directories we can't read
+                    continue
+
+        except PermissionError:
+            # If we can't read SchemaPatches directory, return empty list
+            return []
+        except OSError:
+            # Handle other filesystem errors
+            return []
+
+        # Sort patches by numeric value of ticket number
+        def sort_key(patch_id):
+            try:
+                # Extract number part for sorting
+                if '-' in patch_id:
+                    number_part = patch_id.split('-', 1)[0]
+                else:
+                    number_part = patch_id
+                return int(number_part)
+            except ValueError:
+                # Fallback to string sort if not numeric
+                return float('inf')
+
+        valid_patches.sort(key=sort_key)
+        return valid_patches
 
     def delete_patch_directory(self, patch_id: str, confirm: bool = False) -> bool:
         """
