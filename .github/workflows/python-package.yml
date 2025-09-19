@@ -53,6 +53,7 @@ jobs:
     #     flake8 half_orm_dev --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: Test with pytest & coverage
       run: |
+        export PYTHONPATH="${PYTHONPATH}:$(pwd)"
         half_orm --version
         half_orm --list-extensions
         HALFORM_CONF_DIR=$PWD/.config ./test/dummy_test.sh

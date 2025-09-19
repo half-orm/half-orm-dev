@@ -87,15 +87,67 @@ class Config:
 
 class Repo:
     """Reads and writes the hop repo conf file.
+    
+    Implements Singleton pattern to ensure only one instance per base directory.
     """
+    
+    # Singleton storage: base_dir -> instance
+    _instances = {}
+    
+    # Instance variables
     __new = False
     __checked: bool = False
     __base_dir: Optional[str] = None
     __config: Optional[Config] = None
     database: Optional[Database] = None
     hgit: Optional[HGit] = None
+    
+    def __new__(cls):
+        """Singleton implementation based on current working directory"""
+        # Find the base directory for this context
+        base_dir = cls._find_base_dir()
+        
+        # Return existing instance if it exists for this base_dir
+        if base_dir in cls._instances:
+            return cls._instances[base_dir]
+        
+        # Create new instance
+        instance = super().__new__(cls)
+        cls._instances[base_dir] = instance
+        return instance
+
     def __init__(self):
+        # Only initialize once per instance
+        if hasattr(self, '_initialized'):
+            return
+        
+        self._initialized = True
         self.__check()
+
+    @classmethod
+    def _find_base_dir(cls):
+        """Find the base directory for the current context (same logic as __check)"""
+        base_dir = os.path.abspath(os.path.curdir)
+        while base_dir:
+            conf_file = os.path.join(base_dir, '.hop', 'config')
+            if os.path.exists(conf_file):
+                return base_dir
+            par_dir = os.path.split(base_dir)[0]
+            if par_dir == base_dir:
+                break
+            base_dir = par_dir
+        return os.path.abspath(os.path.curdir)  # fallback to current dir
+
+    @classmethod
+    def clear_instances(cls):
+        """Clear all singleton instances - useful for testing or cleanup"""
+        for instance in cls._instances.values():
+            if instance.database and instance.database.model:
+                try:
+                    instance.database.model.disconnect()
+                except:
+                    pass
+        cls._instances.clear()
 
     @property
     def new(self):
