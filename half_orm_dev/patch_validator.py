@@ -93,9 +93,9 @@ class PatchValidator:
         """
         if not patch_id or not patch_id.strip():
             raise InvalidPatchIdError("Patch ID cannot be empty")
-        
+
         patch_id = patch_id.strip()
-        
+
         # Check for numeric-only format
         if self.NUMERIC_PATTERN.match(patch_id):
             return PatchInfo(
@@ -105,13 +105,13 @@ class PatchValidator:
                 description=None,
                 is_numeric_only=True
             )
-        
+
         # Check for full format (number-description)
         if self.FULL_PATTERN.match(patch_id):
             parts = patch_id.split('-', 1)
             ticket_number = parts[0]
             description = parts[1]
-            
+
             return PatchInfo(
                 original_id=patch_id,
                 normalized_id=patch_id,
@@ -180,15 +180,15 @@ class PatchValidator:
             return None
         
         patch_id = patch_id.strip()
-        
+
         # Check numeric-only format
         if self.NUMERIC_PATTERN.match(patch_id):
             return patch_id
-        
+
         # Check full format and extract number part
         if self.FULL_PATTERN.match(patch_id):
             return patch_id.split('-', 1)[0]
-        
+
         # Invalid format
         return None
     
@@ -208,18 +208,18 @@ class PatchValidator:
         """
         if not patch_id or not patch_id.strip():
             return None
-        
+
         patch_id = patch_id.strip()
-        
+
         # Numeric-only format has no description
         if self.NUMERIC_PATTERN.match(patch_id):
             return None
-        
+
         # Extract description from full format
         if self.FULL_PATTERN.match(patch_id):
             parts = patch_id.split('-', 1)
             return parts[1]  # Return everything after first hyphen
-        
+
         # Invalid format
         return None
     
@@ -238,7 +238,11 @@ class PatchValidator:
             assert validator.is_valid_description("user_auth") == False  # no underscores
             assert validator.is_valid_description("UserAuth") == False   # no uppercase
         """
-        pass
+        if not description:
+            return False
+
+        # Use the DESCRIPTION_PATTERN regex to validate format
+        return bool(self.DESCRIPTION_PATTERN.match(description))
     
     def generate_fallback_description(self, ticket_number: str) -> str:
         """
