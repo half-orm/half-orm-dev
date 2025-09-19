@@ -1,0 +1,241 @@
+"""
+Tests pour l'initialisation de PatchDirectory.
+
+Module de test focalisé sur la validation de l'initialisation correcte
+de la classe PatchDirectory avec différents types de repository.
+"""
+
+import pytest
+from unittest.mock import Mock
+from pathlib import Path
+
+from half_orm_dev.patch_directory import (
+    PatchDirectory, 
+    PatchDirectoryError
+)
+
+
+class TestPatchDirectoryInitialization:
+    """Test PatchDirectory initialization and validation."""
+
+    def test_init_with_valid_repo(self, temp_repo):
+        """Test initialization with valid repository."""
+        repo, temp_dir, schema_patches_dir = temp_repo
+        
+        patch_dir = PatchDirectory(repo)
+        
+        # Should initialize without errors
+        assert patch_dir is not None
+        
+        # Should store repo reference
+        assert hasattr(patch_dir, '_repo')
+        assert patch_dir._repo == repo
+        
+        # Should have access to base directory
+        assert hasattr(patch_dir, '_base_dir')
+        assert patch_dir._base_dir == temp_dir
+        
+        # Should have PatchValidator instance
+        assert hasattr(patch_dir, '_validator')
+
+    def test_init_with_none_repo(self):
+        """Test initialization with None repository."""
+        with pytest.raises(PatchDirectoryError, match="Repository cannot be None"):
+            PatchDirectory(None)
+
+    def test_init_with_invalid_repo_missing_base_dir(self):
+        """Test initialization with repository missing base_dir."""
+        invalid_repo = Mock()
+        invalid_repo.base_dir = None
+        invalid_repo.devel = True
+        
+        with pytest.raises(PatchDirectoryError, match="Repository is invalid"):
+            PatchDirectory(invalid_repo)
+
+    def test_init_with_invalid_repo_missing_devel_flag(self):
+        """Test initialization with repository missing devel flag."""
+        invalid_repo = Mock()
+        invalid_repo.base_dir = "/tmp/test"
+        # Missing devel attribute
+        del invalid_repo.devel
+        
+        with pytest.raises(PatchDirectoryError, match="Repository is invalid"):
+            PatchDirectory(invalid_repo)
+
+    def test_init_non_devel_repo(self):
+        """Test initialization with non-development repository."""
+        repo = Mock()
+        repo.base_dir = "/tmp/test"
+        repo.devel = False
+        
+        with pytest.raises(PatchDirectoryError, match="not in development mode"):
+            PatchDirectory(repo)
+
+    def test_init_nonexistent_base_dir(self):
+        """Test initialization with nonexistent base directory."""
+        repo = Mock()
+        repo.base_dir = "/nonexistent/path/that/should/not/exist"
+        repo.devel = True
+        
+        with pytest.raises(PatchDirectoryError, match="Base directory does not exist"):
+            PatchDirectory(repo)
+
+    def test_init_base_dir_not_directory(self, temp_repo):
+        """Test initialization when base_dir points to a file, not directory."""
+        repo, temp_dir, schema_patches_dir = temp_repo
+        
+        # Create a file instead of directory
+        file_path = Path(temp_dir) / "not_a_directory"
+        file_path.write_text("This is a file, not a directory")
+        
+        repo.base_dir = str(file_path)
+        
+        with pytest.raises(PatchDirectoryError, match="Base directory.*not a directory"):
+            PatchDirectory(repo)
+
+    def test_init_missing_schema_patches_directory(self, temp_repo):
+        """Test initialization when SchemaPatches directory doesn't exist."""
+        repo, temp_dir, schema_patches_dir = temp_repo
+        
+        # Remove the SchemaPatches directory
+        schema_patches_dir.rmdir()
+        
+        # Should create SchemaPatches directory automatically
+        patch_dir = PatchDirectory(repo)
+        
+        assert patch_dir is not None
+        assert schema_patches_dir.exists()
+        assert schema_patches_dir.is_dir()
+
+    def test_init_schema_patches_is_file(self, temp_repo):
+        """Test initialization when SchemaPatches exists but is a file."""
+        repo, temp_dir, schema_patches_dir = temp_repo
+        
+        # Remove directory and create file with same name
+        schema_patches_dir.rmdir()
+        schema_patches_file = Path(temp_dir) / "SchemaPatches"
+        schema_patches_file.write_text("This should be a directory")
+        
+        with pytest.raises(PatchDirectoryError, match="SchemaPatches.*not a directory"):
+            PatchDirectory(repo)
+
+    def test_init_no_permission_to_create_schema_patches(self, temp_repo):
+        """Test initialization when no permission to create SchemaPatches."""
+        repo, temp_dir, schema_patches_dir = temp_repo
+        
+        # Remove SchemaPatches directory
+        schema_patches_dir.rmdir()
+        
+        # Make base directory read-only
+        Path(temp_dir).chmod(0o444)
+        
+        try:
+            with pytest.raises(PatchDirectoryError, match="Permission denied"):
+                PatchDirectory(repo)
+        finally:
+            # Restore permissions for cleanup
+            Path(temp_dir).chmod(0o755)
+
+    def test_init_stores_correct_paths(self, temp_repo):
+        """Test that initialization stores correct internal paths."""
+        repo, temp_dir, schema_patches_dir = temp_repo
+        
+        patch_dir = PatchDirectory(repo)
+        
+        # Should store base directory path
+        assert patch_dir._base_dir == temp_dir
+        
+        # Should calculate schema patches path correctly
+        expected_schema_path = Path(temp_dir) / "SchemaPatches"
+        assert patch_dir._schema_patches_dir == expected_schema_path
+        
+        # Paths should be Path objects, not strings
+        assert isinstance(patch_dir._schema_patches_dir, Path)
+
+    def test_init_validator_integration(self, temp_repo):
+        """Test that PatchValidator is properly initialized."""
+        repo, temp_dir, schema_patches_dir = temp_repo
+        
+        patch_dir = PatchDirectory(repo)
+        
+        # Should have validator instance
+        assert hasattr(patch_dir, '_validator')
+        assert patch_dir._validator is not None
+        
+        # Validator should be functional
+        # Test basic validation call
+        patch_info = patch_dir._validator.validate_patch_id("456")
+        assert patch_info.ticket_number == "456"
+
+    def test_init_with_repo_name_storage(self, temp_repo):
+        """Test that repository name is properly stored."""
+        repo, temp_dir, schema_patches_dir = temp_repo
+        repo.name = "custom_database_name"
+        
+        patch_dir = PatchDirectory(repo)
+        
+        # Should store repo name for use in templates
+        assert patch_dir._repo_name == "custom_database_name"
+
+    def test_init_with_missing_repo_name(self, temp_repo):
+        """Test initialization with repository missing name attribute."""
+        repo, temp_dir, schema_patches_dir = temp_repo
+        del repo.name  # Remove name attribute
+        
+        # Should still initialize but use default name
+        patch_dir = PatchDirectory(repo)
+        
+        assert patch_dir._repo_name == "unknown_database"
+
+    def test_init_multiple_instances_different_repos(self):
+        """Test creating multiple PatchDirectory instances with different repos."""
+        import tempfile
+        
+        # Create two different temp repos
+        temp_dir1 = tempfile.mkdtemp()
+        temp_dir2 = tempfile.mkdtemp()
+        
+        try:
+            # Create schema patches directories
+            (Path(temp_dir1) / "SchemaPatches").mkdir()
+            (Path(temp_dir2) / "SchemaPatches").mkdir()
+            
+            repo1 = Mock()
+            repo1.base_dir = temp_dir1
+            repo1.name = "database1"
+            repo1.devel = True
+            
+            repo2 = Mock()
+            repo2.base_dir = temp_dir2  
+            repo2.name = "database2"
+            repo2.devel = True
+            
+            patch_dir1 = PatchDirectory(repo1)
+            patch_dir2 = PatchDirectory(repo2)
+            
+            # Should be separate instances with different configs
+            assert patch_dir1._base_dir != patch_dir2._base_dir
+            assert patch_dir1._repo_name != patch_dir2._repo_name
+            
+        finally:
+            # Cleanup
+            import shutil
+            shutil.rmtree(temp_dir1)
+            shutil.rmtree(temp_dir2)
+
+    def test_init_repo_validation_comprehensive(self):
+        """Test comprehensive repository validation during initialization."""
+        # Test all required attributes are checked
+        required_attrs = ['base_dir', 'devel', 'name']
+        
+        for missing_attr in required_attrs:
+            repo = Mock()
+            repo.base_dir = "/tmp/test"
+            repo.devel = True
+            repo.name = "test_db"
+            
+            # Remove the specific attribute
+            delattr(repo, missing_attr)
+            
+            with pytest.raises(PatchDirectoryError):
+                PatchDirectory(repo)
