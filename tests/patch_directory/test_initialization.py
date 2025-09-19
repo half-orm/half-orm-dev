@@ -182,10 +182,9 @@ class TestPatchDirectoryInitialization:
         repo, temp_dir, schema_patches_dir = temp_repo
         del repo.name  # Remove name attribute
         
-        # Should still initialize but use default name
-        patch_dir = PatchDirectory(repo)
-        
-        assert patch_dir._repo_name == "unknown_database"
+        # Should fail because name is required
+        with pytest.raises(PatchDirectoryError, match="missing 'name' attribute"):
+            PatchDirectory(repo)
 
     def test_init_multiple_instances_different_repos(self):
         """Test creating multiple PatchDirectory instances with different repos."""
