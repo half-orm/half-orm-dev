@@ -422,7 +422,11 @@ class PatchDirectory:
             if path.exists():
                 print(f"Patch directory exists at {path}")
         """
-        pass
+        # Normalize patch_id by stripping whitespace
+        normalized_patch_id = patch_id.strip() if patch_id else ""
+
+        # Return path without validation (as documented)
+        return self._schema_patches_dir / normalized_patch_id
 
     def list_all_patches(self) -> List[str]:
         """
