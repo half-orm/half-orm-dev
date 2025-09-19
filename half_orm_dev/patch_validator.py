@@ -91,8 +91,44 @@ class PatchValidator:
             assert info.description == "user-auth"
             assert info.is_numeric_only == False
         """
-        pass
-    
+        if not patch_id or not patch_id.strip():
+            raise InvalidPatchIdError("Patch ID cannot be empty")
+        
+        patch_id = patch_id.strip()
+        
+        # Check for numeric-only format
+        if self.NUMERIC_PATTERN.match(patch_id):
+            return PatchInfo(
+                original_id=patch_id,
+                normalized_id=patch_id,
+                ticket_number=patch_id,
+                description=None,
+                is_numeric_only=True
+            )
+        
+        # Check for full format (number-description)
+        if self.FULL_PATTERN.match(patch_id):
+            parts = patch_id.split('-', 1)
+            ticket_number = parts[0]
+            description = parts[1]
+            
+            return PatchInfo(
+                original_id=patch_id,
+                normalized_id=patch_id,
+                ticket_number=ticket_number,
+                description=description,
+                is_numeric_only=False
+            )
+
+        # If we get here, format is invalid
+        if not patch_id[0].isdigit():
+            raise InvalidPatchIdError("Patch ID must start with a ticket number")
+        else:
+            raise InvalidPatchIdError(
+                f"Invalid patch ID format: '{patch_id}'. "
+                f"Expected formats: '123' or '123-description' (lowercase, hyphens only)"
+            )
+
     def normalize_patch_id(self, patch_id: str, suggested_description: Optional[str] = None) -> str:
         """
         Normalize a patch ID to the standard format.
