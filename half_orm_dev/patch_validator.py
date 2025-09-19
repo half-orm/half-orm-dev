@@ -206,7 +206,22 @@ class PatchValidator:
             assert validator.extract_description("456-user-auth") == "user-auth"
             assert validator.extract_description("456") is None
         """
-        pass
+        if not patch_id or not patch_id.strip():
+            return None
+        
+        patch_id = patch_id.strip()
+        
+        # Numeric-only format has no description
+        if self.NUMERIC_PATTERN.match(patch_id):
+            return None
+        
+        # Extract description from full format
+        if self.FULL_PATTERN.match(patch_id):
+            parts = patch_id.split('-', 1)
+            return parts[1]  # Return everything after first hyphen
+        
+        # Invalid format
+        return None
     
     def is_valid_description(self, description: str) -> bool:
         """
