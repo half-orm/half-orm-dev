@@ -459,6 +459,7 @@ class PatchDirectory:
                     continue
 
                 # Basic patch ID validation - must start with number
+                # This excludes hidden directories, __pycache__, etc.
                 if not item.name or not item.name[0].isdigit():
                     continue
 
@@ -520,7 +521,59 @@ class PatchDirectory:
             if deleted:
                 print("Patch directory deleted successfully")
         """
-        pass
+        # Safety check - require explicit confirmation
+        if not confirm:
+            return False
+
+        # Validate patch ID format - require full patch name for safety
+        if not patch_id or not patch_id.strip():
+            raise PatchDirectoryError("Invalid patch ID: cannot be empty")
+
+        patch_id = patch_id.strip()
+
+        # Validate patch ID using PatchValidator for complete validation
+        try:
+            patch_info = self._validator.validate_patch_id(patch_id)
+        except Exception as e:
+            raise PatchDirectoryError(f"Invalid patch ID format: {e}")
+
+        # For deletion safety, require full patch name (not just numeric ID)
+        if patch_info.is_numeric_only:
+            raise PatchDirectoryError(
+                f"For safety, deletion requires full patch name, not just ID '{patch_id}'. "
+                f"Use complete format like '{patch_id}-description'"
+            )
+
+        # Get patch directory path
+        patch_path = self.get_patch_directory_path(patch_id)
+
+        # Check if directory exists (handle permission errors)
+        try:
+            path_exists = patch_path.exists()
+        except PermissionError:
+            raise PatchDirectoryError(f"Permission denied: cannot access patch directory {patch_id}")
+
+        if not path_exists:
+            raise PatchDirectoryError(f"Patch directory does not exist: {patch_id}")
+
+        # Verify it's actually a directory, not a file (handle permission errors)
+        try:
+            is_directory = patch_path.is_dir()
+        except PermissionError:
+            raise PatchDirectoryError(f"Permission denied: cannot access patch directory {patch_id}")
+
+        if not is_directory:
+            raise PatchDirectoryError(f"Path exists but is not a directory: {patch_path}")
+
+        # Delete the directory and all contents
+        try:
+            shutil.rmtree(patch_path)
+            return True
+
+        except PermissionError as e:
+            raise PatchDirectoryError(f"Permission denied: cannot delete {patch_path}") from e
+        except OSError as e:
+            raise PatchDirectoryError(f"Failed to delete patch directory {patch_path}: {e}") from e
 
     def _validate_filename(self, filename: str) -> Tuple[bool, str]:
         """

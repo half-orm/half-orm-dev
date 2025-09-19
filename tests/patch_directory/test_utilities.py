@@ -280,7 +280,7 @@ class TestDeletePatchDirectory:
         patch_dir, repo, temp_dir, schema_patches_dir = patch_directory
         
         with pytest.raises(PatchDirectoryError, match="Patch directory does not exist"):
-            patch_dir.delete_patch_directory("nonexistent", confirm=True)
+            patch_dir.delete_patch_directory("999-nonexistent", confirm=True)
 
     def test_delete_patch_directory_is_file_not_directory(self, patch_directory):
         """Test deleting when patch 'directory' is actually a file."""
