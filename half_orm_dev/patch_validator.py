@@ -176,7 +176,21 @@ class PatchValidator:
             assert validator.extract_ticket_number("456") == "456"
             assert validator.extract_ticket_number("invalid") is None
         """
-        pass
+        if not patch_id or not patch_id.strip():
+            return None
+        
+        patch_id = patch_id.strip()
+        
+        # Check numeric-only format
+        if self.NUMERIC_PATTERN.match(patch_id):
+            return patch_id
+        
+        # Check full format and extract number part
+        if self.FULL_PATTERN.match(patch_id):
+            return patch_id.split('-', 1)[0]
+        
+        # Invalid format
+        return None
     
     def extract_description(self, patch_id: str) -> Optional[str]:
         """
