@@ -223,7 +223,11 @@ class TestPatchValidator:
     def test_sanitize_description_remove_special_chars(self, validator):
         """Test sanitization removes invalid characters."""
         assert validator.sanitize_description("Fix Bug #123!") == "fix-bug-123"
-        assert validator.sanitize_description("user@auth.com") == "userauth-com"
+
+    def test_sanitize_description_normalize_accents(self, validator):
+        """Test sanitization normalize accents."""
+        assert validator.sanitize_description("joël@auth.com") == "joel-auth-com"
+        assert validator.sanitize_description("éçèà") == "ecea"
     
     def test_sanitize_description_clean_multiple_hyphens(self, validator):
         """Test sanitization cleans up multiple consecutive hyphens."""

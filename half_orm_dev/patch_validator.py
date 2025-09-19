@@ -6,6 +6,7 @@ used in the patch-centric workflow.
 """
 
 import re
+import unicodedata
 from typing import Optional
 from dataclasses import dataclass
 
@@ -290,4 +291,37 @@ class PatchValidator:
             assert validator.sanitize_description("user_auth_system") == "user-auth-system"
             assert validator.sanitize_description("Fix Bug #123") == "fix-bug-123"
         """
-        pass
+        if not description:
+            return "patch"
+
+        # Convert to lowercase
+        result = description.lower()
+
+        # Remove accents (transliteration)
+        result = unicodedata.normalize('NFD', result)
+        result = ''.join(c for c in result if unicodedata.category(c) != 'Mn')
+
+        # Replace spaces and underscores with hyphens
+        result = re.sub(r'[\s_]+', '-', result)
+
+        # Replace other separators (dots, @, etc.) with hyphens before removing them
+        result = re.sub(r'[^\w\-]', '-', result)
+
+        # Now remove invalid characters (keep only letters, numbers, hyphens)
+        result = re.sub(r'[^a-z0-9\-]', '', result)
+
+        # Clean up multiple consecutive hyphens
+        result = re.sub(r'-+', '-', result)
+
+        # Remove leading and trailing hyphens
+        result = result.strip('-')
+
+        # If result is empty after cleaning, use fallback
+        if not result:
+            return "patch"
+
+        # Truncate if too long (reasonable limit)
+        if len(result) > 50:
+            result = result[:50].rstrip('-')
+
+        return result
