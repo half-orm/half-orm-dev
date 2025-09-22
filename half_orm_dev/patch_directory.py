@@ -143,16 +143,15 @@ class PatchDirectory:
         # Initialize PatchValidator
         self._validator = PatchValidator()
 
-    def create_patch_directory(self, patch_id: str, description_hint: Optional[str] = None) -> Path:
+    def create_patch_directory(self, patch_id: str) -> Path:
         """
         Create complete patch directory structure.
 
-        Creates SchemaPatches/patch-name/ directory with auto-generated README.md
+        Creates SchemaPatches/patch-name/ directory with minimal README.md template
         following the patch-centric workflow specifications.
 
         Args:
             patch_id: Patch identifier (validated and normalized)
-            description_hint: Optional description for README generation
 
         Returns:
             Path to created patch directory
@@ -164,16 +163,52 @@ class PatchDirectory:
         Examples:
             # Create with numeric ID
             path = patch_dir.create_patch_directory("456")
-            # Creates: SchemaPatches/456/
+            # Creates: SchemaPatches/456/ with README.md
 
-            # Create with full ID and hint
-            path = patch_dir.create_patch_directory(
-                "456-user-auth", 
-                "User authentication system"
-            )
-            # Creates: SchemaPatches/456-user-auth/
+            # Create with full ID
+            path = patch_dir.create_patch_directory("456-user-auth")
+            # Creates: SchemaPatches/456-user-auth/ with README.md
         """
-        pass
+        # Validate patch ID format
+        try:
+            patch_info = self._validator.validate_patch_id(patch_id)
+        except Exception as e:
+            raise PatchDirectoryError(f"Invalid patch ID: {e}")
+
+        # Get patch directory path
+        patch_path = self.get_patch_directory_path(patch_info.normalized_id)
+
+        # Check if directory already exists (handle permission errors)
+        try:
+            path_exists = patch_path.exists()
+        except PermissionError:
+            raise PatchDirectoryError(f"Permission denied: cannot access patch directory {patch_info.normalized_id}")
+
+        if path_exists:
+            raise PatchStructureError(f"Patch directory already exists: {patch_info.normalized_id}")
+
+        # Create the patch directory
+        try:
+            patch_path.mkdir(parents=True, exist_ok=False)
+        except PermissionError:
+            raise PatchDirectoryError(f"Permission denied: cannot create patch directory {patch_info.normalized_id}")
+        except OSError as e:
+            raise PatchDirectoryError(f"Failed to create patch directory {patch_info.normalized_id}: {e}")
+
+        # Create minimal README.md template
+        try:
+            readme_content = f"# Patch {patch_info.normalized_id}\n"
+            readme_path = patch_path / "README.md"
+            readme_path.write_text(readme_content, encoding='utf-8')
+        except Exception as e:
+            # If README creation fails, clean up the directory
+            try:
+                shutil.rmtree(patch_path)
+            except:
+                pass  # Best effort cleanup
+            raise PatchDirectoryError(f"Failed to create README.md for patch {patch_info.normalized_id}: {e}")
+
+        return patch_path
 
     def get_patch_structure(self, patch_id: str) -> PatchStructure:
         """
