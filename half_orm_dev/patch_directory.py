@@ -477,7 +477,7 @@ class PatchDirectory:
         """
         pass
 
-    def apply_patch_files(self, patch_id: str, database_connection) -> List[str]:
+    def apply_patch_files(self, patch_id: str, database_model) -> List[str]:
         """
         Apply all patch files in correct order.
 
@@ -487,7 +487,7 @@ class PatchDirectory:
 
         Args:
             patch_id: Patch identifier to apply
-            database_connection: Database connection for SQL execution
+            database_model: halfORM Model instance for SQL execution
 
         Returns:
             List of applied filenames in execution order
@@ -496,7 +496,7 @@ class PatchDirectory:
             PatchDirectoryError: If patch application fails
 
         Examples:
-            applied_files = patch_dir.apply_patch_files("456-user-auth", db_conn)
+            applied_files = patch_dir.apply_patch_files("456-user-auth", repo.model)
 
             # Returns: ["01_create_users.sql", "02_add_indexes.sql", "03_permissions.py"]
             # After execution:
@@ -504,7 +504,27 @@ class PatchDirectory:
             # - halfORM code regenerated via modules.py integration
             # - Business logic stubs created if needed
         """
-        pass
+        applied_files = []
+
+        # Get patch structure
+        structure = self.get_patch_structure(patch_id)
+
+        # Validate patch is valid
+        if not structure.is_valid:
+            error_msg = "; ".join(structure.validation_errors)
+            raise PatchDirectoryError(f"Cannot apply invalid patch {patch_id}: {error_msg}")
+
+        # Apply files in lexicographic order
+        for patch_file in structure.files:
+            if patch_file.is_sql:
+                self._execute_sql_file(patch_file.path, database_model)
+                applied_files.append(patch_file.name)
+            elif patch_file.is_python:
+                self._execute_python_file(patch_file.path)
+                applied_files.append(patch_file.name)
+            # Other file types are ignored (not executed)
+
+        return applied_files
 
     def get_patch_directory_path(self, patch_id: str) -> Path:
         """
@@ -695,21 +715,33 @@ class PatchDirectory:
         """
         pass
 
-    def _execute_sql_file(self, file_path: Path, database_connection) -> None:
+    def _execute_sql_file(self, file_path: Path, database_model) -> None:
         """
         Execute SQL file against database.
 
         Internal method to safely execute SQL files with error handling
-        and transaction management.
+        using halfORM Model.execute_query().
 
         Args:
             file_path: Path to SQL file
-            database_connection: Database connection
+            database_model: halfORM Model instance
 
         Raises:
             PatchDirectoryError: If SQL execution fails
         """
-        pass
+        try:
+            # Read SQL content
+            sql_content = file_path.read_text(encoding='utf-8')
+
+            # Skip empty files
+            if not sql_content.strip():
+                return
+
+            # Execute SQL using halfORM model (same as patch.py line 144)
+            database_model.execute_query(sql_content)
+
+        except Exception as e:
+            raise PatchDirectoryError(f"SQL execution failed in {file_path.name}: {e}") from e
 
     def _execute_python_file(self, file_path: Path) -> None:
         """
@@ -724,4 +756,28 @@ class PatchDirectory:
         Raises:
             PatchDirectoryError: If Python execution fails
         """
-        pass
+        try:
+            # Setup Python execution environment
+            import subprocess
+            import sys
+
+            # Execute Python script as subprocess
+            result = subprocess.run(
+                [sys.executable, str(file_path)],
+                cwd=file_path.parent,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            # Log output if any (could be enhanced with proper logging)
+            if result.stdout.strip():
+                print(f"Python output from {file_path.name}: {result.stdout.strip()}")
+
+        except subprocess.CalledProcessError as e:
+            error_msg = f"Python execution failed in {file_path.name}"
+            if e.stderr:
+                error_msg += f": {e.stderr.strip()}"
+            raise PatchDirectoryError(error_msg) from e
+        except Exception as e:
+            raise PatchDirectoryError(f"Failed to execute Python file {file_path.name}: {e}") from e
