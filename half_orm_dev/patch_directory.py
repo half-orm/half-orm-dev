@@ -38,7 +38,6 @@ class PatchFile:
     name: str
     path: Path
     extension: str
-    order: int
     is_sql: bool
     is_python: bool
     exists: bool
@@ -222,7 +221,7 @@ class PatchDirectory:
 
         Returns:
             PatchStructure with complete analysis results
-    
+
         Examples:
             structure = patch_dir.get_patch_structure("456-user-auth")
 
@@ -233,7 +232,63 @@ class PatchDirectory:
             else:
                 print(f"Errors: {structure.validation_errors}")
         """
-        pass
+        # Get patch directory path
+        patch_path = self.get_patch_directory_path(patch_id)
+        readme_path = patch_path / "README.md"
+
+        # Use validate_patch_structure for basic validation
+        is_valid, validation_errors = self.validate_patch_structure(patch_id)
+
+        # If basic validation fails, return structure with errors
+        if not is_valid:
+            return PatchStructure(
+                patch_id=patch_id,
+                directory_path=patch_path,
+                readme_path=readme_path,
+                files=[],
+                is_valid=False,
+                validation_errors=validation_errors
+            )
+
+        # Analyze files in the patch directory
+        patch_files = []
+
+        try:
+            # Get all files in lexicographic order (excluding README.md)
+            all_items = sorted(patch_path.iterdir(), key=lambda x: x.name.lower())
+            executable_files = [item for item in all_items if item.is_file() and item.name != "README.md"]
+
+            for item in executable_files:
+                # Create PatchFile object
+                extension = item.suffix.lower().lstrip('.')
+                is_sql = extension == 'sql'
+                is_python = extension in ['py', 'python']
+
+                patch_file = PatchFile(
+                    name=item.name,
+                    path=item,
+                    extension=extension,
+                    is_sql=is_sql,
+                    is_python=is_python,
+                    exists=True
+                )
+
+                patch_files.append(patch_file)
+
+        except PermissionError:
+            # If we can't read directory contents, mark as invalid
+            validation_errors.append(f"Permission denied: cannot read patch directory contents")
+            is_valid = False
+
+        # Create and return PatchStructure
+        return PatchStructure(
+            patch_id=patch_id,
+            directory_path=patch_path,
+            readme_path=readme_path,
+            files=patch_files,
+            is_valid=is_valid,
+            validation_errors=validation_errors
+        )
 
     def list_patch_files(self, patch_id: str, file_type: Optional[str] = None) -> List[PatchFile]:
         """
@@ -243,7 +298,7 @@ class PatchDirectory:
         Supports filtering by file type (sql, python, or None for all).
 
         Args:
-            patch_id: Patch identifier    
+            patch_id: Patch identifier
             file_type: Filter by 'sql', 'python', or None for all files
 
         Returns:
@@ -637,21 +692,6 @@ class PatchDirectory:
 
         Returns:
             Tuple of (is_valid, error_message_if_invalid)
-        """
-        pass
-
-    def _get_file_order(self, filename: str) -> int:
-        """
-        Extract ordering number from filename.
-
-        Internal method to determine file execution order from filename.
-        Supports patterns like "01_create.sql", "02_update.py", etc.
-
-        Args:
-            filename: Filename to analyze
-
-        Returns:
-            Order number (0 if no order found)
         """
         pass
 
