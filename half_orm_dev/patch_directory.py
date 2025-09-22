@@ -222,7 +222,7 @@ class PatchDirectory:
 
         Returns:
             PatchStructure with complete analysis results
-
+    
         Examples:
             structure = patch_dir.get_patch_structure("456-user-auth")
 
@@ -243,7 +243,7 @@ class PatchDirectory:
         Supports filtering by file type (sql, python, or None for all).
 
         Args:
-            patch_id: Patch identifier
+            patch_id: Patch identifier    
             file_type: Filter by 'sql', 'python', or None for all files
 
         Returns:
@@ -265,11 +265,10 @@ class PatchDirectory:
         """
         Validate patch directory structure and contents.
 
-        Performs comprehensive validation of patch directory:
+        Performs minimal validation following KISS principle:
         - Directory exists and accessible
-        - README.md present and valid
-        - SQL/Python files follow naming conventions
-        - No conflicting or invalid files
+
+        Developers have full flexibility for patch content and structure.
 
         Args:
             patch_id: Patch identifier to validate
@@ -284,7 +283,23 @@ class PatchDirectory:
                 for error in errors:
                     print(f"Validation error: {error}")
         """
-        pass
+        errors = []
+
+        # Get patch directory path
+        patch_path = self.get_patch_directory_path(patch_id)
+
+        # Minimal validation: directory exists and is accessible
+        try:
+            if not patch_path.exists():
+                errors.append(f"Patch directory does not exist: {patch_id}")
+            elif not patch_path.is_dir():
+                errors.append(f"Path is not a directory: {patch_path}")
+        except PermissionError:
+            errors.append(f"Permission denied: cannot access patch directory {patch_id}")
+
+        # Return validation results
+        is_valid = len(errors) == 0
+        return is_valid, errors
 
     def generate_readme_content(self, patch_info: PatchInfo, description_hint: Optional[str] = None) -> str:
         """
