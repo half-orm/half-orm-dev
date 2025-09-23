@@ -49,10 +49,9 @@ jobs:
     - name: Test with pytest & coverage
       run: |
         export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-        # python -c "import half_orm_dev.cli; print('CLI import OK')"
         half_orm --version
         half_orm --list-extensions
-        HALFORM_CONF_DIR=$PWD/.config ./test/dummy_test.sh
+        HALFORM_CONF_DIR=$PWD/.config pytest tests/patch_manager/ -v
     - name: Upload coverage data to coveralls.io
       run: coveralls --service=github
       env:
