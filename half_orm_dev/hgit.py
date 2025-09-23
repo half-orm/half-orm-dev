@@ -102,23 +102,16 @@ class HGit:
         return branch in self.__git_repo.heads
 
     def set_branch(self, release_s):
-        """Checks the branch
-
-        Either hop_main or hop_<release>.
         """
-        rel_branch = f'hop_{release_s}'
-        self.add(self.__repo.changelog.file)
-        if str(self.branch) == 'hop_main' and rel_branch != 'hop_main':
-            # creates the new branch
-            self.__git_repo.git.commit('-m', f'[hop][main] Add {release_s} to Changelog')
-            self.__git_repo.create_head(rel_branch)
-            self.__git_repo.git.checkout(rel_branch)
-            self.__git_repo.git.add('Patches')
-            self.__git_repo.git.commit('-m', f'[hop][{release_s}] Patch skeleton')
-            self.cherry_pick_changelog(release_s)
-            print(f'NEW branch {rel_branch}')
-        elif str(self.branch) == rel_branch:
-            print(f'On branch {rel_branch}')
+        LEGACY METHOD - No longer supported
+        
+        Branch management for releases removed in v0.16.0.
+        Use new patch-centric workflow with PatchManager.
+        """
+        raise NotImplementedError(
+            "Legacy branch-per-release system removed in v0.16.0. "
+            "Use new patch-centric workflow via repo.patch_manager"
+        )
 
     def cherry_pick_changelog(self, release_s):
         "Sync CHANGELOG on all hop_x.y.z branches in devel different from release_s"
@@ -158,32 +151,15 @@ class HGit:
             git.branch("-D", "hop_temp")
 
     def rebase_to_hop_main(self, push=False):
-        "Rebase a hop_X.Y.Z branch to hop_main"
-        release = self.current_release
-        if push and not self.__repo.git_origin:
-            utils.error("Git: No remote specified for \"origin\". Can't push!\n", 1)
-        try:
-            if self.__origin:
-                self.__git_repo.git.pull('origin', 'hop_main')
-            hop_main_last_commit = self.__git_repo.commit('hop_main').hexsha[0:8]
-            self.__git_repo.git.rebase('hop_main')
-            self.__git_repo.git.checkout('hop_main')
-            self.__git_repo.git.rebase(f'hop_{release}')
-            self.__repo.changelog.update_release(
-                self.__repo.database.last_release_s,
-                self.__repo.hgit.last_commit(),
-                hop_main_last_commit)
-            patch_dir = os.path.join(self.__base_dir, 'Patches', *release.split('.'))
-            manifest = Manifest(patch_dir)
-            message = f'[{release}] {manifest.changelog_msg}'
-            self.__git_repo.git.commit('-m', message)
-            self.__git_repo.git.tag(release, '-m', release)
-            self.cherry_pick_changelog(release)
-            if push:
-                self.__git_repo.git.push()
-                self.__git_repo.git.push('-uf', 'origin', release)
-        except GitCommandError as err:
-            utils.error(f'Something went wrong rebasing hop_main\n{err}\n', exit_code=1)
+        """
+        LEGACY METHOD - No longer supported
+        
+        Release rebasing removed in v0.16.0.
+        """
+        raise NotImplementedError(
+            "Legacy release rebasing removed in v0.16.0. "
+            "Use new patch-centric workflow"
+        )
 
     def add(self, *args, **kwargs):
         "Proxy to git.add method"
