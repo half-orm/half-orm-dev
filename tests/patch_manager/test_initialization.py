@@ -62,15 +62,6 @@ class TestPatchDirectoryInitialization:
         with pytest.raises(PatchManagerError, match="Repository is invalid"):
             PatchManager(invalid_repo)
 
-    def test_init_non_devel_repo(self):
-        """Test initialization with non-development repository."""
-        repo = Mock()
-        repo.base_dir = "/tmp/test"
-        repo.devel = False
-        
-        with pytest.raises(PatchManagerError, match="not in development mode"):
-            PatchManager(repo)
-
     def test_init_nonexistent_base_dir(self):
         """Test initialization with nonexistent base directory."""
         repo = Mock()

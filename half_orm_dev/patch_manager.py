@@ -83,7 +83,7 @@ class PatchManager:
             repo: Repository instance providing base_dir and configuration
 
         Raises:
-            PatchManagerError: If repository is invalid or not in development mode
+            PatchManagerError: If repository is invalid
         """
         # Validate repository is not None
         if repo is None:
@@ -94,10 +94,6 @@ class PatchManager:
         for attr in required_attrs:
             if not hasattr(repo, attr):
                 raise PatchManagerError(f"Repository is invalid: missing '{attr}' attribute")
-
-        # Validate repository is in development mode
-        if not repo.devel:
-            raise PatchManagerError("Repository is not in development mode")
 
         # Validate base directory exists and is a directory
         if repo.base_dir is None:
