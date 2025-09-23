@@ -51,7 +51,7 @@ jobs:
         export PYTHONPATH="${PYTHONPATH}:$(pwd)"
         half_orm --version
         half_orm --list-extensions
-        HALFORM_CONF_DIR=$PWD/.config pytest tests/patch_manager/ -v
+        HALFORM_CONF_DIR=$PWD/.config pytest tests/ -v
     - name: Upload coverage data to coveralls.io
       run: coveralls --service=github
       env:
