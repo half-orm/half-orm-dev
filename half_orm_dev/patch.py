@@ -72,65 +72,11 @@ class Patch:
                 'ERROR! Wrong branch. Please, switch to the hop_main branch before.\n', exit_code=1)
 
     def prep_release(self, release_level, message=None):
-        """Returns the next (major, minor, patch) tuple according to the release_level
-
-        The repo must be clean.
-
-        Args:
-            release_level (str): one of ['patch', 'minor', 'major']
-        """
-        if not self.__repo.hgit.repos_is_clean():
-            utils.error('There are uncommited changes. Please commit your changes before using `hop prepare`\n', exit_code=1)
-        if self.__repo.database.last_release_s != self.__changelog.last_release:
-            try:
-                self.__restore_db(self.__changelog.last_release)
-            except FileNotFoundError as exc:
-                utils.error(f'No backup file for release {self.__changelog.last_release}\n{exc}\n', exit_code=1)
-        self.__repo.hgit.checkout_to_hop_main()
-        next_releases = self.__next_releases
-        if release_level is None:
-            next_levels = '\n'.join(
-                [f"""- {level}: {'{major}.{minor}.{patch} {in_dev}'.format(**next_releases[level])}"""
-                for level in self.__levels])
-            print(f'Next releases:\n{next_levels}')
-            next_possible_releases = [elt for elt in self.__levels if not next_releases[elt]['in_dev']]
-            release_level = input(f"Release level {next_possible_releases}? ")
-            if release_level not in next_possible_releases:
-                utils.error(f"Wrong release level ({release_level}).\n", exit_code=1)
-        elif next_releases[release_level]['in_dev']:
-            utils.error(f'{release_level} is alredy in development!\n', 1)
-        next_release = dict(self.__repo.database.last_release)
-        next_release[release_level] = next_release[release_level] + 1
-        if release_level == 'major':
-            next_release['minor'] = next_release['patch'] = 0
-        if release_level == 'minor':
-            next_release['patch'] = 0
-        new_release_s = '{major}.{minor}.{patch}'.format(**next_release)
-        rel_branch = f'hop_{new_release_s}'
-        if self.__repo.hgit.branch_exists(rel_branch):
-            utils.error(f'{rel_branch} already exists!\n', 1)
-        print(f'PREPARING: {new_release_s}')
-        patch_path = os.path.join(
-            'Patches',
-            str(next_release['major']),
-            str(next_release['minor']),
-            str(next_release['patch']))
-        if not os.path.exists(patch_path):
-            changelog_msg = message or input('Message - (leave empty to abort): ')
-            if not changelog_msg:
-                print('Aborting')
-                return
-            os.makedirs(patch_path)
-            with open(os.path.join(patch_path, 'MANIFEST.json'), 'w', encoding='utf-8') as manifest:
-                manifest.write(json.dumps({
-                    'hop_version': hop_version(),
-                    'changelog_msg': changelog_msg,
-                }))
-        self.__changelog.new_release(new_release_s)
-        self.__repo.hgit.set_branch(new_release_s)
-        print('You can now add your patch scripts (*.py, *.sql)'
-            f'in {patch_path}. See Patches/README.')
-        modules.generate(self.__repo)
+        """LEGACY METHOD - No longer supported"""  
+        raise NotImplementedError(
+            "Legacy release preparation removed. "
+            "Use new PatchManager via repo.patch_manager"
+        )
 
     def __check_apply_or_re_apply(self):
         """Return True if it's the first time.
@@ -216,24 +162,11 @@ class Patch:
             self.__restore_previous_release()
 
     def __apply(self, path):
-        if not os.path.exists(path):
-            utils.warning(f"{path} does not exist. Skipping.\n")
-            sys.stderr.flush()
-            return
-        files_d = {elt.name: elt for elt in os.scandir(path)}
-        file_names = list(files_d.keys())
-        file_names.sort()
-        for file_name in file_names:
-            file_ = files_d[file_name]
-            extension = file_.name.split('.').pop()
-            if not (file_.is_file() and extension in ['sql', 'py']):
-                continue
-            print(f'+ {file_.name}')
-
-            if extension == 'sql':
-                self.__execute_sql(file_)
-            elif extension == 'py':
-                self.__execute_script(file_)
+        """LEGACY METHOD - No longer supported"""
+        raise NotImplementedError(
+            "Legacy Patches/ system removed in v0.16.0. "
+            "Use new patch-centric workflow with half_orm dev commands."
+        )
 
     def apply(self, release, force=False, save_db=True):
         """Apply the release in 'path'
