@@ -1886,7 +1886,7 @@ half_orm dev apply-patch
 - `ReleaseFileManager`: Manage releases/*.txt files with Git workflow and stage support
 - `HGit`: Branch classification and patch management
 - `CLI`: Adaptive Click interface based on branch context
-- `PatchDirectory`: Patch application and validation
+- `PatchManager`: Patch application and validation
 - `BackupManager`: Production backup management
 - `ConflictAnalyzer`: Schema patch conflict detection (passive reporting only)
 - `NotificationManager`: Resync notification system via commit --allow-empty

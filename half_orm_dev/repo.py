@@ -12,6 +12,7 @@ from half_orm_dev.hgit import HGit
 from half_orm_dev import modules
 from half_orm_dev.patch import Patch
 from half_orm_dev.changelog import Changelog
+from half_orm_dev.patch_manager import PatchManager, PatchManagerError
 
 from .utils import TEMPLATE_DIRS, hop_version
 
@@ -87,13 +88,13 @@ class Config:
 
 class Repo:
     """Reads and writes the hop repo conf file.
-    
+
     Implements Singleton pattern to ensure only one instance per base directory.
     """
-    
+
     # Singleton storage: base_dir -> instance
     _instances = {}
-    
+
     # Instance variables
     __new = False
     __checked: bool = False
@@ -101,16 +102,17 @@ class Repo:
     __config: Optional[Config] = None
     database: Optional[Database] = None
     hgit: Optional[HGit] = None
-    
+    _patch_directory: Optional[PatchManager] = None
+
     def __new__(cls):
         """Singleton implementation based on current working directory"""
         # Find the base directory for this context
         base_dir = cls._find_base_dir()
-        
+
         # Return existing instance if it exists for this base_dir
         if base_dir in cls._instances:
             return cls._instances[base_dir]
-        
+
         # Create new instance
         instance = super().__new__(cls)
         cls._instances[base_dir] = instance
@@ -120,7 +122,7 @@ class Repo:
         # Only initialize once per instance
         if hasattr(self, '_initialized'):
             return
-        
+
         self._initialized = True
         self.__check()
 
@@ -315,3 +317,99 @@ class Repo:
     def commit_release(self, push):
         "Release a 'release' (devel)"
         Patch(self).release(push)
+
+    @property
+    def patch_manager(self) -> PatchManager:
+        """
+        Get PatchManager instance for patch-centric operations.
+
+        Provides access to SchemaPatches/ directory management including:
+        - Creating patch directories with minimal README templates
+        - Validating patch structure following KISS principles  
+        - Applying SQL and Python files in lexicographic order
+        - Listing and managing existing patches
+
+        Lazy initialization ensures PatchManager is only created when needed
+        and cached for subsequent accesses.
+
+        Returns:
+            PatchManager: Instance for managing SchemaPatches/ operations
+
+        Raises:
+            PatchManagerError: If repository not in development mode
+            RuntimeError: If repository not properly initialized
+
+        Examples:
+            # Create new patch directory
+            repo.patch_manager.create_patch_directory("456-user-auth")
+
+            # Apply patch files using repo's model
+            applied = repo.patch_manager.apply_patch_files("456-user-auth", repo.model)
+
+            # List all existing patches
+            patches = repo.patch_manager.list_all_patches()
+
+            # Get detailed patch structure analysis
+            structure = repo.patch_manager.get_patch_structure("456-user-auth")
+            if structure.is_valid:
+                print(f"Patch has {len(structure.files)} executable files")
+        """
+        # Validate repository is properly initialized
+        if not self.__checked:
+            raise RuntimeError(
+                "Repository not initialized. PatchManager requires valid repository context."
+            )
+
+        # Validate development mode requirement
+        if not self.devel:
+            raise PatchManagerError(
+                "PatchManager operations require development mode. "
+                "Enable development mode in repository configuration."
+            )
+
+        # Lazy initialization with caching
+        if self._patch_directory is None:
+            try:
+                self._patch_directory = PatchManager(self)
+            except Exception as e:
+                raise PatchManagerError(
+                    f"Failed to initialize PatchManager: {e}"
+                ) from e
+
+        return self._patch_directory
+
+    def clear_patch_directory_cache(self) -> None:
+        """
+        Clear cached PatchManager instance.
+
+        Forces re-initialization of PatchManager on next access.
+        Useful for testing or when repository configuration changes.
+
+        Examples:
+            # Clear cache after configuration change
+            repo.clear_patch_directory_cache()
+
+            # Next access will create fresh instance
+            new_patch_dir = repo.patch_manager
+        """
+        self._patch_directory = None
+
+    def has_patch_directory_support(self) -> bool:
+        """
+        Check if repository supports PatchManager operations.
+
+        Validates that repository is in development mode and properly
+        initialized without actually creating PatchManager instance.
+
+        Returns:
+            bool: True if PatchManager operations are supported
+
+        Examples:
+            if repo.has_patch_directory_support():
+                patches = repo.patch_manager.list_all_patches()
+            else:
+                print("Repository not in development mode")
+        """
+        return self.__checked and self.devel
+
+    # ... reste des méthodes existantes inchangées ...

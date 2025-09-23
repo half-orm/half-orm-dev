@@ -1,8 +1,8 @@
 """
-Fixtures communes pour tous les tests PatchDirectory.
+Fixtures communes pour tous les tests PatchManager.
 
 Ce module fournit les fixtures pytest partagées entre tous les modules
-de test pour PatchDirectory, incluant la configuration temporaire des 
+de test pour PatchManager, incluant la configuration temporaire des 
 répertoires et les données de test.
 """
 
@@ -46,11 +46,11 @@ def temp_repo():
 
 
 @pytest.fixture
-def patch_directory(temp_repo):
+def patch_manager(temp_repo):
     """
-    Create PatchDirectory instance with temporary repo.
+    Create PatchManager instance with temporary repo.
 
-    Provides a ready-to-use PatchDirectory instance for testing
+    Provides a ready-to-use PatchManager instance for testing
     with all dependencies properly mocked.
 
     Args:
@@ -59,12 +59,12 @@ def patch_directory(temp_repo):
     Returns:
         tuple: (patch_directory_instance, repo_mock, temp_dir, schema_patches_dir)
     """
-    from half_orm_dev.patch_directory import PatchDirectory
+    from half_orm_dev.patch_manager import PatchManager
 
     repo, temp_dir, schema_patches_dir = temp_repo
-    patch_dir = PatchDirectory(repo)
+    patch_mgr = PatchManager(repo)
 
-    return patch_dir, repo, temp_dir, schema_patches_dir
+    return patch_mgr, repo, temp_dir, schema_patches_dir
 
 
 @pytest.fixture
@@ -230,7 +230,7 @@ def patch_validator_mock():
     Mock PatchValidator for testing integration.
 
     Provides a mock PatchValidator that returns predictable
-    validation results for testing PatchDirectory integration.
+    validation results for testing PatchManager integration.
 
     Returns:
         Mock: Mock PatchValidator instance
@@ -268,7 +268,7 @@ def patch_validator_mock():
 pytest_plugins = []  # Pas de plugins additionnels nécessaires
 
 def pytest_configure(config):
-    """Configuration pytest pour les tests PatchDirectory."""
+    """Configuration pytest pour les tests PatchManager."""
     # Ajouter des marqueurs personnalisés si nécessaire
     config.addinivalue_line(
         "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"

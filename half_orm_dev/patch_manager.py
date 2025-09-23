@@ -1,5 +1,5 @@
 """
-PatchDirectory module for half-orm-dev
+PatchManager module for half-orm-dev
 
 Manages SchemaPatches/patch-name/ directory structure, SQL/Python files,
 and README.md generation for the patch-centric workflow.
@@ -17,17 +17,17 @@ from half_orm import utils
 from .patch_validator import PatchValidator, PatchInfo
 
 
-class PatchDirectoryError(Exception):
-    """Base exception for PatchDirectory operations."""
+class PatchManagerError(Exception):
+    """Base exception for PatchManager operations."""
     pass
 
 
-class PatchStructureError(PatchDirectoryError):
+class PatchStructureError(PatchManagerError):
     """Raised when patch directory structure is invalid."""
     pass
 
 
-class PatchFileError(PatchDirectoryError):
+class PatchFileError(PatchManagerError):
     """Raised when patch file operations fail."""
     pass
 
@@ -54,7 +54,7 @@ class PatchStructure:
     validation_errors: List[str]
 
 
-class PatchDirectory:
+class PatchManager:
     """
     Manages patch directory structure and file operations.
 
@@ -63,52 +63,52 @@ class PatchDirectory:
 
     Examples:
         # Create new patch directory
-        patch_dir = PatchDirectory(repo)
-        patch_dir.create_patch_directory("456-user-authentication")
+        patch_mgr = PatchManager(repo)
+        patch_mgr.create_patch_directory("456-user-authentication")
 
         # Validate existing patch
-        structure = patch_dir.get_patch_structure("456-user-authentication")
+        structure = patch_mgr.get_patch_structure("456-user-authentication")
         if not structure.is_valid:
             print(f"Validation errors: {structure.validation_errors}")
 
         # Apply patch files in order
-        patch_dir.apply_patch_files("456-user-authentication")
+        patch_mgr.apply_patch_files("456-user-authentication")
     """
 
     def __init__(self, repo):
         """
-        Initialize PatchDirectory manager.
+        Initialize PatchManager manager.
 
         Args:
             repo: Repository instance providing base_dir and configuration
 
         Raises:
-            PatchDirectoryError: If repository is invalid or not in development mode
+            PatchManagerError: If repository is invalid or not in development mode
         """
         # Validate repository is not None
         if repo is None:
-            raise PatchDirectoryError("Repository cannot be None")
+            raise PatchManagerError("Repository cannot be None")
 
         # Validate repository has required attributes
         required_attrs = ['base_dir', 'devel', 'name']
         for attr in required_attrs:
             if not hasattr(repo, attr):
-                raise PatchDirectoryError(f"Repository is invalid: missing '{attr}' attribute")
+                raise PatchManagerError(f"Repository is invalid: missing '{attr}' attribute")
 
         # Validate repository is in development mode
         if not repo.devel:
-            raise PatchDirectoryError("Repository is not in development mode")
+            raise PatchManagerError("Repository is not in development mode")
 
         # Validate base directory exists and is a directory
         if repo.base_dir is None:
-            raise PatchDirectoryError("Repository is invalid: base_dir cannot be None")
+            raise PatchManagerError("Repository is invalid: base_dir cannot be None")
 
         base_path = Path(repo.base_dir)
         if not base_path.exists():
-            raise PatchDirectoryError(f"Base directory does not exist: {repo.base_dir}")
+            raise PatchManagerError(f"Base directory does not exist: {repo.base_dir}")
 
         if not base_path.is_dir():
-            raise PatchDirectoryError(f"Base directory is not a directory: {repo.base_dir}")
+            raise PatchManagerError(f"Base directory is not a directory: {repo.base_dir}")
 
         # Store repository reference and paths
         self._repo = repo
@@ -122,22 +122,22 @@ class PatchDirectory:
         try:
             schema_exists = self._schema_patches_dir.exists()
         except PermissionError:
-            raise PatchDirectoryError(f"Permission denied: cannot access SchemaPatches directory")
+            raise PatchManagerError(f"Permission denied: cannot access SchemaPatches directory")
 
         if not schema_exists:
             try:
                 self._schema_patches_dir.mkdir(parents=True, exist_ok=True)
             except PermissionError:
-                raise PatchDirectoryError(f"Permission denied: cannot create SchemaPatches directory")
+                raise PatchManagerError(f"Permission denied: cannot create SchemaPatches directory")
             except OSError as e:
-                raise PatchDirectoryError(f"Failed to create SchemaPatches directory: {e}")
+                raise PatchManagerError(f"Failed to create SchemaPatches directory: {e}")
 
         # Validate SchemaPatches is a directory
         try:
             if not self._schema_patches_dir.is_dir():
-                raise PatchDirectoryError(f"SchemaPatches exists but is not a directory: {self._schema_patches_dir}")
+                raise PatchManagerError(f"SchemaPatches exists but is not a directory: {self._schema_patches_dir}")
         except PermissionError:
-            raise PatchDirectoryError(f"Permission denied: cannot access SchemaPatches directory")
+            raise PatchManagerError(f"Permission denied: cannot access SchemaPatches directory")
 
         # Initialize PatchValidator
         self._validator = PatchValidator()
@@ -156,23 +156,23 @@ class PatchDirectory:
             Path to created patch directory
 
         Raises:
-            PatchDirectoryError: If directory creation fails
+            PatchManagerError: If directory creation fails
             PatchStructureError: If patch directory already exists
 
         Examples:
             # Create with numeric ID
-            path = patch_dir.create_patch_directory("456")
+            path = patch_mgr.create_patch_directory("456")
             # Creates: SchemaPatches/456/ with README.md
 
             # Create with full ID
-            path = patch_dir.create_patch_directory("456-user-auth")
+            path = patch_mgr.create_patch_directory("456-user-auth")
             # Creates: SchemaPatches/456-user-auth/ with README.md
         """
         # Validate patch ID format
         try:
             patch_info = self._validator.validate_patch_id(patch_id)
         except Exception as e:
-            raise PatchDirectoryError(f"Invalid patch ID: {e}")
+            raise PatchManagerError(f"Invalid patch ID: {e}")
 
         # Get patch directory path
         patch_path = self.get_patch_directory_path(patch_info.normalized_id)
@@ -181,7 +181,7 @@ class PatchDirectory:
         try:
             path_exists = patch_path.exists()
         except PermissionError:
-            raise PatchDirectoryError(f"Permission denied: cannot access patch directory {patch_info.normalized_id}")
+            raise PatchManagerError(f"Permission denied: cannot access patch directory {patch_info.normalized_id}")
 
         if path_exists:
             raise PatchStructureError(f"Patch directory already exists: {patch_info.normalized_id}")
@@ -190,9 +190,9 @@ class PatchDirectory:
         try:
             patch_path.mkdir(parents=True, exist_ok=False)
         except PermissionError:
-            raise PatchDirectoryError(f"Permission denied: cannot create patch directory {patch_info.normalized_id}")
+            raise PatchManagerError(f"Permission denied: cannot create patch directory {patch_info.normalized_id}")
         except OSError as e:
-            raise PatchDirectoryError(f"Failed to create patch directory {patch_info.normalized_id}: {e}")
+            raise PatchManagerError(f"Failed to create patch directory {patch_info.normalized_id}: {e}")
 
         # Create minimal README.md template
         try:
@@ -205,7 +205,7 @@ class PatchDirectory:
                 shutil.rmtree(patch_path)
             except:
                 pass  # Best effort cleanup
-            raise PatchDirectoryError(f"Failed to create README.md for patch {patch_info.normalized_id}: {e}")
+            raise PatchManagerError(f"Failed to create README.md for patch {patch_info.normalized_id}: {e}")
 
         return patch_path
 
@@ -223,7 +223,7 @@ class PatchDirectory:
             PatchStructure with complete analysis results
 
         Examples:
-            structure = patch_dir.get_patch_structure("456-user-auth")
+            structure = patch_mgr.get_patch_structure("456-user-auth")
 
             if structure.is_valid:
                 print(f"Patch has {len(structure.files)} files")
@@ -306,10 +306,10 @@ class PatchDirectory:
 
         Examples:
             # All files in order
-            files = patch_dir.list_patch_files("456-user-auth")
+            files = patch_mgr.list_patch_files("456-user-auth")
 
             # SQL files only
-            sql_files = patch_dir.list_patch_files("456-user-auth", "sql")
+            sql_files = patch_mgr.list_patch_files("456-user-auth", "sql")
 
             # Files are returned in lexicographic order:
             # 01_create_users.sql, 02_add_indexes.sql, 03_permissions.py
@@ -332,7 +332,7 @@ class PatchDirectory:
             Tuple of (is_valid, list_of_errors)
 
         Examples:
-            is_valid, errors = patch_dir.validate_patch_structure("456-user-auth")
+            is_valid, errors = patch_mgr.validate_patch_structure("456-user-auth")
 
             if not is_valid:
                 for error in errors:
@@ -375,7 +375,7 @@ class PatchDirectory:
 
         Examples:
             patch_info = validator.validate_patch_id("456-user-auth")
-            content = patch_dir.generate_readme_content(
+            content = patch_mgr.generate_readme_content(
                 patch_info, 
                 "User authentication and session management"
             )
@@ -408,7 +408,7 @@ class PatchDirectory:
             PatchFileError: If README creation fails
 
         Examples:
-            readme_path = patch_dir.create_readme_file("456-user-auth")
+            readme_path = patch_mgr.create_readme_file("456-user-auth")
             # Creates: SchemaPatches/456-user-auth/README.md
         """
         pass
@@ -433,14 +433,14 @@ class PatchDirectory:
 
         Examples:
             # Add SQL file
-            sql_path = patch_dir.add_patch_file(
+            sql_path = patch_mgr.add_patch_file(
                 "456-user-auth",
                 "01_create_users.sql",
                 "CREATE TABLE users (id SERIAL PRIMARY KEY);"
             )
 
             # Add Python file
-            py_path = patch_dir.add_patch_file(
+            py_path = patch_mgr.add_patch_file(
                 "456-user-auth",
                 "02_update_permissions.py",
                 "# Update user permissions"
@@ -467,11 +467,11 @@ class PatchDirectory:
 
         Examples:
             # Remove SQL file
-            removed = patch_dir.remove_patch_file("456-user-auth", "old_script.sql")
+            removed = patch_mgr.remove_patch_file("456-user-auth", "old_script.sql")
 
             # Cannot remove README.md
             try:
-                patch_dir.remove_patch_file("456-user-auth", "README.md")
+                patch_mgr.remove_patch_file("456-user-auth", "README.md")
             except PatchFileError as e:
                 print(f"Cannot remove protected file: {e}")
         """
@@ -493,10 +493,10 @@ class PatchDirectory:
             List of applied filenames in execution order
 
         Raises:
-            PatchDirectoryError: If patch application fails
+            PatchManagerError: If patch application fails
 
         Examples:
-            applied_files = patch_dir.apply_patch_files("456-user-auth", repo.model)
+            applied_files = patch_mgr.apply_patch_files("456-user-auth", repo.model)
 
             # Returns: ["01_create_users.sql", "02_add_indexes.sql", "03_permissions.py"]
             # After execution:
@@ -512,7 +512,7 @@ class PatchDirectory:
         # Validate patch is valid
         if not structure.is_valid:
             error_msg = "; ".join(structure.validation_errors)
-            raise PatchDirectoryError(f"Cannot apply invalid patch {patch_id}: {error_msg}")
+            raise PatchManagerError(f"Cannot apply invalid patch {patch_id}: {error_msg}")
 
         # Apply files in lexicographic order
         for patch_file in structure.files:
@@ -540,7 +540,7 @@ class PatchDirectory:
             Path object for patch directory
 
         Examples:
-            path = patch_dir.get_patch_directory_path("456-user-auth")
+            path = patch_mgr.get_patch_directory_path("456-user-auth")
             # Returns: Path("SchemaPatches/456-user-auth")
 
             # Check if exists
@@ -564,11 +564,11 @@ class PatchDirectory:
             List of patch identifiers
 
         Examples:
-            patches = patch_dir.list_all_patches()
+            patches = patch_mgr.list_all_patches()
             # Returns: ["456-user-auth", "789-security-fix", "234-performance"]
 
             for patch_id in patches:
-                structure = patch_dir.get_patch_structure(patch_id)
+                structure = patch_mgr.get_patch_structure(patch_id)
                 print(f"{patch_id}: {'valid' if structure.is_valid else 'invalid'}")
         """
         valid_patches = []
@@ -635,14 +635,14 @@ class PatchDirectory:
             True if directory was deleted, False if confirm=False
 
         Raises:
-            PatchDirectoryError: If deletion fails
+            PatchManagerError: If deletion fails
 
         Examples:
             # Safe call - returns False without deleting
-            deleted = patch_dir.delete_patch_directory("456-user-auth")
+            deleted = patch_mgr.delete_patch_directory("456-user-auth")
 
             # Actually delete
-            deleted = patch_dir.delete_patch_directory("456-user-auth", confirm=True)
+            deleted = patch_mgr.delete_patch_directory("456-user-auth", confirm=True)
             if deleted:
                 print("Patch directory deleted successfully")
         """
@@ -652,7 +652,7 @@ class PatchDirectory:
 
         # Validate patch ID format - require full patch name for safety
         if not patch_id or not patch_id.strip():
-            raise PatchDirectoryError("Invalid patch ID: cannot be empty")
+            raise PatchManagerError("Invalid patch ID: cannot be empty")
 
         patch_id = patch_id.strip()
 
@@ -660,11 +660,11 @@ class PatchDirectory:
         try:
             patch_info = self._validator.validate_patch_id(patch_id)
         except Exception as e:
-            raise PatchDirectoryError(f"Invalid patch ID format: {e}")
+            raise PatchManagerError(f"Invalid patch ID format: {e}")
 
         # For deletion safety, require full patch name (not just numeric ID)
         if patch_info.is_numeric_only:
-            raise PatchDirectoryError(
+            raise PatchManagerError(
                 f"For safety, deletion requires full patch name, not just ID '{patch_id}'. "
                 f"Use complete format like '{patch_id}-description'"
             )
@@ -676,19 +676,19 @@ class PatchDirectory:
         try:
             path_exists = patch_path.exists()
         except PermissionError:
-            raise PatchDirectoryError(f"Permission denied: cannot access patch directory {patch_id}")
+            raise PatchManagerError(f"Permission denied: cannot access patch directory {patch_id}")
 
         if not path_exists:
-            raise PatchDirectoryError(f"Patch directory does not exist: {patch_id}")
+            raise PatchManagerError(f"Patch directory does not exist: {patch_id}")
 
         # Verify it's actually a directory, not a file (handle permission errors)
         try:
             is_directory = patch_path.is_dir()
         except PermissionError:
-            raise PatchDirectoryError(f"Permission denied: cannot access patch directory {patch_id}")
+            raise PatchManagerError(f"Permission denied: cannot access patch directory {patch_id}")
 
         if not is_directory:
-            raise PatchDirectoryError(f"Path exists but is not a directory: {patch_path}")
+            raise PatchManagerError(f"Path exists but is not a directory: {patch_path}")
 
         # Delete the directory and all contents
         try:
@@ -696,9 +696,9 @@ class PatchDirectory:
             return True
 
         except PermissionError as e:
-            raise PatchDirectoryError(f"Permission denied: cannot delete {patch_path}") from e
+            raise PatchManagerError(f"Permission denied: cannot delete {patch_path}") from e
         except OSError as e:
-            raise PatchDirectoryError(f"Failed to delete patch directory {patch_path}: {e}") from e
+            raise PatchManagerError(f"Failed to delete patch directory {patch_path}: {e}") from e
 
     def _validate_filename(self, filename: str) -> Tuple[bool, str]:
         """
@@ -727,7 +727,7 @@ class PatchDirectory:
             database_model: halfORM Model instance
 
         Raises:
-            PatchDirectoryError: If SQL execution fails
+            PatchManagerError: If SQL execution fails
         """
         try:
             # Read SQL content
@@ -741,7 +741,7 @@ class PatchDirectory:
             database_model.execute_query(sql_content)
 
         except Exception as e:
-            raise PatchDirectoryError(f"SQL execution failed in {file_path.name}: {e}") from e
+            raise PatchManagerError(f"SQL execution failed in {file_path.name}: {e}") from e
 
     def _execute_python_file(self, file_path: Path) -> None:
         """
@@ -754,7 +754,7 @@ class PatchDirectory:
             file_path: Path to Python file
 
         Raises:
-            PatchDirectoryError: If Python execution fails
+            PatchManagerError: If Python execution fails
         """
         try:
             # Setup Python execution environment
@@ -778,6 +778,6 @@ class PatchDirectory:
             error_msg = f"Python execution failed in {file_path.name}"
             if e.stderr:
                 error_msg += f": {e.stderr.strip()}"
-            raise PatchDirectoryError(error_msg) from e
+            raise PatchManagerError(error_msg) from e
         except Exception as e:
-            raise PatchDirectoryError(f"Failed to execute Python file {file_path.name}: {e}") from e
+            raise PatchManagerError(f"Failed to execute Python file {file_path.name}: {e}") from e
