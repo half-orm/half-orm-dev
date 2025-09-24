@@ -56,8 +56,11 @@ jobs:
         half_orm --version
         half_orm --list-extensions
         HALFORM_CONF_DIR=$PWD/.config pytest tests/ -v
-    - name: Upload coverage data to coveralls.io
-      run: coveralls --service=github
+    - name: Submit coverage to Coveralls
+      run: |
+        for i in 1 2 3; do
+          coveralls && break || sleep 15
+        done
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         COVERALLS_FLAG_NAME: PostgreSQL ${{matrix.postgresql-version}}
