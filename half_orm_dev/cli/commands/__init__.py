@@ -2,37 +2,65 @@
 Commands module for half-orm-dev CLI
 
 Provides all individual command implementations.
+REFACTORED in v0.16.0 - Git-centric patch workflow
 """
 
-from .new import new
-from .prepare import prepare
-from .apply import apply
-from .undo import undo
-from .release import release
-from .sync import sync_package
-from .upgrade import upgrade
-from .restore import restore
+# ✅ New Git-centric commands (stubs for now)
+from .todo import init_project
+from .todo import create_patch
+from .todo import apply_patch
+from .todo import add_to_release
+from .todo import promote_to_rc
+from .todo import promote_to_prod
+from .todo import deploy_to_prod
+from .todo import create_hotfix
+from .todo import rollback
 
-# Registry of all available commands
+# ♻️ Adapted existing commands
+from .todo import apply          # Adapted for new architecture
+from .todo import sync_package    # Unchanged
+from .todo import upgrade      # Adapted for production workflow
+from .todo import restore      # Adapted for new architecture
+
+# Registry of all available commands - Git-centric architecture
 ALL_COMMANDS = {
-    'new': new,
-    'prepare': prepare,
-    'apply': apply,
-    'undo': undo,
-    'release': release,
-    'sync-package': sync_package,
-    'upgrade': upgrade,
-    'restore': restore,
+    # 🚧 Core workflow (stubs)
+    'init-project': init_project,
+    'create-patch': create_patch,
+    'apply-patch': apply_patch,
+    'add-to-release': add_to_release,
+    
+    # 🚧 Release management (stubs)
+    'promote-to-rc': promote_to_rc,
+    'promote-to-prod': promote_to_prod,
+    'deploy-to-prod': deploy_to_prod,
+    
+    # 🚧 Emergency workflow (stubs)
+    'create-hotfix': create_hotfix,
+    'rollback': rollback,
+    
+    # ♻️ Adapted commands
+    'apply': apply,              # Will be adapted
+    'sync-package': sync_package, # Unchanged
+    'upgrade': upgrade,          # Adapted for production
+    'restore': restore,          # Adapted
 }
 
 __all__ = [
-    'new',
-    'prepare', 
+    # New commands
+    'init_project',
+    'create_patch', 
+    'apply_patch',
+    'add_to_release',
+    'promote_to_rc',
+    'promote_to_prod', 
+    'deploy_to_prod',
+    'create_hotfix',
+    'rollback',
+    # Adapted commands
     'apply',
-    'undo',
-    'release',
     'sync_package',
-    'upgrade',
+    'upgrade', 
     'restore',
     'ALL_COMMANDS'
 ]

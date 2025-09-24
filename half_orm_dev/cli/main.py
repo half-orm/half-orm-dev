@@ -16,19 +16,19 @@ class Hop:
         self.__available_cmds = self._determine_available_commands()
     
     def _determine_available_commands(self):
-        """Determine which commands are available based on context"""
+        """
+        Determine which commands are available based on context.
+        
+        SIMPLIFIED for v0.16.0: Only init-project while migrating to Git-centric architecture.
+        """
         if not self.repo_checked:
-            return ['new']
+            # Outside hop repository - only init-project available
+            return ['init-project']
         else:
-            if not self.__repo.devel:
-                # Sync-only mode
-                return ['sync-package']
-            else:
-                # Full mode - check environment
-                if self.__repo.production:
-                    return ['upgrade', 'restore']
-                else:
-                    return ['prepare', 'apply', 'release', 'undo']
+            # Inside hop repository - for now, still only init-project
+            # TODO: Add more commands as we implement them
+            # Will eventually have: create-patch, apply-patch, add-to-release, etc.
+            return ['init-project']
     
     @property
     def repo_checked(self):
@@ -58,15 +58,16 @@ def create_cli_group():
     @click.group(invoke_without_command=True)
     @click.pass_context
     def dev(ctx):
-        """halfORM development tools - project management, patches, and database synchronization"""
+        """halfORM development tools - Git-centric patch management and database synchronization"""
         if ctx.invoked_subcommand is None:
             # Show repo state when no subcommand is provided
             if hop.repo_checked:
                 click.echo(hop.state)
+                click.echo("\n⚠️  Other commands to implement Git-centric architecture...")
             else:
                 click.echo(hop.state)
                 click.echo("\nNot in a hop repository.")
-                click.echo(f"Try {utils.Color.bold('half_orm dev new [--devel] <package_name>')} or change directory.\n")
+                click.echo(f"Try {utils.Color.bold('half_orm dev init-project <package_name>')} to create a new project.\n")
     
     # Add only available commands to the group
     for cmd_name in hop.available_commands:
