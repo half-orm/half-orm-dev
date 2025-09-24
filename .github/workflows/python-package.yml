@@ -51,6 +51,10 @@ jobs:
     #     flake8 half_orm_dev --count --select=E9,F63,F7,F82 --show-source --statistics
     #     # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
     #     flake8 half_orm_dev --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    - name: Set up Git user
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
     - name: Test with pytest & coverage
       run: |
         export PYTHONPATH="${PYTHONPATH}:$(pwd)"
