@@ -246,7 +246,7 @@ releases/
 ├── 2.0.0-stage.txt
 └── README.md
 
-SchemaPatches/
+Patches/
 ├── 456-user-authentication/    # Complete integrated patches
 │   ├── README.md
 │   ├── 01_create_user_table.sql
@@ -290,7 +290,7 @@ pyproject.toml              # Project configuration
 
 #### On individual patch branches (ho-patch/456-user-authentication)
 ```
-SchemaPatches/
+Patches/
 └── 456-user-authentication/    # Only this patch during development
     ├── README.md
     ├── 01_create_user_table.sql
@@ -323,7 +323,7 @@ pyproject.toml              # Project configuration (inherited)
 ```
 
 **Patch Development Process:**
-1. **Schema modifications**: SQL/Python files in SchemaPatches/patch-name/
+1. **Schema modifications**: SQL/Python files in Patches/patch-name/
 2. **Code generation**: halfORM classes updated automatically in `<dbname>/<dbname>/<schemaname>/` structure
 3. **Business logic**: Custom methods added to generated classes
 4. **Testing**: Complete test suite for the patch functionality
@@ -345,9 +345,9 @@ pyproject.toml              # Project configuration (inherited)
 2. **Result**
    - Creates branch `ho-patch/456-user-authentication` from `ho-prod`
    - Automatic checkout to `ho-patch/456-user-authentication`
-   - Directory `SchemaPatches/456-user-authentication/` created
+   - Directory `Patches/456-user-authentication/` created
    - `README.md` file added automatically  
-   - Commit: "Add SchemaPatches/456-user-authentication directory"
+   - Commit: "Add Patches/456-user-authentication directory"
    - Push branch to remote for global visibility and reservation
    - Git native conflict detection (fails if branch already exists)
 
@@ -356,8 +356,8 @@ pyproject.toml              # Project configuration (inherited)
    # On ho-patch/456-user-authentication
    
    # Add schema modifications
-   echo "CREATE TABLE users (id SERIAL PRIMARY KEY, username VARCHAR(50) UNIQUE);" > SchemaPatches/456-user-authentication/01_create_users.sql
-   echo "CREATE INDEX idx_users_username ON users(username);" > SchemaPatches/456-user-authentication/02_add_indexes.sql
+   echo "CREATE TABLE users (id SERIAL PRIMARY KEY, username VARCHAR(50) UNIQUE);" > Patches/456-user-authentication/01_create_users.sql
+   echo "CREATE INDEX idx_users_username ON users(username);" > Patches/456-user-authentication/02_add_indexes.sql
    
    # Apply schema changes and generate code
    half_orm dev apply-patch
@@ -1068,7 +1068,7 @@ half_orm dev apply-patch
 ```bash
 # Complete development cycle with code generation:
 1. Create patch branch: half_orm dev create-patch "456"
-2. Add schema changes: Edit SQL files in SchemaPatches/456-*/
+2. Add schema changes: Edit SQL files in Patches/456-*/
 3. Apply patch: half_orm dev apply-patch
    → Schema applied via SQL files in lexicographic order
    → Code generated using modules.py template system
@@ -1185,7 +1185,7 @@ half_orm dev create-patch "456"
 # → Creates ho-patch/456-user-authentication branch from ho-prod
 # → Checkout to patch branch
 # → Global patch ID reservation via remote branch
-# → Creates SchemaPatches/456-user-authentication/ directory
+# → Creates Patches/456-user-authentication/ directory
 # → Branch preserved until promote-to-rc
 ```
 
@@ -1207,7 +1207,7 @@ half_orm dev apply-patch
 
 # Explicit step-by-step process:
 # 1. 🔄 Restore database from model/schema.sql (latest production state)
-# 2. 📁 Apply patch files from SchemaPatches/456-user-authentication/ in lexicographic order:
+# 2. 📁 Apply patch files from Patches/456-user-authentication/ in lexicographic order:
 #    → Execute 01_create_user_table.sql
 #    → Execute 02_add_indexes.sql
 #    → Execute 03_update_permissions.py
@@ -1692,7 +1692,7 @@ half_orm dev apply-patch
 # → Branch preserved for continued development
 
 # Recovery:
-# → Fix patch files in SchemaPatches/456-user-authentication/
+# → Fix patch files in Patches/456-user-authentication/
 # → Re-run half_orm dev apply-patch
 ```
 
