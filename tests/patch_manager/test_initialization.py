@@ -20,7 +20,7 @@ class TestPatchDirectoryInitialization:
 
     def test_init_with_valid_repo(self, temp_repo):
         """Test initialization with valid repository."""
-        repo, temp_dir, schema_patches_dir = temp_repo
+        repo, temp_dir, patches_dir = temp_repo
         
         patch_mgr = PatchManager(repo)
         
@@ -73,7 +73,7 @@ class TestPatchDirectoryInitialization:
 
     def test_init_base_dir_not_directory(self, temp_repo):
         """Test initialization when base_dir points to a file, not directory."""
-        repo, temp_dir, schema_patches_dir = temp_repo
+        repo, temp_dir, patches_dir = temp_repo
         
         # Create a file instead of directory
         file_path = Path(temp_dir) / "not_a_directory"
@@ -85,37 +85,37 @@ class TestPatchDirectoryInitialization:
             PatchManager(repo)
 
     def test_init_missing_schema_patches_directory(self, temp_repo):
-        """Test initialization when SchemaPatches directory doesn't exist."""
-        repo, temp_dir, schema_patches_dir = temp_repo
+        """Test initialization when Patches directory doesn't exist."""
+        repo, temp_dir, patches_dir = temp_repo
         
-        # Remove the SchemaPatches directory
-        schema_patches_dir.rmdir()
+        # Remove the Patches directory
+        patches_dir.rmdir()
         
-        # Should create SchemaPatches directory automatically
+        # Should create Patches directory automatically
         patch_mgr = PatchManager(repo)
         
         assert patch_mgr is not None
-        assert schema_patches_dir.exists()
-        assert schema_patches_dir.is_dir()
+        assert patches_dir.exists()
+        assert patches_dir.is_dir()
 
     def test_init_schema_patches_is_file(self, temp_repo):
-        """Test initialization when SchemaPatches exists but is a file."""
-        repo, temp_dir, schema_patches_dir = temp_repo
+        """Test initialization when Patches exists but is a file."""
+        repo, temp_dir, patches_dir = temp_repo
         
         # Remove directory and create file with same name
-        schema_patches_dir.rmdir()
-        schema_patches_file = Path(temp_dir) / "SchemaPatches"
+        patches_dir.rmdir()
+        schema_patches_file = Path(temp_dir) / "Patches"
         schema_patches_file.write_text("This should be a directory")
         
-        with pytest.raises(PatchManagerError, match="SchemaPatches.*not a directory"):
+        with pytest.raises(PatchManagerError, match="Patches.*not a directory"):
             PatchManager(repo)
 
     def test_init_no_permission_to_create_schema_patches(self, temp_repo):
-        """Test initialization when no permission to create SchemaPatches."""
-        repo, temp_dir, schema_patches_dir = temp_repo
+        """Test initialization when no permission to create Patches."""
+        repo, temp_dir, patches_dir = temp_repo
         
-        # Remove SchemaPatches directory
-        schema_patches_dir.rmdir()
+        # Remove Patches directory
+        patches_dir.rmdir()
         
         # Make base directory read-only
         Path(temp_dir).chmod(0o444)
@@ -129,7 +129,7 @@ class TestPatchDirectoryInitialization:
 
     def test_init_stores_correct_paths(self, temp_repo):
         """Test that initialization stores correct internal paths."""
-        repo, temp_dir, schema_patches_dir = temp_repo
+        repo, temp_dir, patches_dir = temp_repo
         
         patch_mgr = PatchManager(repo)
         
@@ -137,7 +137,7 @@ class TestPatchDirectoryInitialization:
         assert patch_mgr._base_dir == temp_dir
         
         # Should calculate schema patches path correctly
-        expected_schema_path = Path(temp_dir) / "SchemaPatches"
+        expected_schema_path = Path(temp_dir) / "Patches"
         assert patch_mgr._schema_patches_dir == expected_schema_path
         
         # Paths should be Path objects, not strings
@@ -145,7 +145,7 @@ class TestPatchDirectoryInitialization:
 
     def test_init_validator_integration(self, temp_repo):
         """Test that PatchValidator is properly initialized."""
-        repo, temp_dir, schema_patches_dir = temp_repo
+        repo, temp_dir, patches_dir = temp_repo
         
         patch_mgr = PatchManager(repo)
         
@@ -160,7 +160,7 @@ class TestPatchDirectoryInitialization:
 
     def test_init_with_repo_name_storage(self, temp_repo):
         """Test that repository name is properly stored."""
-        repo, temp_dir, schema_patches_dir = temp_repo
+        repo, temp_dir, patches_dir = temp_repo
         repo.name = "custom_database_name"
         
         patch_mgr = PatchManager(repo)
@@ -170,7 +170,7 @@ class TestPatchDirectoryInitialization:
 
     def test_init_with_missing_repo_name(self, temp_repo):
         """Test initialization with repository missing name attribute."""
-        repo, temp_dir, schema_patches_dir = temp_repo
+        repo, temp_dir, patches_dir = temp_repo
         del repo.name  # Remove name attribute
         
         # Should fail because name is required
@@ -187,8 +187,8 @@ class TestPatchDirectoryInitialization:
         
         try:
             # Create schema patches directories
-            (Path(temp_dir1) / "SchemaPatches").mkdir()
-            (Path(temp_dir2) / "SchemaPatches").mkdir()
+            (Path(temp_dir1) / "Patches").mkdir()
+            (Path(temp_dir2) / "Patches").mkdir()
             
             repo1 = Mock()
             repo1.base_dir = temp_dir1

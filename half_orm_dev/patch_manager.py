@@ -1,7 +1,7 @@
 """
 PatchManager module for half-orm-dev
 
-Manages SchemaPatches/patch-name/ directory structure, SQL/Python files,
+Manages Patches/patch-name/ directory structure, SQL/Python files,
 and README.md generation for the patch-centric workflow.
 """
 
@@ -58,7 +58,7 @@ class PatchManager:
     """
     Manages patch directory structure and file operations.
 
-    Handles creation, validation, and management of SchemaPatches/patch-name/ 
+    Handles creation, validation, and management of Patches/patch-name/ 
     directories following the patch-centric workflow specifications.
 
     Examples:
@@ -109,31 +109,31 @@ class PatchManager:
         # Store repository reference and paths
         self._repo = repo
         self._base_dir = str(repo.base_dir)
-        self._schema_patches_dir = base_path / "SchemaPatches"
+        self._schema_patches_dir = base_path / "Patches"
 
         # Store repository name
         self._repo_name = repo.name
 
-        # Ensure SchemaPatches directory exists
+        # Ensure Patches directory exists
         try:
             schema_exists = self._schema_patches_dir.exists()
         except PermissionError:
-            raise PatchManagerError(f"Permission denied: cannot access SchemaPatches directory")
+            raise PatchManagerError(f"Permission denied: cannot access Patches directory")
 
         if not schema_exists:
             try:
                 self._schema_patches_dir.mkdir(parents=True, exist_ok=True)
             except PermissionError:
-                raise PatchManagerError(f"Permission denied: cannot create SchemaPatches directory")
+                raise PatchManagerError(f"Permission denied: cannot create Patches directory")
             except OSError as e:
-                raise PatchManagerError(f"Failed to create SchemaPatches directory: {e}")
+                raise PatchManagerError(f"Failed to create Patches directory: {e}")
 
-        # Validate SchemaPatches is a directory
+        # Validate Patches is a directory
         try:
             if not self._schema_patches_dir.is_dir():
-                raise PatchManagerError(f"SchemaPatches exists but is not a directory: {self._schema_patches_dir}")
+                raise PatchManagerError(f"Patches exists but is not a directory: {self._schema_patches_dir}")
         except PermissionError:
-            raise PatchManagerError(f"Permission denied: cannot access SchemaPatches directory")
+            raise PatchManagerError(f"Permission denied: cannot access Patches directory")
 
         # Initialize PatchValidator
         self._validator = PatchValidator()
@@ -142,7 +142,7 @@ class PatchManager:
         """
         Create complete patch directory structure.
 
-        Creates SchemaPatches/patch-name/ directory with minimal README.md template
+        Creates Patches/patch-name/ directory with minimal README.md template
         following the patch-centric workflow specifications.
 
         Args:
@@ -158,11 +158,11 @@ class PatchManager:
         Examples:
             # Create with numeric ID
             path = patch_mgr.create_patch_directory("456")
-            # Creates: SchemaPatches/456/ with README.md
+            # Creates: Patches/456/ with README.md
 
             # Create with full ID
             path = patch_mgr.create_patch_directory("456-user-auth")
-            # Creates: SchemaPatches/456-user-auth/ with README.md
+            # Creates: Patches/456-user-auth/ with README.md
         """
         # Validate patch ID format
         try:
@@ -209,7 +209,7 @@ class PatchManager:
         """
         Analyze and validate patch directory structure.
 
-        Examines SchemaPatches/patch-name/ directory and returns complete
+        Examines Patches/patch-name/ directory and returns complete
         structure information including file validation and ordering.
 
         Args:
@@ -405,7 +405,7 @@ class PatchManager:
 
         Examples:
             readme_path = patch_mgr.create_readme_file("456-user-auth")
-            # Creates: SchemaPatches/456-user-auth/README.md
+            # Creates: Patches/456-user-auth/README.md
         """
         pass
 
@@ -526,7 +526,7 @@ class PatchManager:
         """
         Get path to patch directory.
 
-        Returns Path object for SchemaPatches/patch-name/ directory.
+        Returns Path object for Patches/patch-name/ directory.
         Does not validate existence - use get_patch_structure() for validation.
 
         Args:
@@ -537,7 +537,7 @@ class PatchManager:
 
         Examples:
             path = patch_mgr.get_patch_directory_path("456-user-auth")
-            # Returns: Path("SchemaPatches/456-user-auth")
+            # Returns: Path("Patches/456-user-auth")
 
             # Check if exists
             if path.exists():
@@ -553,7 +553,7 @@ class PatchManager:
         """
         List all existing patch directories.
 
-        Scans SchemaPatches/ directory and returns all valid patch identifiers.
+        Scans Patches/ directory and returns all valid patch identifiers.
         Only returns directories that pass basic validation.
 
         Returns:
@@ -570,7 +570,7 @@ class PatchManager:
         valid_patches = []
 
         try:
-            # Scan SchemaPatches directory
+            # Scan Patches directory
             if not self._schema_patches_dir.exists():
                 return []
 
@@ -594,7 +594,7 @@ class PatchManager:
                     continue
 
         except PermissionError:
-            # If we can't read SchemaPatches directory, return empty list
+            # If we can't read Patches directory, return empty list
             return []
         except OSError:
             # Handle other filesystem errors
@@ -620,7 +620,7 @@ class PatchManager:
         """
         Delete entire patch directory.
 
-        Removes SchemaPatches/patch-name/ directory and all contents.
+        Removes Patches/patch-name/ directory and all contents.
         Requires explicit confirmation to prevent accidental deletion.
 
         Args:

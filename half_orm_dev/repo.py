@@ -323,7 +323,7 @@ class Repo:
         """
         Get PatchManager instance for patch-centric operations.
 
-        Provides access to SchemaPatches/ directory management including:
+        Provides access to Patches/ directory management including:
         - Creating patch directories with minimal README templates
         - Validating patch structure following KISS principles  
         - Applying SQL and Python files in lexicographic order
@@ -333,7 +333,7 @@ class Repo:
         and cached for subsequent accesses.
 
         Returns:
-            PatchManager: Instance for managing SchemaPatches/ operations
+            PatchManager: Instance for managing Patches/ operations
 
         Raises:
             PatchManagerError: If repository not in development mode

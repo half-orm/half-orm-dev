@@ -22,11 +22,11 @@ class TestCreatePatchDirectory:
 
     def test_create_patch_directory_numeric_id(self, patch_manager):
         """Test creating patch directory with numeric ID."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         result_path = patch_mgr.create_patch_directory("456")
 
-        expected_path = schema_patches_dir / "456"
+        expected_path = patches_dir / "456"
         assert result_path == expected_path
         assert expected_path.exists()
         assert expected_path.is_dir()
@@ -42,11 +42,11 @@ class TestCreatePatchDirectory:
 
     def test_create_patch_directory_full_id(self, patch_manager):
         """Test creating patch directory with full ID."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         result_path = patch_mgr.create_patch_directory("456-user-authentication")
 
-        expected_path = schema_patches_dir / "456-user-authentication"
+        expected_path = patches_dir / "456-user-authentication"
         assert result_path == expected_path
         assert expected_path.exists()
 
@@ -57,7 +57,7 @@ class TestCreatePatchDirectory:
 
     def test_create_patch_directory_already_exists(self, patch_manager):
         """Test creating patch directory that already exists."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create first patch
         patch_mgr.create_patch_directory("456")
@@ -68,7 +68,7 @@ class TestCreatePatchDirectory:
 
     def test_create_patch_directory_invalid_id(self, patch_manager):
         """Test creating patch directory with invalid ID."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         invalid_ids = ["invalid@patch", "", "   ", "no-number"]
 
@@ -78,32 +78,32 @@ class TestCreatePatchDirectory:
 
     def test_create_patch_directory_whitespace_normalization(self, patch_manager):
         """Test patch ID whitespace normalization."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         result_path = patch_mgr.create_patch_directory("  456-user-auth  ")
 
         # Should create normalized directory name
-        expected_path = schema_patches_dir / "456-user-auth"
+        expected_path = patches_dir / "456-user-auth"
         assert result_path == expected_path
         assert expected_path.exists()
 
     def test_create_patch_directory_permission_error(self, patch_manager):
         """Test permission error during directory creation."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Make parent directory read-only
-        schema_patches_dir.chmod(0o444)
+        patches_dir.chmod(0o444)
 
         try:
             with pytest.raises(PatchManagerError, match="Permission denied"):
                 patch_mgr.create_patch_directory("456")
         finally:
             # Restore permissions
-            schema_patches_dir.chmod(0o755)
+            patches_dir.chmod(0o755)
 
     def test_create_patch_directory_readme_write_failure(self, patch_manager):
         """Test README.md write failure with cleanup."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         def failing_write_text(self, content, encoding=None):
             raise OSError("Disk full")
@@ -113,22 +113,22 @@ class TestCreatePatchDirectory:
                 patch_mgr.create_patch_directory("456-test")
 
         # Directory should be cleaned up after failure
-        assert not (schema_patches_dir / "456-test").exists()
+        assert not (patches_dir / "456-test").exists()
 
     def test_create_patch_directory_returns_path(self, patch_manager):
         """Test that correct Path object is returned."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         result_path = patch_mgr.create_patch_directory("789-test")
 
         assert isinstance(result_path, Path)
         assert result_path.is_absolute()
-        assert result_path.parent == schema_patches_dir
+        assert result_path.parent == patches_dir
         assert result_path.exists()
 
     def test_create_patch_directory_multiple_creation(self, patch_manager):
         """Test creating multiple patch directories."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         patch_ids = ["111-first", "222-second", "333-third"]
 
@@ -145,10 +145,10 @@ class TestCreatePatchDirectory:
 
     def test_create_patch_directory_concurrent_protection(self, patch_manager):
         """Test protection against concurrent directory creation."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Simulate race condition by creating directory manually
-        race_path = schema_patches_dir / "555-race"
+        race_path = patches_dir / "555-race"
         race_path.mkdir()
 
         with pytest.raises(PatchStructureError, match="already exists"):
@@ -156,11 +156,11 @@ class TestCreatePatchDirectory:
 
     def test_create_patch_directory_utf8_encoding(self, patch_manager):
         """Test UTF-8 encoding for README.md."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         patch_mgr.create_patch_directory("999-unicode")
 
-        readme_path = schema_patches_dir / "999-unicode" / "README.md"
+        readme_path = patches_dir / "999-unicode" / "README.md"
 
         # Should be able to write and read unicode content
         unicode_content = "# Patch 999-unicode\n\nTest: 测试 français"

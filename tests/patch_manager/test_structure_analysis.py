@@ -20,10 +20,10 @@ class TestValidatePatchStructure:
 
     def test_validate_patch_structure_valid_directory(self, patch_manager):
         """Test validating existing patch directory."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create valid patch directory
-        patch_path = schema_patches_dir / "456-test"
+        patch_path = patches_dir / "456-test"
         patch_path.mkdir()
 
         is_valid, errors = patch_mgr.validate_patch_structure("456-test")
@@ -33,7 +33,7 @@ class TestValidatePatchStructure:
 
     def test_validate_patch_structure_nonexistent_directory(self, patch_manager):
         """Test validating nonexistent patch directory."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         is_valid, errors = patch_mgr.validate_patch_structure("999-nonexistent")
 
@@ -44,10 +44,10 @@ class TestValidatePatchStructure:
 
     def test_validate_patch_structure_file_not_directory(self, patch_manager):
         """Test validating when patch path is a file, not directory."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create file instead of directory
-        patch_file = schema_patches_dir / "456-file"
+        patch_file = patches_dir / "456-file"
         patch_file.write_text("This is a file, not a directory")
 
         is_valid, errors = patch_mgr.validate_patch_structure("456-file")
@@ -58,14 +58,14 @@ class TestValidatePatchStructure:
 
     def test_validate_patch_structure_permission_denied(self, patch_manager):
         """Test validation with permission denied error."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch directory
-        patch_path = schema_patches_dir / "456-permission"
+        patch_path = patches_dir / "456-permission"
         patch_path.mkdir()
 
         # Make parent directory inaccessible
-        schema_patches_dir.chmod(0o000)
+        patches_dir.chmod(0o000)
 
         try:
             is_valid, errors = patch_mgr.validate_patch_structure("456-permission")
@@ -76,14 +76,14 @@ class TestValidatePatchStructure:
 
         finally:
             # Restore permissions for cleanup
-            schema_patches_dir.chmod(0o755)
+            patches_dir.chmod(0o755)
 
     def test_validate_patch_structure_empty_directory(self, patch_manager):
         """Test validating empty patch directory - should be valid."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create empty patch directory
-        patch_path = schema_patches_dir / "456-empty"
+        patch_path = patches_dir / "456-empty"
         patch_path.mkdir()
 
         is_valid, errors = patch_mgr.validate_patch_structure("456-empty")
@@ -94,10 +94,10 @@ class TestValidatePatchStructure:
 
     def test_validate_patch_structure_with_readme_only(self, patch_manager):
         """Test validating patch with only README.md - should be valid."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch with only README
-        patch_path = schema_patches_dir / "456-readme-only"
+        patch_path = patches_dir / "456-readme-only"
         patch_path.mkdir()
         (patch_path / "README.md").write_text("# Patch 456-readme-only")
 
@@ -108,10 +108,10 @@ class TestValidatePatchStructure:
 
     def test_validate_patch_structure_with_sql_files(self, patch_manager):
         """Test validating patch with SQL files - should be valid."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch with SQL files
-        patch_path = schema_patches_dir / "456-sql-files"
+        patch_path = patches_dir / "456-sql-files"
         patch_path.mkdir()
         (patch_path / "01_create_table.sql").write_text("CREATE TABLE test (id INTEGER);")
         (patch_path / "02_add_data.sql").write_text("INSERT INTO test VALUES (1);")
@@ -123,10 +123,10 @@ class TestValidatePatchStructure:
 
     def test_validate_patch_structure_with_python_files(self, patch_manager):
         """Test validating patch with Python files - should be valid."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch with Python files  
-        patch_path = schema_patches_dir / "456-python-files"
+        patch_path = patches_dir / "456-python-files"
         patch_path.mkdir()
         (patch_path / "01_migrate.py").write_text("print('Migration script')")
         (patch_path / "02_cleanup.py").write_text("print('Cleanup script')")
@@ -138,10 +138,10 @@ class TestValidatePatchStructure:
 
     def test_validate_patch_structure_with_mixed_files(self, patch_manager):
         """Test validating patch with mixed file types - should be valid."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
         
         # Create patch with various file types
-        patch_path = schema_patches_dir / "456-mixed"
+        patch_path = patches_dir / "456-mixed"
         patch_path.mkdir()
         (patch_path / "README.md").write_text("# Mixed patch")
         (patch_path / "01_schema.sql").write_text("CREATE TABLE users (id INTEGER);")
@@ -157,10 +157,10 @@ class TestValidatePatchStructure:
 
     def test_validate_patch_structure_with_subdirectories(self, patch_manager):
         """Test validating patch with subdirectories - should be valid."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch with subdirectories
-        patch_path = schema_patches_dir / "456-with-dirs"
+        patch_path = patches_dir / "456-with-dirs"
         patch_path.mkdir()
         (patch_path / "README.md").write_text("# Patch with subdirs")
 
@@ -181,10 +181,10 @@ class TestValidatePatchStructure:
 
     def test_validate_patch_structure_weird_filenames(self, patch_manager):
         """Test validating patch with unconventional filenames - should be valid."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch with unconventional but valid filenames
-        patch_path = schema_patches_dir / "456-weird-names"
+        patch_path = patches_dir / "456-weird-names"
         patch_path.mkdir()
         (patch_path / "create table with spaces.sql").write_text("CREATE TABLE test (id INTEGER);")
         (patch_path / "script-with-dashes.py").write_text("print('test')")
@@ -199,10 +199,10 @@ class TestValidatePatchStructure:
 
     def test_validate_patch_structure_code_only_patch(self, patch_manager):
         """Test validating patch with only halfORM code changes - should be valid."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch simulating code-only changes
-        patch_path = schema_patches_dir / "456-code-only"
+        patch_path = patches_dir / "456-code-only"
         patch_path.mkdir()
         (patch_path / "README.md").write_text("# Code-only patch\nUpdates business logic only.")
 
@@ -218,10 +218,10 @@ class TestValidatePatchStructure:
 
     def test_validate_patch_structure_unicode_filenames(self, patch_manager):
         """Test validating patch with unicode filenames - should be valid."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch with unicode filenames
-        patch_path = schema_patches_dir / "456-unicode"
+        patch_path = patches_dir / "456-unicode"
         patch_path.mkdir()
         (patch_path / "测试文件.sql").write_text("-- Chinese filename")
         (patch_path / "café.py").write_text("# French accent")
@@ -235,10 +235,10 @@ class TestValidatePatchStructure:
 
     def test_validate_patch_structure_return_format(self, patch_manager):
         """Test that validate_patch_structure returns correct format."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Test with valid directory
-        patch_path = schema_patches_dir / "456-format-test"
+        patch_path = patches_dir / "456-format-test"
         patch_path.mkdir()
 
         result = patch_mgr.validate_patch_structure("456-format-test")
@@ -257,10 +257,10 @@ class TestGetPatchStructure:
 
     def test_get_patch_structure_valid_patch_with_files(self, patch_manager, sample_patch_files):
         """Test analyzing valid patch structure with files."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch directory with sample files
-        patch_path = schema_patches_dir / "456-test"
+        patch_path = patches_dir / "456-test"
         patch_path.mkdir()
 
         # Create files (excluding README for this test)
@@ -303,10 +303,10 @@ class TestGetPatchStructure:
 
     def test_get_patch_structure_empty_patch(self, patch_manager):
         """Test analyzing empty patch directory."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create empty patch directory
-        patch_path = schema_patches_dir / "456-empty"
+        patch_path = patches_dir / "456-empty"
         patch_path.mkdir()
 
         structure = patch_mgr.get_patch_structure("456-empty")
@@ -318,7 +318,7 @@ class TestGetPatchStructure:
 
     def test_get_patch_structure_nonexistent_patch(self, patch_manager):
         """Test analyzing nonexistent patch."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         structure = patch_mgr.get_patch_structure("999-nonexistent")
 
@@ -330,10 +330,10 @@ class TestGetPatchStructure:
 
     def test_get_patch_structure_lexicographic_order(self, patch_manager):
         """Test that files are returned in lexicographic order."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch with files in random creation order
-        patch_path = schema_patches_dir / "456-order-test"
+        patch_path = patches_dir / "456-order-test"
         patch_path.mkdir()
 
         # Create files out of lexicographic order
@@ -352,10 +352,10 @@ class TestGetPatchStructure:
 
     def test_get_patch_structure_mixed_file_types(self, patch_manager):
         """Test analyzing patch with mixed file types."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch with various file types
-        patch_path = schema_patches_dir / "456-mixed"
+        patch_path = patches_dir / "456-mixed"
         patch_path.mkdir()
         (patch_path / "README.md").write_text("# Mixed patch")  # Should be excluded from files list
         (patch_path / "script.sql").write_text("SELECT 1;")
@@ -382,10 +382,10 @@ class TestGetPatchStructure:
 
     def test_get_patch_structure_with_subdirectories(self, patch_manager):
         """Test analyzing patch with subdirectories (should be ignored)."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch with subdirectories
-        patch_path = schema_patches_dir / "456-with-dirs"
+        patch_path = patches_dir / "456-with-dirs"
         patch_path.mkdir()
         (patch_path / "script.sql").write_text("SELECT 1;")
 
@@ -402,10 +402,10 @@ class TestGetPatchStructure:
 
     def test_get_patch_structure_permission_error(self, patch_manager):
         """Test handling permission errors during analysis."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch directory
-        patch_path = schema_patches_dir / "456-permission"
+        patch_path = patches_dir / "456-permission"
         patch_path.mkdir()
         (patch_path / "test.sql").write_text("SELECT 1;")
 
@@ -425,10 +425,10 @@ class TestGetPatchStructure:
 
     def test_get_patch_structure_case_insensitive_sorting(self, patch_manager):
         """Test case-insensitive lexicographic sorting."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch with mixed case filenames
-        patch_path = schema_patches_dir / "456-case-test"
+        patch_path = patches_dir / "456-case-test"
         patch_path.mkdir()
         (patch_path / "B_file.sql").write_text("-- B file")
         (patch_path / "a_file.py").write_text("# a file")
@@ -443,10 +443,10 @@ class TestGetPatchStructure:
 
     def test_get_patch_structure_unicode_filenames(self, patch_manager):
         """Test handling unicode filenames."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patch with unicode filenames
-        patch_path = schema_patches_dir / "456-unicode"
+        patch_path = patches_dir / "456-unicode"
         patch_path.mkdir()
         (patch_path / "测试.sql").write_text("-- Chinese filename")
         (patch_path / "café.py").write_text("# French accent")
@@ -466,10 +466,10 @@ class TestGetPatchStructure:
 
     def test_get_patch_structure_return_type(self, patch_manager):
         """Test that get_patch_structure returns PatchStructure object."""
-        patch_mgr, repo, temp_dir, schema_patches_dir = patch_manager
+        patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create simple patch
-        patch_path = schema_patches_dir / "456-type-test"
+        patch_path = patches_dir / "456-type-test"
         patch_path.mkdir()
 
         result = patch_mgr.get_patch_structure("456-type-test")

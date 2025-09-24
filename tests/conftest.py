@@ -18,7 +18,7 @@ def temp_repo():
     """
     Create temporary repository structure for testing.
 
-    Creates a temporary directory with SchemaPatches/ subdirectory
+    Creates a temporary directory with Patches/ subdirectory
     and a mock repository object with required attributes.
 
     Yields:
@@ -30,8 +30,8 @@ def temp_repo():
     temp_dir = tempfile.mkdtemp()
 
     # Create basic repo structure
-    schema_patches_dir = Path(temp_dir) / "SchemaPatches"
-    schema_patches_dir.mkdir()
+    patches_dir = Path(temp_dir) / "Patches"
+    patches_dir.mkdir()
 
     # Mock repo object with required attributes
     repo = Mock()
@@ -39,7 +39,7 @@ def temp_repo():
     repo.name = "test_db"
     repo.devel = True
 
-    yield repo, temp_dir, schema_patches_dir
+    yield repo, temp_dir, patches_dir
 
     # Cleanup - remove temporary directory
     shutil.rmtree(temp_dir)
@@ -57,14 +57,14 @@ def patch_manager(temp_repo):
         temp_repo: Fixture providing temporary repository setup
 
     Returns:
-        tuple: (patch_directory_instance, repo_mock, temp_dir, schema_patches_dir)
+        tuple: (patch_directory_instance, repo_mock, temp_dir, patches_dir)
     """
     from half_orm_dev.patch_manager import PatchManager
 
-    repo, temp_dir, schema_patches_dir = temp_repo
+    repo, temp_dir, patches_dir = temp_repo
     patch_mgr = PatchManager(repo)
 
-    return patch_mgr, repo, temp_dir, schema_patches_dir
+    return patch_mgr, repo, temp_dir, patches_dir
 
 
 @pytest.fixture
@@ -194,7 +194,7 @@ def create_patch_with_files(temp_repo, sample_patch_files):
     Returns:
         function: Factory function to create patches
     """
-    repo, temp_dir, schema_patches_dir = temp_repo
+    repo, temp_dir, patches_dir = temp_repo
 
     def _create_patch(patch_id, files=None, include_readme=True):
         """
@@ -211,7 +211,7 @@ def create_patch_with_files(temp_repo, sample_patch_files):
         if files is None:
             files = sample_patch_files
 
-        patch_path = schema_patches_dir / patch_id
+        patch_path = patches_dir / patch_id
         patch_path.mkdir()
 
         for filename, content in files.items():
