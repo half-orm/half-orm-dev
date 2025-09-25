@@ -188,4 +188,82 @@ class Database:
         # TODO: Implementation in TDD Phase 3
         # This method will replace the interactive logic from __init_db()
         # and provide non-interactive database setup with CLI parameters
+
+        # Step 1: Validate input parameters
+        cls._validate_parameters(database_name, connection_options)
+
+        # TODO: Other steps to be implemented
         pass
+
+    @classmethod
+    def _validate_parameters(cls, database_name, connection_options):
+        """
+        Validate input parameters for database setup.
+
+        Args:
+            database_name (str): PostgreSQL database name
+            connection_options (dict): Connection parameters from CLI
+
+        Raises:
+            ValueError: If database_name is invalid
+            TypeError: If connection_options is not a dict
+
+        Returns:
+            None: Parameters are valid
+
+        Examples:
+            # Valid parameters
+            Database._validate_parameters("my_db", {'host': 'localhost'})
+
+            # Invalid database name
+            Database._validate_parameters("", {})  # Raises ValueError
+            Database._validate_parameters(None, {})  # Raises ValueError
+
+            # Invalid connection options
+            Database._validate_parameters("my_db", None)  # Raises TypeError
+        """
+        # Validate database_name
+        if database_name is None:
+            raise ValueError("Database name cannot be None")
+
+        if not isinstance(database_name, str):
+            raise ValueError(f"Database name must be a string, got {type(database_name).__name__}")
+
+        if database_name.strip() == "":
+            raise ValueError("Database name cannot be empty")
+
+        # Basic name format validation (PostgreSQL identifier rules)
+        database_name = database_name.strip()
+        if not database_name.replace('_', '').replace('-', '').isalnum():
+            raise ValueError(f"Database name '{database_name}' contains invalid characters. Use only letters, numbers, underscore, and hyphen.")
+
+        if database_name[0].isdigit():
+            raise ValueError(f"Database name '{database_name}' cannot start with a digit")
+
+        # Validate connection_options
+        if connection_options is None:
+            raise TypeError("Connection options cannot be None")
+
+        if not isinstance(connection_options, dict):
+            raise TypeError(f"Connection options must be a dictionary, got {type(connection_options).__name__}")
+
+        # Expected option keys (some may be None/missing for interactive prompts)
+        expected_keys = {'host', 'port', 'user', 'password', 'production'}
+        provided_keys = set(connection_options.keys())
+
+        # Check for unexpected keys
+        unexpected_keys = provided_keys - expected_keys
+        if unexpected_keys:
+            raise ValueError(f"Unexpected connection options: {sorted(unexpected_keys)}. Expected: {sorted(expected_keys)}")
+
+        # Validate port if provided
+        if 'port' in connection_options and connection_options['port'] is not None:
+            port = connection_options['port']
+            if not isinstance(port, int) or port <= 0 or port > 65535:
+                raise ValueError(f"Port must be an integer between 1 and 65535, got {port}")
+
+        # Validate production flag if provided  
+        if 'production' in connection_options and connection_options['production'] is not None:
+            production = connection_options['production']
+            if not isinstance(production, bool):
+                raise ValueError(f"Production flag must be boolean, got {type(production).__name__}")
