@@ -18,17 +18,15 @@ class Hop:
     def _determine_available_commands(self):
         """
         Determine which commands are available based on context.
-        
-        SIMPLIFIED for v0.16.0: Only init-project while migrating to Git-centric architecture.
         """
         if not self.repo_checked:
-            # Outside hop repository - only init-project available
-            return ['init-project']
+            # Outside hop repository
+            return ['init-database']
         else:
-            # Inside hop repository - for now, still only init-project
+            # Inside hop repository - nothing for now
             # TODO: Add more commands as we implement them
             # Will eventually have: create-patch, apply-patch, add-to-release, etc.
-            return ['init-project']
+            return []
     
     @property
     def repo_checked(self):

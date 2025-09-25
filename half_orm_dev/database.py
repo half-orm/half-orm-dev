@@ -125,3 +125,67 @@ class Database:
         return self.__model.get_relation_class('half_orm_meta.hop_release')(
             major=major, minor=minor, patch=patch, changelog=changelog
         ).ho_insert()
+
+    @classmethod
+    def setup_database(cls, database_name, connection_options, create_db=False, add_metadata=False):
+        """
+        Configure database connection and install half-orm metadata schemas.
+
+        Replaces the interactive __init_db() method with a non-interactive version
+        that accepts connection parameters from CLI options or prompts for missing ones.
+
+        Args:
+            database_name (str): PostgreSQL database name
+            connection_options (dict): Connection parameters from CLI
+                - host (str): PostgreSQL host (default: localhost)
+                - port (int): PostgreSQL port (default: 5432)  
+                - user (str): Database user (default: $USER)
+                - password (str): Database password (prompts if None)
+                - production (bool): Production environment flag
+            create_db (bool): Create database if it doesn't exist
+            add_metadata (bool): Add half_orm_meta schemas to existing database
+
+        Returns:
+            None: Configuration saved to $HALFORM_CONF_DIR/<database_name> (or /etc/half_orm/<database_name>)
+
+        Raises:
+            DatabaseConnectionError: If connection to PostgreSQL fails
+            DatabaseCreationError: If database creation fails
+            MetadataInstallationError: If metadata schema installation fails
+
+        Process Flow:
+            1. Parameter Collection: Use provided options or prompt for missing ones
+            2. Connection Test: Verify PostgreSQL connection with provided credentials  
+            3. Database Setup: Create database if create_db=True, or connect to existing
+            4. Metadata Installation: Add half_orm_meta and half_orm_meta.view schemas
+            5. Configuration Save: Store connection parameters in $HALFORM_CONF_DIR/<database_name> or /etc/half_orm/<database_name>
+            6. Initial Release: Register version 0.0.0 in metadata
+
+        Examples:
+            # Create new database with metadata
+            Database.setup_database(
+                database_name="my_blog_db",
+                connection_options={'host': 'localhost', 'user': 'dev', 'password': 'secret'},
+                create_db=True,
+                add_metadata=True
+            )
+
+            # Add metadata to existing database  
+            Database.setup_database(
+                database_name="legacy_db", 
+                connection_options={'host': 'prod.db.com', 'user': 'admin'},
+                create_db=False,
+                add_metadata=True  
+            )
+
+            # Interactive prompts for missing parameters
+            Database.setup_database(
+                database_name="dev_db",
+                connection_options={'host': 'localhost'},  # Missing user/password -> prompts
+                create_db=True
+            )
+        """
+        # TODO: Implementation in TDD Phase 3
+        # This method will replace the interactive logic from __init_db()
+        # and provide non-interactive database setup with CLI parameters
+        pass
