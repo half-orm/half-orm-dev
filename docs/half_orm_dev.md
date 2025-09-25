@@ -1145,23 +1145,257 @@ half_orm dev remove-from-release "problematic-patch"
 # Merge conflicts handled by standard Git workflow
 ```
 
+# Amendment for half_orm_dev.md - Two-Command Initialization
+
+Replace the current initialization section in docs/half_orm_dev.md with:
+
 ## CLI Commands
 
 ### Project Initialization
 
-#### `init-project`
+The project initialization process is split into two distinct commands for better separation of concerns:
+
+1. **`init-database`**: Configure database connection and half-orm metadata
+2. **`init-project`**: Create project structure (assumes database is configured)
+
+#### `init-database` - Configure database connection and metadata
+
+**Command Syntax:**
 ```bash
-# Initialize new half-orm-dev project
-half_orm dev init-project <dbname>
-# → Creates database with half-orm-dev metadata
-# → Inserts version 0.0.0 in hop_release table
-# → Generates initial model/schema.sql (metadata only)
-# → Creates <dbname>/<dbname>/ directory structure
-# → Creates Git repository with ho-prod as main branch
-# → Creates releases/ directory with README.md
-# → Adds project configuration files (README.md, .gitignore, pyproject.toml)
-# → Ready for first patch development
+half_orm dev init-database <database_name> [OPTIONS]
+
+# Arguments:
+  database_name         PostgreSQL database name
+
+# Options:
+  --host=<host>         PostgreSQL host (default: localhost)  
+  --port=<port>         PostgreSQL port (default: 5432)
+  --user=<user>         Database user (default: $USER)
+  --password=<password> Database password (prompts if missing)
+  --create-db          Create database if it doesn't exist
+  --add-metadata       Add half_orm_meta schemas to existing database
+  --production         Mark as production environment (default: False)
+  --help               Show this message and exit
 ```
+
+**Purpose:**
+Configures database connection parameters and installs half-orm-dev metadata schemas. Handles both new database creation and adding metadata to existing databases.
+
+**Interactive Behavior:**
+- **Missing parameters**: Prompts interactively for any missing connection parameters
+- **Password handling**: Always prompts if not provided (secure input)
+- **Confirmation prompts**: Asks before creating databases or adding metadata
+
+**Process Flow:**
+1. **Parameter Collection**: Use provided options or prompt for missing ones
+2. **Connection Test**: Verify PostgreSQL connection with provided credentials
+3. **Database Setup**: Create database if `--create-db`, or connect to existing
+4. **Metadata Installation**: Add `half_orm_meta` and `half_orm_meta.view` schemas
+5. **Configuration Save**: Store connection parameters in `~/.half_orm/<database_name>`
+6. **Initial Release**: Register version 0.0.0 in metadata
+
+**Examples:**
+
+```bash
+# Interactive setup for new database
+$ half_orm dev init-database my_blog_db --create-db
+Connection parameters for database 'my_blog_db':
+. user (joel): 
+. password: [hidden input]
+. host (localhost): 
+. port (5432): 
+. production (False): 
+Creating database 'my_blog_db'...
+Installing half-orm metadata schemas...
+Configuration saved to ~/.half_orm/my_blog_db
+Database 'my_blog_db' initialized successfully.
+
+# Non-interactive with all parameters
+half_orm dev init-database blog_prod \
+  --host=db.company.com \
+  --user=app_user \
+  --password=secret123 \
+  --add-metadata \
+  --production
+
+# Add metadata to existing database
+half_orm dev init-database legacy_db --add-metadata
+# → Prompts for connection if not already configured
+# → Adds half_orm_meta schemas to existing database
+
+# Create local development database
+half_orm dev init-database my_app_dev --create-db
+# → Interactive prompts for missing parameters
+# → Creates database and installs metadata
+```
+
+#### `init-project` - Create project structure
+
+**Command Syntax:**
+```bash
+half_orm dev init-project <project_name> [OPTIONS]
+
+# Arguments:
+  project_name          Name of the project (directory and Python package name)
+
+# Options:
+  --database=<name>     Database name (default: project_name)
+  --help               Show this message and exit
+```
+
+**Purpose:**
+Creates half-orm-dev project structure with Git repository and configuration files. Assumes database is already configured via `init-database`.
+
+**Requirements:**
+- Database must be accessible via half_orm (configuration file must exist)
+- Project directory must not already exist
+- **Optional**: half-orm-dev metadata (enables full development mode vs sync-only mode)
+
+**Process Flow:**
+1. **Validation**: Check database configuration exists and is accessible
+2. **Mode Detection**: Automatically determine if database has half-orm-dev metadata (full vs sync-only mode)
+3. **Directory Creation**: Create project directory structure
+4. **Git Initialization**: Create repository with `ho-prod` branch
+5. **Configuration**: Create `.hop/config` with project settings (mode auto-detected at runtime)
+6. **Template Files**: Generate README, .gitignore, pyproject.toml
+7. **Code Generation**: Generate initial Python package structure
+
+**Examples:**
+
+```bash
+# Basic usage (database name = project name)
+half_orm dev init-project my_blog
+# → Creates my_blog/ project directory
+# → Uses database 'my_blog' (must be configured)
+
+# Different database name
+half_orm dev init-project my_blog --database=blog_production
+# → Project: my_blog, Database: blog_production
+
+# Typical workflow
+half_orm dev init-database my_app_db --create-db
+half_orm dev init-project my_app --database=my_app_db
+```
+
+### Complete Initialization Workflows
+
+#### New Database + New Project
+```bash
+# Step 1: Create and configure database
+half_orm dev init-database my_blog_db --create-db
+# → Interactive prompts for connection parameters
+# → Creates database and installs metadata
+
+# Step 2: Create project structure  
+half_orm dev init-project my_blog --database=my_blog_db
+# → Creates project directory and Git repository
+```
+
+#### Existing Database + New Project
+```bash
+# Step 1: Add metadata to existing database
+half_orm dev init-database production_db --add-metadata --production
+# → Prompts for connection to existing database
+# → Installs half-orm metadata schemas
+
+# Step 2: Create project structure
+half_orm dev init-project my_app --database=production_db
+# → Creates development project for existing database
+```
+
+#### Local Development Setup
+```bash
+# Quick local setup
+half_orm dev init-database dev_db --create-db --user=developer
+# → Creates local database with developer user
+
+half_orm dev init-project my_project --database=dev_db
+# → Creates project structure
+```
+
+**Generated Project Structure:**
+```
+my_project/                 # Project root directory
+├── .git/                   # Git repository (ho-prod branch)
+├── .hop/                   # half-orm-dev configuration
+│   └── config             # Project settings (links to database)
+├── Patches/                # Patch directory (initially empty)
+│   └── README.md          # Patch development documentation
+├── releases/               # Release management
+│   └── README.md          # Release workflow documentation
+├── my_project/            # Python package (matches project name)
+│   ├── __init__.py        # Package initialization with MODEL
+│   ├── base_test.py       # Base test class for relations
+│   └── sql_adapter.py     # SQL type mappings
+├── tests/                 # Test directory (initially empty)
+├── model/                 # Database schema snapshots
+│   └── schema.sql         # Current database state
+├── backups/               # Database backup storage
+├── README.md              # Project documentation
+├── .gitignore             # Git configuration
+└── pyproject.toml         # Python project configuration
+```
+
+**Error Handling:**
+
+```bash
+# Database not configured
+$ half_orm dev init-project my_app --database=unconfigured_db
+Error: Database 'unconfigured_db' not configured.
+Run: half_orm dev init-database unconfigured_db [OPTIONS]
+
+# Project directory exists
+$ half_orm dev init-project existing_project
+Error: Directory 'existing_project' already exists.
+Choose a different project name or remove the existing directory.
+
+# Database lacks metadata (sync-only mode)
+$ half_orm dev init-project my_app --database=no_metadata_db  
+Warning: Database 'no_metadata_db' lacks half-orm-dev metadata.
+Project created in sync-only mode (no patch/release management).
+Available commands: sync-package
+To enable full development mode:
+  half_orm dev init-database no_metadata_db --add-metadata
+
+# Connection failed during project creation
+$ half_orm dev init-project my_app --database=unreachable_db
+Error: Cannot connect to database 'unreachable_db'.
+Check database status and connection configuration.
+```
+
+**Configuration Files Created:**
+
+**~/.half_orm/database_name:**
+```ini
+[database]
+name = my_blog_db
+user = developer  
+password = <secure_storage>
+host = localhost
+port = 5432
+production = False
+```
+
+**.hop/config:**
+```ini
+[halfORM]
+package_name = my_project
+hop_version = 0.16.0
+database_name = my_blog_db
+git_origin = 
+# Mode (full/sync-only) auto-detected at runtime based on metadata presence
+```
+
+**Advantages of Two-Command Approach:**
+- **Clear separation**: Database setup vs project structure
+- **Flexibility**: Handle existing databases with `--add-metadata`
+- **Automatic mode detection**: Full development vs sync-only mode detected at runtime
+- **No configuration drift**: Mode always reflects actual database state (metadata presence)
+- **Reusability**: Multiple projects can use same configured database
+- **Debugging**: Isolate database issues from project creation issues
+- **half_orm integration**: Uses standard half_orm connection configuration
+- **Interactive when needed**: Prompts for missing connection parameters
+- **Automation friendly**: Can provide all parameters via CLI options
 
 ### Adaptive CLI System
 The CLI automatically adapts based on environment:
