@@ -212,6 +212,9 @@ class Database:
         Replaces the interactive __init_db() method with a non-interactive version
         that accepts connection parameters from CLI options or prompts for missing ones.
 
+        **AUTOMATIC METADATA INSTALLATION**: If create_db=True, metadata is automatically
+        installed for the newly created database (add_metadata becomes True automatically).
+
         Args:
             database_name (str): PostgreSQL database name
             connection_options (dict): Connection parameters from CLI
@@ -222,6 +225,7 @@ class Database:
                 - production (bool): Production environment flag
             create_db (bool): Create database if it doesn't exist
             add_metadata (bool): Add half_orm_meta schemas to existing database
+                            (automatically True if create_db=True)
 
         Returns:
             str: Path to saved configuration file
@@ -236,31 +240,33 @@ class Database:
             2. Connection Test: Verify PostgreSQL connection with provided credentials  
             3. Database Setup: Create database if create_db=True, or connect to existing
             4. Metadata Installation: Add half_orm_meta and half_orm_meta.view schemas
+            - Automatically installed for newly created databases (create_db=True)
+            - Manually requested for existing databases (add_metadata=True)
             5. Configuration Save: Store connection parameters in configuration file
             6. Initial Release: Register version 0.0.0 in metadata
 
         Examples:
-            # Create new database with metadata
+            # Create new database - metadata automatically installed
             Database.setup_database(
                 database_name="my_blog_db",
                 connection_options={'host': 'localhost', 'user': 'dev', 'password': 'secret'},
-                create_db=True,
-                add_metadata=True
+                create_db=True  # add_metadata becomes True automatically
             )
 
-            # Add metadata to existing database  
+            # Add metadata to existing database manually
             Database.setup_database(
                 database_name="legacy_db", 
                 connection_options={'host': 'prod.db.com', 'user': 'admin'},
                 create_db=False,
-                add_metadata=True  
+                add_metadata=True  # Explicit metadata installation
             )
 
-            # Interactive prompts for missing parameters
+            # Connect to existing database without metadata (sync-only mode)
             Database.setup_database(
-                database_name="dev_db",
-                connection_options={'host': 'localhost'},  # Missing user/password -> prompts
-                create_db=True
+                database_name="readonly_db",
+                connection_options={'host': 'localhost'},
+                create_db=False,
+                add_metadata=False  # No metadata - sync-only mode
             )
         """
         # Step 1: Validate input parameters
@@ -273,22 +279,28 @@ class Database:
         config_file = cls._save_configuration(database_name, complete_params)
 
         # Step 4: Test database connection (create if needed)
+        database_created = False  # Track if we created a new database
+
         try:
             model = Model(database_name)
         except OperationalError:
             if create_db:
                 # Create database using PostgreSQL createdb command
                 cls._execute_pg_command(database_name, complete_params, 'createdb', database_name)
+                database_created = True  # Mark that we created the database
                 # Retry connection after creation
                 model = Model(database_name)
             else:
                 raise OperationalError(f"Database '{database_name}' does not exist and create_db=False")
 
-        # Step 5: Install metadata if requested
-        if add_metadata:
+        # Step 5: Install metadata if requested OR if database was newly created
+        # AUTOMATIC BEHAVIOR: newly created databases automatically get metadata
+        should_install_metadata = add_metadata or database_created
+
+        if should_install_metadata:
             try:
                 model.get_relation_class('half_orm_meta.hop_release')
-                # Metadata already exists
+                # Metadata already exists - skip installation
             except UnknownRelation:
                 # Install metadata schemas
                 hop_init_sql_file = os.path.join(HOP_PATH, 'patches', 'sql', 'half_orm_meta.sql')

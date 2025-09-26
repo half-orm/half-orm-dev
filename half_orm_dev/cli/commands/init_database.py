@@ -5,7 +5,6 @@ CLI Command: init-database - Configure database connection and metadata
 import click
 from half_orm import utils
 from half_orm_dev.database import Database
-from half_orm_dev.db_conn import DbConn
 
 
 class DatabaseSetupError(Exception):
