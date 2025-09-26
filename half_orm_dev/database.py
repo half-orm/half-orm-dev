@@ -127,6 +127,87 @@ class Database:
         ).ho_insert()
 
     @classmethod
+    def _save_configuration(cls, database_name, connection_params):
+        """
+        Save connection parameters to configuration file.
+
+        Args:
+            database_name (str): PostgreSQL database name
+            connection_params (dict): Complete connection parameters
+
+        Returns:
+            str: Path to saved configuration file
+
+        Raises:
+            OSError: If configuration directory is not writable
+        """
+        from configparser import ConfigParser
+        from half_orm.model import CONF_DIR
+
+        # Ensure configuration directory exists and is writable
+        if not os.path.exists(CONF_DIR):
+            os.makedirs(CONF_DIR, exist_ok=True)
+
+        if not os.access(CONF_DIR, os.W_OK):
+            raise OSError(f"Configuration directory {CONF_DIR} is not writable")
+
+        # Create configuration file path
+        config_file = os.path.join(CONF_DIR, database_name)
+
+        # Create and populate configuration
+        config = ConfigParser()
+        config.add_section('database')
+        config.set('database', 'name', database_name)
+        config.set('database', 'user', connection_params['user'])
+        config.set('database', 'password', connection_params['password'] or '')
+        config.set('database', 'host', connection_params['host'])
+        config.set('database', 'port', str(connection_params['port']))
+        config.set('database', 'production', str(connection_params['production']))
+
+        # Write configuration file
+        with open(config_file, 'w') as f:
+            config.write(f)
+
+        return config_file
+
+    @classmethod
+    def _execute_pg_command(cls, database_name, connection_params, *command_args):
+        """
+        Execute PostgreSQL command with connection parameters.
+
+        Args:
+            database_name (str): PostgreSQL database name
+            connection_params (dict): Connection parameters
+            *command_args: PostgreSQL command arguments
+
+        Returns:
+            subprocess.CompletedProcess: Command execution result
+
+        Raises:
+            subprocess.CalledProcessError: If PostgreSQL command fails
+        """
+        # Prepare environment variables for PostgreSQL commands
+        env = os.environ.copy()
+        env['PGUSER'] = connection_params['user']
+        env['PGHOST'] = connection_params['host']
+        env['PGPORT'] = str(connection_params['port'])
+
+        # Set password if provided (use PGPASSWORD environment variable)
+        if connection_params.get('password'):
+            env['PGPASSWORD'] = connection_params['password']
+
+        # Execute PostgreSQL command
+        result = subprocess.run(
+            command_args,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        return result
+
+    @classmethod 
     def setup_database(cls, database_name, connection_options, create_db=False, add_metadata=False):
         """
         Configure database connection and install half-orm metadata schemas.
@@ -146,7 +227,7 @@ class Database:
             add_metadata (bool): Add half_orm_meta schemas to existing database
 
         Returns:
-            None: Configuration saved to $HALFORM_CONF_DIR/<database_name> (or /etc/half_orm/<database_name>)
+            str: Path to saved configuration file
 
         Raises:
             DatabaseConnectionError: If connection to PostgreSQL fails
@@ -158,7 +239,7 @@ class Database:
             2. Connection Test: Verify PostgreSQL connection with provided credentials  
             3. Database Setup: Create database if create_db=True, or connect to existing
             4. Metadata Installation: Add half_orm_meta and half_orm_meta.view schemas
-            5. Configuration Save: Store connection parameters in $HALFORM_CONF_DIR/<database_name> or /etc/half_orm/<database_name>
+            5. Configuration Save: Store connection parameters in configuration file
             6. Initial Release: Register version 0.0.0 in metadata
 
         Examples:
@@ -185,15 +266,51 @@ class Database:
                 create_db=True
             )
         """
-        # TODO: Implementation in TDD Phase 3
-        # This method will replace the interactive logic from __init_db()
-        # and provide non-interactive database setup with CLI parameters
-
         # Step 1: Validate input parameters
         cls._validate_parameters(database_name, connection_options)
 
-        # TODO: Other steps to be implemented
-        pass
+        # Step 2: Collect connection parameters  
+        complete_params = cls._collect_connection_params(database_name, connection_options)
+
+        # Step 3: Save configuration to file
+        config_file = cls._save_configuration(database_name, complete_params)
+
+        # Step 4: Test database connection (create if needed)
+        try:
+            model = Model(database_name)
+        except OperationalError:
+            if create_db:
+                # Create database using PostgreSQL createdb command
+                cls._execute_pg_command(database_name, complete_params, 'createdb', database_name)
+                # Retry connection after creation
+                model = Model(database_name)
+            else:
+                raise OperationalError(f"Database '{database_name}' does not exist and create_db=False")
+
+        # Step 5: Install metadata if requested
+        if add_metadata:
+            try:
+                model.get_relation_class('half_orm_meta.hop_release')
+                # Metadata already exists
+            except UnknownRelation:
+                # Install metadata schemas
+                hop_init_sql_file = os.path.join(HOP_PATH, 'patches', 'sql', 'half_orm_meta.sql')
+                cls._execute_pg_command(
+                    database_name, 
+                    complete_params, 
+                    'psql', 
+                    '-d', database_name,
+                    '-f', hop_init_sql_file
+                )
+                model.reconnect(reload=True)
+
+                # Register initial release 0.0.0
+                release_class = model.get_relation_class('half_orm_meta.hop_release')
+                release_class(
+                    major=0, minor=0, patch=0, changelog='Initial release'
+                ).ho_insert()
+
+        return config_file
 
     @classmethod
     def _validate_parameters(cls, database_name, connection_options):
@@ -267,3 +384,135 @@ class Database:
             production = connection_options['production']
             if not isinstance(production, bool):
                 raise ValueError(f"Production flag must be boolean, got {type(production).__name__}")
+
+    @classmethod
+    def _collect_connection_params(cls, database_name, connection_options):
+        """
+        Collect missing connection parameters interactively.
+
+        Takes partial connection parameters from CLI options and prompts
+        interactively for any missing or None values. Applies halfORM
+        standard defaults where appropriate.
+
+        Args:
+            database_name (str): PostgreSQL database name for context
+            connection_options (dict): Partial connection parameters from CLI
+                - host (str|None): PostgreSQL host
+                - port (int|None): PostgreSQL port  
+                - user (str|None): Database user
+                - password (str|None): Database password
+                - production (bool|None): Production environment flag
+
+        Returns:
+            dict: Complete connection parameters ready for DbConn initialization
+                - host (str): PostgreSQL host (default: 'localhost')
+                - port (int): PostgreSQL port (default: 5432)
+                - user (str): Database user (default: $USER env var)
+                - password (str): Database password (prompted if None)
+                - production (bool): Production flag (default: False)
+
+        Raises:
+            KeyboardInterrupt: If user cancels interactive prompts
+            EOFError: If input stream is closed during prompts
+
+        Interactive Behavior:
+            - Only prompts for missing/None parameters
+            - Shows current defaults in prompts: "Host (localhost): "
+            - Uses getpass for secure password input
+            - Allows empty input to accept defaults
+            - Confirms production flag if True
+
+        Examples:
+            # Complete parameters provided - no prompts
+            complete = Database._collect_connection_params(
+                "my_db",
+                {'host': 'localhost', 'port': 5432, 'user': 'dev', 'password': 'secret', 'production': False}
+            )
+            # Returns: same dict (no interaction needed)
+
+            # Missing user and password - prompts interactively
+            complete = Database._collect_connection_params(
+                "my_db", 
+                {'host': 'localhost', 'port': 5432, 'user': None, 'password': None, 'production': False}
+            )
+            # Prompts: "User (current_user): " and "Password: [hidden]"
+            # Returns: {'host': 'localhost', 'port': 5432, 'user': 'prompted_user', 'password': 'prompted_pass', 'production': False}
+
+            # Only host provided - prompts for missing with defaults
+            complete = Database._collect_connection_params(
+                "my_db",
+                {'host': 'prod.db.com'}
+            )
+            # Prompts: "Port (5432): ", "User (current_user): ", "Password: "
+            # Returns: complete dict with provided host and prompted/default values
+
+            # Production flag confirmation
+            complete = Database._collect_connection_params(
+                "prod_db",
+                {'host': 'prod.db.com', 'production': True}
+            )
+            # Prompts: "Production environment (True): " for confirmation
+            # Returns: dict with confirmed production setting
+        """
+        import getpass
+        import os
+
+        # Create a copy to avoid modifying the original
+        complete_params = connection_options.copy()
+
+        # Interactive prompts for None values BEFORE applying defaults
+        print(f"Connection parameters for database '{database_name}':")
+
+        # Prompt for user if None
+        if complete_params.get('user') is None:
+            default_user = os.environ.get('USER', 'postgres')
+            user_input = input(f"User ({default_user}): ").strip()
+            complete_params['user'] = user_input if user_input else default_user
+
+        # Prompt for password if None (always prompt - security requirement)
+        if complete_params.get('password') is None:
+            password_input = getpass.getpass("Password: ")
+            if password_input == '':
+                # Empty password - assume trust/ident authentication
+                complete_params['password'] = None  # Explicitly None for trust mode
+                complete_params['host'] = ''        # Local socket connection
+                complete_params['port'] = ''        # No port for local socket
+            else:
+                complete_params['password'] = password_input
+
+        # Prompt for host if None  
+        if complete_params.get('host') is None:
+            host_input = input("Host (localhost): ").strip()
+            complete_params['host'] = host_input if host_input else 'localhost'
+
+        # Prompt for port if None
+        if complete_params.get('port') is None:
+            port_input = input("Port (5432): ").strip()
+            if port_input:
+                try:
+                    complete_params['port'] = int(port_input)
+                except ValueError:
+                    raise ValueError(f"Invalid port number: {port_input}")
+            else:
+                complete_params['port'] = 5432
+
+        # Apply defaults for still missing parameters (no prompts needed)
+        if complete_params.get('host') is None:
+            complete_params['host'] = 'localhost'
+
+        if complete_params.get('port') is None:
+            complete_params['port'] = 5432
+
+        if complete_params.get('user') is None:
+            complete_params['user'] = os.environ.get('USER', 'postgres')
+
+        if complete_params.get('production') is None:
+            complete_params['production'] = False
+
+        # Prompt for production confirmation if True (security measure)
+        if complete_params.get('production') is True:
+            prod_input = input(f"Production environment (True): ").strip().lower()
+            if prod_input and prod_input not in ['true', 't', 'yes', 'y', '1']:
+                complete_params['production'] = False
+
+        return complete_params

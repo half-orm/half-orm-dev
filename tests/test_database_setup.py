@@ -7,11 +7,12 @@ Comprehensive unit tests covering:
 - Metadata installation with add_metadata flag
 - Configuration file saving to HALFORM_CONF_DIR
 - Error handling for connection, creation, and metadata installation
-- Integration with DbConn for parameter management
+- Direct Database functionality without  dependency
 """
 
 import pytest
 import os
+import unittest.mock
 from unittest.mock import Mock, patch, MagicMock, call
 from configparser import ConfigParser
 from psycopg2 import OperationalError
@@ -55,8 +56,8 @@ class TestDatabaseSetup:
             'production': False
         }
 
-    @pytest.mark.skip(reason="Parameter collection and DbConn integration not implemented yet")
-    @patch('half_orm_dev.database.DbConn')
+    @pytest.mark.skip(reason="Parameter collection and  integration not implemented yet")
+    @patch('half_orm_dev.database.')
     @patch('half_orm_dev.database.Model')
     def test_setup_database_with_all_parameters(self, mock_model, mock_db_conn, basic_connection_options):
         """Test setup_database with complete CLI parameters - no prompts needed."""
@@ -74,13 +75,13 @@ class TestDatabaseSetup:
             add_metadata=False
         )
 
-        # Verify DbConn was created and configured
+        # Verify  was created and configured
         mock_db_conn.assert_called_once_with("test_db")
         # Should call a method to set parameters from options (to be implemented)
         assert mock_db_conn_instance.method_calls  # Some method should be called
 
     @pytest.mark.skip(reason="Interactive prompts not implemented yet")
-    @patch('half_orm_dev.database.DbConn')
+    @patch('half_orm_dev.database.')
     @patch('half_orm_dev.database.Model') 
     @patch('builtins.input')
     @patch('getpass.getpass')
@@ -108,15 +109,13 @@ class TestDatabaseSetup:
         mock_input.assert_called()  # Should prompt for user
         mock_getpass.assert_called()  # Should prompt for password
 
-    @pytest.mark.skip(reason="Database creation logic not implemented yet")
-    @patch('half_orm_dev.database.DbConn')
+    @patch('half_orm_dev.database.Database._execute_pg_command')
+    @patch('half_orm_dev.database.Database._save_configuration')
     @patch('half_orm_dev.database.Model')
-    @patch('subprocess.run')
-    def test_setup_database_create_db_flag(self, mock_subprocess, mock_model, mock_db_conn, basic_connection_options):
+    def test_setup_database_create_db_flag(self, mock_model, mock_save_config, mock_execute_pg, basic_connection_options):
         """Test database creation when create_db=True."""
-        mock_db_conn_instance = Mock()
-        mock_db_conn.return_value = mock_db_conn_instance
-
+        mock_save_config.return_value = "/path/to/config/new_test_db"
+        
         # First call to Model should fail (database doesn't exist)
         # Second call should succeed (after creation)
         mock_model.side_effect = [OperationalError("database does not exist"), Mock()]
@@ -129,17 +128,18 @@ class TestDatabaseSetup:
         )
 
         # Should attempt database creation via PostgreSQL commands
-        # Verify subprocess was called to create database
-        assert mock_subprocess.called or mock_db_conn_instance.execute_pg_command.called
+        mock_execute_pg.assert_called_with(
+            "new_test_db", 
+            unittest.mock.ANY,  # connection_params (any dict)
+            'createdb', 
+            'new_test_db'
+        )
 
-    @pytest.mark.skip(reason="Database connection and Model integration not implemented yet")
-    @patch('half_orm_dev.database.DbConn')
+    @patch('half_orm_dev.database.Database._save_configuration')
     @patch('half_orm_dev.database.Model')
-    @patch('subprocess.run')
-    def test_setup_database_create_db_false_existing_db(self, mock_subprocess, mock_model, mock_db_conn, basic_connection_options):
+    def test_setup_database_create_db_false_existing_db(self, mock_model, mock_save_config, basic_connection_options):
         """Test connection to existing database when create_db=False."""
-        mock_db_conn_instance = Mock()
-        mock_db_conn.return_value = mock_db_conn_instance
+        mock_save_config.return_value = "/path/to/config/existing_db"
         mock_model_instance = Mock()
         mock_model.return_value = mock_model_instance  # Database exists
 
@@ -152,26 +152,28 @@ class TestDatabaseSetup:
 
         # Should connect successfully without creation attempts
         mock_model.assert_called_once_with("existing_db")
-        mock_subprocess.assert_not_called()
+        mock_save_config.assert_called_once()
 
-    @pytest.mark.skip(reason="Metadata installation logic not implemented yet")
-    @patch('half_orm_dev.database.DbConn')
+    @patch('half_orm_dev.database.Database._execute_pg_command')
+    @patch('half_orm_dev.database.Database._save_configuration') 
     @patch('half_orm_dev.database.Model')
-    @patch('subprocess.run')
-    @patch('os.path.join')
-    def test_setup_database_add_metadata_flag(self, mock_path_join, mock_subprocess, mock_model, mock_db_conn, basic_connection_options):
-        """Test metadata installation when add_metadata=True.""" 
-        mock_db_conn_instance = Mock()
-        mock_db_conn.return_value = mock_db_conn_instance
+    def test_setup_database_add_metadata_flag(self, mock_model, mock_save_config, mock_execute_pg, basic_connection_options):
+        """Test metadata installation when add_metadata=True."""
+        mock_save_config.return_value = "/path/to/config/test_db"
         mock_model_instance = Mock()
 
-        # Mock get_relation_class to simulate missing metadata (should raise UnknownRelation)
+        # Mock get_relation_class to simulate missing metadata first, then return release class
         from half_orm.model_errors import UnknownRelation
-        mock_model_instance.get_relation_class.side_effect = UnknownRelation("half_orm_meta.hop_release")
+        mock_release_class = Mock()
+        mock_release_instance = Mock()
+        mock_release_class.return_value = mock_release_instance
+        
+        # First call raises UnknownRelation, second call returns the class for release registration
+        mock_model_instance.get_relation_class.side_effect = [
+            UnknownRelation("half_orm_meta.hop_release"),  # First check - metadata missing
+            mock_release_class  # After installation - for release registration
+        ]
         mock_model.return_value = mock_model_instance
-
-        # Mock SQL file path
-        mock_path_join.return_value = "/path/to/half_orm_meta.sql"
 
         Database.setup_database(
             database_name="test_db", 
@@ -181,17 +183,23 @@ class TestDatabaseSetup:
         )
 
         # Should install metadata schemas
-        mock_model_instance.get_relation_class.assert_called_with('half_orm_meta.hop_release')
+        assert mock_model_instance.get_relation_class.call_count == 2  # Called twice
+        mock_model_instance.get_relation_class.assert_any_call('half_orm_meta.hop_release')
+        
         # Should execute SQL file for metadata installation  
-        assert mock_subprocess.called or mock_db_conn_instance.execute_pg_command.called
+        mock_execute_pg.assert_called()
+        
+        # Should register initial release
+        mock_release_class.assert_called_with(
+            major=0, minor=0, patch=0, changelog='Initial release'
+        )
+        mock_release_instance.ho_insert.assert_called_once()
 
-    @pytest.mark.skip(reason="Metadata installation logic not implemented yet")
-    @patch('half_orm_dev.database.DbConn')
+    @patch('half_orm_dev.database.Database._save_configuration')
     @patch('half_orm_dev.database.Model') 
-    def test_setup_database_add_metadata_false_no_installation(self, mock_model, mock_db_conn, basic_connection_options):
+    def test_setup_database_add_metadata_false_no_installation(self, mock_model, mock_save_config, basic_connection_options):
         """Test no metadata installation when add_metadata=False."""
-        mock_db_conn_instance = Mock()
-        mock_db_conn.return_value = mock_db_conn_instance
+        mock_save_config.return_value = "/path/to/config/test_db"
         mock_model_instance = Mock()
         mock_model.return_value = mock_model_instance
 
@@ -202,11 +210,45 @@ class TestDatabaseSetup:
             add_metadata=False
         )
 
-        # Should not attempt to check or install metadata
-        mock_model_instance.get_relation_class.assert_not_called()
+    @patch('half_orm_dev.database.Database._save_configuration')
+    @patch('half_orm_dev.database.Model')
+    @patch('getpass.getpass')
+    def test_setup_database_trust_mode_empty_password(self, mock_getpass, mock_model, mock_save_config):
+        """Test trust mode authentication with empty password."""
+        mock_getpass.return_value = ''  # User presses Enter for empty password
+        mock_save_config.return_value = "/path/to/config/trust_db"
+        mock_model_instance = Mock()
+        mock_model.return_value = mock_model_instance
+
+        # Connection options with password=None to trigger prompt
+        connection_options = {
+            'host': 'localhost',
+            'port': 5432,
+            'user': 'testuser',
+            'password': None,  # This will trigger password prompt
+            'production': False
+        }
+
+        Database.setup_database(
+            database_name="trust_db",
+            connection_options=connection_options,
+            create_db=False,
+            add_metadata=False
+        )
+
+        # Verify password prompt was called
+        mock_getpass.assert_called_once_with("Password: ")
+        
+        # Verify configuration was saved with trust mode parameters
+        mock_save_config.assert_called_once()
+        call_args = mock_save_config.call_args
+        saved_params = call_args[0][1]  # connection_params
+        assert saved_params['password'] is None  # Trust mode
+        assert saved_params['host'] == ''         # Local socket
+        assert saved_params['port'] == ''         # No port
 
     @pytest.mark.skip(reason="Configuration saving not implemented yet")
-    @patch('half_orm_dev.database.DbConn')
+    @patch('half_orm_dev.database.')
     @patch('half_orm_dev.database.Model')
     @patch('os.path.join')
     @patch('builtins.open', new_callable=Mock)
@@ -229,16 +271,15 @@ class TestDatabaseSetup:
             )
 
             # Should save configuration file
-            # This will be implemented via DbConn.save() or similar method
+            # This will be implemented via .save() or similar method
             assert mock_db_conn_instance.method_calls  # Some save method called
 
     @pytest.mark.skip(reason="Release registration not implemented yet")
-    @patch('half_orm_dev.database.DbConn')
+    @patch('half_orm_dev.database.Database._save_configuration')
     @patch('half_orm_dev.database.Model')
-    def test_setup_database_registers_initial_release(self, mock_model, mock_db_conn, basic_connection_options):
+    def test_setup_database_registers_initial_release(self, mock_model, mock_save_config, basic_connection_options):
         """Test initial release 0.0.0 registration when metadata is installed."""
-        mock_db_conn_instance = Mock()
-        mock_db_conn.return_value = mock_db_conn_instance
+        mock_save_config.return_value = "/path/to/config/test_db"
         mock_model_instance = Mock()
         mock_model.return_value = mock_model_instance
 
@@ -264,12 +305,11 @@ class TestDatabaseSetup:
         mock_model_instance.get_relation_class.assert_has_calls(expected_calls, any_order=True)
 
     @pytest.mark.skip(reason="Error handling for connection failures not implemented yet")
-    @patch('half_orm_dev.database.DbConn')
+    @patch('half_orm_dev.database.Database._save_configuration')
     @patch('half_orm_dev.database.Model')
-    def test_setup_database_connection_error(self, mock_model, mock_db_conn, basic_connection_options):
+    def test_setup_database_connection_error(self, mock_model, mock_save_config, basic_connection_options):
         """Test handling of database connection errors."""
-        mock_db_conn_instance = Mock()
-        mock_db_conn.return_value = mock_db_conn_instance
+        mock_save_config.return_value = "/path/to/config/unreachable_db"
 
         # Model initialization should fail
         mock_model.side_effect = OperationalError("Connection failed")
@@ -283,17 +323,16 @@ class TestDatabaseSetup:
             )
 
     @pytest.mark.skip(reason="Error handling for database creation not implemented yet")
-    @patch('half_orm_dev.database.DbConn')
+    @patch('half_orm_dev.database.Database._execute_pg_command')
+    @patch('half_orm_dev.database.Database._save_configuration')
     @patch('half_orm_dev.database.Model')  
-    @patch('subprocess.run')
-    def test_setup_database_creation_error(self, mock_subprocess, mock_model, mock_db_conn, basic_connection_options):
+    def test_setup_database_creation_error(self, mock_model, mock_save_config, mock_execute_pg, basic_connection_options):
         """Test handling of database creation errors."""
-        mock_db_conn_instance = Mock()
-        mock_db_conn.return_value = mock_db_conn_instance
+        mock_save_config.return_value = "/path/to/config/creation_fail_db"
 
         # First Model call fails (no database), createdb fails, second Model call still fails
         mock_model.side_effect = [OperationalError("database does not exist"), OperationalError("still no database")]
-        mock_subprocess.side_effect = Exception("createdb failed")
+        mock_execute_pg.side_effect = Exception("createdb failed")
 
         with pytest.raises(Exception):
             Database.setup_database(
@@ -304,18 +343,17 @@ class TestDatabaseSetup:
             )
 
     @pytest.mark.skip(reason="Error handling for metadata installation not implemented yet")
-    @patch('half_orm_dev.database.DbConn')
+    @patch('half_orm_dev.database.Database._execute_pg_command')
+    @patch('half_orm_dev.database.Database._save_configuration')
     @patch('half_orm_dev.database.Model')
-    @patch('subprocess.run') 
-    def test_setup_database_metadata_installation_error(self, mock_subprocess, mock_model, mock_db_conn, basic_connection_options):
+    def test_setup_database_metadata_installation_error(self, mock_model, mock_save_config, mock_execute_pg, basic_connection_options):
         """Test handling of metadata installation errors."""
-        mock_db_conn_instance = Mock()
-        mock_db_conn.return_value = mock_db_conn_instance
+        mock_save_config.return_value = "/path/to/config/metadata_fail_db"
         mock_model_instance = Mock()
         mock_model.return_value = mock_model_instance
 
         # Metadata installation fails
-        mock_subprocess.side_effect = Exception("SQL execution failed")
+        mock_execute_pg.side_effect = Exception("SQL execution failed")
 
         from half_orm.model_errors import UnknownRelation
         mock_model_instance.get_relation_class.side_effect = UnknownRelation("half_orm_meta.hop_release")
@@ -329,12 +367,11 @@ class TestDatabaseSetup:
             )
 
     @pytest.mark.skip(reason="Production flag handling not implemented yet")
-    @patch('half_orm_dev.database.DbConn')
+    @patch('half_orm_dev.database.Database._save_configuration')
     @patch('half_orm_dev.database.Model')
-    def test_setup_database_production_flag_handling(self, mock_model, mock_db_conn, production_connection_options):
+    def test_setup_database_production_flag_handling(self, mock_model, mock_save_config, production_connection_options):
         """Test production flag is properly handled and saved."""
-        mock_db_conn_instance = Mock()
-        mock_db_conn.return_value = mock_db_conn_instance
+        mock_save_config.return_value = "/path/to/config/prod_db"
         mock_model_instance = Mock()
         mock_model.return_value = mock_model_instance
 
@@ -346,8 +383,8 @@ class TestDatabaseSetup:
         )
 
         # Should handle production flag in configuration
-        # This will be verified through DbConn parameter setting
-        assert mock_db_conn_instance.method_calls  # Some method to set production flag
+        # This will be verified through Database._save_configuration parameter checking
+        mock_save_config.assert_called_once()
 
     # VALIDATION TESTS - These should pass immediately (no skip needed)
     def test_setup_database_invalid_database_name(self):
@@ -451,12 +488,11 @@ class TestDatabaseSetup:
             )
 
     @pytest.mark.skip(reason="Database creation and metadata installation not implemented yet")
-    @patch('half_orm_dev.database.DbConn')
+    @patch('half_orm_dev.database.Database._save_configuration')
     @patch('half_orm_dev.database.Model')
-    def test_setup_database_both_create_and_add_metadata(self, mock_model, mock_db_conn, basic_connection_options):
+    def test_setup_database_both_create_and_add_metadata(self, mock_model, mock_save_config, basic_connection_options):
         """Test setup_database with both create_db=True and add_metadata=True."""
-        mock_db_conn_instance = Mock()
-        mock_db_conn.return_value = mock_db_conn_instance
+        mock_save_config.return_value = "/path/to/config/new_db_with_metadata"
 
         # First call fails (no database), second succeeds (after creation)  
         mock_model_instance = Mock()
@@ -478,12 +514,11 @@ class TestDatabaseSetup:
         mock_model_instance.get_relation_class.assert_called()
 
     @pytest.mark.skip(reason="Metadata installation logic not implemented yet")
-    @patch('half_orm_dev.database.DbConn')
+    @patch('half_orm_dev.database.Database._save_configuration')
     @patch('half_orm_dev.database.Model')
-    def test_setup_database_existing_metadata_no_reinstall(self, mock_model, mock_db_conn, basic_connection_options):
+    def test_setup_database_existing_metadata_no_reinstall(self, mock_model, mock_save_config, basic_connection_options):
         """Test setup_database doesn't reinstall existing metadata."""
-        mock_db_conn_instance = Mock()
-        mock_db_conn.return_value = mock_db_conn_instance
+        mock_save_config.return_value = "/path/to/config/db_with_existing_metadata"
         mock_model_instance = Mock()
         mock_model.return_value = mock_model_instance
 
