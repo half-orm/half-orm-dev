@@ -721,4 +721,31 @@ class Database:
             - Maintains compatibility with existing Database instance usage patterns
             - Will be used by state, production, and execute_pg_command properties
         """
-        pass
+        try:
+            # Try to load configuration for this database
+            config = self._load_configuration(self.__repo.name)
+            
+            if config is not None:
+                return config
+            
+            # No configuration file exists, return defaults
+            return {
+                'name': self.__repo.name,
+                'user': os.environ.get('USER', ''),
+                'password': '',
+                'host': '',
+                'port': 5432,
+                'production': False
+            }
+            
+        except (FileNotFoundError, PermissionError, ValueError):
+            # Handle all possible exceptions from _load_configuration gracefully
+            # Return sensible defaults to maintain stable interface
+            return {
+                'name': self.__repo.name,
+                'user': os.environ.get('USER', ''),
+                'password': '',
+                'host': '',
+                'port': 5432,
+                'production': False
+            }

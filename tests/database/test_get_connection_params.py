@@ -33,7 +33,6 @@ class TestGetConnectionParams:
             db = Database(mock_repo, get_release=False)
             return db
 
-    @pytest.mark.(reason="Database._get_connection_params() not implemented yet")
     def test_get_connection_params_with_existing_config(self, database_instance):
         """Test getting connection params when configuration file exists."""
         complete_config = {
@@ -45,16 +44,15 @@ class TestGetConnectionParams:
             'production': False
         }
         
-        with patch.object(Database, '_load_configuration', return_value=complete_config):
+        with patch.object(Database, '_load_configuration', return_value=complete_config) as mock_load:
             result = database_instance._get_connection_params()
         
         assert result == complete_config
-        Database._load_configuration.assert_called_once_with('test_database')
+        mock_load.assert_called_once_with('test_database')
 
-    @pytest.mark.(reason="Database._get_connection_params() not implemented yet")
     def test_get_connection_params_no_config_file(self, database_instance):
         """Test getting connection params when no configuration file exists."""
-        with patch.object(Database, '_load_configuration', return_value=None):
+        with patch.object(Database, '_load_configuration', return_value=None)as mock_load:
             result = database_instance._get_connection_params()
         
         # Should return defaults when no config exists
@@ -67,9 +65,8 @@ class TestGetConnectionParams:
             'production': False
         }
         assert result == expected_defaults
-        Database._load_configuration.assert_called_once_with('test_database')
+        mock_load.assert_called_once_with('test_database')
 
-    @pytest.mark.(reason="Database._get_connection_params() not implemented yet")
     def test_get_connection_params_handles_permission_error(self, database_instance):
         """Test graceful handling of PermissionError from _load_configuration."""
         with patch.object(Database, '_load_configuration', side_effect=PermissionError("Access denied")):
@@ -86,7 +83,6 @@ class TestGetConnectionParams:
         }
         assert result == expected_defaults
 
-    @pytest.mark.(reason="Database._get_connection_params() not implemented yet")
     def test_get_connection_params_handles_file_not_found_error(self, database_instance):
         """Test graceful handling of FileNotFoundError from _load_configuration."""
         with patch.object(Database, '_load_configuration', side_effect=FileNotFoundError("Config dir missing")):
@@ -103,7 +99,6 @@ class TestGetConnectionParams:
         }
         assert result == expected_defaults
 
-    @pytest.mark.(reason="Database._get_connection_params() not implemented yet")
     def test_get_connection_params_handles_value_error(self, database_instance):
         """Test graceful handling of ValueError from _load_configuration."""
         with patch.object(Database, '_load_configuration', side_effect=ValueError("Invalid config format")):
@@ -120,7 +115,6 @@ class TestGetConnectionParams:
         }
         assert result == expected_defaults
 
-    @pytest.mark.(reason="Database._get_connection_params() not implemented yet")
     def test_get_connection_params_trust_mode_config(self, database_instance):
         """Test getting connection params with trust mode (minimal) configuration."""
         trust_config = {
@@ -139,7 +133,6 @@ class TestGetConnectionParams:
         assert result['password'] == ''  # Empty password for trust mode
         assert result['host'] == ''      # Unix socket
         
-    @pytest.mark.(reason="Database._get_connection_params() not implemented yet")
     def test_get_connection_params_production_config(self, database_instance):
         """Test getting connection params for production configuration."""
         production_config = {
@@ -158,7 +151,6 @@ class TestGetConnectionParams:
         assert result['production'] is True
         assert result['host'] == 'prod.db.com'
 
-    @pytest.mark.(reason="Database._get_connection_params() not implemented yet")
     def test_get_connection_params_custom_port(self, database_instance):
         """Test getting connection params with custom port configuration."""
         custom_port_config = {
@@ -177,7 +169,6 @@ class TestGetConnectionParams:
         assert result['port'] == 3306
         assert isinstance(result['port'], int)
 
-    @pytest.mark.(reason="Database._get_connection_params() not implemented yet")
     def test_get_connection_params_dbconn_compatibility(self, database_instance):
         """Test that _get_connection_params provides same data as DbConn properties."""
         # Simulate exact configuration that DbConn would provide
@@ -200,7 +191,6 @@ class TestGetConnectionParams:
         assert result['production'] is False        # replaces self.__connection_params.production
         assert result['password'] == 'dbconn_password'
 
-    @pytest.mark.(reason="Database._get_connection_params() not implemented yet")
     def test_get_connection_params_caching_behavior(self, database_instance):
         """Test that _get_connection_params doesn't cache results inappropriately."""
         config_v1 = {
@@ -221,16 +211,15 @@ class TestGetConnectionParams:
             'production': True
         }
         
-        with patch.object(Database, '_load_configuration', side_effect=[config_v1, config_v2]):
+        with patch.object(Database, '_load_configuration', side_effect=[config_v1, config_v2]) as mock_load:
             result1 = database_instance._get_connection_params()
             result2 = database_instance._get_connection_params()
         
         # Should reflect changes in configuration (no inappropriate caching)
         assert result1 == config_v1
         assert result2 == config_v2
-        assert Database._load_configuration.call_count == 2
+        assert mock_load.call_count == 2
 
-    @pytest.mark.(reason="Database._get_connection_params() not implemented yet")
     def test_get_connection_params_different_database_names(self):
         """Test _get_connection_params with different database names."""
         # Create instances with different database names
@@ -266,7 +255,7 @@ class TestGetConnectionParams:
             db1 = Database(repo1, get_release=False)
             db2 = Database(repo2, get_release=False)
         
-        with patch.object(Database, '_load_configuration', side_effect=[config1, config2]):
+        with patch.object(Database, '_load_configuration', side_effect=[config1, config2]) as mock_load:
             result1 = db1._get_connection_params()
             result2 = db2._get_connection_params()
         
@@ -276,9 +265,8 @@ class TestGetConnectionParams:
         
         # Verify correct database names were used
         expected_calls = [call('database_one'), call('database_two')]
-        Database._load_configuration.assert_has_calls(expected_calls)
+        mock_load.assert_has_calls(expected_calls)
 
-    @pytest.mark.(reason="Database._get_connection_params() not implemented yet")
     def test_get_connection_params_default_user_fallback(self, database_instance):
         """Test USER environment variable fallback in default configuration."""
         with patch.object(Database, '_load_configuration', return_value=None):
@@ -294,7 +282,6 @@ class TestGetConnectionParams:
         
         assert result['user'] == ''  # Empty string when USER not available
 
-    @pytest.mark.(reason="Database._get_connection_params() not implemented yet")
     def test_get_connection_params_return_type_consistency(self, database_instance):
         """Test that return types are always consistent."""
         config = {
