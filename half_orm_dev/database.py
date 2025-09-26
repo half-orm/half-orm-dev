@@ -676,3 +676,49 @@ class Database:
 
         except (ValueError, TypeError) as e:
             raise ValueError(f"Configuration file format is invalid: {e}")
+
+    def _get_connection_params(self):
+        """
+        Get current connection parameters for this database instance.
+        
+        Returns the connection parameters dictionary for this Database instance,
+        replacing direct access to DbConn properties. This method serves as the
+        unified interface for accessing connection parameters during the migration
+        from DbConn to integrated Database functionality.
+        
+        Returns:
+            dict: Connection parameters dictionary with standardized keys:
+                - name (str): Database name
+                - user (str): Database user  
+                - password (str): Database password (empty string if not set)
+                - host (str): Database host (empty string for Unix socket)
+                - port (int): Database port (5432 default)
+                - production (bool): Production environment flag
+            Returns dict with defaults if no configuration exists or errors occur.
+            
+        Examples:
+            # Get connection parameters for existing database instance
+            db = Database(repo)
+            params = db._get_connection_params()
+            # Returns: {'name': 'my_db', 'user': 'dev', 'password': '', 
+            #           'host': 'localhost', 'port': 5432, 'production': False}
+            
+            # Access specific parameters (replaces DbConn.property access)
+            user = db._get_connection_params()['user']      # replaces self.__connection_params.user
+            host = db._get_connection_params()['host']      # replaces self.__connection_params.host
+            prod = db._get_connection_params()['production'] # replaces self.__connection_params.production
+            
+        Implementation Notes:
+            - Uses _load_configuration() internally but handles all exceptions
+            - Provides stable interface - never raises exceptions  
+            - Returns sensible defaults if configuration is missing/invalid
+            - Serves as protective wrapper around _load_configuration()
+            - Exceptions from _load_configuration() are caught and handled gracefully
+            
+        Migration Notes:
+            - Replaces self.__connection_params.user, .host, .port, .production access
+            - Serves as transition method during DbConn elimination
+            - Maintains compatibility with existing Database instance usage patterns
+            - Will be used by state, production, and execute_pg_command properties
+        """
+        pass
