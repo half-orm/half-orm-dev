@@ -516,3 +516,54 @@ class Database:
                 complete_params['production'] = False
 
         return complete_params
+
+    @classmethod
+    def _load_configuration(cls, database_name):
+        """
+        Load existing database configuration file, replacing DbConn functionality.
+        
+        Reads halfORM configuration file and returns connection parameters as a dictionary.
+        This method completely replaces DbConn.__init() logic, supporting both minimal
+        configurations (PostgreSQL trust mode) and complete parameter sets.
+        
+        Args:
+            database_name (str): Name of the database to load configuration for
+            
+        Returns:
+            dict | None: Connection parameters dictionary with standardized keys:
+                - name (str): Database name (always present)
+                - user (str): Database user (defaults to $USER environment variable)  
+                - password (str): Database password (empty string if not set)
+                - host (str): Database host (empty string for Unix socket, 'localhost' otherwise)
+                - port (int): Database port (5432 if not specified)
+                - production (bool): Production environment flag (defaults to False)
+            Returns None if configuration file doesn't exist.
+            
+        Raises:
+            FileNotFoundError: If CONF_DIR doesn't exist or isn't accessible
+            PermissionError: If configuration file exists but isn't readable  
+            ValueError: If configuration file format is invalid or corrupted
+            
+        Examples:
+            # Complete configuration file
+            config = Database._load_configuration("production_db")
+            # Returns: {'name': 'production_db', 'user': 'app_user', 'password': 'secret',
+            #           'host': 'db.company.com', 'port': 5432, 'production': True}
+            
+            # Minimal trust mode configuration (only name=database_name)
+            config = Database._load_configuration("local_dev")
+            # Returns: {'name': 'local_dev', 'user': 'joel', 'password': '',  
+            #           'host': '', 'port': 5432, 'production': False}
+            
+            # Non-existent configuration
+            config = Database._load_configuration("unknown_db")
+            # Returns: None
+            
+        Migration Notes:
+            - Completely replaces DbConn.__init() and DbConn.__init logic
+            - Maintains backward compatibility with existing config files
+            - Standardizes return format (int for port, bool for production)
+            - Integrates PostgreSQL trust mode defaults directly into Database class
+            - Eliminates external DbConn dependency while preserving all functionality
+        """
+        pass
