@@ -43,18 +43,18 @@ class TestGetConnectionParams:
             'port': 5432,
             'production': False
         }
-        
+
         with patch.object(Database, '_load_configuration', return_value=complete_config) as mock_load:
             result = database_instance._get_connection_params()
-        
+
         assert result == complete_config
         mock_load.assert_called_once_with('test_database')
 
     def test_get_connection_params_no_config_file(self, database_instance):
         """Test getting connection params when no configuration file exists."""
-        with patch.object(Database, '_load_configuration', return_value=None)as mock_load:
+        with patch.object(Database, '_load_configuration', return_value=None) as mock_load:
             result = database_instance._get_connection_params()
-        
+
         # Should return defaults when no config exists
         expected_defaults = {
             'name': 'test_database',
@@ -71,7 +71,7 @@ class TestGetConnectionParams:
         """Test graceful handling of PermissionError from _load_configuration."""
         with patch.object(Database, '_load_configuration', side_effect=PermissionError("Access denied")):
             result = database_instance._get_connection_params()
-        
+
         # Should return defaults instead of raising exception
         expected_defaults = {
             'name': 'test_database',
@@ -87,7 +87,7 @@ class TestGetConnectionParams:
         """Test graceful handling of FileNotFoundError from _load_configuration."""
         with patch.object(Database, '_load_configuration', side_effect=FileNotFoundError("Config dir missing")):
             result = database_instance._get_connection_params()
-        
+
         # Should return defaults instead of raising exception
         expected_defaults = {
             'name': 'test_database',
@@ -103,7 +103,7 @@ class TestGetConnectionParams:
         """Test graceful handling of ValueError from _load_configuration."""
         with patch.object(Database, '_load_configuration', side_effect=ValueError("Invalid config format")):
             result = database_instance._get_connection_params()
-        
+
         # Should return defaults instead of raising exception
         expected_defaults = {
             'name': 'test_database',
@@ -125,14 +125,14 @@ class TestGetConnectionParams:
             'port': 5432,
             'production': False
         }
-        
+
         with patch.object(Database, '_load_configuration', return_value=trust_config):
             result = database_instance._get_connection_params()
-        
+
         assert result == trust_config
         assert result['password'] == ''  # Empty password for trust mode
         assert result['host'] == ''      # Unix socket
-        
+
     def test_get_connection_params_production_config(self, database_instance):
         """Test getting connection params for production configuration."""
         production_config = {
@@ -143,10 +143,10 @@ class TestGetConnectionParams:
             'port': 5432,
             'production': True
         }
-        
+
         with patch.object(Database, '_load_configuration', return_value=production_config):
             result = database_instance._get_connection_params()
-        
+
         assert result == production_config
         assert result['production'] is True
         assert result['host'] == 'prod.db.com'
@@ -161,10 +161,10 @@ class TestGetConnectionParams:
             'port': 3306,  # MySQL port
             'production': False
         }
-        
+
         with patch.object(Database, '_load_configuration', return_value=custom_port_config):
             result = database_instance._get_connection_params()
-        
+
         assert result == custom_port_config
         assert result['port'] == 3306
         assert isinstance(result['port'], int)
@@ -180,45 +180,16 @@ class TestGetConnectionParams:
             'port': 5433,
             'production': False
         }
-        
+
         with patch.object(Database, '_load_configuration', return_value=dbconn_equivalent):
             result = database_instance._get_connection_params()
-        
+
         # Verify each property matches what DbConn would return
         assert result['user'] == 'dbconn_user'      # replaces self.__connection_params.user
         assert result['host'] == 'dbconn_host'      # replaces self.__connection_params.host  
         assert result['port'] == 5433               # replaces self.__connection_params.port
         assert result['production'] is False        # replaces self.__connection_params.production
         assert result['password'] == 'dbconn_password'
-
-    def test_get_connection_params_caching_behavior(self, database_instance):
-        """Test that _get_connection_params doesn't cache results inappropriately."""
-        config_v1 = {
-            'name': 'test_database',
-            'user': 'user_v1',
-            'password': 'pass_v1',
-            'host': 'host_v1',
-            'port': 5432,
-            'production': False
-        }
-        
-        config_v2 = {
-            'name': 'test_database',
-            'user': 'user_v2',
-            'password': 'pass_v2',
-            'host': 'host_v2',
-            'port': 5433,
-            'production': True
-        }
-        
-        with patch.object(Database, '_load_configuration', side_effect=[config_v1, config_v2]) as mock_load:
-            result1 = database_instance._get_connection_params()
-            result2 = database_instance._get_connection_params()
-        
-        # Should reflect changes in configuration (no inappropriate caching)
-        assert result1 == config_v1
-        assert result2 == config_v2
-        assert mock_load.call_count == 2
 
     def test_get_connection_params_different_database_names(self):
         """Test _get_connection_params with different database names."""
@@ -227,12 +198,12 @@ class TestGetConnectionParams:
         repo1.name = "database_one"
         repo1.new = False
         repo1.devel = True
-        
+
         repo2 = Mock()
         repo2.name = "database_two"  
         repo2.new = False
         repo2.devel = True
-        
+
         config1 = {
             'name': 'database_one',
             'user': 'user1',
@@ -241,7 +212,7 @@ class TestGetConnectionParams:
             'port': 5432,
             'production': False
         }
-        
+
         config2 = {
             'name': 'database_two',
             'user': 'user2', 
@@ -250,19 +221,19 @@ class TestGetConnectionParams:
             'port': 5433,
             'production': True
         }
-        
+
         with patch('half_orm_dev.database.Model'):
             db1 = Database(repo1, get_release=False)
             db2 = Database(repo2, get_release=False)
-        
-        with patch.object(Database, '_load_configuration', side_effect=[config1, config2]) as mock_load:
+
+        with patch.object(Database, '_load_configuration', side_effect=[config1, config2])as mock_load:
             result1 = db1._get_connection_params()
             result2 = db2._get_connection_params()
-        
+
         # Each instance should get its own configuration
         assert result1 == config1
         assert result2 == config2
-        
+
         # Verify correct database names were used
         expected_calls = [call('database_one'), call('database_two')]
         mock_load.assert_has_calls(expected_calls)
@@ -272,14 +243,17 @@ class TestGetConnectionParams:
         with patch.object(Database, '_load_configuration', return_value=None):
             with patch.dict(os.environ, {'USER': 'env_test_user'}):
                 result = database_instance._get_connection_params()
-        
+
         assert result['user'] == 'env_test_user'
-        
+
+        # Clear cache to test different environment
+        database_instance._Database__connection_params_cache = None
+
         # Test when USER env var is not set
         with patch.object(Database, '_load_configuration', return_value=None):
             with patch.dict(os.environ, {}, clear=True):
                 result = database_instance._get_connection_params()
-        
+
         assert result['user'] == ''  # Empty string when USER not available
 
     def test_get_connection_params_return_type_consistency(self, database_instance):
@@ -292,10 +266,10 @@ class TestGetConnectionParams:
             'port': 5432,
             'production': True
         }
-        
+
         with patch.object(Database, '_load_configuration', return_value=config):
             result = database_instance._get_connection_params()
-        
+
         # Verify all types are correct and consistent
         assert isinstance(result['name'], str)
         assert isinstance(result['user'], str)

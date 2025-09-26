@@ -9,7 +9,6 @@ from psycopg2 import OperationalError
 from half_orm.model import Model
 from half_orm.model_errors import UnknownRelation
 from half_orm import utils
-from half_orm_dev.db_conn import DbConn
 from .utils import HOP_PATH
 
 
@@ -21,7 +20,6 @@ class Database:
         self.__repo = repo
         self.__model = None
         self.__last_release = None
-        self.__connection_params: DbConn = DbConn(self.__repo.name)
         if self.__repo.name:
             try:
                 self.__model = Model(self.__repo.name)
@@ -35,7 +33,6 @@ class Database:
 
     def __init(self, name, get_release=True):
         self.__name = name
-        self.__connection_params = DbConn(name)
         if get_release and self.__repo.devel:
             self.__last_release = self.last_release
 
@@ -61,11 +58,11 @@ class Database:
         "The state (str) of the database"
         res = ['[Database]']
         res.append(f'- name: {self.__name}')
-        res.append(f'- user: {self.__connection_params.user}')
-        res.append(f'- host: {self.__connection_params.host}')
-        res.append(f'- port: {self.__connection_params.port}')
+        res.append(f"- user: {self._get_connection_params()['user']}")
+        res.append(f"- host: {self._get_connection_params()['host']}")
+        res.append(f"- port: {self._get_connection_params()['port']}")
         prod = utils.Color.blue(
-            True) if self.__connection_params.production else False
+            True) if self._get_connection_params()['production'] else False
         res.append(f'- production: {prod}')
         if self.__repo.devel:
             res.append(f'- last release: {self.last_release_s}')
@@ -73,8 +70,8 @@ class Database:
 
     @property
     def production(self):
-        "Returns wether the database is tagged in production or not."
-        return self.__connection_params.production
+        "Returns whether the database is tagged in production or not."
+        return self._get_connection_params()['production']
 
     def init(self, name):
         """Called when creating a new repo.
@@ -118,7 +115,7 @@ class Database:
     @property
     def execute_pg_command(self):
         "Helper: execute a postgresql command"
-        return self.__connection_params.execute_pg_command
+        return self._execute_pg_command
 
     def register_release(self, major, minor, patch, changelog):
         "Register the release into half_orm_meta.hop_release"
@@ -566,57 +563,6 @@ class Database:
             - Integrates PostgreSQL trust mode defaults directly into Database class
             - Eliminates external DbConn dependency while preserving all functionality
         """
-        pass
-
-    @classmethod
-    def _load_configuration(cls, database_name):
-        """
-        Load existing database configuration file, replacing DbConn functionality.
-
-        Reads halfORM configuration file and returns connection parameters as a dictionary.
-        This method completely replaces DbConn.__init() logic, supporting both minimal
-        configurations (PostgreSQL trust mode) and complete parameter sets.
-
-        Args:
-            database_name (str): Name of the database to load configuration for
-
-        Returns:
-            dict | None: Connection parameters dictionary with standardized keys:
-                - name (str): Database name (always present)
-                - user (str): Database user (defaults to $USER environment variable)  
-                - password (str): Database password (empty string if not set)
-                - host (str): Database host (empty string for Unix socket, 'localhost' otherwise)
-                - port (int): Database port (5432 if not specified)
-                - production (bool): Production environment flag (defaults to False)
-            Returns None if configuration file doesn't exist.
-
-        Raises:
-            FileNotFoundError: If CONF_DIR doesn't exist or isn't accessible
-            PermissionError: If configuration file exists but isn't readable  
-            ValueError: If configuration file format is invalid or corrupted
-
-        Examples:
-            # Complete configuration file
-            config = Database._load_configuration("production_db")
-            # Returns: {'name': 'production_db', 'user': 'app_user', 'password': 'secret',
-            #           'host': 'db.company.com', 'port': 5432, 'production': True}
-
-            # Minimal trust mode configuration (only name=database_name)
-            config = Database._load_configuration("local_dev")
-            # Returns: {'name': 'local_dev', 'user': 'joel', 'password': '',  
-            #           'host': '', 'port': 5432, 'production': False}
-
-            # Non-existent configuration
-            config = Database._load_configuration("unknown_db")
-            # Returns: None
-
-        Migration Notes:
-            - Completely replaces DbConn.__init() and DbConn.__init logic
-            - Maintains backward compatibility with existing config files
-            - Standardizes return format (int for port, bool for production)
-            - Integrates PostgreSQL trust mode defaults directly into Database class
-            - Eliminates external DbConn dependency while preserving all functionality
-        """
         import os
         from configparser import ConfigParser
         from half_orm.model import CONF_DIR
@@ -680,12 +626,15 @@ class Database:
     def _get_connection_params(self):
         """
         Get current connection parameters for this database instance.
-        
+
         Returns the connection parameters dictionary for this Database instance,
         replacing direct access to DbConn properties. This method serves as the
         unified interface for accessing connection parameters during the migration
         from DbConn to integrated Database functionality.
-        
+
+        Uses instance-level caching to avoid repeated file reads within the same
+        Database instance lifecycle.
+
         Returns:
             dict: Connection parameters dictionary with standardized keys:
                 - name (str): Database name
@@ -695,32 +644,38 @@ class Database:
                 - port (int): Database port (5432 default)
                 - production (bool): Production environment flag
             Returns dict with defaults if no configuration exists or errors occur.
-            
+
         Examples:
             # Get connection parameters for existing database instance
             db = Database(repo)
             params = db._get_connection_params()
             # Returns: {'name': 'my_db', 'user': 'dev', 'password': '', 
             #           'host': 'localhost', 'port': 5432, 'production': False}
-            
+
             # Access specific parameters (replaces DbConn.property access)
             user = db._get_connection_params()['user']      # replaces self.__connection_params.user
             host = db._get_connection_params()['host']      # replaces self.__connection_params.host
             prod = db._get_connection_params()['production'] # replaces self.__connection_params.production
-            
+
         Implementation Notes:
             - Uses _load_configuration() internally but handles all exceptions
             - Provides stable interface - never raises exceptions  
             - Returns sensible defaults if configuration is missing/invalid
             - Serves as protective wrapper around _load_configuration()
             - Exceptions from _load_configuration() are caught and handled gracefully
-            
+            - Uses instance-level cache to avoid repeated file reads
+
         Migration Notes:
             - Replaces self.__connection_params.user, .host, .port, .production access
             - Serves as transition method during DbConn elimination
             - Maintains compatibility with existing Database instance usage patterns
             - Will be used by state, production, and execute_pg_command properties
         """
+        # Return cached parameters if already loaded
+        if hasattr(self, '_Database__connection_params_cache') and self.__connection_params_cache is not None:
+            return self.__connection_params_cache
+
+        # Load configuration with defaults
         config = {
             'name': self.__repo.name,
             'user': os.environ.get('USER', ''),
@@ -729,6 +684,7 @@ class Database:
             'port': 5432,
             'production': False
         }
+
         try:
             # Try to load configuration for this database
             loaded_config = self._load_configuration(self.__repo.name)
@@ -738,4 +694,7 @@ class Database:
             # Handle all possible exceptions from _load_configuration gracefully
             # Return sensible defaults to maintain stable interface
             pass
+
+        # Cache the result for subsequent calls
+        self.__connection_params_cache = config
         return config
