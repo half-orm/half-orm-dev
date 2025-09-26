@@ -521,14 +521,14 @@ class Database:
     def _load_configuration(cls, database_name):
         """
         Load existing database configuration file, replacing DbConn functionality.
-        
+
         Reads halfORM configuration file and returns connection parameters as a dictionary.
         This method completely replaces DbConn.__init() logic, supporting both minimal
         configurations (PostgreSQL trust mode) and complete parameter sets.
-        
+
         Args:
             database_name (str): Name of the database to load configuration for
-            
+
         Returns:
             dict | None: Connection parameters dictionary with standardized keys:
                 - name (str): Database name (always present)
@@ -538,27 +538,27 @@ class Database:
                 - port (int): Database port (5432 if not specified)
                 - production (bool): Production environment flag (defaults to False)
             Returns None if configuration file doesn't exist.
-            
+
         Raises:
             FileNotFoundError: If CONF_DIR doesn't exist or isn't accessible
             PermissionError: If configuration file exists but isn't readable  
             ValueError: If configuration file format is invalid or corrupted
-            
+
         Examples:
             # Complete configuration file
             config = Database._load_configuration("production_db")
             # Returns: {'name': 'production_db', 'user': 'app_user', 'password': 'secret',
             #           'host': 'db.company.com', 'port': 5432, 'production': True}
-            
+
             # Minimal trust mode configuration (only name=database_name)
             config = Database._load_configuration("local_dev")
             # Returns: {'name': 'local_dev', 'user': 'joel', 'password': '',  
             #           'host': '', 'port': 5432, 'production': False}
-            
+
             # Non-existent configuration
             config = Database._load_configuration("unknown_db")
             # Returns: None
-            
+
         Migration Notes:
             - Completely replaces DbConn.__init() and DbConn.__init logic
             - Maintains backward compatibility with existing config files
@@ -567,3 +567,112 @@ class Database:
             - Eliminates external DbConn dependency while preserving all functionality
         """
         pass
+
+    @classmethod
+    def _load_configuration(cls, database_name):
+        """
+        Load existing database configuration file, replacing DbConn functionality.
+
+        Reads halfORM configuration file and returns connection parameters as a dictionary.
+        This method completely replaces DbConn.__init() logic, supporting both minimal
+        configurations (PostgreSQL trust mode) and complete parameter sets.
+
+        Args:
+            database_name (str): Name of the database to load configuration for
+
+        Returns:
+            dict | None: Connection parameters dictionary with standardized keys:
+                - name (str): Database name (always present)
+                - user (str): Database user (defaults to $USER environment variable)  
+                - password (str): Database password (empty string if not set)
+                - host (str): Database host (empty string for Unix socket, 'localhost' otherwise)
+                - port (int): Database port (5432 if not specified)
+                - production (bool): Production environment flag (defaults to False)
+            Returns None if configuration file doesn't exist.
+
+        Raises:
+            FileNotFoundError: If CONF_DIR doesn't exist or isn't accessible
+            PermissionError: If configuration file exists but isn't readable  
+            ValueError: If configuration file format is invalid or corrupted
+
+        Examples:
+            # Complete configuration file
+            config = Database._load_configuration("production_db")
+            # Returns: {'name': 'production_db', 'user': 'app_user', 'password': 'secret',
+            #           'host': 'db.company.com', 'port': 5432, 'production': True}
+
+            # Minimal trust mode configuration (only name=database_name)
+            config = Database._load_configuration("local_dev")
+            # Returns: {'name': 'local_dev', 'user': 'joel', 'password': '',  
+            #           'host': '', 'port': 5432, 'production': False}
+
+            # Non-existent configuration
+            config = Database._load_configuration("unknown_db")
+            # Returns: None
+
+        Migration Notes:
+            - Completely replaces DbConn.__init() and DbConn.__init logic
+            - Maintains backward compatibility with existing config files
+            - Standardizes return format (int for port, bool for production)
+            - Integrates PostgreSQL trust mode defaults directly into Database class
+            - Eliminates external DbConn dependency while preserving all functionality
+        """
+        import os
+        from configparser import ConfigParser
+        from half_orm.model import CONF_DIR
+
+        # Check if configuration directory exists
+        if not os.path.exists(CONF_DIR):
+            raise FileNotFoundError(f"Configuration directory {CONF_DIR} doesn't exist")
+
+        # Build configuration file path
+        config_file = os.path.join(CONF_DIR, database_name)
+
+        # Return None if configuration file doesn't exist
+        if not os.path.exists(config_file):
+            return None
+
+        # Check if file is readable before attempting to parse
+        if not os.access(config_file, os.R_OK):
+            raise PermissionError(f"Configuration file {config_file} is not readable")
+
+        # Read configuration file
+        config = ConfigParser()
+        try:
+            config.read(config_file)
+        except Exception as e:
+            raise ValueError(f"Configuration file format is invalid: {e}")
+
+        # Check if [database] section exists
+        if not config.has_section('database'):
+            raise ValueError("Configuration file format is invalid: missing [database] section")
+
+        # Extract configuration values with PostgreSQL defaults
+        try:
+            name = config.get('database', 'name')
+            user = config.get('database', 'user', fallback=os.environ.get('USER', ''))
+            password = config.get('database', 'password', fallback='')
+            host = config.get('database', 'host', fallback='')
+            port_str = config.get('database', 'port', fallback='')
+            production_str = config.get('database', 'production', fallback='False')
+
+            # Convert port to int (default 5432 if empty)
+            if port_str == '':
+                port = 5432
+            else:
+                port = int(port_str)
+
+            # Convert production to bool
+            production = config.getboolean('database', 'production', fallback=False)
+
+            return {
+                'name': name,
+                'user': user,
+                'password': password,
+                'host': host,
+                'port': port,
+                'production': production
+            }
+
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Configuration file format is invalid: {e}")
