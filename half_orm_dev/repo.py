@@ -936,8 +936,8 @@ See docs/half_orm_dev.md for complete documentation.
             _initialize_git_repository()
             # Creates: .git/ with ho-prod branch
         """
-        pass
-
+        # Delegate to existing hgit.HGit.init
+        self.hgit = HGit().init(self.__base_dir, release='0.0.0')
 
     def _generate_template_files(self):
         """

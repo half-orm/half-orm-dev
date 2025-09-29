@@ -59,7 +59,7 @@ class HGit:
             os.chdir(base_dir)
             self.__git_repo.git.add('.')
             self.__git_repo.git.commit(m=f'[{release}] hop new {os.path.basename(base_dir)}')
-            self.__git_repo.git.checkout('-b', 'hop_main')
+            self.__git_repo.git.checkout('-b', 'ho-prod')
             os.chdir(cur_dir)
             self.__post_init()
         except GitCommandError as err:
