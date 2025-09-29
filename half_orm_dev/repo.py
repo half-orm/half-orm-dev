@@ -785,8 +785,103 @@ class Repo:
             _create_git_centric_structure()
             # Skips creation (not needed for sync-only)
         """
-        pass
+        import os
 
+        # Only create structure in development mode
+        if not self.__config.devel:
+            return
+
+        # Create directories
+        patches_dir = os.path.join(self.__base_dir, 'Patches')
+        releases_dir = os.path.join(self.__base_dir, 'releases')
+        model_dir = os.path.join(self.__base_dir, 'model')
+        backups_dir = os.path.join(self.__base_dir, 'backups')
+
+        os.makedirs(patches_dir, exist_ok=True)
+        os.makedirs(releases_dir, exist_ok=True)
+        os.makedirs(model_dir, exist_ok=True)
+        os.makedirs(backups_dir, exist_ok=True)
+
+        # Create README files for guidance
+        patches_readme = os.path.join(patches_dir, 'README.md')
+        with open(patches_readme, 'w', encoding='utf-8') as f:
+            f.write("""# Patches Directory
+
+This directory contains schema patch files for database evolution.
+
+## Structure
+
+Each patch is stored in its own directory:
+```
+Patches/
+├── 001-initial-schema/
+│   ├── 01_create_users.sql
+│   ├── 02_add_indexes.sql
+│   └── 03_seed_data.py
+├── 002-add-authentication/
+│   └── 01_auth_tables.sql
+```
+
+## Workflow
+
+1. Create patch branch: `half_orm dev create-patch <patch-id>`
+2. Add SQL/Python files to Patches/<patch-id>/
+3. Apply patch: `half_orm dev apply-patch`
+4. Test your changes
+5. Add to release: `half_orm dev add-to-release <patch-id>`
+
+## File Naming
+
+- Use numeric prefixes for ordering: `01_`, `02_`, etc.
+- SQL files: `*.sql`
+- Python scripts: `*.py`
+- Files executed in lexicographic order
+
+See docs/half_orm_dev.md for complete documentation.
+""")
+
+        releases_readme = os.path.join(releases_dir, 'README.md')
+        with open(releases_readme, 'w', encoding='utf-8') as f:
+            f.write("""# Releases Directory
+
+This directory manages release workflows through text files.
+
+## Structure
+
+```
+releases/
+├── 1.0.0-stage.txt      # Development release (stage)
+├── 1.0.0-rc.txt         # Release candidate
+└── 1.0.0-production.txt # Production release
+```
+
+## Release Files
+
+Each file contains patch IDs, one per line:
+```
+001-initial-schema
+002-add-authentication
+003-user-profiles
+```
+
+## Workflow
+
+1. **Stage**: Development work
+- `half_orm dev add-to-release <patch-id>`
+- Patches added to X.Y.Z-stage.txt
+
+2. **RC**: Release candidate
+- `half_orm dev promote-to-rc`
+- Creates X.Y.Z-rc.txt
+- Deletes patch branches
+
+3. **Production**: Final release
+- `half_orm dev promote-to-prod`
+- Creates X.Y.Z-production.txt
+- Apply to production: `half_orm dev deploy-to-prod`
+
+See docs/half_orm_dev.md for complete documentation.
+""")
 
     def _generate_python_package(self):
         """
