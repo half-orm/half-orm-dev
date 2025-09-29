@@ -139,7 +139,7 @@ class TestValidatePatchStructure:
     def test_validate_patch_structure_with_mixed_files(self, patch_manager):
         """Test validating patch with mixed file types - should be valid."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
-        
+
         # Create patch with various file types
         patch_path = patches_dir / "456-mixed"
         patch_path.mkdir()

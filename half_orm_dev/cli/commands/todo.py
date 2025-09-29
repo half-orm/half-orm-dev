@@ -12,10 +12,10 @@ import click
 def todo(ctx):
     """
     Placeholder for unimplemented Git-centric commands.
-    
+
     All legacy commands (prepare, undo, release, new) removed in v0.16.0.
     New patch-centric workflow commands not yet implemented.
-    
+
     Target Git-centric architecture:
     - ho-prod + ho-patch/patch-name branches
     - Patches/patch-name/ directory structure  
@@ -25,7 +25,7 @@ def todo(ctx):
     - Developer responsibility for conflict management
     """
     command_name = ctx.info_name
-    
+
     # Map of command → description for helpful error messages
     command_descriptions = {
         # 🚧 New Git-centric commands
@@ -41,16 +41,16 @@ def todo(ctx):
         'prepare-release': 'Create next releases/X.Y.Z-stage.txt file',
         'list-patches': 'List all patches in Patches/ directory',
         'status': 'Show development status with patch/release information',
-        
+
         # ♻️ Commands to adapt
         'apply': 'Apply patches (legacy - being replaced by apply-patch)',
         'sync-package': 'Synchronize Python package with database model',
         'upgrade': 'Apply patches in production (adapt for Git-centric)',
         'restore': 'Restore database to specific version (adapt for new backups)',
     }
-    
+
     description = command_descriptions.get(command_name, 'Git-centric command')
-    
+
     raise NotImplementedError(
         f"Command '{command_name}' not implemented in v0.16.0\n"
         f"Description: {description}\n\n"

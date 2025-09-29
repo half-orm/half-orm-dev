@@ -22,9 +22,9 @@ from half_orm import utils
 def init_project(database_name, full=False, template='basic'):
     """
     Initialize a new halfORM project with Git-centric patch management.
-    
+
     Creates a new project directory with Git-centric architecture:
-    
+
     \b
     • Git repository with ho-prod main branch (replaces hop_main)
     • Version 0.0.0 evolutionary metadata base
@@ -32,12 +32,12 @@ def init_project(database_name, full=False, template='basic'):
     • Generated Python package structure
     • Database connection configuration
     • PatchManager integration
-    
+
     Examples:
     \b
         half_orm dev init-project myapp
         half_orm dev init-project myapp
-    
+
     Git-centric workflow:
     \b
         ho-prod (main branch) + ho-patch/patch-name (patch development)
@@ -47,26 +47,26 @@ def init_project(database_name, full=False, template='basic'):
     # Validation préliminaire
     if not database_name or not database_name.strip():
         raise click.BadParameter("Database name cannot be empty")
-    
+
     database_name = database_name.strip()
     project_dir = Path.cwd() / database_name
-    
+
     # Vérifier que le répertoire n'existe pas déjà
     if project_dir.exists():
         raise click.ClickException(f"Directory '{database_name}' already exists!")
-    
+
     click.echo(f"🚀 Initializing halfORM project '{database_name}' with Git-centric architecture...")
-    
+
     try:
         # Créer nouveau repo avec architecture Git-centric
         repo = Repo()
         repo.init_git_centric_project(
             package_name=database_name
         )
-        
+
         click.echo()
         click.echo(f"✅ Project '{database_name}' initialized successfully!")
-        
+
         if repo.devel:
             click.echo()
             click.echo(utils.Color.green("🔧 Full development mode enabled:"))
@@ -75,7 +75,7 @@ def init_project(database_name, full=False, template='basic'):
             click.echo("  • halfORM metadata tables (version 0.0.0)")
             click.echo("  • PatchManager integration available")
             click.echo("  • releases/ directory for release management")
-            
+
             click.echo()
             click.echo(utils.Color.bold("🚀 Next steps:"))
             click.echo(f"  cd {database_name}")
@@ -89,12 +89,12 @@ def init_project(database_name, full=False, template='basic'):
             click.echo("  • Package structure generated from existing database")
             click.echo("  • Database connection configured")
             click.echo("  • No patch management (read-only)")
-            
+
             click.echo()
             click.echo(utils.Color.bold("🔄 Next steps:"))
             click.echo(f"  cd {database_name}")
             click.echo("  half_orm dev sync-package  # Update from database")
-    
+
     except Exception as e:
         # Nettoyage en cas d'erreur
         if project_dir.exists():
@@ -104,6 +104,6 @@ def init_project(database_name, full=False, template='basic'):
                 click.echo(f"❌ Cleaned up partial project directory: {project_dir}")
             except Exception:
                 pass
-        
+
         # Re-lever l'exception avec contexte
         raise click.ClickException(f"Failed to initialize project: {e}")

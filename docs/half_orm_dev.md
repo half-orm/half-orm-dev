@@ -341,7 +341,7 @@ pyproject.toml              # Project configuration (inherited)
    git checkout ho-prod  # Ensure we're on main branch
    half_orm dev create-patch "456"  # Check ticket 456 on github or gitlab
    ```
-   
+
 2. **Result**
    - Creates branch `ho-patch/456-user-authentication` from `ho-prod`
    - Automatic checkout to `ho-patch/456-user-authentication`
@@ -354,11 +354,11 @@ pyproject.toml              # Project configuration (inherited)
 3. **Develop complete patch**
    ```bash
    # On ho-patch/456-user-authentication
-   
+
    # Add schema modifications
    echo "CREATE TABLE users (id SERIAL PRIMARY KEY, username VARCHAR(50) UNIQUE);" > Patches/456-user-authentication/01_create_users.sql
    echo "CREATE INDEX idx_users_username ON users(username);" > Patches/456-user-authentication/02_add_indexes.sql
-   
+
    # Apply schema changes and generate code
    half_orm dev apply-patch
    # → Detailed step-by-step execution with full visibility
@@ -367,19 +367,19 @@ pyproject.toml              # Project configuration (inherited)
    # → Auto-generate halfORM classes using modules.py integration
    # → COMMIT: "Auto-update: Generated code for patch 456-user-authentication"
    # → Report code generation results and business logic changes needed
-   
+
    # Run all tests
    half_orm dev test
    # → Run complete test suite including new patch tests
    # → Report test results
-   
+
    # Develop business logic based on apply-patch feedback
    # Edit <dbname>/<dbname>/public/user.py (add custom methods to generated class)
    # Create tests/test_*.py (comprehensive tests)
-   
+
    git add <dbname>/ tests/
    git commit -m "Add user authentication business logic and tests"
-   
+
    # Final validation
    half_orm dev apply-patch  # Re-apply patch with all changes
    half_orm dev test         # Run complete test suite
@@ -395,7 +395,7 @@ pyproject.toml              # Project configuration (inherited)
    # or
    half_orm dev prepare-release patch  # Creates next patch release stage
    ```
-   
+
 5. **Result**
    - Finds latest version across all stages (stage > rc > production)
    - Calculates next version based on increment type:
@@ -415,7 +415,7 @@ pyproject.toml              # Project configuration (inherited)
    # → Specifies target stage release when multiple stages exist
    # → If only one stage exists, --to-version can be omitted
    ```
-   
+
 7. **Result**
    - Merge `ho-patch/456-user-authentication` → `ho-prod`
    - Version X.Y.Z calculated from latest existing release
@@ -433,18 +433,18 @@ pyproject.toml              # Project configuration (inherited)
    ```bash
    # System automatically notifies other development branches using commit --allow-empty
    # All active ho-patch/* branches receive notification commits
-   
+
    # Example: ho-patch/789-performance gets notification
    git checkout ho-patch/789-performance
    git pull
    # → New commit: "RESYNC REQUIRED: 456-user-authentication integrated"
    # → If multiple patches integrated: "RESYNC REQUIRED: 456-user-auth, 789-security integrated"
-   
+
    # Developer decides when to resync manually
    git merge ho-prod
    # → 789-performance now has user authentication as base
    # → Developer resolves conflicts when ready
-   
+
    # Re-validation after manual resync
    half_orm dev apply-patch  # Ensure no conflicts in combined state
    half_orm dev test         # Run complete test suite
@@ -461,7 +461,7 @@ pyproject.toml              # Project configuration (inherited)
    # → Remove patch from releases/X.Y.Z-stage.txt
    # → Preserve ho-patch/456-user-authentication for modifications
    # → Allow re-integration after fixes: add-to-release "456"
-   
+
    # Not possible for RC or production releases (immutable)
    ```
 
@@ -497,7 +497,7 @@ pyproject.toml              # Project configuration (inherited)
     # If issues found during RC validation
     half_orm dev create-patch "999-rc1-bugfix"
     # → Develop fix on ho-patch/999-rc1-bugfix
-    
+
     half_orm dev add-to-release-rc "999-rc1-bugfix"
     # → git mv releases/1.3.4-rc1.txt releases/1.3.4-rc2.txt
     # → Add fix to the moved file content
@@ -515,7 +515,7 @@ pyproject.toml              # Project configuration (inherited)
     # → git mv releases/1.3.4-rc2.txt releases/1.3.4.txt
     # → Preserves complete Git history
     # → No branches exist at this point (all cleaned up at RC promotion)
-    
+
     half_orm dev deploy-to-prod "1.3.4"
     # → Create backup of current production state
     # → Apply all patches from releases/1.3.4.txt sequentially
@@ -535,20 +535,20 @@ pyproject.toml              # Project configuration (inherited)
     # → Creates ho-patch/critical-security-vulnerability from ho-prod
     # → Creates releases/1.3.4-hotfix1.txt (based on current production)
     # → Bypasses normal release sequence
-    
+
     # Development and testing (same as normal patches)
     half_orm dev apply-patch
     # → Validate hotfix in isolation
-    
+
     half_orm dev test
     # → Run complete test suite
-    
+
     # Integration to hotfix release
     half_orm dev add-to-hotfix "critical-security-vulnerability"
     # → Merge ho-patch/critical-security-vulnerability → ho-prod
     # → Add to releases/1.3.4-hotfix1.txt
     # → Delete branch immediately (hotfix deployment imminent)
-    
+
     # Immediate deployment to production
     half_orm dev deploy-to-prod "1.3.4-hotfix1"
     # → Deploy emergency fix immediately
@@ -564,7 +564,7 @@ pyproject.toml              # Project configuration (inherited)
     half_orm dev prepare-release patch
     # → Creates releases/1.3.5-stage.txt
     # → Hotfix changes automatically included (part of ho-prod history)
-    
+
     # Content of 1.3.5-stage.txt will naturally include hotfix changes
     # since all patches are developed from current ho-prod state
     ```
@@ -581,22 +581,22 @@ def notify_branches_for_resync():
     Notification system using git commit --allow-empty
     Informs developers of integration events requiring resync
     """
-    
+
     integrated_patch = "456-user-authentication"
     active_patch_branches = get_active_patch_branches()
-    
+
     for patch_branch in active_patch_branches:
         if patch_branch != f"ho-patch/{integrated_patch}":
             try:
                 git_checkout(patch_branch)
-                
+
                 # Create notification commit using --allow-empty
                 notification_message = f"RESYNC REQUIRED: {integrated_patch} integrated"
                 git_commit_allow_empty(notification_message)
                 log.info(f"📬 Notification sent to {patch_branch}")
-                
+
                 git_push(patch_branch)
-                
+
             except GitError as e:
                 log.warning(f"⚠️ Could not notify {patch_branch}: {e}")
 
@@ -688,12 +688,12 @@ def find_latest_version_anywhere():
     """
     all_releases = glob("releases/*.txt")
     versions = []
-    
+
     for file in all_releases:
         version = parse_version_from_filename(file)
         priority = get_stage_priority(file)  # hotfix=4, rc=3, stage=2, prod=1
         versions.append((version, priority, file))
-    
+
     # Return highest version with highest priority
     return sorted(versions, key=lambda x: (x[0], x[1]))[-1]
 
@@ -702,7 +702,7 @@ def calculate_next_version(increment_type):
     Calculate next version based on latest existing release
     """
     latest_version, _, _ = find_latest_version_anywhere()
-    
+
     if increment_type == "major":
         return f"{latest_version.major + 1}.0.0"
     elif increment_type == "minor":
@@ -721,17 +721,17 @@ def can_promote_to_rc():
     """
     current_prod_version = get_latest_production_version()  # "1.3.3"
     next_version = increment_patch_version(current_prod_version)  # "1.3.4"
-    
+
     # Check if stage exists for next version
     stage_file = f"releases/{next_version}-stage.txt"
     if not exists(stage_file):
         return False
-    
+
     # Check if any RC already exists (single active rule)
     existing_rcs = glob("releases/*-rc*.txt")
     if len(existing_rcs) > 0:
         return False, f"Cannot promote: {existing_rcs[0]} must be promoted to production first"
-    
+
     return True
 
 def can_promote_to_prod():
@@ -740,7 +740,7 @@ def can_promote_to_prod():
     """
     current_prod_version = get_latest_production_version()  # "1.3.3"
     next_version = increment_patch_version(current_prod_version)  # "1.3.4"
-    
+
     # Find latest RC for next version
     rc_files = glob(f"releases/{next_version}-rc*.txt")
     return len(rc_files) > 0

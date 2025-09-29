@@ -104,7 +104,7 @@ class HGit:
     def set_branch(self, release_s):
         """
         LEGACY METHOD - No longer supported
-        
+
         Branch management for releases removed in v0.16.0.
         Use new patch-centric workflow with PatchManager.
         """
@@ -153,7 +153,7 @@ class HGit:
     def rebase_to_hop_main(self, push=False):
         """
         LEGACY METHOD - No longer supported
-        
+
         Release rebasing removed in v0.16.0.
         """
         raise NotImplementedError(

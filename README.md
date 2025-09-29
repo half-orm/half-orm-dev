@@ -183,7 +183,7 @@ STATUS
 
         connection_file_name: pagila
         package_name: pagila
-        
+
 CURRENT RELEASE: 0.0.0: 2021-09-03 at 11:54:22+02:00
 No new release to apply after 0.0.0.
 Next possible releases: 0.0.1, 0.1.0, 1.0.0.

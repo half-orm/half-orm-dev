@@ -31,16 +31,16 @@ ALL_COMMANDS = {
     'create-patch': create_patch,
     'apply-patch': apply_patch,
     'add-to-release': add_to_release,
-    
+
     # 🚧 Release management (stubs)
     'promote-to-rc': promote_to_rc,
     'promote-to-prod': promote_to_prod,
     'deploy-to-prod': deploy_to_prod,
-    
+
     # 🚧 Emergency workflow (stubs)
     'create-hotfix': create_hotfix,
     'rollback': rollback,
-    
+
     # ♻️ Adapted commands
     'apply': apply,              # Will be adapted
     'sync-package': sync_package, # Unchanged
