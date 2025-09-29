@@ -744,8 +744,17 @@ class Repo:
             _initialize_configuration("legacy_app", devel_mode=False)
             # Creates: .hop/config with devel=False
         """
-        pass
+        import os
 
+        # Ensure .hop directory exists
+        hop_dir = os.path.join(self.__base_dir, '.hop')
+        os.makedirs(hop_dir, exist_ok=True)
+
+        # Create Config instance
+        self.__config = Config(self.__base_dir, name=package_name, devel=devel_mode)
+
+        # Write configuration file
+        self.__config.write()
 
     def _create_git_centric_structure(self):
         """
