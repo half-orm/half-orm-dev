@@ -20,10 +20,10 @@ class Hop:
         Determine which commands are available based on context.
         """
         if not self.repo_checked:
-            # Outside hop repository
-            return ['init-database']
+            # Outside hop repository - commands for project initialization
+            return ['init-database', 'init-project']
         else:
-            # Inside hop repository - nothing for now
+            # Inside hop repository - development commands
             # TODO: Add more commands as we implement them
             # Will eventually have: create-patch, apply-patch, add-to-release, etc.
             return []
@@ -65,7 +65,10 @@ def create_cli_group():
             else:
                 click.echo(hop.state)
                 click.echo("\nNot in a hop repository.")
-                click.echo(f"Try {utils.Color.bold('half_orm dev init-project <package_name>')} to create a new project.\n")
+                click.echo(f"\n{utils.Color.bold('Available commands:')}")
+                click.echo(f"  • {utils.Color.bold('init-database <database_name>')} - Configure database connection")
+                click.echo(f"  • {utils.Color.bold('init-project <package_name>')} - Create new halfORM project (use 'init-database' first if needed)")
+                click.echo(f"\nTry {utils.Color.bold('half_orm dev init-database --help')} for more information.\n")
 
     # Add only available commands to the group
     for cmd_name in hop.available_commands:

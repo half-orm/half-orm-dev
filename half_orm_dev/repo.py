@@ -415,91 +415,83 @@ class Repo:
         return self.__checked and self.devel
 
     def init_git_centric_project(self, package_name):
-        """
-        Create a new half-orm-dev project with Git-centric architecture.
+            """
+            Initialize a new halfORM project with Git-centric patch management.
 
-        Replaces legacy init() method with updated workflow:
-        - Database must be pre-configured via init-database command
-        - Automatic mode detection (metadata present → devel=True)
-        - Git-centric structure: ho-prod branch, Patches/, releases/
-        - Modern Python packaging (keeping current templates for now)
+            This is the main entry point for creating new projects, replacing the
+            legacy init(package_name, devel) workflow. It implements the complete
+            Git-centric architecture with ho-prod branch and patch-based development.
 
-        Args:
-            package_name (str): Name of the project/package to create
+            Args:
+                package_name: Name for the project directory and Python package
 
-        Returns:
-            None: Project directory created and initialized
+            Process:
+                1. Validate package_name format
+                2. Check database configuration exists (~/.half_orm/<package_name>)
+                3. Connect to database and detect mode (metadata → devel=True)
+                4. Create project directory structure
+                5. Generate configuration files (.hop/config)
+                6. Create Git-centric directories (Patches/, releases/)
+                7. Initialize Database instance (self.database)
+                8. Generate Python package structure
+                9. Initialize Git repository with ho-prod branch
+                10. Generate template files (README, .gitignore, setup.py, Pipfile)
 
-        Raises:
-            ValueError: If package_name is invalid
-            FileExistsError: If project directory already exists
-            DatabaseNotConfiguredError: If database not configured via init-database
-            DatabaseConnectionError: If cannot connect to configured database
+            Git-centric Architecture:
+                - Main branch: ho-prod (replaces hop_main)
+                - Patch branches: ho-patch/<patch-name>
+                - Directory structure: Patches/<patch-name>/ for schema files
+                - Release management: releases/X.Y.Z-stage.txt workflow
 
-        Process Flow:
-            1. Validate package_name format
-            2. Check database configuration exists (~/.half_orm/<package_name>)
-            3. Connect to database and detect mode (metadata → devel=True)
-            4. Create project directory structure
-            5. Generate configuration files (.hop/config)
-            6. Create Git-centric directories (Patches/, releases/)
-            7. Generate Python package structure
-            8. Initialize Git repository with ho-prod branch
-            9. Generate template files (README, .gitignore, setup.py, Pipfile)
+            Mode Detection:
+                - Full development mode: Database has half_orm_meta schemas
+                - Sync-only mode: Database lacks metadata (read-only package sync)
 
-        Git-centric Architecture:
-            - Main branch: ho-prod (replaces hop_main)
-            - Patch branches: ho-patch/<patch-name>
-            - Directory structure: Patches/<patch-name>/ for schema files
-            - Release management: releases/X.Y.Z-stage.txt workflow
+            Examples:
+                # After database configuration
+                repo = Repo()
+                repo.init_git_centric_project("my_blog")
+                # → Creates my_blog/ with full development mode if metadata present
 
-        Mode Detection:
-            - Full development mode: Database has half_orm_meta schemas
-            - Sync-only mode: Database lacks metadata (read-only package sync)
+                # Sync-only mode (no metadata in database)
+                repo.init_git_centric_project("legacy_app")
+                # → Creates legacy_app/ in sync-only mode (no patch management)
 
-        Examples:
-            # After database configuration
-            repo = Repo()
-            repo.init_git_centric_project("my_blog")
-            # → Creates my_blog/ with full development mode if metadata present
+            Migration Notes:
+                - Replaces Repo.init(package_name, devel) from legacy workflow
+                - Database creation moved to separate init-database command
+                - Mode detection replaces explicit --devel flag
+                - Git branch naming updated (hop_main → ho-prod)
+            """
+            # Step 1: Validate package name
+            self._validate_package_name(package_name)
 
-            # Sync-only mode (no metadata in database)
-            repo.init_git_centric_project("legacy_app")
-            # → Creates legacy_app/ in sync-only mode (no patch management)
+            # Step 2: Check database configuration exists
+            self._verify_database_configured(package_name)
 
-        Migration Notes:
-            - Replaces Repo.init(package_name, devel) from legacy workflow
-            - Database creation moved to separate init-database command
-            - Mode detection replaces explicit --devel flag
-            - Git branch naming updated (hop_main → ho-prod)
-        """
-        # Step 1: Validate package name
-        self._validate_package_name(package_name)
+            # Step 3: Connect to database and detect mode
+            devel_mode = self._detect_development_mode(package_name)
 
-        # Step 2: Check database configuration exists
-        self._verify_database_configured(package_name)
+            # Step 4: Setup project directory
+            self._create_project_directory(package_name)
 
-        # Step 3: Connect to database and detect mode
-        devel_mode = self._detect_development_mode(package_name)
+            # Step 5: Initialize configuration
+            self._initialize_configuration(package_name, devel_mode)
 
-        # Step 4: Setup project directory
-        self._create_project_directory(package_name)
+            # Step 6: Create Git-centric directories
+            self._create_git_centric_structure()
 
-        # Step 5: Initialize configuration
-        self._initialize_configuration(package_name, devel_mode)
+            # Step 7: Initialize Database instance (CRITICAL - must be before generate)
+            self.database = Database(self)
 
-        # Step 6: Create Git-centric directories
-        self._create_git_centric_structure()
+            # Step 8: Generate Python package
+            self._generate_python_package()
 
-        # Step 7: Generate Python package
-        self._generate_python_package()
+            # Step 9: Initialize Git repository with ho-prod branch
+            self._initialize_git_repository()
 
-        # Step 8: Initialize Git repository with ho-prod branch
-        self._initialize_git_repository()
-
-        # Step 9: Generate template files
-        self._generate_template_files()
-
+            # Step 10: Generate template files
+            self._generate_template_files()
 
     def _validate_package_name(self, package_name):
         """
