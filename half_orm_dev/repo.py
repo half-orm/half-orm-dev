@@ -521,7 +521,46 @@ class Repo:
             _validate_package_name("9invalid")     # Raises ValueError
             _validate_package_name("my blog")      # Raises ValueError
         """
-        pass
+        import keyword
+
+        # Check for None
+        if package_name is None:
+            raise ValueError("Package name cannot be None")
+
+        # Check type
+        if not isinstance(package_name, str):
+            raise ValueError(f"Package name must be a string, got {type(package_name).__name__}")
+
+        # Check for empty string
+        if not package_name or not package_name.strip():
+            raise ValueError("Package name cannot be empty")
+
+        # Clean the name
+        package_name = package_name.strip()
+
+        # Convert hyphens to underscores (common convention)
+        normalized_name = package_name.replace('-', '_')
+
+        # Check if starts with digit
+        if normalized_name[0].isdigit():
+            raise ValueError(f"Package name '{package_name}' cannot start with a digit")
+
+        # Check for valid Python identifier characters
+        # Allow only letters, numbers, and underscores
+        if not normalized_name.replace('_', '').isalnum():
+            raise ValueError(
+                f"Package name '{package_name}' contains invalid characters. "
+                "Use only letters, numbers, underscore, and hyphen."
+            )
+
+        # Check for Python reserved keywords
+        if keyword.iskeyword(normalized_name):
+            raise ValueError(
+                f"Package name '{package_name}' is a Python reserved keyword"
+            )
+
+        # Store normalized name for later use
+        return normalized_name
 
 
     def _verify_database_configured(self, package_name):
