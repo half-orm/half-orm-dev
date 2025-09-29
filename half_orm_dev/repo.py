@@ -911,8 +911,10 @@ See docs/half_orm_dev.md for complete documentation.
             _generate_python_package()
             # Generates complete package structure from database
         """
-        pass
+        from half_orm_dev import modules
 
+        # Delegate to existing modules.generate()
+        modules.generate(self)
 
     def _initialize_git_repository(self):
         """
