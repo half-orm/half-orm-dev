@@ -25,7 +25,6 @@ class TestDevelopmentModeDetection:
         """Clear singleton instances after each test."""
         Repo.clear_instances()
 
-    @pytest.mark.skip(reason="_detect_development_mode() not implemented yet")
     @patch('half_orm.model.Model')
     def test_detect_development_mode_with_metadata_returns_true(self, mock_model):
         """Test detection returns True when metadata schemas exist."""
@@ -33,9 +32,8 @@ class TestDevelopmentModeDetection:
         mock_model_instance = Mock()
         mock_model.return_value = mock_model_instance
 
-        # Mock successful metadata check
-        mock_release_class = Mock()
-        mock_model_instance.get_relation_class.return_value = mock_release_class
+        # Mock has_relation to return True (metadata exists)
+        mock_model_instance.has_relation.return_value = True
 
         # Create bare Repo instance
         repo = Repo.__new__(Repo)
@@ -48,9 +46,8 @@ class TestDevelopmentModeDetection:
 
         # Should check for metadata table
         mock_model.assert_called_once_with("my_blog")
-        mock_model_instance.get_relation_class.assert_called_once_with('half_orm_meta.hop_release')
+        mock_model_instance.has_relation.assert_called_once_with('half_orm_meta.hop_release')
 
-    @pytest.mark.skip(reason="_detect_development_mode() not implemented yet")
     @patch('half_orm.model.Model')
     def test_detect_development_mode_without_metadata_returns_false(self, mock_model):
         """Test detection returns False when metadata schemas don't exist."""
@@ -58,10 +55,8 @@ class TestDevelopmentModeDetection:
         mock_model_instance = Mock()
         mock_model.return_value = mock_model_instance
 
-        # Mock metadata check raising UnknownRelation
-        mock_model_instance.get_relation_class.side_effect = UnknownRelation(
-            "Relation 'half_orm_meta.hop_release' not found"
-        )
+        # Mock has_relation to return False (metadata doesn't exist)
+        mock_model_instance.has_relation.return_value = False
 
         # Create bare Repo instance
         repo = Repo.__new__(Repo)
@@ -74,16 +69,15 @@ class TestDevelopmentModeDetection:
 
         # Should have attempted metadata check
         mock_model.assert_called_once_with("legacy_db")
-        mock_model_instance.get_relation_class.assert_called_once_with('half_orm_meta.hop_release')
+        mock_model_instance.has_relation.assert_called_once_with('half_orm_meta.hop_release')
 
-    @pytest.mark.skip(reason="_detect_development_mode() not implemented yet")
     @patch('half_orm.model.Model')
     def test_detect_development_mode_stores_model_instance(self, mock_model):
         """Test that Model instance is reused, not recreated."""
         # Setup mock
         mock_model_instance = Mock()
         mock_model.return_value = mock_model_instance
-        mock_model_instance.get_relation_class.return_value = Mock()
+        mock_model_instance.has_relation.return_value = True
 
         # Create bare Repo instance
         repo = Repo.__new__(Repo)
@@ -95,16 +89,15 @@ class TestDevelopmentModeDetection:
         # Model should only be created once (efficiency)
         mock_model.assert_called_once_with("my_blog")
 
-    @pytest.mark.skip(reason="_detect_development_mode() not implemented yet")
     @patch('half_orm.model.Model')
     def test_detect_development_mode_multiple_databases(self, mock_model):
         """Test detection works correctly for different databases."""
         # Setup mocks for two different databases
         mock_model_with_metadata = Mock()
-        mock_model_with_metadata.get_relation_class.return_value = Mock()
+        mock_model_with_metadata.has_relation.return_value = True
 
         mock_model_without_metadata = Mock()
-        mock_model_without_metadata.get_relation_class.side_effect = UnknownRelation("Not found")
+        mock_model_without_metadata.has_relation.return_value = False
 
         # First call: database with metadata
         mock_model.return_value = mock_model_with_metadata
@@ -122,13 +115,12 @@ class TestDevelopmentModeDetection:
         assert result1 is True   # dev_db has metadata
         assert result2 is False  # legacy_db lacks metadata
 
-    @pytest.mark.skip(reason="_detect_development_mode() not implemented yet")
     @patch('half_orm.model.Model')
     def test_detect_development_mode_checks_specific_table(self, mock_model):
         """Test that detection checks specifically for hop_release table."""
         mock_model_instance = Mock()
         mock_model.return_value = mock_model_instance
-        mock_model_instance.get_relation_class.return_value = Mock()
+        mock_model_instance.has_relation.return_value = True
 
         repo = Repo.__new__(Repo)
         repo._Repo__checked = False
@@ -136,15 +128,14 @@ class TestDevelopmentModeDetection:
         repo._detect_development_mode("test_db")
 
         # Must check for the exact metadata table
-        mock_model_instance.get_relation_class.assert_called_with('half_orm_meta.hop_release')
+        mock_model_instance.has_relation.assert_called_with('half_orm_meta.hop_release')
 
-    @pytest.mark.skip(reason="_detect_development_mode() not implemented yet")
     @patch('half_orm.model.Model')
     def test_detect_development_mode_connection_already_exists(self, mock_model):
         """Test detection when Model instance already exists in repo."""
         # Simulate scenario where _verify_database_configured already created Model
         existing_model = Mock()
-        existing_model.get_relation_class.return_value = Mock()
+        existing_model.has_relation.return_value = True
 
         repo = Repo.__new__(Repo)
         repo._Repo__checked = False
@@ -160,21 +151,22 @@ class TestDevelopmentModeDetection:
         mock_model.assert_not_called()
 
         # Should use existing model
-        existing_model.get_relation_class.assert_called_once_with('half_orm_meta.hop_release')
+        existing_model.has_relation.assert_called_once_with('half_orm_meta.hop_release')
 
-    @pytest.mark.skip(reason="_detect_development_mode() not implemented yet")
-    @patch('half_orm.model.Model')
-    def test_detect_development_mode_handles_other_exceptions(self, mock_model):
-        """Test that only UnknownRelation is treated as 'no metadata'."""
-        mock_model_instance = Mock()
-        mock_model.return_value = mock_model_instance
+    def test_detect_development_mode_handles_other_exceptions(self):
+        """Test that exceptions from has_relation() are propagated."""
+        # Note: has_relation() returns boolean, doesn't raise exceptions
+        # This test documents that any unexpected Model() exceptions propagate
 
-        # Simulate unexpected error (not UnknownRelation)
-        mock_model_instance.get_relation_class.side_effect = Exception("Unexpected database error")
+        from half_orm.model import Model
 
-        repo = Repo.__new__(Repo)
-        repo._Repo__checked = False
+        with patch('half_orm.model.Model') as mock_model:
+            # Simulate Model creation failure
+            mock_model.side_effect = Exception("Database connection error")
 
-        # Should propagate unexpected exceptions
-        with pytest.raises(Exception, match="Unexpected database error"):
-            repo._detect_development_mode("test_db")
+            repo = Repo.__new__(Repo)
+            repo._Repo__checked = False
+
+            # Should propagate Model creation exceptions
+            with pytest.raises(Exception, match="Database connection error"):
+                repo._detect_development_mode("test_db")
