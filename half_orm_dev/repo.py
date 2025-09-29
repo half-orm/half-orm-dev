@@ -958,4 +958,37 @@ See docs/half_orm_dev.md for complete documentation.
             _generate_template_files()
             # Creates: README.md, .gitignore, setup.py, Pipfile
         """
-        pass
+        import half_orm
+        from half_orm_dev.utils import TEMPLATE_DIRS, hop_version
+
+        # Read templates
+        readme_template = utils.read(os.path.join(TEMPLATE_DIRS, 'README'))
+        setup_template = utils.read(os.path.join(TEMPLATE_DIRS, 'setup.py'))
+        git_ignore = utils.read(os.path.join(TEMPLATE_DIRS, '.gitignore'))
+        pipfile_template = utils.read(os.path.join(TEMPLATE_DIRS, 'Pipfile'))
+
+        # Format templates with project variables
+        package_name = self.__config.name
+
+        setup = setup_template.format(
+            dbname=package_name,
+            package_name=package_name,
+            half_orm_version=half_orm.__version__
+        )
+
+        pipfile = pipfile_template.format(
+            half_orm_version=half_orm.__version__,
+            hop_version=hop_version()
+        )
+
+        readme = readme_template.format(
+            hop_version=hop_version(),
+            dbname=package_name,
+            package_name=package_name
+        )
+
+        # Write files
+        utils.write(os.path.join(self.__base_dir, 'setup.py'), setup)
+        utils.write(os.path.join(self.__base_dir, 'Pipfile'), pipfile)
+        utils.write(os.path.join(self.__base_dir, 'README.md'), readme)
+        utils.write(os.path.join(self.__base_dir, '.gitignore'), git_ignore)
