@@ -487,11 +487,11 @@ class Repo:
             # Step 8: Generate Python package
             self._generate_python_package()
 
-            # Step 9: Initialize Git repository with ho-prod branch
-            self._initialize_git_repository()
-
-            # Step 10: Generate template files
+            # Step 9: Generate template files
             self._generate_template_files()
+
+            # Step 10: Initialize Git repository with ho-prod branch
+            self._initialize_git_repository()
 
     def _validate_package_name(self, package_name):
         """

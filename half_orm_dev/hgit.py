@@ -31,7 +31,7 @@ class HGit:
         if self.__origin == '' and origin:
             self.__repo.git_origin = origin
             self.add(os.path.join('.hop', 'config'))
-            self.commit("-m", f"[hop] Set remote for origin: {origin}.")
+            self.commit("-m", f"[ho] Set remote origin to {origin}.")
             self.__git_repo.git.push('-u', 'origin', 'hop_main')
             self.__origin = origin
         elif origin and self.__origin != origin:
@@ -50,16 +50,20 @@ class HGit:
         return '\n'.join(res)
 
     def init(self, base_dir, release='0.0.0'):
-        "Initiazes the git repo."
+        "Initializes the git repo."
         cur_dir = os.path.abspath(os.path.curdir)
         self.__base_dir = base_dir
         try:
             git.Repo.init(base_dir)
             self.__git_repo = git.Repo(base_dir)
             os.chdir(base_dir)
-            self.__git_repo.git.add('.')
-            self.__git_repo.git.commit(m=f'[{release}] hop new {os.path.basename(base_dir)}')
+
+            # Create ho-prod branch FIRST (before any commits)
             self.__git_repo.git.checkout('-b', 'ho-prod')
+
+            # Then add files and commit on ho-prod
+            self.__git_repo.git.add('.')
+            self.__git_repo.git.commit(m=f'[ho] Initial commit (release: {release})')
             os.chdir(cur_dir)
             self.__post_init()
         except GitCommandError as err:
