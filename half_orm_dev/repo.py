@@ -641,8 +641,17 @@ class Repo:
             mode = _detect_development_mode("legacy_db")
             assert mode is False  # Sync-only mode
         """
-        pass
+        from half_orm.model import Model
 
+        # Check if we already have a Model instance (from _verify_database_configured)
+        if hasattr(self, 'database') and self.database and hasattr(self.database, 'model'):
+            model = self.database.model
+        else:
+            # Create new Model instance
+            model = Model(package_name)
+
+        # Check for metadata table presence
+        return model.has_relation('half_orm_meta.hop_release')
 
     def _create_project_directory(self, package_name):
         """
