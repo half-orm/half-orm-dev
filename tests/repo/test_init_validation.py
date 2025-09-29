@@ -239,48 +239,56 @@ class TestProjectDirectoryCreation:
         """Clear singleton instances after each test."""
         Repo.clear_instances()
 
-    @pytest.mark.skip(reason="_create_project_directory() not implemented yet")
-    @patch('os.path.abspath')
     @patch('os.makedirs')
     @patch('os.path.exists')
-    def test_create_project_directory_success(self, mock_exists, mock_makedirs, mock_abspath):
+    @patch('os.path.abspath')
+    def test_create_project_directory_success(self, mock_abspath, mock_exists, mock_makedirs):
         """Test successful project directory creation."""
         mock_abspath.return_value = "/current/path"
         mock_exists.return_value = False  # Directory doesn't exist
 
-        repo = Repo()
+        # Create Repo without initializing (bypass __check)
+        repo = Repo.__new__(Repo)
+        repo._Repo__checked = False
+        repo._Repo__base_dir = None
+
         repo._create_project_directory("my_blog")
 
         # Should create directory
-        mock_makedirs.assert_called_once()
+        expected_path = "/current/path/my_blog"
+        mock_makedirs.assert_called_once_with(expected_path)
 
         # Should store base_dir
-        assert repo._Repo__base_dir == "/current/path/my_blog"
+        assert repo._Repo__base_dir == expected_path
 
-    @pytest.mark.skip(reason="_create_project_directory() not implemented yet")
-    @patch('os.path.abspath')
     @patch('os.path.exists')
-    def test_create_project_directory_already_exists_raises_error(self, mock_exists, mock_abspath):
+    @patch('os.path.abspath')
+    def test_create_project_directory_already_exists_raises_error(self, mock_abspath, mock_exists):
         """Test error when project directory already exists."""
         mock_abspath.return_value = "/current/path"
         mock_exists.return_value = True  # Directory exists
 
-        repo = Repo()
+        # Create Repo without initializing (bypass __check)
+        repo = Repo.__new__(Repo)
+        repo._Repo__checked = False
+        repo._Repo__base_dir = None
 
         with pytest.raises(FileExistsError, match="already exists"):
             repo._create_project_directory("existing_project")
 
-    @pytest.mark.skip(reason="_create_project_directory() not implemented yet")
-    @patch('os.path.abspath')
     @patch('os.makedirs')
     @patch('os.path.exists')
-    def test_create_project_directory_permission_error(self, mock_exists, mock_makedirs, mock_abspath):
+    @patch('os.path.abspath')
+    def test_create_project_directory_permission_error(self, mock_abspath, mock_exists, mock_makedirs):
         """Test error when insufficient permissions to create directory."""
         mock_abspath.return_value = "/readonly/path"
         mock_exists.return_value = False
         mock_makedirs.side_effect = PermissionError("Permission denied")
 
-        repo = Repo()
+        # Create Repo without initializing (bypass __check)
+        repo = Repo.__new__(Repo)
+        repo._Repo__checked = False
+        repo._Repo__base_dir = None
 
         with pytest.raises(PermissionError):
             repo._create_project_directory("my_blog")

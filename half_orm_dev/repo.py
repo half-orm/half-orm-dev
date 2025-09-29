@@ -5,11 +5,13 @@ import os
 import sys
 from configparser import ConfigParser
 from typing import Optional
+from psycopg2 import OperationalError
 import half_orm
 from half_orm import utils
 from half_orm_dev.database import Database
 from half_orm_dev.hgit import HGit
 from half_orm_dev import modules
+from half_orm.model import Model
 from half_orm_dev.patch import Patch
 from half_orm_dev.changelog import Changelog
 from half_orm_dev.patch_manager import PatchManager, PatchManagerError
@@ -668,7 +670,36 @@ class Repo:
             _create_project_directory("existing_dir")
             # Raises: FileExistsError
         """
-        pass
+        import os
+
+        # Build absolute path
+        cur_dir = os.path.abspath(os.path.curdir)
+        project_path = os.path.join(cur_dir, package_name)
+
+        # Check if directory already exists
+        if os.path.exists(project_path):
+            raise FileExistsError(
+                f"Directory '{package_name}' already exists at {project_path}.\n"
+                "Choose a different project name or remove the existing directory."
+            )
+
+        # Create directory
+        try:
+            os.makedirs(project_path)
+        except PermissionError as e:
+            raise PermissionError(
+                f"Permission denied: Cannot create directory '{project_path}'.\n"
+                f"Check your write permissions for the current directory."
+            ) from e
+        except OSError as e:
+            raise OSError(
+                f"Failed to create directory '{project_path}': {e}"
+            ) from e
+
+        # Store base directory path
+        self._Repo__base_dir = project_path
+
+        return project_path
 
 
     def _initialize_configuration(self, package_name, devel_mode):
