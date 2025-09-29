@@ -50,7 +50,7 @@ Repo.init_git_centric_project(package_name)
 ├─ _initialize_configuration()        ✅ Implémenté + testé
 ├─ _create_git_centric_structure()    ✅ Implémenté + testé
 ├─ _generate_python_package()         ⏸️ À implémenter
-├─ _initialize_git_repository()       ⏸️ À implémenter
+├─ _initialize_git_repository()       ✅ Implémenté (délégation HGit)
 └─ _generate_template_files()         ⏸️ À implémenter
 ```
 
@@ -61,6 +61,7 @@ Repo.init_git_centric_project(package_name)
 4. ✅ `_create_project_directory()` - Création répertoire projet
 5. ✅ `_initialize_configuration()` - Configuration .hop/config
 6. ✅ `_create_git_centric_structure()` - Structure Git-centrique (Patches/, releases/, model/, backups/)
+7. ✅ `_initialize_git_repository()` - Initialisation Git via HGit (branche ho-prod)
 
 **Tests associés :**
 - `tests/repo/test_init_validation.py` ✅
@@ -70,10 +71,9 @@ Repo.init_git_centric_project(package_name)
 
 **Prochaines étapes :**
 1. Implémenter `_generate_python_package()` (réutilise modules.generate())
-2. Implémenter `_initialize_git_repository()` (Git avec branche ho-prod)
-3. Implémenter `_generate_template_files()` (README, .gitignore, etc.)
-4. Intégrer méthode principale `init_git_centric_project()`
-5. Tests d'intégration end-to-end
+2. Implémenter `_generate_template_files()` (README, .gitignore, etc.)
+3. Intégrer méthode principale `init_git_centric_project()`
+4. Tests d'intégration end-to-end
 
 ---
 
@@ -82,9 +82,10 @@ Repo.init_git_centric_project(package_name)
 ### Commandes prioritaires (v0.16.0)
 
 **1. `init-project` (en cours)**
-- ⏸️ Structure Git-centrique (Patches/, releases/)
+- ✅ Validation et vérification
+- ✅ Structure Git-centrique (Patches/, releases/)
+- ✅ Initialisation Git avec ho-prod
 - ⏸️ Génération package Python
-- ⏸️ Initialisation Git avec ho-prod
 - ⏸️ Templates (README, .gitignore)
 - ⏸️ Tests d'intégration
 
@@ -164,9 +165,14 @@ Repo.init_git_centric_project(package_name)
 
 **3. Tests manquants**
 - **IMPORTANT** : Module `modules.py` n'a pas de tests unitaires
-- Fonctionnalités critiques (génération code Python, dataclasses, etc.)
-- Tests à créer avant toute modification du module
-- Risque de régression élevé sans couverture tests
+  - Fonctionnalités critiques (génération code Python, dataclasses, etc.)
+  - Tests à créer avant toute modification du module
+  - Risque de régression élevé sans couverture tests
+- **IMPORTANT** : Module `hgit.py` n'a pas de tests unitaires
+  - Méthodes Git critiques (init, commit, rebase, etc.)
+  - Tests partiels existants (test_hgit_initialization.py, test_hgit_utilities.py) mais incomplets
+  - Couverture actuelle ~40% (besoin de tests complets pour legacy methods et proxies)
+  - Tests à créer avant modifications majeures
 
 ---
 
@@ -178,9 +184,9 @@ Repo.init_git_centric_project(package_name)
 
 **Couverture par module :**
 - `database.py` : Complète (tests init-database)
-- `repo.py` (init-project) : ~60% (en cours)
+- `repo.py` (init-project) : ~70% (en cours)
 - `patch_manager.py` : Complète
-- `hgit.py` : ~85%
+- `hgit.py` : ~40% (tests partiels, besoin de tests complets)
 
 **Modules de tests :**
 ```
@@ -221,6 +227,12 @@ tests/
 - Releases : `releases/X.Y.Z-stage.txt` → rc → production
 - Pas de skip de versions (séquentiel strict)
 
+### Simplification via délégation (KISS)
+- `_initialize_git_repository()` : Simple délégation à `HGit.init()`
+- Pas de duplication de logique Git
+- `HGit` déjà testé (intégration) et fonctionnel
+- Breaking change : branche `ho-prod` au lieu de `hop_main`
+
 ---
 
 ## 📝 Notes techniques
@@ -233,6 +245,7 @@ tests/
 - Singleton pour `Repo` (une instance par base_dir)
 - Factory pattern pour `Database` (class methods)
 - Delegation pattern pour `Config` (write() délégué)
+- Delegation pattern pour `HGit` (init() délégué)
 
 ### Conventions
 - Tests : `@pytest.mark.skip(reason="...")` pour features non implémentées
@@ -270,6 +283,6 @@ tests/
 
 ---
 
-**Dernière session :** Implémentation `_create_git_centric_structure()` - création structure Patches/, releases/, model/, backups/ avec README
+**Dernière session :** Implémentation `_initialize_git_repository()` - délégation simple à HGit.init() pour création repo Git avec branche ho-prod
 
-**Prochaine session :** Implémentation `_generate_python_package()`, `_initialize_git_repository()`, `_generate_template_files()`
+**Prochaine session :** Implémentation `_generate_template_files()` (dernière méthode helper avant intégration finale)
