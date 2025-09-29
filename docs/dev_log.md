@@ -162,6 +162,12 @@ Repo.init_git_centric_project(package_name)
 - Validation automatique avant commits
 - Intégration CI/CD
 
+**3. Tests manquants**
+- **IMPORTANT** : Module `modules.py` n'a pas de tests unitaires
+- Fonctionnalités critiques (génération code Python, dataclasses, etc.)
+- Tests à créer avant toute modification du module
+- Risque de régression élevé sans couverture tests
+
 ---
 
 ## 📊 Statistiques
