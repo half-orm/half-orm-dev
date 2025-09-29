@@ -146,13 +146,11 @@ production = False
 
         return str(conf_dir), "test_db"
 
-    @pytest.mark.skip(reason="_verify_database_configured() not implemented yet")
-    @patch('half_orm.model.CONF_DIR')
+    @patch('half_orm_dev.repo.Model')
     @patch('half_orm_dev.database.Database._load_configuration')
-    def test_verify_database_configured_success(self, mock_load_config, mock_conf_dir, mock_database_config):
+    def test_verify_database_configured_success(self, mock_load_config, mock_model, mock_database_config):
         """Test successful verification of configured database."""
         conf_dir, db_name = mock_database_config
-        mock_conf_dir.return_value = conf_dir
 
         mock_load_config.return_value = {
             'name': db_name,
@@ -163,32 +161,37 @@ production = False
             'production': False
         }
 
+        # Mock Model to avoid real database connection
+        mock_model_instance = Mock()
+        mock_model.return_value = mock_model_instance
+
         repo = Repo()
 
-        # Should not raise any exception
-        repo._verify_database_configured(db_name)
+        # Should not raise any exception and return model
+        result = repo._verify_database_configured(db_name)
 
-    @pytest.mark.skip(reason="_verify_database_configured() not implemented yet")
-    @patch('half_orm.model.CONF_DIR')
+        # Verify Model was called with database name
+        mock_model.assert_called_once_with(db_name)
+
+        # Should return the model instance
+        assert result is mock_model_instance
+
+    @patch('half_orm_dev.repo.Model')
     @patch('half_orm_dev.database.Database._load_configuration')
-    def test_verify_database_not_configured_raises_error(self, mock_load_config, mock_conf_dir):
+    def test_verify_database_not_configured_raises_error(self, mock_load_config, mock_model):
         """Test error when database configuration doesn't exist."""
-        mock_conf_dir.return_value = "/nonexistent/conf"
         mock_load_config.return_value = None  # Configuration not found
 
         repo = Repo()
 
-        with pytest.raises(Exception, match="not configured"):
+        with pytest.raises(ValueError, match="not configured"):
             repo._verify_database_configured("unconfigured_db")
 
-    @pytest.mark.skip(reason="_verify_database_configured() not implemented yet")
-    @patch('half_orm.model.CONF_DIR')
+    @patch('half_orm_dev.repo.Model')
     @patch('half_orm_dev.database.Database._load_configuration')
-    @patch('half_orm.model.Model')
-    def test_verify_database_connection_fails_raises_error(self, mock_model, mock_load_config, mock_conf_dir, mock_database_config):
+    def test_verify_database_connection_fails_raises_error(self, mock_load_config, mock_model, mock_database_config):
         """Test error when cannot connect to configured database."""
         conf_dir, db_name = mock_database_config
-        mock_conf_dir.return_value = conf_dir
 
         mock_load_config.return_value = {
             'name': db_name,
@@ -204,26 +207,24 @@ production = False
 
         repo = Repo()
 
-        with pytest.raises(OperationalError):
+        with pytest.raises(OperationalError, match="Cannot connect"):
             repo._verify_database_configured(db_name)
 
-    @pytest.mark.skip(reason="_verify_database_configured() not implemented yet")
-    @patch('half_orm.model.CONF_DIR')
+    @patch('half_orm_dev.repo.Model')
     @patch('half_orm_dev.database.Database._load_configuration')
-    def test_verify_database_helpful_error_message(self, mock_load_config, mock_conf_dir):
+    def test_verify_database_helpful_error_message(self, mock_load_config, mock_model):
         """Test error message provides helpful guidance."""
-        mock_conf_dir.return_value = "/tmp/conf"
         mock_load_config.return_value = None
 
         repo = Repo()
 
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(ValueError) as exc_info:
             repo._verify_database_configured("my_db")
 
         error_message = str(exc_info.value)
 
         # Error should mention init-database command
-        assert "init-database" in error_message or "configure" in error_message.lower()
+        assert "init-database" in error_message
         assert "my_db" in error_message
 
 

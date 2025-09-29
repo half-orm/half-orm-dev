@@ -590,8 +590,27 @@ class Repo:
             _verify_database_configured("unconfigured_db")
             # Raises: DatabaseNotConfiguredError with helpful message
         """
-        pass
+        # Try to load database configuration
+        config = Database._load_configuration(package_name)
 
+        if config is None:
+            raise ValueError(
+                f"Database '{package_name}' is not configured.\n"
+                f"Please run: half_orm dev init-database {package_name} [OPTIONS]\n"
+                f"See 'half_orm dev init-database --help' for more information."
+            )
+
+        # Try to connect to verify database is accessible
+        try:
+            model = Model(package_name)
+            # Store model for later use
+            return model
+        except OperationalError as e:
+            raise OperationalError(
+                f"Cannot connect to database '{package_name}'.\n"
+                f"Database may not exist or connection parameters may be incorrect.\n"
+                f"Original error: {e}"
+            )
 
     def _detect_development_mode(self, package_name):
         """
