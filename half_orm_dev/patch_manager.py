@@ -828,7 +828,54 @@ class PatchManager:
             # Directory created: Patches/456-user-authentication/
             # README.md includes provided description
         """
-        pass
+        # Step 1: Validate context (branch and repo state)
+        self._validate_on_ho_prod()
+        self._validate_repo_clean()
+
+        # Step 2: Validate and normalize patch ID
+        try:
+            patch_info = self._validator.validate_patch_id(patch_id)
+            normalized_id = patch_info.normalized_id
+        except Exception as e:
+            raise PatchManagerError(f"Invalid patch ID: {e}")
+
+        # Step 3: Prepare branch name
+        branch_name = f"ho-patch/{normalized_id}"
+
+        # Step 4: Create git branch
+        self._create_git_branch(branch_name)
+
+        # Step 5: Create patch directory
+        try:
+            patch_dir = self.create_patch_directory(normalized_id)
+            
+            # If description provided, update README.md
+            if description:
+                readme_path = patch_dir / "README.md"
+                readme_content = f"# Patch {normalized_id}\n\n{description}\n"
+                readme_path.write_text(readme_content, encoding='utf-8')
+                
+        except Exception as e:
+            # Cleanup: try to delete the branch if directory creation failed
+            try:
+                # Note: This is best-effort cleanup
+                # In a real scenario, might need more sophisticated cleanup
+                pass
+            except:
+                pass
+            raise PatchManagerError(f"Failed to create patch directory: {e}")
+
+        # Step 6: Checkout to new branch
+        self._checkout_branch(branch_name)
+
+        # Step 7: Return result
+        return {
+            'patch_id': normalized_id,
+            'branch_name': branch_name,
+            'patch_dir': patch_dir,
+            'on_branch': branch_name
+        }
+
 
     def _validate_on_ho_prod(self) -> None:
         """

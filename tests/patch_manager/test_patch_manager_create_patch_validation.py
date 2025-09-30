@@ -93,7 +93,6 @@ class TestCreatePatchValidation:
         with pytest.raises(PatchManagerError, match="Repository has uncommitted changes"):
             patch_mgr._validate_repo_clean()
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_create_patch_invalid_patch_id_format(self, patch_manager):
         """Test create_patch fails with invalid patch ID format."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -117,7 +116,6 @@ class TestCreatePatchValidation:
             with pytest.raises(PatchManagerError, match="Invalid patch ID"):
                 patch_mgr.create_patch(invalid_id)
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_create_patch_whitespace_in_patch_id(self, patch_manager):
         """Test create_patch handles whitespace in patch ID."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -135,7 +133,6 @@ class TestCreatePatchValidation:
         assert result['patch_id'] == "456-user-auth"
         assert result['branch_name'] == "ho-patch/456-user-auth"
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_create_patch_numeric_only_patch_id(self, patch_manager):
         """Test create_patch accepts numeric-only patch ID."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -152,7 +149,6 @@ class TestCreatePatchValidation:
         assert result['patch_id'] == "456"
         assert result['branch_name'] == "ho-patch/456"
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_create_patch_validation_order(self, patch_manager):
         """Test validations are performed in correct order."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -167,7 +163,6 @@ class TestCreatePatchValidation:
         with pytest.raises(PatchManagerError, match="Must be on ho-prod branch"):
             patch_mgr.create_patch("456-test")
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_validate_on_ho_prod_case_sensitive(self, patch_manager):
         """Test branch validation is case-sensitive."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager

@@ -98,7 +98,6 @@ class TestCreatePatchCreation:
         with pytest.raises(PatchManagerError, match="Failed to checkout"):
             patch_mgr._checkout_branch("ho-patch/456-test")
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_create_patch_creates_directory(self, patch_manager):
         """Test that create_patch creates Patches/xxx/ directory."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -122,7 +121,6 @@ class TestCreatePatchCreation:
         readme_path = expected_dir / "README.md"
         assert readme_path.exists()
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_create_patch_return_structure(self, patch_manager):
         """Test that create_patch returns correct dict structure."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -150,7 +148,6 @@ class TestCreatePatchCreation:
         assert isinstance(result['patch_dir'], Path)
         assert result['on_branch'] == "ho-patch/456-user-auth"
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_create_patch_with_description(self, patch_manager):
         """Test create_patch with optional description."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -175,7 +172,6 @@ class TestCreatePatchCreation:
         readme_content = readme_path.read_text()
         assert description in readme_content
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_create_patch_numeric_id_creates_correct_paths(self, patch_manager):
         """Test create_patch with numeric ID creates correct paths."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -198,7 +194,6 @@ class TestCreatePatchCreation:
         expected_dir = patches_dir / "456"
         assert expected_dir.exists()
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_create_patch_directory_already_exists(self, patch_manager):
         """Test error when patch directory already exists."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
