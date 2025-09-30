@@ -17,7 +17,6 @@ from half_orm_dev.patch_manager import PatchManager, PatchManagerError
 class TestCreatePatchValidation:
     """Test validation logic for create_patch operation."""
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_validate_on_ho_prod_success(self, patch_manager):
         """Test validation passes when on ho-prod branch."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -30,7 +29,6 @@ class TestCreatePatchValidation:
         # Should not raise any exception
         patch_mgr._validate_on_ho_prod()
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_validate_on_ho_prod_wrong_branch(self, patch_manager):
         """Test validation fails when not on ho-prod branch."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -44,7 +42,6 @@ class TestCreatePatchValidation:
         with pytest.raises(PatchManagerError, match="Must be on ho-prod branch"):
             patch_mgr._validate_on_ho_prod()
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_validate_on_ho_prod_main_branch(self, patch_manager):
         """Test validation fails when on main/master branch."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -58,7 +55,6 @@ class TestCreatePatchValidation:
         with pytest.raises(PatchManagerError, match="Must be on ho-prod branch"):
             patch_mgr._validate_on_ho_prod()
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_validate_repo_clean_success(self, patch_manager):
         """Test validation passes when repo is clean."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -71,7 +67,6 @@ class TestCreatePatchValidation:
         # Should not raise any exception
         patch_mgr._validate_repo_clean()
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_validate_repo_clean_dirty_repo(self, patch_manager):
         """Test validation fails when repo has uncommitted changes."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -85,7 +80,6 @@ class TestCreatePatchValidation:
         with pytest.raises(PatchManagerError, match="Repository has uncommitted changes"):
             patch_mgr._validate_repo_clean()
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_validate_repo_clean_untracked_files(self, patch_manager):
         """Test validation fails with untracked files."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager

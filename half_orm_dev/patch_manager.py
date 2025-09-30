@@ -843,7 +843,12 @@ class PatchManager:
             self._validate_on_ho_prod()
             # Passes if on ho-prod, raises otherwise
         """
-        pass
+        current_branch = self._repo.hgit.branch
+        if current_branch != "ho-prod":
+            raise PatchManagerError(
+                f"Must be on ho-prod branch to create patch. "
+                f"Current branch: {current_branch}"
+            )
 
     def _validate_repo_clean(self) -> None:
         """
@@ -859,7 +864,11 @@ class PatchManager:
             self._validate_repo_clean()
             # Passes if clean, raises if uncommitted changes exist
         """
-        pass
+        if not self._repo.hgit.repos_is_clean():
+            raise PatchManagerError(
+                "Repository has uncommitted changes. "
+                "Commit or stash changes before creating patch."
+            )
 
     def _create_git_branch(self, branch_name: str) -> None:
         """
