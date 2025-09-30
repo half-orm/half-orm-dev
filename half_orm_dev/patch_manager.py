@@ -10,7 +10,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass
 
 from half_orm import utils
@@ -777,3 +777,123 @@ class PatchManager:
             raise PatchManagerError(error_msg) from e
         except Exception as e:
             raise PatchManagerError(f"Failed to execute Python file {file_path.name}: {e}") from e
+
+    def create_patch(
+            self,
+            patch_id: str,
+            description: Optional[str] = None
+        ) -> Dict[str, Any]:
+        """
+        Create complete patch: branch + directory structure.
+
+        Orchestrates the full patch creation workflow following Git-centric architecture:
+        1. Validates we're on ho-prod branch
+        2. Validates repository is clean (no uncommitted changes)
+        3. Validates and normalizes patch ID format
+        4. Creates ho-patch/PATCH_ID branch from current ho-prod HEAD
+        5. Creates Patches/PATCH_ID/ directory with README.md
+        6. Checkouts to the new patch branch
+
+        Args:
+            patch_id: Patch identifier (e.g., "456" or "456-user-authentication")
+            description: Optional description to include in README.md
+
+        Returns:
+            dict: Creation result with following keys:
+                - patch_id (str): Normalized patch identifier
+                - branch_name (str): Created branch name (e.g., "ho-patch/456-user-auth")
+                - patch_dir (Path): Path to created patch directory
+                - on_branch (str): Current active branch after checkout
+
+        Raises:
+            PatchManagerError: If validation fails or creation errors occur
+
+        Examples:
+            # Create patch with numeric ID only
+            result = patch_mgr.create_patch("456")
+            # Returns: {
+            #     'patch_id': '456',
+            #     'branch_name': 'ho-patch/456',
+            #     'patch_dir': Path('Patches/456'),
+            #     'on_branch': 'ho-patch/456'
+            # }
+
+            # Create patch with full ID and description
+            result = patch_mgr.create_patch(
+                "456-user-authentication",
+                description="Add user authentication system"
+            )
+            # Branch created: ho-patch/456-user-authentication
+            # Directory created: Patches/456-user-authentication/
+            # README.md includes provided description
+        """
+        pass
+
+    def _validate_on_ho_prod(self) -> None:
+        """
+        Validate that current branch is ho-prod.
+
+        The create_patch operation must start from ho-prod branch to ensure
+        patches are based on the current production state.
+
+        Raises:
+            PatchManagerError: If not on ho-prod branch
+
+        Examples:
+            self._validate_on_ho_prod()
+            # Passes if on ho-prod, raises otherwise
+        """
+        pass
+
+    def _validate_repo_clean(self) -> None:
+        """
+        Validate that git repository has no uncommitted changes.
+
+        Ensures clean state before creating new patch branch to avoid
+        accidentally including unrelated changes in the patch.
+
+        Raises:
+            PatchManagerError: If repository has uncommitted changes
+
+        Examples:
+            self._validate_repo_clean()
+            # Passes if clean, raises if uncommitted changes exist
+        """
+        pass
+
+    def _create_git_branch(self, branch_name: str) -> None:
+        """
+        Create new git branch from current HEAD.
+
+        Creates the patch branch in git repository. Branch name follows
+        the convention: ho-patch/PATCH_ID
+
+        Args:
+            branch_name: Full branch name to create (e.g., "ho-patch/456-user-auth")
+
+        Raises:
+            PatchManagerError: If branch creation fails or branch already exists
+
+        Examples:
+            self._create_git_branch("ho-patch/456-user-auth")
+            # Creates branch from current HEAD but doesn't checkout to it
+        """
+        pass
+
+    def _checkout_branch(self, branch_name: str) -> None:
+        """
+        Checkout to specified branch.
+
+        Switches the working directory to the specified branch.
+
+        Args:
+            branch_name: Branch name to checkout (e.g., "ho-patch/456-user-auth")
+
+        Raises:
+            PatchManagerError: If checkout fails
+
+        Examples:
+            self._checkout_branch("ho-patch/456-user-auth")
+            # Working directory now on ho-patch/456-user-auth
+        """
+        pass
