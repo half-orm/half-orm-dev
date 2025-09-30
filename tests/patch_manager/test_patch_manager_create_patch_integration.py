@@ -28,6 +28,8 @@ class TestCreatePatchIntegration:
         mock_hgit.branch = "ho-prod"
         mock_hgit.repos_is_clean.return_value = True
         mock_hgit.checkout = Mock()
+        mock_hgit.has_remote.return_value = True
+        mock_hgit.push_branch = Mock()
         repo.hgit = mock_hgit
 
         # Execute complete workflow
@@ -44,6 +46,8 @@ class TestCreatePatchIntegration:
 
         # 4. Checkout to new branch
         mock_hgit.checkout.assert_any_call("ho-patch/456-user-auth")
+
+        mock_hgit.push_branch.assert_called_once_with("ho-patch/456-user-auth", set_upstream=True)
 
         # 5. Return value complete
         assert result['patch_id'] == "456-user-auth"
