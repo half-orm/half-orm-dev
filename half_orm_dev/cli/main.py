@@ -24,9 +24,7 @@ class Hop:
             return ['init-database', 'init-project']
         else:
             # Inside hop repository - development commands
-            # TODO: Add more commands as we implement them
-            # Will eventually have: create-patch, apply-patch, add-to-release, etc.
-            return []
+            return ['create-patch']  # ✅ Added create-patch command
 
     @property
     def repo_checked(self):
@@ -61,7 +59,9 @@ def create_cli_group():
             # Show repo state when no subcommand is provided
             if hop.repo_checked:
                 click.echo(hop.state)
-                click.echo("\n⚠️  Other commands to implement Git-centric architecture...")
+                click.echo(f"\n{utils.Color.bold('Available commands:')}")
+                click.echo(f"  • {utils.Color.bold('create-patch <patch_id>')} - Create new patch branch and directory")
+                click.echo(f"\nTry {utils.Color.bold('half_orm dev create-patch --help')} for more information.\n")
             else:
                 click.echo(hop.state)
                 click.echo("\nNot in a hop repository.")

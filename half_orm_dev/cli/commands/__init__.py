@@ -8,7 +8,7 @@ REFACTORED in v0.16.0 - Git-centric patch workflow
 # ✅ New Git-centric commands (stubs for now)
 from .init_database import init_database
 from .init_project import init_project
-from .todo import create_patch
+from .create_patch import create_patch
 from .todo import apply_patch
 from .todo import add_to_release
 from .todo import promote_to_rc
