@@ -19,7 +19,6 @@ from half_orm_dev.patch_manager import PatchManager, PatchManagerError
 class TestCreatePatchCreation:
     """Test creation logic for create_patch operation."""
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_create_git_branch_success(self, patch_manager):
         """Test successful git branch creation."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -37,7 +36,6 @@ class TestCreatePatchCreation:
         # Should call git checkout -b
         mock_git_proxy.assert_called_once_with('-b', branch_name)
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_create_git_branch_already_exists(self, patch_manager):
         """Test error when branch already exists."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -53,7 +51,6 @@ class TestCreatePatchCreation:
         with pytest.raises(PatchManagerError, match="Branch already exists"):
             patch_mgr._create_git_branch("ho-patch/456-existing")
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_create_git_branch_git_error(self, patch_manager):
         """Test handling of generic git errors during branch creation."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -69,7 +66,6 @@ class TestCreatePatchCreation:
         with pytest.raises(PatchManagerError, match="Failed to create branch"):
             patch_mgr._create_git_branch("ho-patch/456-test")
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_checkout_branch_success(self, patch_manager):
         """Test successful branch checkout."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -87,7 +83,6 @@ class TestCreatePatchCreation:
         # Should call git checkout
         mock_git_proxy.assert_called_once_with(branch_name)
 
-    @pytest.mark.skip(reason="create_patch not implemented yet")
     def test_checkout_branch_error(self, patch_manager):
         """Test error handling during checkout."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager

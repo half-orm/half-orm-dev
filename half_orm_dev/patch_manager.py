@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass
+from git.exc import GitCommandError
 
 from half_orm import utils
 from .patch_validator import PatchValidator, PatchInfo
@@ -887,7 +888,17 @@ class PatchManager:
             self._create_git_branch("ho-patch/456-user-auth")
             # Creates branch from current HEAD but doesn't checkout to it
         """
-        pass
+        try:
+            # Use HGit checkout proxy to create branch
+            self._repo.hgit.checkout('-b', branch_name)
+        except GitCommandError as e:
+            if "already exists" in str(e):
+                raise PatchManagerError(
+                    f"Branch already exists: {branch_name}"
+                )
+            raise PatchManagerError(
+                f"Failed to create branch {branch_name}: {e}"
+            )
 
     def _checkout_branch(self, branch_name: str) -> None:
         """
@@ -905,4 +916,9 @@ class PatchManager:
             self._checkout_branch("ho-patch/456-user-auth")
             # Working directory now on ho-patch/456-user-auth
         """
-        pass
+        try:
+            self._repo.hgit.checkout(branch_name)
+        except GitCommandError as e:
+            raise PatchManagerError(
+                f"Failed to checkout branch {branch_name}: {e}"
+            )
