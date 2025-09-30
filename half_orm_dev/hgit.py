@@ -184,3 +184,59 @@ class HGit:
     def checkout_to_hop_main(self):
         "Checkout to hop_main branch"
         self.__git_repo.git.checkout('hop_main')
+
+# Add these methods to the HGit class in half_orm_dev/hgit.py
+
+    def has_remote(self) -> bool:
+        """
+        Check if git remote 'origin' is configured.
+
+        Returns:
+            bool: True if origin remote exists, False otherwise
+
+        Examples:
+            if hgit.has_remote():
+                print("Remote configured")
+            else:
+                print("No remote - local repo only")
+        """
+        try:
+            # Check if any remotes exist
+            remotes = self.__git_repo.remotes
+
+            # Look specifically for 'origin' remote
+            for remote in remotes:
+                if remote.name == 'origin':
+                    return True
+
+            return False
+        except Exception:
+            # Gracefully handle any git errors
+            return False
+
+    def push_branch(self, branch_name: str, set_upstream: bool = True) -> None:
+        """
+        Push branch to remote origin.
+
+        Pushes specified branch to origin remote, optionally setting
+        upstream tracking. Used for global patch ID reservation.
+
+        Args:
+            branch_name: Branch name to push (e.g., "ho-patch/456-user-auth")
+            set_upstream: If True, set upstream tracking with -u flag
+
+        Raises:
+            GitCommandError: If push fails (no remote, auth issues, etc.)
+
+        Examples:
+            # Push with upstream tracking
+            hgit.push_branch("ho-patch/456-user-auth")
+
+            # Push without upstream tracking  
+            hgit.push_branch("ho-patch/456-user-auth", set_upstream=False)
+        """
+        # Get origin remote
+        origin = self.__git_repo.remote('origin')
+
+        # Push branch with or without upstream tracking
+        origin.push(branch_name, set_upstream=set_upstream)

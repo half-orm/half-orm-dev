@@ -780,20 +780,22 @@ class PatchManager:
             raise PatchManagerError(f"Failed to execute Python file {file_path.name}: {e}") from e
 
     def create_patch(
-            self,
-            patch_id: str,
-            description: Optional[str] = None
-        ) -> Dict[str, Any]:
+        self,
+        patch_id: str,
+        description: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Create complete patch: branch + directory structure.
 
         Orchestrates the full patch creation workflow following Git-centric architecture:
         1. Validates we're on ho-prod branch
         2. Validates repository is clean (no uncommitted changes)
-        3. Validates and normalizes patch ID format
-        4. Creates ho-patch/PATCH_ID branch from current ho-prod HEAD
-        5. Creates Patches/PATCH_ID/ directory with README.md
-        6. Checkouts to the new patch branch
+        3. Validates git remote is configured (for patch ID reservation)  # ✅ UPDATED
+        4. Validates and normalizes patch ID format
+        5. Creates ho-patch/PATCH_ID branch from current ho-prod HEAD
+        6. Pushes branch to remote to reserve patch ID globally  # ✅ UPDATED
+        7. Creates Patches/PATCH_ID/ directory with README.md
+        8. Checkouts to the new patch branch
 
         Args:
             patch_id: Patch identifier (e.g., "456" or "456-user-authentication")
@@ -812,25 +814,17 @@ class PatchManager:
         Examples:
             # Create patch with numeric ID only
             result = patch_mgr.create_patch("456")
-            # Returns: {
-            #     'patch_id': '456',
-            #     'branch_name': 'ho-patch/456',
-            #     'patch_dir': Path('Patches/456'),
-            #     'on_branch': 'ho-patch/456'
-            # }
 
             # Create patch with full ID and description
             result = patch_mgr.create_patch(
                 "456-user-authentication",
                 description="Add user authentication system"
             )
-            # Branch created: ho-patch/456-user-authentication
-            # Directory created: Patches/456-user-authentication/
-            # README.md includes provided description
         """
-        # Step 1: Validate context (branch and repo state)
+        # Step 1: Validate context (branch, repo state, and remote)
         self._validate_on_ho_prod()
         self._validate_repo_clean()
+        self._validate_has_remote()  # ✅ NEW: Check remote configured
 
         # Step 2: Validate and normalize patch ID
         try:
@@ -845,37 +839,38 @@ class PatchManager:
         # Step 4: Create git branch
         self._create_git_branch(branch_name)
 
-        # Step 5: Create patch directory
+        # Step 5: Push branch to reserve patch ID globally
+        self._push_branch_to_reserve_id(branch_name)  # ✅ NEW: Reserve ID
+
+        # Step 6: Create patch directory
         try:
             patch_dir = self.create_patch_directory(normalized_id)
-            
+
             # If description provided, update README.md
             if description:
                 readme_path = patch_dir / "README.md"
                 readme_content = f"# Patch {normalized_id}\n\n{description}\n"
                 readme_path.write_text(readme_content, encoding='utf-8')
-                
+
         except Exception as e:
             # Cleanup: try to delete the branch if directory creation failed
             try:
                 # Note: This is best-effort cleanup
-                # In a real scenario, might need more sophisticated cleanup
                 pass
             except:
                 pass
             raise PatchManagerError(f"Failed to create patch directory: {e}")
 
-        # Step 6: Checkout to new branch
+        # Step 7: Checkout to new branch
         self._checkout_branch(branch_name)
 
-        # Step 7: Return result
+        # Step 8: Return result
         return {
             'patch_id': normalized_id,
             'branch_name': branch_name,
             'patch_dir': patch_dir,
             'on_branch': branch_name
         }
-
 
     def _validate_on_ho_prod(self) -> None:
         """
@@ -968,4 +963,53 @@ class PatchManager:
         except GitCommandError as e:
             raise PatchManagerError(
                 f"Failed to checkout branch {branch_name}: {e}"
+            )
+
+    def _validate_has_remote(self) -> None:
+        """
+        Validate that git remote is configured for patch ID reservation.
+
+        Patch IDs must be globally unique across all developers working
+        on the project. Remote configuration is required to push patch
+        branches and reserve IDs.
+
+        Raises:
+            PatchManagerError: If no git remote configured
+
+        Examples:
+            self._validate_has_remote()
+            # Raises if no origin remote configured
+        """
+        if not self._repo.hgit.has_remote():
+            raise PatchManagerError(
+                "No git remote configured. Cannot reserve patch ID globally.\n"
+                "Patch IDs must be globally unique across all developers.\n\n"
+                "Configure remote with: git remote add origin <url>"
+            )
+
+    def _push_branch_to_reserve_id(self, branch_name: str) -> None:
+        """
+        Push branch to remote to reserve patch ID globally.
+
+        Pushes the newly created patch branch to remote, ensuring
+        the patch ID is reserved and preventing conflicts between
+        developers working on different patches.
+
+        Args:
+            branch_name: Branch name to push (e.g., "ho-patch/456-user-auth")
+
+        Raises:
+            PatchManagerError: If push fails
+
+        Examples:
+            self._push_branch_to_reserve_id("ho-patch/456-user-auth")
+            # Branch pushed to origin with upstream tracking
+        """
+        try:
+            self._repo.hgit.push_branch(branch_name, set_upstream=True)
+        except Exception as e:
+            raise PatchManagerError(
+                f"Failed to push branch {branch_name} to remote: {e}\n"
+                "Patch ID reservation requires successful push to origin.\n"
+                "Check network connection and remote access permissions."
             )

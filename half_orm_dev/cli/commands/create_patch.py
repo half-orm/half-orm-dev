@@ -46,10 +46,10 @@ def create_patch(patch_id: str, description: Optional[str] = None) -> None:
     try:
         # Get repository instance
         repo = Repo()
-        
+
         # Delegate to PatchManager
         result = repo.patch_manager.create_patch(patch_id, description)
-        
+
         # Display success message
         click.echo(f"✓ Created patch branch: {result['branch_name']}")
         click.echo(f"✓ Created patch directory: {result['patch_dir']}")
@@ -60,7 +60,7 @@ def create_patch(patch_id: str, description: Optional[str] = None) -> None:
         click.echo("  2. Run: half_orm dev apply-patch")
         click.echo("  3. Test your changes")
         click.echo("  4. Run: half_orm dev add-to-release")
-        
+
     except PatchManagerError as e:
         raise click.ClickException(str(e))
     except Exception as e:

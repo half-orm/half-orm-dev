@@ -189,7 +189,7 @@ class TestCreatePatchCreation:
         # Check paths
         assert result['patch_id'] == "456"
         assert result['branch_name'] == "ho-patch/456"
-        
+
         # Directory should be created with numeric name only
         expected_dir = patches_dir / "456"
         assert expected_dir.exists()

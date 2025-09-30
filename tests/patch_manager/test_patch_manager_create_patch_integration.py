@@ -37,14 +37,14 @@ class TestCreatePatchIntegration:
         # 1. Validations passed (no exceptions)
         # 2. Branch created
         assert mock_hgit.checkout.call_count == 2  # create + checkout
-        
+
         # 3. Directory created
         expected_dir = patches_dir / "456-user-auth"
         assert expected_dir.exists()
-        
+
         # 4. Checkout to new branch
         mock_hgit.checkout.assert_any_call("ho-patch/456-user-auth")
-        
+
         # 5. Return value complete
         assert result['patch_id'] == "456-user-auth"
         assert result['branch_name'] == "ho-patch/456-user-auth"
@@ -87,7 +87,7 @@ class TestCreatePatchIntegration:
 
         # Git operations should NOT be called
         mock_hgit.checkout.assert_not_called()
-        
+
         # Directory should NOT be created
         expected_dir = patches_dir / "456-user-auth"
         assert not expected_dir.exists()
@@ -132,13 +132,13 @@ class TestCreatePatchIntegration:
 
         # Create multiple patches
         patches = ["123-first", "456-second", "789-third"]
-        
+
         for patch_id in patches:
             # Reset to ho-prod for each patch
             mock_hgit.branch = "ho-prod"
-            
+
             result = patch_mgr.create_patch(patch_id)
-            
+
             # Verify each patch created
             assert result['patch_id'] == patch_id
             expected_dir = patches_dir / patch_id
@@ -177,7 +177,7 @@ class TestCreatePatchIntegration:
 
         # Very long but valid patch ID
         long_id = "456-" + "-".join(["word"] * 50)  # Very long ID
-        
+
         # Should handle long IDs (or raise appropriate error if too long)
         try:
             result = patch_mgr.create_patch(long_id)
@@ -233,7 +233,7 @@ class TestCreatePatchIntegration:
         assert existing_patch.exists()
         assert (existing_patch / "README.md").exists()
         assert (existing_patch / "script.sql").exists()
-        
+
         # New patch should exist
         new_patch = patches_dir / "456-new"
         assert new_patch.exists()
@@ -255,9 +255,9 @@ class TestCreatePatchIntegration:
         # Verify call order: create branch, then checkout
         calls = mock_hgit.checkout.call_args_list
         assert len(calls) == 2
-        
+
         # First call: create branch (git checkout -b)
         assert calls[0] == call('-b', 'ho-patch/456-user-auth')
-        
+
         # Second call: checkout to branch (git checkout)
         assert calls[1] == call('ho-patch/456-user-auth')
