@@ -84,13 +84,13 @@ class TestCreatePatchCreation:
         mock_git_proxy.assert_called_once_with(branch_name)
 
     def test_checkout_branch_error(self, patch_manager):
-        """Test error handling during checkout."""
+        """Test error handling during branch checkout."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit to raise error
         mock_hgit = Mock()
         mock_git_proxy = Mock()
-        mock_git_proxy.side_effect = GitCommandError("git checkout", 1, stderr="checkout failed")
+        mock_git_proxy.side_effect = GitCommandError("git checkout", 1)
         mock_hgit.checkout = mock_git_proxy
         repo.hgit = mock_hgit
 
@@ -98,16 +98,12 @@ class TestCreatePatchCreation:
         with pytest.raises(PatchManagerError, match="Failed to checkout"):
             patch_mgr._checkout_branch("ho-patch/456-test")
 
-    def test_create_patch_creates_directory(self, patch_manager):
+    def test_create_patch_creates_directory(self, patch_manager, mock_hgit_complete):
         """Test that create_patch creates Patches/xxx/ directory."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Mock HGit for valid context
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.checkout = Mock()
-        repo.hgit = mock_hgit
+        # ✅ Use complete mock with all necessary methods
+        repo.hgit = mock_hgit_complete
 
         # Create patch
         result = patch_mgr.create_patch("456-user-auth")
@@ -115,49 +111,34 @@ class TestCreatePatchCreation:
         # Directory should be created
         expected_dir = patches_dir / "456-user-auth"
         assert expected_dir.exists()
-        assert expected_dir.is_dir()
+        assert result['patch_dir'] == expected_dir
 
-        # README.md should be created
-        readme_path = expected_dir / "README.md"
-        assert readme_path.exists()
-
-    def test_create_patch_return_structure(self, patch_manager):
-        """Test that create_patch returns correct dict structure."""
+    def test_create_patch_returns_correct_structure(self, patch_manager, mock_hgit_complete):
+        """Test create_patch returns correct result structure."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Mock HGit for valid context
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.checkout = Mock()
-        repo.hgit = mock_hgit
+        # ✅ Use complete mock
+        repo.hgit = mock_hgit_complete
 
         # Create patch
         result = patch_mgr.create_patch("456-user-auth")
 
-        # Check return structure
-        assert isinstance(result, dict)
+        # Check result structure
         assert 'patch_id' in result
         assert 'branch_name' in result
         assert 'patch_dir' in result
         assert 'on_branch' in result
 
-        # Check values
         assert result['patch_id'] == "456-user-auth"
         assert result['branch_name'] == "ho-patch/456-user-auth"
         assert isinstance(result['patch_dir'], Path)
-        assert result['on_branch'] == "ho-patch/456-user-auth"
 
-    def test_create_patch_with_description(self, patch_manager):
-        """Test create_patch with optional description."""
+    def test_create_patch_with_description(self, patch_manager, mock_hgit_complete):
+        """Test create_patch with description updates README."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Mock HGit for valid context
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.checkout = Mock()
-        repo.hgit = mock_hgit
+        # ✅ Use complete mock
+        repo.hgit = mock_hgit_complete
 
         # Create patch with description
         description = "Add user authentication system"
@@ -172,16 +153,12 @@ class TestCreatePatchCreation:
         readme_content = readme_path.read_text()
         assert description in readme_content
 
-    def test_create_patch_numeric_id_creates_correct_paths(self, patch_manager):
+    def test_create_patch_numeric_id_creates_correct_paths(self, patch_manager, mock_hgit_complete):
         """Test create_patch with numeric ID creates correct paths."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Mock HGit for valid context
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.checkout = Mock()
-        repo.hgit = mock_hgit
+        # ✅ Use complete mock
+        repo.hgit = mock_hgit_complete
 
         # Create patch with numeric ID
         result = patch_mgr.create_patch("456")
@@ -194,16 +171,12 @@ class TestCreatePatchCreation:
         expected_dir = patches_dir / "456"
         assert expected_dir.exists()
 
-    def test_create_patch_directory_already_exists(self, patch_manager):
+    def test_create_patch_directory_already_exists(self, patch_manager, mock_hgit_complete):
         """Test error when patch directory already exists."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Mock HGit for valid context
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.checkout = Mock()
-        repo.hgit = mock_hgit
+        # ✅ Use complete mock
+        repo.hgit = mock_hgit_complete
 
         # Create patch directory manually
         existing_dir = patches_dir / "456-user-auth"

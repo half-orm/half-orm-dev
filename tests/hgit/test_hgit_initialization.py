@@ -71,7 +71,7 @@ class TestHGitInitialization:
         mock_git_repo_instance = Mock()
         mock_git_repo.return_value = mock_git_repo_instance
         mock_git_repo_instance.git.remote.return_value = "https://github.com/user/project.git"
-        mock_git_repo_instance.active_branch = "hop_main"
+        mock_git_repo_instance.active_branch = "ho-prod"
 
         hgit = HGit(mock_repo)
 
@@ -91,7 +91,7 @@ class TestHGitInitialization:
         mock_git_repo_instance = Mock()
         mock_git_repo.return_value = mock_git_repo_instance
         mock_git_repo_instance.git.remote.side_effect = Exception("No remote origin")
-        mock_git_repo_instance.active_branch = "hop_main"
+        mock_git_repo_instance.active_branch = "ho-prod"
 
         hgit = HGit(mock_repo)
 
@@ -110,7 +110,7 @@ class TestHGitInitialization:
         mock_git_repo_instance = Mock()
         mock_git_repo.return_value = mock_git_repo_instance
         mock_git_repo_instance.git.remote.return_value = "https://github.com/other/repo.git"
-        mock_git_repo_instance.active_branch = "hop_main"
+        mock_git_repo_instance.active_branch = "ho-prod"
 
         hgit = HGit(mock_repo)
 
@@ -128,7 +128,7 @@ class TestHGitInitialization:
         mock_git_repo_instance = Mock()
         mock_git_repo.return_value = mock_git_repo_instance
         mock_git_repo_instance.git.remote.return_value = git_origin
-        mock_git_repo_instance.active_branch = "hop_main"
+        mock_git_repo_instance.active_branch = "ho-prod"
         mock_git_repo_instance.git.push = Mock()
 
         # Mock file operations for config update
@@ -141,7 +141,7 @@ class TestHGitInitialization:
         # Should have added config file and committed
         mock_git_repo_instance.git.add.assert_called()
         mock_git_repo_instance.git.commit.assert_called()
-        mock_git_repo_instance.git.push.assert_called_with('-u', 'origin', 'hop_main')
+        mock_git_repo_instance.git.push.assert_called_with('-u', 'origin', 'ho-prod')
 
     @patch('git.Repo')
     def test_post_init_stores_current_branch(self, mock_git_repo, mock_repo):
@@ -164,7 +164,7 @@ class TestHGitInitialization:
         # Create HGit without triggering __post_init
         hgit = HGit()
         hgit._HGit__origin = "https://github.com/user/repo.git"
-        hgit._HGit__current_branch = "hop_main"
+        hgit._HGit__current_branch = "ho-prod"
 
         # Mock the methods called by __str__
         with patch.object(hgit, 'repos_is_clean', return_value=True), \
@@ -178,7 +178,7 @@ class TestHGitInitialization:
             assert 'current branch:' in str_repr
             assert 'repo is clean:' in str_repr
             assert 'last commit:' in str_repr
-            assert 'hop_main' in str_repr
+            assert 'ho-prod' in str_repr
             assert 'abc12345' in str_repr
 
     @patch('half_orm_dev.hgit.utils.Color.red')
@@ -188,7 +188,7 @@ class TestHGitInitialization:
 
         hgit = HGit()
         hgit._HGit__origin = None
-        hgit._HGit__current_branch = "hop_main"
+        hgit._HGit__current_branch = "ho-prod"
 
         with patch.object(hgit, 'repos_is_clean', return_value=True), \
              patch.object(hgit, 'last_commit', return_value='abc12345'):
@@ -208,7 +208,7 @@ class TestHGitInitialization:
 
         hgit = HGit()
         hgit._HGit__origin = "https://github.com/user/repo.git"
-        hgit._HGit__current_branch = "hop_main"
+        hgit._HGit__current_branch = "ho-prod"
 
         # Test with clean repo
         with patch.object(hgit, 'repos_is_clean', return_value=True), \
@@ -230,7 +230,7 @@ class TestHGitInitialization:
             mock_git_repo_instance = Mock()
             mock_git_repo.return_value = mock_git_repo_instance
             mock_git_repo_instance.git.remote.return_value = mock_repo.git_origin
-            mock_git_repo_instance.active_branch = "hop_main"
+            mock_git_repo_instance.active_branch = "ho-prod"
 
             hgit = HGit(mock_repo)
 

@@ -32,7 +32,7 @@ class HGit:
             self.__repo.git_origin = origin
             self.add(os.path.join('.hop', 'config'))
             self.commit("-m", f"[ho] Set remote origin to {origin}.")
-            self.__git_repo.git.push('-u', 'origin', 'hop_main')
+            self.__git_repo.git.push('-u', 'origin', 'ho-prod')
             self.__origin = origin
         elif origin and self.__origin != origin:
             utils.error(f'Git remote origin should be {self.__origin}. Got {origin}\n', 1)
@@ -240,3 +240,83 @@ class HGit:
 
         # Push branch with or without upstream tracking
         origin.push(branch_name, set_upstream=set_upstream)
+
+    def fetch_tags(self) -> None:
+        """
+        Fetch all tags from remote.
+
+        Updates local knowledge of remote tags for patch number reservation.
+
+        Raises:
+            GitCommandError: If fetch fails
+
+        Examples:
+            hgit.fetch_tags()
+            # Local git now knows about all remote tags
+        """
+        try:
+            origin = self.__git_repo.remote('origin')
+            origin.fetch(tags=True)
+        except Exception as e:
+            from git.exc import GitCommandError
+            if isinstance(e, GitCommandError):
+                raise
+            raise GitCommandError(f"git fetch --tags", 1, stderr=str(e))
+
+    def tag_exists(self, tag_name: str) -> bool:
+        """
+        Check if tag exists locally or on remote.
+
+        Args:
+            tag_name: Tag name to check (e.g., "ho-patch/456")
+
+        Returns:
+            bool: True if tag exists, False otherwise
+
+        Examples:
+            if hgit.tag_exists("ho-patch/456"):
+                print("Patch number 456 reserved")
+        """
+        try:
+            # Check in local tags
+            return tag_name in [tag.name for tag in self.__git_repo.tags]
+        except Exception:
+            return False
+
+    def create_tag(self, tag_name: str, message: str) -> None:
+        """
+        Create annotated tag for patch number reservation.
+
+        Args:
+            tag_name: Tag name (e.g., "ho-patch/456")
+            message: Tag message/description
+
+        Raises:
+            GitCommandError: If tag creation fails
+
+        Examples:
+            hgit.create_tag("ho-patch/456", "Patch 456: User authentication")
+        """
+        try:
+            self.__git_repo.create_tag(tag_name, message=message)
+        except Exception as e:
+            from git.exc import GitCommandError
+            if isinstance(e, GitCommandError):
+                raise
+            raise GitCommandError(f"git tag", 1, stderr=str(e))
+
+    def push_tag(self, tag_name: str) -> None:
+        """
+        Push tag to remote for global reservation.
+
+        Args:
+            tag_name: Tag name to push (e.g., "ho-patch/456")
+
+        Raises:
+            GitCommandError: If push fails
+
+        Examples:
+            hgit.push_tag("ho-patch/456")
+        """
+        origin = self.__git_repo.remote('origin')
+        origin.push(tag_name)

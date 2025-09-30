@@ -787,84 +787,70 @@ class PatchManager:
         """
         Create complete patch: branch + directory structure.
 
-        Orchestrates the full patch creation workflow following Git-centric architecture:
+        Orchestrates the full patch creation workflow:
         1. Validates we're on ho-prod branch
-        2. Validates repository is clean (no uncommitted changes)
-        3. Validates git remote is configured (for patch ID reservation)  # ✅ UPDATED
+        2. Validates repository is clean
+        3. Validates git remote is configured
         4. Validates and normalizes patch ID format
-        5. Creates ho-patch/PATCH_ID branch from current ho-prod HEAD
-        6. Pushes branch to remote to reserve patch ID globally  # ✅ UPDATED
-        7. Creates Patches/PATCH_ID/ directory with README.md
-        8. Checkouts to the new patch branch
+        5. Fetches tags and checks patch number available  # ✅ Tag check
+        6. Creates ho-patch/PATCH_ID branch
+        7. Creates reservation tag ho-patch/{number}  # ✅ Tag creation
+        8. Pushes branch to remote
+        9. Pushes tag to reserve number globally  # ✅ Tag push
+        10. Creates Patches/PATCH_ID/ directory
+        11. Checkouts to new patch branch
 
         Args:
-            patch_id: Patch identifier (e.g., "456" or "456-user-authentication")
-            description: Optional description to include in README.md
+            patch_id: Patch identifier (e.g., "456-user-auth")
+            description: Optional description
 
         Returns:
-            dict: Creation result with following keys:
-                - patch_id (str): Normalized patch identifier
-                - branch_name (str): Created branch name (e.g., "ho-patch/456-user-auth")
-                - patch_dir (Path): Path to created patch directory
-                - on_branch (str): Current active branch after checkout
+            dict: Creation result
 
         Raises:
             PatchManagerError: If validation fails or creation errors occur
-
-        Examples:
-            # Create patch with numeric ID only
-            result = patch_mgr.create_patch("456")
-
-            # Create patch with full ID and description
-            result = patch_mgr.create_patch(
-                "456-user-authentication",
-                description="Add user authentication system"
-            )
         """
-        # Step 1: Validate context (branch, repo state, and remote)
+        # Step 1-3: Validate context
         self._validate_on_ho_prod()
         self._validate_repo_clean()
-        self._validate_has_remote()  # ✅ NEW: Check remote configured
+        self._validate_has_remote()
 
-        # Step 2: Validate and normalize patch ID
+        # Step 4: Validate and normalize patch ID
         try:
             patch_info = self._validator.validate_patch_id(patch_id)
             normalized_id = patch_info.normalized_id
         except Exception as e:
             raise PatchManagerError(f"Invalid patch ID: {e}")
 
-        # Step 3: Prepare branch name
+        # Step 5: Check patch number available (via tag)
         branch_name = f"ho-patch/{normalized_id}"
+        self._check_patch_id_available(normalized_id)
 
-        # Step 4: Create git branch
+        # Step 6: Create git branch
         self._create_git_branch(branch_name)
 
-        # Step 5: Push branch to reserve patch ID globally
-        self._push_branch_to_reserve_id(branch_name)  # ✅ NEW: Reserve ID
+        # Step 7: Create reservation tag
+        self._create_reservation_tag(normalized_id, description)
 
-        # Step 6: Create patch directory
+        # Step 8: Push branch
+        self._push_branch_to_reserve_id(branch_name)
+
+        # Step 9: Create patch directory
         try:
             patch_dir = self.create_patch_directory(normalized_id)
 
-            # If description provided, update README.md
             if description:
                 readme_path = patch_dir / "README.md"
                 readme_content = f"# Patch {normalized_id}\n\n{description}\n"
                 readme_path.write_text(readme_content, encoding='utf-8')
 
         except Exception as e:
-            # Cleanup: try to delete the branch if directory creation failed
-            try:
-                # Note: This is best-effort cleanup
-                pass
-            except:
-                pass
             raise PatchManagerError(f"Failed to create patch directory: {e}")
 
-        # Step 7: Checkout to new branch
+        # Step 10: Checkout to new branch
         self._checkout_branch(branch_name)
 
-        # Step 8: Return result
+        # Step 11: Return result
         return {
             'patch_id': normalized_id,
             'branch_name': branch_name,
@@ -1012,4 +998,85 @@ class PatchManager:
                 f"Failed to push branch {branch_name} to remote: {e}\n"
                 "Patch ID reservation requires successful push to origin.\n"
                 "Check network connection and remote access permissions."
+            )
+
+    def _check_patch_id_available(self, patch_id: str) -> None:
+        """
+        Check if patch number is available via tag lookup.
+
+        Fetches tags and checks if reservation tag exists.
+        Much more efficient than scanning all branches.
+
+        Args:
+            patch_id: Full patch ID (e.g., "456-user-auth")
+
+        Raises:
+            PatchManagerError: If patch number already reserved
+
+        Examples:
+            self._check_patch_id_available("456-user-auth")
+            # Checks if tag ho-patch/456 exists
+        """
+        try:
+            # Fetch latest tags from remote
+            self._repo.hgit.fetch_tags()
+        except Exception as e:
+            raise PatchManagerError(
+                f"Failed to fetch tags from remote: {e}\n"
+                f"Cannot verify patch number availability.\n"
+                f"Check network connection and remote access."
+            )
+
+        # Extract patch number
+        patch_number = patch_id.split('-')[0]
+        tag_name = f"ho-patch/{patch_number}"
+
+        # Check if reservation tag exists
+        if self._repo.hgit.tag_exists(tag_name):
+            raise PatchManagerError(
+                f"Patch number {patch_number} already reserved.\n"
+                f"Tag {tag_name} exists on remote.\n"
+                f"Another developer is using this patch number.\n"
+                f"Choose a different patch number."
+            )
+
+
+    def _create_reservation_tag(self, patch_id: str, description: Optional[str] = None) -> None:
+        """
+        Create and push tag to reserve patch number.
+
+        Creates tag ho-patch/{number} to globally reserve the patch number.
+        This prevents other developers from using the same number.
+
+        Args:
+            patch_id: Full patch ID (e.g., "456-user-auth")
+            description: Optional description for tag message
+
+        Raises:
+            PatchManagerError: If tag creation/push fails
+
+        Examples:
+            self._create_reservation_tag("456-user-auth", "Add user authentication")
+            # Creates and pushes tag ho-patch/456
+        """
+        # Extract patch number
+        patch_number = patch_id.split('-')[0]
+        tag_name = f"ho-patch/{patch_number}"
+
+        # Create tag message
+        if description:
+            tag_message = f"Patch {patch_number}: {description}"
+        else:
+            tag_message = f"Patch {patch_number} reserved"
+
+        try:
+            # Create tag locally
+            self._repo.hgit.create_tag(tag_name, tag_message)
+
+            # Push tag to reserve globally
+            self._repo.hgit.push_tag(tag_name)
+        except Exception as e:
+            raise PatchManagerError(
+                f"Failed to create reservation tag {tag_name}: {e}\n"
+                f"Patch number reservation failed."
             )

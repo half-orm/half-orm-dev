@@ -101,24 +101,18 @@ class TestPatchManagerRemoteValidation:
         # Branch creation should NOT be called
         assert not mock_hgit.checkout.called
 
-    def test_create_patch_pushes_branch_after_creation(self, patch_manager):
+    def test_create_patch_pushes_branch_after_creation(self, patch_manager, mock_hgit_complete):
         """Test that branch is pushed after creation."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit with valid setup
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.has_remote.return_value = True
-        mock_hgit.checkout = Mock()
-        mock_hgit.push_branch = Mock()
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
 
         # Create patch
         result = patch_mgr.create_patch("456")
 
         # Should have pushed branch
-        mock_hgit.push_branch.assert_called_once_with("ho-patch/456", set_upstream=True)
+        mock_hgit_complete.push_branch.assert_called_once_with("ho-patch/456", set_upstream=True)
 
     def test_create_patch_validation_order_with_remote(self, patch_manager):
         """Test validation order includes remote check."""
@@ -135,55 +129,58 @@ class TestPatchManagerRemoteValidation:
         with pytest.raises(PatchManagerError, match="Must be on ho-prod branch"):
             patch_mgr.create_patch("456")
 
-    def test_create_patch_network_error_on_push(self, patch_manager):
+    def test_create_patch_network_error_on_push(self, patch_manager, mock_hgit_complete):
         """Test handling of network errors during push."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit with network error on push
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.has_remote.return_value = True
-        mock_hgit.checkout = Mock()
-        mock_hgit.push_branch.side_effect = GitCommandError(
+        mock_hgit_complete.push_branch.side_effect = GitCommandError(
             "git push", 1, stderr="Could not resolve host"
         )
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
 
         # Should raise error with network info
         with pytest.raises(PatchManagerError, match="Failed to push branch"):
             patch_mgr.create_patch("456")
 
-    def test_create_patch_complete_workflow_with_remote(self, patch_manager):
-        """Test complete workflow includes remote push."""
+    def test_create_patch_complete_workflow_with_remote(self, patch_manager, mock_hgit_complete):
+        """Test complete workflow includes remote push and tag reservation."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit with valid setup
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.has_remote.return_value = True
-        mock_hgit.checkout = Mock()
-        mock_hgit.push_branch = Mock()
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
 
         # Create patch
         result = patch_mgr.create_patch("456-user-auth")
 
         # Verify complete workflow executed
         # 1. Validations passed
-        mock_hgit.has_remote.assert_called()
+        mock_hgit_complete.has_remote.assert_called()
 
-        # 2. Branch created
-        assert mock_hgit.checkout.call_count >= 2  # create + checkout
+        # 2. Tag availability check
+        mock_hgit_complete.fetch_tags.assert_called_once()
+        mock_hgit_complete.tag_exists.assert_called_with("ho-patch/456")
 
-        # 3. Branch pushed for ID reservation
-        mock_hgit.push_branch.assert_called_once_with("ho-patch/456-user-auth", set_upstream=True)
+        # 3. Branch created
+        assert mock_hgit_complete.checkout.call_count >= 2  # create + checkout
 
-        # 4. Directory created
+        # 4. Reservation tag created and pushed
+        mock_hgit_complete.create_tag.assert_called_once_with(
+            "ho-patch/456",
+            "Patch 456 reserved"
+        )
+        mock_hgit_complete.push_tag.assert_called_once_with("ho-patch/456")
+
+        # 5. Branch pushed for tracking
+        mock_hgit_complete.push_branch.assert_called_once_with(
+            "ho-patch/456-user-auth", 
+            set_upstream=True
+        )
+
+        # 6. Directory created
         expected_dir = patches_dir / "456-user-auth"
         assert expected_dir.exists()
 
-        # 5. Result returned
+        # 7. Result returned
         assert result['patch_id'] == "456-user-auth"
         assert result['branch_name'] == "ho-patch/456-user-auth"

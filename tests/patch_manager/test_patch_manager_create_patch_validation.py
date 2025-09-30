@@ -116,15 +116,12 @@ class TestCreatePatchValidation:
             with pytest.raises(PatchManagerError, match="Invalid patch ID"):
                 patch_mgr.create_patch(invalid_id)
 
-    def test_create_patch_whitespace_in_patch_id(self, patch_manager):
+    def test_create_patch_whitespace_in_patch_id(self, patch_manager, mock_hgit_complete):
         """Test create_patch handles whitespace in patch ID."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit and git operations
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
 
         # Patch ID with leading/trailing whitespace should be normalized
         result = patch_mgr.create_patch("  456-user-auth  ")
@@ -133,15 +130,12 @@ class TestCreatePatchValidation:
         assert result['patch_id'] == "456-user-auth"
         assert result['branch_name'] == "ho-patch/456-user-auth"
 
-    def test_create_patch_numeric_only_patch_id(self, patch_manager):
+    def test_create_patch_numeric_only_patch_id(self, patch_manager, mock_hgit_complete):
         """Test create_patch accepts numeric-only patch ID."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit and git operations
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
 
         # Numeric-only patch ID should be valid
         result = patch_mgr.create_patch("456")

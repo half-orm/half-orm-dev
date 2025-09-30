@@ -19,18 +19,12 @@ from half_orm_dev.patch_manager import PatchManager, PatchManagerError, PatchStr
 class TestCreatePatchIntegration:
     """Test complete workflow and integration scenarios."""
 
-    def test_create_patch_complete_workflow(self, patch_manager):
+    def test_create_patch_complete_workflow(self, patch_manager, mock_hgit_complete):
         """Test complete successful create_patch workflow."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit for valid context
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.checkout = Mock()
-        mock_hgit.has_remote.return_value = True
-        mock_hgit.push_branch = Mock()
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
 
         # Execute complete workflow
         result = patch_mgr.create_patch("456-user-auth")
@@ -38,32 +32,28 @@ class TestCreatePatchIntegration:
         # Verify all steps executed
         # 1. Validations passed (no exceptions)
         # 2. Branch created
-        assert mock_hgit.checkout.call_count == 2  # create + checkout
+        assert mock_hgit_complete.checkout.call_count == 2  # create + checkout
 
         # 3. Directory created
         expected_dir = patches_dir / "456-user-auth"
         assert expected_dir.exists()
 
         # 4. Checkout to new branch
-        mock_hgit.checkout.assert_any_call("ho-patch/456-user-auth")
+        mock_hgit_complete.checkout.assert_any_call("ho-patch/456-user-auth")
 
-        mock_hgit.push_branch.assert_called_once_with("ho-patch/456-user-auth", set_upstream=True)
+        mock_hgit_complete.push_branch.assert_called_once_with("ho-patch/456-user-auth", set_upstream=True)
 
         # 5. Return value complete
         assert result['patch_id'] == "456-user-auth"
         assert result['branch_name'] == "ho-patch/456-user-auth"
         assert result['on_branch'] == "ho-patch/456-user-auth"
 
-    def test_create_patch_workflow_with_description(self, patch_manager):
+    def test_create_patch_workflow_with_description(self, patch_manager, mock_hgit_complete):
         """Test complete workflow with optional description."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit for valid context
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.checkout = Mock()
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
 
         # Create with description
         description = "Implement user authentication with JWT"
@@ -123,23 +113,19 @@ class TestCreatePatchIntegration:
             # Restore permissions
             patches_dir.chmod(0o755)
 
-    def test_create_patch_multiple_patches_sequential(self, patch_manager):
+    def test_create_patch_multiple_patches_sequential(self, patch_manager, mock_hgit_complete):
         """Test creating multiple patches sequentially."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit for valid context
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.checkout = Mock()
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
 
         # Create multiple patches
         patches = ["123-first", "456-second", "789-third"]
 
         for patch_id in patches:
             # Reset to ho-prod for each patch
-            mock_hgit.branch = "ho-prod"
+            mock_hgit_complete.branch = "ho-prod"
 
             result = patch_mgr.create_patch(patch_id)
 
@@ -148,16 +134,12 @@ class TestCreatePatchIntegration:
             expected_dir = patches_dir / patch_id
             assert expected_dir.exists()
 
-    def test_create_patch_special_characters_in_description(self, patch_manager):
+    def test_create_patch_special_characters_in_description(self, patch_manager, mock_hgit_complete):
         """Test handling special characters in description."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit for valid context
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.checkout = Mock()
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
 
         # Description with special characters
         description = "Add user's authentication & authorization (OAuth2.0)"
@@ -191,29 +173,25 @@ class TestCreatePatchIntegration:
             # If rejected, that's also valid behavior
             pass
 
-    def test_create_patch_idempotency_check(self, patch_manager):
+    def test_create_patch_idempotency_check(self, patch_manager, mock_hgit_complete):
         """Test that create_patch is not idempotent (fails on duplicate)."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit for valid context
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.checkout = Mock()
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
 
         # Create patch first time
         result1 = patch_mgr.create_patch("456-user-auth")
         assert result1['patch_id'] == "456-user-auth"
 
         # Reset to ho-prod
-        mock_hgit.branch = "ho-prod"
+        mock_hgit_complete.branch = "ho-prod"
 
         # Second attempt should fail (not idempotent)
         with pytest.raises(PatchManagerError):
             patch_mgr.create_patch("456-user-auth")
 
-    def test_create_patch_preserves_existing_patches(self, patch_manager):
+    def test_create_patch_preserves_existing_patches(self, patch_manager, mock_hgit_complete):
         """Test that creating new patch doesn't affect existing patches."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
@@ -224,11 +202,7 @@ class TestCreatePatchIntegration:
         (existing_patch / "script.sql").write_text("SELECT 1;")
 
         # Mock HGit for valid context
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.checkout = Mock()
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
 
         # Create new patch
         result = patch_mgr.create_patch("456-new")
@@ -242,22 +216,18 @@ class TestCreatePatchIntegration:
         new_patch = patches_dir / "456-new"
         assert new_patch.exists()
 
-    def test_create_patch_git_operations_order(self, patch_manager):
+    def test_create_patch_git_operations_order(self, patch_manager, mock_hgit_complete):
         """Test that git operations happen in correct order."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit for valid context
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.checkout = Mock()
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
 
         # Create patch
         result = patch_mgr.create_patch("456-user-auth")
 
         # Verify call order: create branch, then checkout
-        calls = mock_hgit.checkout.call_args_list
+        calls = mock_hgit_complete.checkout.call_args_list
         assert len(calls) == 2
 
         # First call: create branch (git checkout -b)

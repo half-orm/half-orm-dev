@@ -263,9 +263,8 @@ class TestGetPatchStructure:
         patch_path = patches_dir / "456-test"
         patch_path.mkdir()
 
-        # Create files (excluding README for this test)
-        files_to_create = {k: v for k, v in sample_patch_files.items() if k != "README.md"}
-        for filename, content in files_to_create.items():
+        # Create files from fixture
+        for filename, content in sample_patch_files.items():
             (patch_path / filename).write_text(content)
 
         structure = patch_mgr.get_patch_structure("456-test")
@@ -279,23 +278,23 @@ class TestGetPatchStructure:
         assert structure.directory_path == patch_path
         assert structure.readme_path == patch_path / "README.md"
 
-        # Should have 4 files (excluding README.md)
+        # Should have 4 files
         assert len(structure.files) == 4
 
-        # Files should be in lexicographic order
+        # Files should be in lexicographic order (based on actual fixture content)
         file_names = [f.name for f in structure.files]
-        expected_order = ["01_create_users.sql", "02_add_indexes.sql", "03_update_permissions.py", "04_seed_data.sql"]
+        expected_order = ["01_create_table.sql", "02_add_indexes.sql", "cleanup.py", "migrate.py"]
         assert file_names == expected_order
 
         # Check file properties
         sql_files = [f for f in structure.files if f.is_sql]
         python_files = [f for f in structure.files if f.is_python]
-        assert len(sql_files) == 3
-        assert len(python_files) == 1
+        assert len(sql_files) == 2  # Corrected: only 2 SQL files
+        assert len(python_files) == 2  # Corrected: 2 Python files
 
         # Check specific file properties
         first_file = structure.files[0]
-        assert first_file.name == "01_create_users.sql"
+        assert first_file.name == "01_create_table.sql"  # Corrected
         assert first_file.extension == "sql"
         assert first_file.is_sql is True
         assert first_file.is_python is False

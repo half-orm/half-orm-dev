@@ -1,9 +1,5 @@
 """
-Fixtures communes pour tous les tests PatchManager.
-
-Ce module fournit les fixtures pytest partagées entre tous les modules
-de test pour PatchManager, incluant la configuration temporaire des 
-répertoires et les données de test.
+Shared pytest fixtures for half_orm_dev tests.
 """
 
 import pytest
@@ -16,32 +12,28 @@ from unittest.mock import Mock
 @pytest.fixture
 def temp_repo():
     """
-    Create temporary repository structure for testing.
-
-    Creates a temporary directory with Patches/ subdirectory
-    and a mock repository object with required attributes.
-
-    Yields:
-        tuple: (repo_mock, temp_dir_path, schema_patches_path)
-
-    Cleanup:
-        Automatically removes temporary directory after test completion
+    Create temporary directory structure for testing.
     """
     temp_dir = tempfile.mkdtemp()
-
-    # Create basic repo structure
     patches_dir = Path(temp_dir) / "Patches"
     patches_dir.mkdir()
 
-    # Mock repo object with required attributes
     repo = Mock()
     repo.base_dir = temp_dir
-    repo.name = "test_db"
     repo.devel = True
+    repo.name = "test_database"
+    repo.git_origin = "https://github.com/test/repo.git"
+
+    # Create default HGit mock with tag methods
+    mock_hgit = Mock()
+    mock_hgit.fetch_tags = Mock()
+    mock_hgit.tag_exists = Mock(return_value=False)
+    mock_hgit.create_tag = Mock()
+    mock_hgit.push_tag = Mock()
+    repo.hgit = mock_hgit
 
     yield repo, temp_dir, patches_dir
 
-    # Cleanup - remove temporary directory
     shutil.rmtree(temp_dir)
 
 
@@ -50,75 +42,78 @@ def patch_manager(temp_repo):
     """
     Create PatchManager instance with temporary repo.
 
-    Provides a ready-to-use PatchManager instance for testing
-    with all dependencies properly mocked.
-
-    Args:
-        temp_repo: Fixture providing temporary repository setup
-
-    Returns:
-        tuple: (patch_directory_instance, repo_mock, temp_dir, patches_dir)
+    The repo.hgit already has default tag mocks configured in temp_repo fixture.
+    Tests can override repo.hgit if needed, but should use mock_hgit_complete fixture.
     """
     from half_orm_dev.patch_manager import PatchManager
 
     repo, temp_dir, patches_dir = temp_repo
     patch_mgr = PatchManager(repo)
-
     return patch_mgr, repo, temp_dir, patches_dir
+
+
+@pytest.fixture
+def mock_hgit_complete():
+    """
+    Create complete HGit mock with all necessary methods for patch creation.
+
+    Use this fixture when you need to replace repo.hgit in tests to ensure
+    all required methods are mocked properly.
+
+    Returns:
+        Mock: Configured HGit mock with:
+            - branch: Current branch name
+            - repos_is_clean(): Returns True
+            - has_remote(): Returns True
+            - checkout(): Branch checkout
+            - fetch_tags(): Tag fetching
+            - tag_exists(): Returns False (tag doesn't exist)
+            - create_tag(): Tag creation
+            - push_tag(): Tag push
+            - push_branch(): Branch push (for reservation)
+
+    Example:
+        def test_something(self, patch_manager, mock_hgit_complete):
+            patch_mgr, repo, temp_dir, patches_dir = patch_manager
+
+            # Use complete mock instead of creating new one
+            mock_hgit_complete.branch = "ho-prod"
+            repo.hgit = mock_hgit_complete
+
+            result = patch_mgr.create_patch("456-test")
+    """
+    mock_hgit = Mock()
+
+    # Branch context
+    mock_hgit.branch = "ho-prod"
+
+    # Repository state
+    mock_hgit.repos_is_clean = Mock(return_value=True)
+    mock_hgit.has_remote = Mock(return_value=True)
+
+    # Branch operations
+    mock_hgit.checkout = Mock()
+    mock_hgit.push_branch = Mock()
+
+    # Tag operations (for patch number reservation)
+    mock_hgit.fetch_tags = Mock()
+    mock_hgit.tag_exists = Mock(return_value=False)  # By default, tag doesn't exist
+    mock_hgit.create_tag = Mock()
+    mock_hgit.push_tag = Mock()
+
+    return mock_hgit
 
 
 @pytest.fixture
 def sample_patch_files():
     """
-    Sample patch files content for testing.
-
-    Provides a dictionary of realistic patch files with different
-    types (SQL, Python) and proper naming conventions for testing
-    patch directory operations.
-
-    Returns:
-        dict: Mapping of filename -> file_content for test files
+    Provide sample patch file contents for testing.
     """
     return {
-        "01_create_users.sql": (
-            "-- Create users table\n"
-            "CREATE TABLE users (\n"
-            "    id SERIAL PRIMARY KEY,\n"
-            "    name VARCHAR(100) NOT NULL,\n"
-            "    email VARCHAR(255) UNIQUE,\n"
-            "    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n"
-            ");"
-        ),
-        "02_add_indexes.sql": (
-            "-- Add performance indexes\n"
-            "CREATE INDEX idx_users_name ON users(name);\n"
-            "CREATE INDEX idx_users_email ON users(email);\n"
-            "CREATE INDEX idx_users_created_at ON users(created_at);"
-        ),
-        "03_update_permissions.py": (
-            "#!/usr/bin/env python3\n"
-            "# Update user permissions\n"
-            "print('Updating user permissions...')\n"
-            "# Business logic would go here\n"
-            "print('Permissions updated successfully')"
-        ),
-        "04_seed_data.sql": (
-            "-- Insert initial data\n"
-            "INSERT INTO users (name, email) VALUES\n"
-            "    ('Admin User', 'admin@example.com'),\n"
-            "    ('Guest User', 'guest@example.com');"
-        ),
-        "README.md": (
-            "# Test Patch\n\n"
-            "This is a test patch for unit testing.\n\n"
-            "## Purpose\n"
-            "Testing patch directory functionality.\n\n"
-            "## Files\n"
-            "- 01_create_users.sql: Create users table\n"
-            "- 02_add_indexes.sql: Add performance indexes\n"
-            "- 03_update_permissions.py: Update permissions\n"
-            "- 04_seed_data.sql: Insert initial data\n"
-        )
+        '01_create_table.sql': 'CREATE TABLE users (id SERIAL PRIMARY KEY);',
+        '02_add_indexes.sql': 'CREATE INDEX idx_users_id ON users(id);',
+        'migrate.py': 'print("Running migration")',
+        'cleanup.py': 'print("Cleanup complete")',
     }
 
 
@@ -131,148 +126,11 @@ def mock_database():
     to test SQL execution without requiring a real database.
 
     Returns:
-        Mock: Mock database connection with execute method
+        Mock: Mock database connection with execute_query method
     """
     mock_db = Mock()
+    mock_db.execute_query = Mock()
     mock_db.execute = Mock()
     mock_db.cursor = Mock()
 
     return mock_db
-
-
-@pytest.fixture
-def sample_invalid_files():
-    """
-    Sample invalid patch files for error testing.
-
-    Provides files with various types of validation errors
-    for testing error handling and validation logic.
-
-    Returns:
-        dict: Mapping of filename -> (content, expected_error_type)
-    """
-    return {
-        "invalid.txt": (
-            "This is not a SQL or Python file",
-            "invalid_extension"
-        ),
-        "no_order_prefix.sql": (
-            "SELECT 1;",
-            "missing_order_prefix"  
-        ),
-        "1_single_digit.sql": (
-            "SELECT 1;",
-            "invalid_order_format"
-        ),
-        "abc_invalid_order.sql": (
-            "SELECT 1;", 
-            "invalid_order_format"
-        ),
-        "99_bad_sql.sql": (
-            "INVALID SQL SYNTAX !!!",
-            "sql_syntax_error"
-        ),
-        "98_bad_python.py": (
-            "invalid python syntax !!!!",
-            "python_syntax_error"
-        )
-    }
-
-
-@pytest.fixture
-def create_patch_with_files(temp_repo, sample_patch_files):
-    """
-    Factory fixture to create patch directories with files.
-
-    Provides a function that can create patch directories
-    with specified files for testing purposes.
-
-    Args:
-        temp_repo: Fixture providing temporary repository
-        sample_patch_files: Fixture providing sample file content
-
-    Returns:
-        function: Factory function to create patches
-    """
-    repo, temp_dir, patches_dir = temp_repo
-
-    def _create_patch(patch_id, files=None, include_readme=True):
-        """
-        Create a patch directory with specified files.
-
-        Args:
-            patch_id: Patch identifier
-            files: Dict of filename -> content (defaults to sample_patch_files)
-            include_readme: Whether to include README.md
-
-        Returns:
-            Path: Path to created patch directory
-        """
-        if files is None:
-            files = sample_patch_files
-
-        patch_path = patches_dir / patch_id
-        patch_path.mkdir()
-
-        for filename, content in files.items():
-            if filename == "README.md" and not include_readme:
-                continue
-            (patch_path / filename).write_text(content)
-
-        return patch_path
-
-    return _create_patch
-
-
-@pytest.fixture
-def patch_validator_mock():
-    """
-    Mock PatchValidator for testing integration.
-
-    Provides a mock PatchValidator that returns predictable
-    validation results for testing PatchManager integration.
-
-    Returns:
-        Mock: Mock PatchValidator instance
-    """
-    from half_orm_dev.patch_validator import PatchInfo
-
-    mock_validator = Mock()
-
-    # Default behavior for valid patch IDs
-    def mock_validate_patch_id(patch_id):
-        if "-" in patch_id:
-            parts = patch_id.split("-", 1)
-            return PatchInfo(
-                original_id=patch_id,
-                normalized_id=patch_id,
-                ticket_number=parts[0],
-                description=parts[1],
-                is_numeric_only=False
-            )
-        else:
-            return PatchInfo(
-                original_id=patch_id,
-                normalized_id=patch_id,
-                ticket_number=patch_id,
-                description=None,
-                is_numeric_only=True
-            )
-
-    mock_validator.validate_patch_id.side_effect = mock_validate_patch_id
-
-    return mock_validator
-
-
-# Configuration pytest globale pour ce module de test
-pytest_plugins = []  # Pas de plugins additionnels nécessaires
-
-def pytest_configure(config):
-    """Configuration pytest pour les tests PatchManager."""
-    # Ajouter des marqueurs personnalisés si nécessaire
-    config.addinivalue_line(
-        "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
-    )
-    config.addinivalue_line(
-        "markers", "integration: marks tests as integration tests"
-    )
