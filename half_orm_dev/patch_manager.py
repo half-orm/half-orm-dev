@@ -1460,3 +1460,72 @@ class PatchManager:
                 f"Failed to create reservation tag {tag_name}: {e}\n"
                 f"Patch number reservation failed."
             )
+
+    def restore_database_from_schema(self) -> None:
+            """
+            Restore database from model/schema.sql.
+
+            Restores database to clean production state by dropping and recreating
+            database, then loading schema from model/schema.sql file. This provides
+            a clean baseline before applying patch files during patch development.
+
+            Process:
+            1. Verify model/schema.sql exists (file or symlink)
+            2. Disconnect halfORM Model from database
+            3. Drop existing database using dropdb command
+            4. Create fresh empty database using createdb command
+            5. Load schema from model/schema.sql using psql -f
+            6. Reconnect halfORM Model to restored database
+
+            The method uses Database.execute_pg_command() for all PostgreSQL
+            operations (dropdb, createdb, psql) with connection parameters from
+            repository configuration.
+
+            File Resolution:
+            - Accepts model/schema.sql as regular file or symlink
+            - Symlink typically points to versioned schema-X.Y.Z.sql file
+            - Follows symlink automatically during psql execution
+
+            Error Handling:
+            - Raises PatchManagerError if model/schema.sql not found
+            - Raises PatchManagerError if dropdb fails
+            - Raises PatchManagerError if createdb fails
+            - Raises PatchManagerError if psql schema load fails
+            - Database state rolled back on any failure
+
+            Usage Context:
+            - Called by apply-patch workflow (Step 1: Database Restoration)
+            - Ensures clean state before applying patch SQL files
+            - Part of isolated patch testing strategy
+
+            Returns:
+                None
+
+            Raises:
+                PatchManagerError: If schema file not found
+                PatchManagerError: If database restoration fails at any step
+
+            Examples:
+                # Restore database from model/schema.sql before applying patch
+                patch_mgr = PatchManager(repo)
+                patch_mgr.restore_database_from_schema()
+                # Database now contains clean production schema
+
+                # Typical apply-patch workflow
+                patch_mgr.restore_database_from_schema()  # Step 1: Clean state
+                patch_mgr.apply_patch_files("456-user-auth", repo.model)  # Step 2: Apply patch
+
+                # Error handling
+                try:
+                    patch_mgr.restore_database_from_schema()
+                except PatchManagerError as e:
+                    print(f"Database restoration failed: {e}")
+                    # Handle error: check schema.sql exists, verify permissions
+
+            Notes:
+            - Silences psql output using stdout=subprocess.DEVNULL
+            - Uses Model.ping() for reconnection after restoration
+            - Supports both schema.sql file and schema.sql -> schema-X.Y.Z.sql symlink
+            - All PostgreSQL commands use repository connection configuration
+            """
+            pass
