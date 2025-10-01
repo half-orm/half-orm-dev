@@ -563,7 +563,72 @@ class PatchManager:
         - Uses modules.generate() for code generation
         - Validates patch structure before execution
         """
-        pass
+        from half_orm_dev import modules
+
+        applied_files = []
+        generated_files = []
+
+        try:
+            # Step 1: Restore database from model/schema.sql
+            self.restore_database_from_schema()
+
+            # Step 2: Apply patch files (SQL/Python)
+            applied_files = self.apply_patch_files(patch_id, self._repo.model)
+
+            # Step 3: Generate halfORM code
+            # Track generated files before generation
+            package_dir = Path(self._base_dir) / self._repo_name
+            files_before = set()
+            if package_dir.exists():
+                files_before = set(package_dir.rglob('*.py'))
+
+            # Generate code
+            modules.generate(self._repo)
+
+            # Track generated files after generation
+            files_after = set()
+            if package_dir.exists():
+                files_after = set(package_dir.rglob('*.py'))
+
+            # Detect new/modified files (simplified - just track all Python files)
+            generated_files = [str(f.relative_to(self._base_dir)) for f in files_after]
+
+            # Step 4: Return success report
+            return {
+                'patch_id': patch_id,
+                'applied_files': applied_files,
+                'generated_files': generated_files,
+                'status': 'success',
+                'error': None
+            }
+
+        except PatchManagerError:
+            # PatchManagerError already has good context, just rollback and re-raise
+            self._rollback_database()
+            raise
+
+        except Exception as e:
+            # Wrap unexpected errors
+            self._rollback_database()
+            raise PatchManagerError(
+                f"Apply patch workflow failed for {patch_id}: {e}"
+            ) from e
+
+    def _rollback_database(self) -> None:
+        """
+        Rollback database to clean state.
+
+        Internal method to restore database from model/schema.sql
+        after workflow failure. Suppresses errors to avoid masking
+        original exception.
+        """
+        try:
+            # Restore to clean state
+            self.restore_database_from_schema()
+        except Exception:
+            # Suppress rollback errors - original error is more important
+            # Just ensure we tried to rollback
+            pass
 
     def apply_patch_files(self, patch_id: str, database_model) -> List[str]:
         """
