@@ -475,6 +475,96 @@ class PatchManager:
         """
         pass
 
+    def apply_patch_complete_workflow(self, patch_id: str) -> Dict[str, Any]:
+        """
+        Execute complete apply-patch workflow with code generation.
+
+        Orchestrates full patch application process including database
+        restoration, patch file execution, and halfORM code generation.
+        Implements automatic rollback on any failure.
+
+        Workflow Steps:
+        1. Restore database from model/schema.sql (clean production state)
+        2. Apply patch SQL/Python files in lexicographic order
+        3. Generate halfORM Python code from updated schema
+        4. Return detailed summary report
+
+        Rollback Strategy:
+        - Any failure at any step triggers automatic database rollback
+        - Database restored to pre-workflow state (from model/schema.sql)
+        - Generated files remain (developer can review/discard)
+        - Exception propagated with detailed error context
+
+        Developer Workflow:
+        After successful execution, developer should:
+        1. Review generated code in <dbname>/<dbname>/
+        2. Implement business logic stubs if needed
+        3. Run tests: half_orm dev test
+        4. Stage changes: git add <dbname>/ tests/
+        5. Commit: git commit -m "Add business logic for patch {patch_id}"
+
+        Args:
+            patch_id: Patch identifier (e.g., "456-user-auth")
+
+        Returns:
+            Dict with execution summary:
+            {
+                'patch_id': str,              # Patch identifier
+                'applied_files': List[str],   # SQL/Python files applied
+                'generated_files': List[str], # Python files generated/updated
+                'status': str,                # 'success' or 'failed'
+                'error': Optional[str]        # Error message if failed
+            }
+
+        Raises:
+            PatchManagerError: If patch validation fails
+            PatchManagerError: If database restoration fails
+            PatchManagerError: If patch application fails
+            PatchManagerError: If code generation fails
+
+        Examples:
+            # Basic usage
+            patch_mgr = PatchManager(repo)
+            result = patch_mgr.apply_patch_complete_workflow("456-user-auth")
+
+            if result['status'] == 'success':
+                print(f"Applied {len(result['applied_files'])} files")
+                print(f"Generated {len(result['generated_files'])} Python files")
+                print("Review code and commit when ready")
+
+            # With error handling
+            try:
+                result = patch_mgr.apply_patch_complete_workflow("456-user-auth")
+                print(f"Success! Applied: {result['applied_files']}")
+            except PatchManagerError as e:
+                print(f"Failed: {e}")
+                print("Database automatically rolled back")
+
+            # Integration in CLI
+            @click.command()
+            @click.argument('patch_id')
+            def apply_patch(patch_id):
+                repo = Repo()
+                result = repo.patch_manager.apply_patch_complete_workflow(patch_id)
+
+                click.echo("✅ Database restored from model/schema.sql")
+                click.echo(f"✅ Applied {len(result['applied_files'])} patch files")
+                click.echo(f"✅ Generated {len(result['generated_files'])} Python files")
+                click.echo("\n📝 Next steps:")
+                click.echo("  1. Review generated code")
+                click.echo("  2. Implement business logic")
+                click.echo("  3. Run: half_orm dev test")
+                click.echo("  4. Commit: git add && git commit")
+
+        Notes:
+        - No automatic commits (developer reviews code first)
+        - Database rollback automatic on any error
+        - Generated files remain even after rollback (for debugging)
+        - Uses modules.generate() for code generation
+        - Validates patch structure before execution
+        """
+        pass
+
     def apply_patch_files(self, patch_id: str, database_model) -> List[str]:
         """
         Apply all patch files in correct order.
