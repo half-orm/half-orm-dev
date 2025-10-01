@@ -4,6 +4,7 @@
 import os
 import sys
 from configparser import ConfigParser
+from pathlib import Path
 from typing import Optional
 from psycopg2 import OperationalError
 import half_orm
@@ -436,6 +437,7 @@ class Repo:
                 8. Generate Python package structure
                 9. Initialize Git repository with ho-prod branch
                 10. Generate template files (README, .gitignore, setup.py, Pipfile)
+                11. Save model/schema-0.0.0.sql
 
             Git-centric Architecture:
                 - Main branch: ho-prod (replaces hop_main)
@@ -492,6 +494,9 @@ class Repo:
 
             # Step 10: Initialize Git repository with ho-prod branch
             self._initialize_git_repository()
+
+            # Step 11: Save initial schema dump
+            self._dump_initial_schema()
 
     def _validate_package_name(self, package_name):
         """
@@ -984,3 +989,6 @@ See docs/half_orm_dev.md for complete documentation.
         utils.write(os.path.join(self.__base_dir, 'Pipfile'), pipfile)
         utils.write(os.path.join(self.__base_dir, 'README.md'), readme)
         utils.write(os.path.join(self.__base_dir, '.gitignore'), git_ignore)
+
+    def _dump_initial_schema(self):
+        self.database._generate_schema_sql("0.0.0", Path(f"{self.__base_dir}/model"))

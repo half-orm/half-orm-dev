@@ -213,8 +213,9 @@ class Database:
         schema_file = model_dir / f"schema-{version}.sql"
         
         # Generate schema dump using pg_dump
+        complete_params = self._collect_connection_params(self.__name, self._get_connection_params())
         try:
-            self._execute_pg_command('pg_dump', '--schema-only', '-f', str(schema_file))
+            self._execute_pg_command(self.__name, complete_params, 'pg_dump', self.__name, '--schema-only', '-f', str(schema_file))
         except Exception as e:
             raise Exception(f"Failed to generate schema SQL: {e}") from e
         
