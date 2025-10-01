@@ -123,6 +123,73 @@ class Database:
             major=major, minor=minor, patch=patch, changelog=changelog
         ).ho_insert()
 
+    def _generate_schema_sql(self, version: str, model_dir: Path) -> Path:
+        """
+        Generate versioned schema SQL dump.
+
+        Creates model/schema-{version}.sql with current database structure
+        using pg_dump --schema-only. Updates model/schema.sql symlink to
+        point to the new version for easy access to current schema.
+
+        This method is used by:
+        - init-project: Generate initial schema-0.0.0.sql after database setup
+        - deploy-to-prod: Generate schema-X.Y.Z.sql after production deployment
+
+        Version History Strategy:
+        - Only production versions are saved (X.Y.Z)
+        - Stage and RC versions are NOT saved
+        - Hotfixes overwrite the base version (1.3.4-hotfix1 overwrites 1.3.4)
+        - Git history preserves old versions if needed
+
+        Args:
+            version: Version string (e.g., "0.0.0", "1.3.4", "2.0.0")
+            model_dir: Path to model/ directory where schema files are stored
+
+        Returns:
+            Path to generated schema file (model/schema-{version}.sql)
+
+        Raises:
+            DatabaseError: If pg_dump command fails
+            FileNotFoundError: If model_dir does not exist
+            PermissionError: If cannot write to model_dir or create symlink
+            ValueError: If version format is invalid
+
+        Examples:
+            # During init-project - create initial schema
+            from pathlib import Path
+            model_dir = Path("/project/model")
+            schema_path = database._generate_schema_sql("0.0.0", model_dir)
+            # → Creates model/schema-0.0.0.sql
+            # → Creates symlink model/schema.sql → schema-0.0.0.sql
+            # → Returns Path("/project/model/schema-0.0.0.sql")
+
+            # During deploy-to-prod - save production schema
+            schema_path = database._generate_schema_sql("1.3.4", model_dir)
+            # → Creates model/schema-1.3.4.sql
+            # → Updates symlink model/schema.sql → schema-1.3.4.sql
+            # → Old symlink removed, new one created
+
+            # Hotfix deployment - overwrites base version
+            schema_path = database._generate_schema_sql("1.3.4", model_dir)
+            # → Overwrites existing model/schema-1.3.4.sql
+            # → Symlink model/schema.sql still points to schema-1.3.4.sql
+
+        File Structure Created:
+            model/
+            ├── schema.sql          # Symlink to current version
+            ├── schema-0.0.0.sql    # Initial version
+            ├── schema-1.0.0.sql    # Production version
+            ├── schema-1.3.4.sql    # Latest production version (current)
+            └── ...
+
+        Notes:
+            - Uses pg_dump --schema-only (no data, structure only)
+            - Symlink is relative (schema.sql → schema-X.Y.Z.sql)
+            - Existing symlink is replaced atomically
+            - Version format should be X.Y.Z (semantic versioning)
+        """
+        pass
+
     @classmethod
     def _save_configuration(cls, database_name, connection_params):
         """
