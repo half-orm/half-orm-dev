@@ -1725,3 +1725,96 @@ class PatchManager:
             except Exception as e:
                 # Catch any unexpected errors
                 raise PatchManagerError(f"Database restoration failed: {e}") from e
+
+    def _validate_ho_prod_synced_with_origin(self) -> None:
+        """
+        Validate that local ho-prod is synchronized with origin/ho-prod.
+
+        Prevents creating patches on an outdated or unsynchronized base which
+        would cause merge conflicts, inconsistent patch history, and potential
+        data loss. Must be called after fetch_from_origin() to ensure accurate
+        comparison.
+
+        Sync requirements:
+        - Local ho-prod must be at the same commit as origin/ho-prod (synced)
+        - If ahead: Must push local commits before creating patch
+        - If behind: Must pull remote commits before creating patch  
+        - If diverged: Must resolve conflicts before creating patch
+
+        Raises:
+            PatchManagerError: If ho-prod is not synced with origin with specific
+                guidance on how to resolve the sync issue
+
+        Examples:
+            # Successful validation (synced)
+            self._fetch_from_remote()
+            self._validate_ho_prod_synced_with_origin()
+            # Continues to patch creation
+
+            # Failed validation (behind)
+            try:
+                self._validate_ho_prod_synced_with_origin()
+            except PatchManagerError as e:
+                # Error: "ho-prod is behind origin/ho-prod. Run: git pull"
+
+            # Failed validation (ahead)
+            try:
+                self._validate_ho_prod_synced_with_origin()
+            except PatchManagerError as e:
+                # Error: "ho-prod is ahead of origin/ho-prod. Run: git push"
+
+            # Failed validation (diverged)
+            try:
+                self._validate_ho_prod_synced_with_origin()
+            except PatchManagerError as e:
+                # Error: "ho-prod has diverged from origin/ho-prod. 
+                #         Resolve conflicts first."
+        """
+        try:
+            # Check sync status with origin
+            is_synced, status = self._repo.hgit.is_branch_synced("ho-prod", remote="origin")
+
+            if is_synced:
+                # All good - ho-prod is synced with origin
+                return
+
+            # Not synced - provide specific guidance based on status
+            if status == "ahead":
+                raise PatchManagerError(
+                    "ho-prod is ahead of origin/ho-prod.\n"
+                    "Push your local commits before creating patch:\n"
+                    "  git push origin ho-prod"
+                )
+            elif status == "behind":
+                raise PatchManagerError(
+                    "ho-prod is behind origin/ho-prod.\n"
+                    "Pull remote commits before creating patch:\n"
+                    "  git pull origin ho-prod"
+                )
+            elif status == "diverged":
+                raise PatchManagerError(
+                    "ho-prod has diverged from origin/ho-prod.\n"
+                    "Resolve conflicts before creating patch:\n"
+                    "  git pull --rebase origin ho-prod\n"
+                    "  or\n"
+                    "  git pull origin ho-prod (and resolve merge conflicts)"
+                )
+            else:
+                # Unknown status - generic error
+                raise PatchManagerError(
+                    f"ho-prod sync check failed with status: {status}\n"
+                    "Ensure ho-prod is synchronized with origin before creating patch."
+                )
+
+        except GitCommandError as e:
+            raise PatchManagerError(
+                f"Failed to check ho-prod sync status: {e}\n"
+                "Ensure origin remote is configured and accessible."
+            )
+        except PatchManagerError:
+            # Re-raise PatchManagerError as-is
+            raise
+        except Exception as e:
+            raise PatchManagerError(
+                f"Unexpected error checking ho-prod sync: {e}"
+            )
