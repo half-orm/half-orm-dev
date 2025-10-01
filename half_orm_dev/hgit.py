@@ -320,3 +320,31 @@ class HGit:
         """
         origin = self.__git_repo.remote('origin')
         origin.push(tag_name)
+
+    def fetch_from_origin(self) -> None:
+        """
+        Fetch all references from origin remote.
+
+        Updates local knowledge of all remote references including:
+        - All remote branches
+        - All remote tags
+        - Other remote refs
+
+        This is more comprehensive than fetch_tags() which only fetches tags.
+        Used before patch creation to ensure up-to-date view of remote state.
+
+        Raises:
+            GitCommandError: If fetch fails (no remote, network, auth, etc.)
+
+        Examples:
+            hgit.fetch_from_origin()
+            # Local git now has complete up-to-date view of origin
+        """
+        try:
+            origin = self.__git_repo.remote('origin')
+            origin.fetch()
+        except Exception as e:
+            from git.exc import GitCommandError
+            if isinstance(e, GitCommandError):
+                raise
+            raise GitCommandError(f"git fetch origin", 1, stderr=str(e))

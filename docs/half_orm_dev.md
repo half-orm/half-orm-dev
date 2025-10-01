@@ -361,12 +361,12 @@ pyproject.toml              # Project configuration (inherited)
 4. **Race condition prevention**
    ```bash
    # Tag-first strategy ensures atomic reservation
-   
+
    Developer A: Push tag ho-patch/456 ✅ (reservation complete)
    Developer B: Fetch tags, sees 456 reserved ✅
    Developer B: Cannot create patch 456 ✅
    Developer A: Push branch ho-patch/456 ✅ (content available)
-   
+
    # vs. old branch-first approach (problematic):
    # Dev A: Push branch → Dev B: Checks (no tag yet) → 
    # Dev B: Creates patch → Dev A: Push tag → CONFLICT!

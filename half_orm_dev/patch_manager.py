@@ -802,8 +802,14 @@ class PatchManager:
             # Local git now has up-to-date view of remote
             # Can accurately check tag/branch availability
         """
-        raise NotImplementedError("_fetch_from_remote not yet implemented")
-
+        try:
+            self._repo.hgit.fetch_from_origin()
+        except Exception as e:
+            raise PatchManagerError(
+                f"Failed to fetch from remote: {e}\n"
+                f"Cannot synchronize with remote repository.\n"
+                f"Check network connection and remote access."
+            )
 
     def _commit_patch_directory(self, patch_id: str, description: Optional[str] = None) -> None:
         """
@@ -868,7 +874,7 @@ class PatchManager:
         - Developer A pushes tag ho-patch/456 → reservation complete
         - Developer B fetches tags, sees 456 reserved → cannot create
         - Developer A pushes branch → content available
-        
+
         vs. branch-first (problematic):
         - Developer A pushes branch → visible but not reserved
         - Developer B checks (no tag yet) → appears available
@@ -1070,7 +1076,7 @@ class PatchManager:
 
         try:
             # === LOCAL OPERATIONS (rollback on failure) ===
-            
+
             # Step 7: Create git branch (local)
             self._create_git_branch(branch_name)
 

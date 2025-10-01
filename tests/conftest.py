@@ -65,6 +65,7 @@ def mock_hgit_complete():
             - branch: Current branch name
             - repos_is_clean(): Returns True
             - has_remote(): Returns True
+            - fetch_from_origin(): Fetch all references from remote
             - checkout(): Branch checkout
             - fetch_tags(): Tag fetching
             - tag_exists(): Returns False (tag doesn't exist)
@@ -90,6 +91,9 @@ def mock_hgit_complete():
     # Repository state
     mock_hgit.repos_is_clean = Mock(return_value=True)
     mock_hgit.has_remote = Mock(return_value=True)
+
+    # Remote synchronization
+    mock_hgit.fetch_from_origin = Mock()
 
     # Branch operations
     mock_hgit.checkout = Mock()
