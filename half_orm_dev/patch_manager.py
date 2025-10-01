@@ -779,36 +779,272 @@ class PatchManager:
         except Exception as e:
             raise PatchManagerError(f"Failed to execute Python file {file_path.name}: {e}") from e
 
-    def create_patch(
-        self,
-        patch_id: str,
-        description: Optional[str] = None
-    ) -> Dict[str, Any]:
+    def _fetch_from_remote(self) -> None:
         """
-        Create complete patch: branch + directory structure.
+        Fetch all references from remote before patch creation.
 
-        Orchestrates the full patch creation workflow:
+        Updates local knowledge of remote state including:
+        - Remote branches (ho-prod, ho-patch/*)
+        - Remote tags (ho-patch/{number} reservation tags)
+        - All other remote references
+
+        This ensures patch creation is based on the latest remote state and
+        prevents conflicts with recently created patches by other developers.
+
+        Called early in create_patch() workflow to synchronize with remote
+        before checking patch number availability.
+
+        Raises:
+            PatchManagerError: If fetch fails (network, auth, etc.)
+
+        Examples:
+            self._fetch_from_remote()
+            # Local git now has up-to-date view of remote
+            # Can accurately check tag/branch availability
+        """
+        raise NotImplementedError("_fetch_from_remote not yet implemented")
+
+
+    def _commit_patch_directory(self, patch_id: str, description: Optional[str] = None) -> None:
+        """
+        Commit patch directory to git repository.
+
+        Creates a commit containing the Patches/patch-id/ directory and README.md.
+        This commit becomes the target for the reservation tag, ensuring the tag
+        points to a repository state that includes the patch directory structure.
+
+        Args:
+            patch_id: Patch identifier (e.g., "456-user-auth")
+            description: Optional description included in commit message
+
+        Raises:
+            PatchManagerError: If git operations fail
+
+        Examples:
+            self._commit_patch_directory("456-user-auth")
+            # Creates commit: "Add Patches/456-user-auth directory"
+
+            self._commit_patch_directory("456-user-auth", "Add user authentication")
+            # Creates commit: "Add Patches/456-user-auth directory - Add user authentication"
+        """
+        raise NotImplementedError("_commit_patch_directory not yet implemented")
+
+
+    def _create_local_tag(self, patch_id: str, description: Optional[str] = None) -> None:
+        """
+        Create local git tag without pushing to remote.
+
+        Creates tag ho-patch/{number} pointing to current HEAD (which should be
+        the commit containing the Patches/ directory). Tag is created locally only;
+        push happens separately as the atomic reservation operation.
+
+        Args:
+            patch_id: Patch identifier (e.g., "456-user-auth")
+            description: Optional description for tag message
+
+        Raises:
+            PatchManagerError: If tag creation fails
+
+        Examples:
+            self._create_local_tag("456-user-auth")
+            # Creates local tag: ho-patch/456 with message "Patch 456 reserved"
+
+            self._create_local_tag("456-user-auth", "Add user authentication")
+            # Creates local tag: ho-patch/456 with message "Patch 456: Add user authentication"
+        """
+        raise NotImplementedError("_create_local_tag not yet implemented")
+
+
+    def _push_tag_to_reserve_number(self, patch_id: str) -> None:
+        """
+        Push tag to remote for atomic global reservation.
+
+        This is the point of no return in the patch creation workflow. Once the
+        tag is successfully pushed, the patch number is reserved globally and
+        cannot be rolled back. This must happen BEFORE pushing the branch to
+        prevent race conditions between developers.
+
+        Tag-first strategy prevents race conditions:
+        - Developer A pushes tag ho-patch/456 → reservation complete
+        - Developer B fetches tags, sees 456 reserved → cannot create
+        - Developer A pushes branch → content available
+        
+        vs. branch-first (problematic):
+        - Developer A pushes branch → visible but not reserved
+        - Developer B checks (no tag yet) → appears available
+        - Developer B creates patch → conflict when pushing tag
+
+        Args:
+            patch_id: Patch identifier (e.g., "456-user-auth")
+
+        Raises:
+            PatchManagerError: If tag push fails
+
+        Examples:
+            self._push_tag_to_reserve_number("456-user-auth")
+            # Pushes tag ho-patch/456 to remote
+            # After this succeeds, patch number is globally reserved
+        """
+        raise NotImplementedError("_push_tag_to_reserve_number not yet implemented")
+
+
+    def _push_branch_to_remote(self, branch_name: str, retry_count: int = 3) -> None:
+        """
+        Push branch to remote with automatic retry on failure.
+
+        Attempts to push branch to remote with exponential backoff retry strategy.
+        If tag was already pushed successfully, branch push failure is not critical
+        as the patch number is already reserved. Retries help handle transient
+        network issues.
+
+        Retry strategy:
+        - Attempt 1: immediate
+        - Attempt 2: 1 second delay
+        - Attempt 3: 2 seconds delay
+        - Attempt 4: 4 seconds delay (if retry_count allows)
+
+        Args:
+            branch_name: Full branch name (e.g., "ho-patch/456-user-auth")
+            retry_count: Number of retry attempts (default: 3)
+
+        Raises:
+            PatchManagerError: If all retry attempts fail
+
+        Examples:
+            self._push_branch_to_remote("ho-patch/456-user-auth")
+            # Tries to push branch, retries up to 3 times with backoff
+
+            self._push_branch_to_remote("ho-patch/456-user-auth", retry_count=5)
+            # Custom retry count for unreliable networks
+        """
+        raise NotImplementedError("_push_branch_to_remote not yet implemented")
+
+
+    def _update_readme_with_description(
+        self, 
+        patch_dir: Path, 
+        patch_id: str, 
+        description: str
+    ) -> None:
+        """
+        Update README.md in patch directory with description.
+
+        Helper method to update the README.md file with user-provided description.
+        Separated from main workflow for clarity and testability.
+
+        Args:
+            patch_dir: Path to patch directory
+            patch_id: Patch identifier for README header
+            description: Description text to add
+
+        Raises:
+            PatchManagerError: If README update fails
+
+        Examples:
+            patch_dir = Path("Patches/456-user-auth")
+            self._update_readme_with_description(
+                patch_dir,
+                "456-user-auth",
+                "Add user authentication system"
+            )
+            # Updates README.md with description
+        """
+        raise NotImplementedError("_update_readme_with_description not yet implemented")
+
+
+    def _rollback_patch_creation(
+        self,
+        initial_branch: str,
+        branch_name: str,
+        patch_id: str,
+        patch_dir: Optional[Path] = None
+    ) -> None:
+        """
+        Rollback patch creation to initial state on failure.
+
+        Performs complete cleanup of all local changes made during patch creation
+        when an error occurs BEFORE the tag is pushed to remote. This ensures a
+        clean repository state for retry.
+
+        Rollback operations (best-effort, continues on individual failures):
+        1. Checkout to initial branch
+        2. Delete patch branch (local)
+        3. Delete patch tag (local)
+        4. Delete patch directory (if created)
+
+        Note: This method is only called when tag push has NOT succeeded yet.
+        Once tag is pushed, rollback is not performed as the patch number is
+        already globally reserved.
+
+        Args:
+            initial_branch: Branch to return to (usually "ho-prod")
+            branch_name: Patch branch to delete (e.g., "ho-patch/456-user-auth")
+            patch_id: Patch identifier for tag/directory cleanup
+            patch_dir: Path to patch directory if it was created
+
+        Examples:
+            self._rollback_patch_creation(
+                "ho-prod",
+                "ho-patch/456-user-auth",
+                "456-user-auth",
+                Path("Patches/456-user-auth")
+            )
+            # Reverts all local changes, returns to ho-prod
+        """
+        raise NotImplementedError("_rollback_patch_creation not yet implemented")
+
+
+    def create_patch(self, patch_id: str, description: Optional[str] = None) -> dict:
+        """
+        Create new patch with atomic tag-first reservation strategy.
+
+        Orchestrates the full patch creation workflow with transactional guarantees:
         1. Validates we're on ho-prod branch
         2. Validates repository is clean
         3. Validates git remote is configured
         4. Validates and normalizes patch ID format
-        5. Fetches tags and checks patch number available  # ✅ Tag check
-        6. Creates ho-patch/PATCH_ID branch
-        7. Creates reservation tag ho-patch/{number}  # ✅ Tag creation
-        8. Pushes branch to remote
-        9. Pushes tag to reserve number globally  # ✅ Tag push
-        10. Creates Patches/PATCH_ID/ directory
-        11. Checkouts to new patch branch
+        5. Fetches all references from remote (branches + tags)
+        6. Checks patch number available via tag lookup
+        7. Creates ho-patch/PATCH_ID branch (local)
+        8. Creates Patches/PATCH_ID/ directory
+        9. Commits directory "Add Patches/{patch_id} directory"
+        10. Creates local tag ho-patch/{number} (points to commit with Patches/)
+        11. **Pushes tag to reserve number globally** ← POINT OF NO RETURN
+        12. Pushes branch to remote (with retry)
+        13. Checkouts to new patch branch
+
+        Transactional guarantees:
+        - Failure before step 11 (tag push): Complete rollback to initial state
+        - Success at step 11 (tag push): Patch reserved, no rollback even if branch push fails
+        - Tag-first strategy prevents race conditions between developers
+        - Remote fetch ensures up-to-date view of all reservations
+
+        Race condition prevention:
+        Tag pushed BEFORE branch ensures atomic reservation:
+        - Dev A: Push tag → reservation complete
+        - Dev B: Fetch tags → sees reservation → cannot create
+        vs. branch-first approach allows conflicts
 
         Args:
             patch_id: Patch identifier (e.g., "456-user-auth")
-            description: Optional description
+            description: Optional description for README and commit message
 
         Returns:
-            dict: Creation result
+            dict: Creation result with keys:
+                - patch_id: Normalized patch identifier
+                - branch_name: Created branch name
+                - patch_dir: Path to patch directory
+                - on_branch: Current branch after checkout
 
         Raises:
             PatchManagerError: If validation fails or creation errors occur
+
+        Examples:
+            result = patch_mgr.create_patch("456-user-auth")
+            # Creates patch with all steps, returns on success
+
+            result = patch_mgr.create_patch("456", "Add authentication")
+            # With description for README and commits
         """
         # Step 1-3: Validate context
         self._validate_on_ho_prod()
@@ -822,35 +1058,73 @@ class PatchManager:
         except Exception as e:
             raise PatchManagerError(f"Invalid patch ID: {e}")
 
-        # Step 5: Check patch number available (via tag)
+        # Step 5: Fetch all references from remote (branches + tags)
+        self._fetch_from_remote()
+
+        # Step 6: Check patch number available (via tag)
         branch_name = f"ho-patch/{normalized_id}"
         self._check_patch_id_available(normalized_id)
 
-        # Step 6: Create git branch
-        self._create_git_branch(branch_name)
+        # Save initial state for rollback
+        initial_branch = self._repo.hgit.branch
 
-        # Step 7: Create reservation tag
-        self._create_reservation_tag(normalized_id, description)
-
-        # Step 8: Push branch
-        self._push_branch_to_reserve_id(branch_name)
-
-        # Step 9: Create patch directory
         try:
+            # === LOCAL OPERATIONS (rollback on failure) ===
+            
+            # Step 7: Create git branch (local)
+            self._create_git_branch(branch_name)
+
+            # Step 8: Create patch directory
             patch_dir = self.create_patch_directory(normalized_id)
 
+            # Step 8b: Update README if description provided
             if description:
-                readme_path = patch_dir / "README.md"
-                readme_content = f"# Patch {normalized_id}\n\n{description}\n"
-                readme_path.write_text(readme_content, encoding='utf-8')
+                self._update_readme_with_description(patch_dir, normalized_id, description)
+
+            # Step 9: Commit patch directory
+            self._commit_patch_directory(normalized_id, description)
+
+            # Step 10: Create local tag (points to commit with Patches/)
+            self._create_local_tag(normalized_id, description)
+
+            # === REMOTE OPERATIONS (point of no return) ===
+
+            # Step 11: Push tag FIRST → ATOMIC RESERVATION
+            self._push_tag_to_reserve_number(normalized_id)
+            # ✅ If we reach here: patch number globally reserved!
+
+            # Step 12: Push branch (with retry)
+            try:
+                self._push_branch_to_remote(branch_name, retry_count=3)
+            except PatchManagerError as e:
+                # Tag already pushed = success, just warn about branch
+                import click
+                click.echo(f"⚠️  Warning: Branch push failed after {3} attempts")
+                click.echo(f"⚠️  Patch {normalized_id} is reserved (tag pushed successfully)")
+                click.echo(f"⚠️  Push branch manually: git push -u origin {branch_name}")
+                # Don't raise - tag pushed means success
 
         except Exception as e:
-            raise PatchManagerError(f"Failed to create patch directory: {e}")
+            # Only rollback if tag NOT pushed yet
+            # If tag was pushed, we're past point of no return
+            if '_push_tag_to_reserve_number' not in str(e.__traceback__):
+                self._rollback_patch_creation(
+                    initial_branch,
+                    branch_name,
+                    normalized_id,
+                    patch_dir if 'patch_dir' in locals() else None
+                )
+            raise PatchManagerError(f"Patch creation failed: {e}")
 
-        # Step 10: Checkout to new branch
-        self._checkout_branch(branch_name)
+        # Step 12: Checkout to new branch (non-critical, warn if fails)
+        try:
+            self._checkout_branch(branch_name)
+        except Exception as e:
+            import click
+            click.echo(f"⚠️  Checkout failed but patch created successfully")
+            click.echo(f"Run: git checkout {branch_name}")
 
-        # Step 11: Return result
+        # Return result
         return {
             'patch_id': normalized_id,
             'branch_name': branch_name,
