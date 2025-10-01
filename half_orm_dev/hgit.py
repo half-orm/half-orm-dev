@@ -545,4 +545,40 @@ class HGit:
                         f"Sync required before creating patch."
                     )
         """
-        pass
+        # Get local and remote commit hashes
+        local_hash = self.get_local_commit_hash(branch_name)
+        remote_hash = self.get_remote_commit_hash(branch_name, remote)
+        
+        # If hashes are identical, branches are synced
+        if local_hash == remote_hash:
+            return (True, "synced")
+        
+        # Branches differ - determine if ahead, behind, or diverged
+        try:
+            # Get merge base (common ancestor)
+            local_commit = self.__git_repo.heads[branch_name].commit
+            remote_ref = self.__git_repo.remote(remote).refs[branch_name]
+            remote_commit = remote_ref.commit
+            
+            merge_base_commits = self.__git_repo.merge_base(local_commit, remote_commit)
+            
+            if not merge_base_commits:
+                # No common ancestor - diverged
+                return (False, "diverged")
+            
+            merge_base_hash = merge_base_commits[0].hexsha
+            
+            # Compare merge base with local and remote
+            if merge_base_hash == remote_hash:
+                # Merge base = remote → local is ahead
+                return (False, "ahead")
+            elif merge_base_hash == local_hash:
+                # Merge base = local → local is behind
+                return (False, "behind")
+            else:
+                # Merge base different from both → diverged
+                return (False, "diverged")
+                
+        except Exception as e:
+            # If merge_base fails, assume diverged
+            return (False, "diverged")
