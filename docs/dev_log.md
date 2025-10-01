@@ -95,11 +95,9 @@ my_project/
 └── Pipfile
 ```
 
-## 🚧 En cours d'implémentation
+### Commande `create-patch`
+**Status :** ✅ Fonctionnelle (tests OK)
 
-### Commandes à implémenter (v0.16.0)
-
-**1. `create-patch`**
 - ✅ Création branche ho-patch/<patch-name>
 - ✅ Création répertoire Patches/<patch-name>/
 - ✅ Commit répertoire Patches/ sur branche
@@ -108,7 +106,7 @@ my_project/
 - ✅ Push branche avec retry (3 tentatives)
 - ✅ Gestion transactionnelle avec rollback
 - ✅ Checkout automatique vers nouvelle branche
-- ✅ Tests unitaires complets (392 tests passent)
+- ✅ Tests unitaires complets (420 tests passent)
 
 **Workflow atomique implémenté :**
 1. Validations (ho-prod, repo clean, remote)
@@ -165,23 +163,27 @@ my_project/
    ```
 
 
-**2. `apply-patch`**
+## 🚧 En cours d'implémentation
+
+### Commandes à implémenter (v0.16.0)
+
+**1. `apply-patch`**
 - ⏸️ Application fichiers SQL/Python
 - ⏸️ Génération code Python (modules.generate())
 - ⏸️ Validation patch
 - ⏸️ Tests unitaires
 
-**3. `add-to-release`**
+**2. `add-to-release`**
 - ⏸️ Ajout patch à releases/X.Y.Z-stage.txt
 - ⏸️ Merge vers ho-prod
 - ⏸️ Tests unitaires
 
-**4. `promote-to-rc` / `promote-to-prod`**
+**3. `promote-to-rc` / `promote-to-prod`**
 - ⏸️ Promotion stage → rc → production
 - ⏸️ Cleanup branches automatique
 - ⏸️ Tests unitaires
 
-**5. `deploy-to-prod`**
+**4. `deploy-to-prod`**
 - ⏸️ Application patches en production
 - ⏸️ Gestion backups
 - ⏸️ Tests unitaires
