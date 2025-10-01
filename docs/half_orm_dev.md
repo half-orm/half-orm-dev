@@ -342,16 +342,44 @@ pyproject.toml              # Project configuration (inherited)
    half_orm dev create-patch "456"  # Check ticket 456 on github or gitlab
    ```
 
-2. **Result**
+2. **Atomic workflow with transactional guarantees**
+   - Validates prerequisites (ho-prod branch, clean repo, remote configured)
    - Creates branch `ho-patch/456-user-authentication` from `ho-prod`
+   - Creates directory `Patches/456-user-authentication/`
+   - Creates `README.md` file automatically
+   - **Commits directory**: "Add Patches/456-user-authentication directory"
+   - Creates local tag `ho-patch/456` pointing to this commit
+   - **Pushes tag FIRST** for atomic reservation (prevents race conditions)
+   - Pushes branch to remote (3 retry attempts with exponential backoff)
    - Automatic checkout to `ho-patch/456-user-authentication`
-   - Directory `Patches/456-user-authentication/` created
-   - `README.md` file added automatically  
-   - Commit: "Add Patches/456-user-authentication directory"
-   - Push branch to remote for global visibility and reservation
-   - Git native conflict detection (fails if branch already exists)
 
-3. **Develop complete patch**
+3. **Rollback on failure**
+   - If any operation fails **before tag push**: complete rollback (clean local state)
+   - If tag push succeeds but branch push fails: warning + manual push instructions
+   - Tag push = point of no return (global reservation complete)
+
+4. **Race condition prevention**
+   ```bash
+   # Tag-first strategy ensures atomic reservation
+   
+   Developer A: Push tag ho-patch/456 ✅ (reservation complete)
+   Developer B: Fetch tags, sees 456 reserved ✅
+   Developer B: Cannot create patch 456 ✅
+   Developer A: Push branch ho-patch/456 ✅ (content available)
+   
+   # vs. old branch-first approach (problematic):
+   # Dev A: Push branch → Dev B: Checks (no tag yet) → 
+   # Dev B: Creates patch → Dev A: Push tag → CONFLICT!
+   ```
+
+5. **Result**
+   - ✅ Branch `ho-patch/456-user-authentication` exists locally and remotely
+   - ✅ Tag `ho-patch/456` exists and points to commit with `Patches/` directory
+   - ✅ Directory `Patches/456-user-authentication/` is committed and tracked
+   - ✅ Automatic checkout to `ho-patch/456-user-authentication`
+   - ✅ Global reservation prevents conflicts between developers
+
+6. **Develop complete patch**
    ```bash
    # On ho-patch/456-user-authentication
 

@@ -95,17 +95,75 @@ my_project/
 └── Pipfile
 ```
 
----
-
 ## 🚧 En cours d'implémentation
 
 ### Commandes à implémenter (v0.16.0)
 
 **1. `create-patch`**
-- ⏸️ Création branche ho-patch/<patch-name>
-- ⏸️ Création répertoire Patches/<patch-name>/
-- ⏸️ Réservation ID patch (via remote)
-- ⏸️ Tests unitaires
+- ✅ Création branche ho-patch/<patch-name>
+- ✅ Création répertoire Patches/<patch-name>/
+- ✅ Commit répertoire Patches/ sur branche
+- ✅ Réservation ID patch via tag (tag-first strategy)
+- ✅ Push tag AVANT branche (prévention race conditions)
+- ✅ Push branche avec retry (3 tentatives)
+- ✅ Gestion transactionnelle avec rollback
+- ✅ Checkout automatique vers nouvelle branche
+- ✅ Tests unitaires complets (392 tests passent)
+
+**Workflow atomique implémenté :**
+1. Validations (ho-prod, repo clean, remote)
+2. Création branche locale
+3. Création répertoire Patches/
+4. Commit "Add Patches/{patch-id} directory"
+5. Création tag local (pointe vers commit avec Patches/)
+6. **Push tag** → Réservation atomique globale
+7. Push branche (3 retry si échec)
+8. Checkout vers branche patch
+
+**Garanties transactionnelles :**
+- Échec avant push tag → Rollback complet local
+- Succès push tag → Réservation garantie (même si push branche échoue)
+- Tag-first élimine les race conditions entre développeurs
+- Retry automatique push branche (3 tentatives, backoff exponentiel)
+
+**Prévention race conditions :**
+- Tag = lock distribué
+- Premier à pusher le tag = réservation définitive
+- Vérification disponibilité via fetch tags AVANT création locale
+- Pas de pollution du remote en cas de conflit
+
+**Tests :**
+- `tests/patch_manager/test_patch_manager_create_patch_integration.py`
+- `tests/patch_manager/test_patch_manager_id_availability.py` (tags)
+- `tests/patch_manager/test_patch_manager_remote_validation.py`
+- `tests/patch_manager/test_patch_manager_directory_creation.py`
+- Tous les tests utilisent `mock_hgit_complete` pour cohérence
+
+## Implementation Notes
+
+**Key improvements documented:**
+
+1. **Atomic workflow**: All operations are transactional with proper rollback
+2. **Tag-first strategy**: Prevents race conditions between developers
+3. **Commit directory**: Patches/ directory is committed before tag creation
+4. **Retry mechanism**: 3 automatic retries for branch push with exponential backoff
+5. **Clear guarantees**: Tag push = point of no return, reservation complete
+
+**Race condition prevention explained:**
+- Old approach: branch push first → window for conflicts
+- New approach: tag push first → atomic reservation, no conflicts possible
+
+**Rollback behavior clarified:**
+- Before tag push: full rollback (clean state)
+- After tag push: no rollback (reservation complete, manual branch push if needed)
+**Create patch branch:**
+
+1. **Create patch from production**
+   ```bash
+   git checkout ho-prod  # Ensure we're on main branch
+   half_orm dev create-patch "456"  # Check ticket 456 on github or gitlab
+   ```
+
 
 **2. `apply-patch`**
 - ⏸️ Application fichiers SQL/Python
