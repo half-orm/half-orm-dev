@@ -54,7 +54,6 @@ def mock_restore_environment(patch_manager):
 class TestRestoreDatabaseFromSchema:
     """Test database restoration from model/schema.sql."""
 
-    @pytest.mark.skip(reason="Database restoration logic not implemented yet")
     def test_restore_database_success(self, mock_restore_environment):
         """Test successful database restoration workflow."""
         patch_mgr, repo, schema_file, mock_model, mock_execute = mock_restore_environment
@@ -82,7 +81,6 @@ class TestRestoreDatabaseFromSchema:
         # 6. Verify call order
         assert mock_execute.call_count == 3  # dropdb, createdb, psql
 
-    @pytest.mark.skip(reason="Schema file validation not implemented yet")
     def test_restore_database_schema_file_missing(self, patch_manager):
         """Test restoration fails when model/schema.sql doesn't exist."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -95,13 +93,12 @@ class TestRestoreDatabaseFromSchema:
         repo.model = mock_model
 
         # Should raise PatchManagerError
-        with pytest.raises(PatchManagerError, match="schema.sql.*not found"):
+        with pytest.raises(PatchManagerError, match="Schema file not found"):
             patch_mgr.restore_database_from_schema()
 
         # Model should not be disconnected if file missing
         mock_model.disconnect.assert_not_called()
 
-    @pytest.mark.skip(reason="Schema file validation not implemented yet")
     def test_restore_database_model_dir_missing(self, patch_manager):
         """Test restoration fails when model/ directory doesn't exist."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -113,13 +110,12 @@ class TestRestoreDatabaseFromSchema:
         repo.model = mock_model
 
         # Should raise PatchManagerError
-        with pytest.raises(PatchManagerError, match="model.*not found|schema.sql.*not found"):
+        with pytest.raises(PatchManagerError, match="Model.*not found|Schema file not found"):
             patch_mgr.restore_database_from_schema()
 
         # Model should not be disconnected
         mock_model.disconnect.assert_not_called()
 
-    @pytest.mark.skip(reason="Error handling for dropdb not implemented yet")
     def test_restore_database_dropdb_fails(self, mock_restore_environment):
         """Test restoration fails when dropdb command fails."""
         patch_mgr, repo, schema_file, mock_model, mock_execute = mock_restore_environment
@@ -139,7 +135,6 @@ class TestRestoreDatabaseFromSchema:
         # Ping should not be called (restoration failed)
         mock_model.ping.assert_not_called()
 
-    @pytest.mark.skip(reason="Error handling for createdb not implemented yet")
     def test_restore_database_createdb_fails(self, mock_restore_environment):
         """Test restoration fails when createdb command fails."""
         patch_mgr, repo, schema_file, mock_model, mock_execute = mock_restore_environment
@@ -161,7 +156,6 @@ class TestRestoreDatabaseFromSchema:
         # Ping not called
         mock_model.ping.assert_not_called()
 
-    @pytest.mark.skip(reason="Error handling for psql not implemented yet")
     def test_restore_database_psql_fails(self, mock_restore_environment):
         """Test restoration fails when psql schema load fails."""
         patch_mgr, repo, schema_file, mock_model, mock_execute = mock_restore_environment
@@ -183,7 +177,6 @@ class TestRestoreDatabaseFromSchema:
         # Ping not called (restoration failed)
         mock_model.ping.assert_not_called()
 
-    @pytest.mark.skip(reason="Symlink support not implemented yet")
     def test_restore_database_with_symlink(self, patch_manager):
         """Test restoration works with schema.sql as symlink."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -225,7 +218,6 @@ class TestRestoreDatabaseFromSchema:
         mock_model.disconnect.assert_called_once()
         mock_model.ping.assert_called_once()
 
-    @pytest.mark.skip(reason="Regular file support not implemented yet")
     def test_restore_database_with_regular_file(self, patch_manager):
         """Test restoration works with schema.sql as regular file."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager

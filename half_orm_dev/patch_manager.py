@@ -1528,4 +1528,45 @@ class PatchManager:
             - Supports both schema.sql file and schema.sql -> schema-X.Y.Z.sql symlink
             - All PostgreSQL commands use repository connection configuration
             """
-            pass
+            # 1. Verify model/schema.sql exists
+            schema_path = Path(self._base_dir) / "model" / "schema.sql"
+
+            if not schema_path.exists():
+                raise PatchManagerError(
+                    f"Schema file not found: {schema_path}. "
+                    "Cannot restore database without model/schema.sql."
+                )
+
+            try:
+                # 2. Disconnect Model from database
+                self._repo.model.disconnect()
+
+                # 3. Drop existing database
+                try:
+                    self._repo.database.execute_pg_command('dropdb')
+                except Exception as e:
+                    raise PatchManagerError(f"Failed to drop database: {e}") from e
+
+                # 4. Create fresh empty database
+                try:
+                    self._repo.database.execute_pg_command('createdb')
+                except Exception as e:
+                    raise PatchManagerError(f"Failed to create database: {e}") from e
+
+                # 5. Load schema from model/schema.sql
+                try:
+                    self._repo.database.execute_pg_command(
+                        'psql', '-f', str(schema_path), stdout=subprocess.DEVNULL
+                    )
+                except Exception as e:
+                    raise PatchManagerError(f"Failed to load schema from {schema_path.name}: {e}") from e
+
+                # 6. Reconnect Model to restored database
+                self._repo.model.ping()
+
+            except PatchManagerError:
+                # Re-raise PatchManagerError as-is
+                raise
+            except Exception as e:
+                # Catch any unexpected errors
+                raise PatchManagerError(f"Database restoration failed: {e}") from e
