@@ -129,19 +129,38 @@ class TestPatchManagerRemoteValidation:
         with pytest.raises(PatchManagerError, match="Must be on ho-prod branch"):
             patch_mgr.create_patch("456")
 
-    def test_create_patch_network_error_on_push(self, patch_manager, mock_hgit_complete):
-        """Test handling of network errors during push."""
+    def test_create_patch_network_error_on_push(self, patch_manager, mock_hgit_complete, capsys):
+        """Test handling of network errors during branch push after tag push succeeds."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Mock HGit with network error on push
+        # Mock HGit with network error on branch push (but tag push succeeds)
         mock_hgit_complete.push_branch.side_effect = GitCommandError(
             "git push", 1, stderr="Could not resolve host"
         )
         repo.hgit = mock_hgit_complete
 
-        # Should raise error with network info
-        with pytest.raises(PatchManagerError, match="Failed to push branch"):
-            patch_mgr.create_patch("456")
+        # Should NOT raise - tag was pushed successfully, patch is reserved
+        result = patch_mgr.create_patch("456")
+
+        # Patch should be created successfully
+        assert result['patch_id'] == "456"
+        assert result['branch_name'] == "ho-patch/456"
+
+        # Directory should exist
+        expected_dir = patches_dir / "456"
+        assert expected_dir.exists()
+
+        # Tag should have been pushed (reservation complete)
+        mock_hgit_complete.push_tag.assert_called_once_with("ho-patch/456")
+
+        # Should have attempted branch push 3 times
+        assert mock_hgit_complete.push_branch.call_count == 3
+
+        # Should display warning about branch push failure
+        captured = capsys.readouterr()
+        assert "Warning: Branch push failed after 3 attempts" in captured.out
+        assert "Patch 456 is reserved (tag pushed successfully)" in captured.out
+        assert "Push branch manually: git push -u origin ho-patch/456" in captured.out
 
     def test_create_patch_complete_workflow_with_remote(self, patch_manager, mock_hgit_complete):
         """Test complete workflow includes remote push and tag reservation."""

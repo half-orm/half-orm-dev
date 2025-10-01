@@ -348,3 +348,48 @@ class HGit:
             if isinstance(e, GitCommandError):
                 raise
             raise GitCommandError(f"git fetch origin", 1, stderr=str(e))
+
+    def delete_local_branch(self, branch_name: str) -> None:
+        """
+        Delete local branch.
+
+        Args:
+            branch_name: Branch name to delete (e.g., "ho-patch/456-user-auth")
+
+        Raises:
+            GitCommandError: If deletion fails
+
+        Examples:
+            hgit.delete_local_branch("ho-patch/456-user-auth")
+            # Branch deleted locally
+        """
+        try:
+            self.__git_repo.git.branch('-D', branch_name)
+        except Exception as e:
+            from git.exc import GitCommandError
+            if isinstance(e, GitCommandError):
+                raise
+            raise GitCommandError(f"git branch -D {branch_name}", 1, stderr=str(e))
+
+
+    def delete_local_tag(self, tag_name: str) -> None:
+        """
+        Delete local tag.
+
+        Args:
+            tag_name: Tag name to delete (e.g., "ho-patch/456")
+
+        Raises:
+            GitCommandError: If deletion fails
+
+        Examples:
+            hgit.delete_local_tag("ho-patch/456")
+            # Tag deleted locally
+        """
+        try:
+            self.__git_repo.git.tag('-d', tag_name)
+        except Exception as e:
+            from git.exc import GitCommandError
+            if isinstance(e, GitCommandError):
+                raise
+            raise GitCommandError(f"git tag -d {tag_name}", 1, stderr=str(e))

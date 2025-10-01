@@ -104,6 +104,8 @@ def mock_hgit_complete():
     mock_hgit.tag_exists = Mock(return_value=False)  # By default, tag doesn't exist
     mock_hgit.create_tag = Mock()
     mock_hgit.push_tag = Mock()
+    mock_hgit.delete_local_branch = Mock()
+    mock_hgit.delete_local_tag = Mock()
 
     return mock_hgit
 

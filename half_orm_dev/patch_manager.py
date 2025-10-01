@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass
@@ -833,8 +834,24 @@ class PatchManager:
             self._commit_patch_directory("456-user-auth", "Add user authentication")
             # Creates commit: "Add Patches/456-user-auth directory - Add user authentication"
         """
-        raise NotImplementedError("_commit_patch_directory not yet implemented")
+        try:
+            # Add the patch directory to git
+            patch_path = self.get_patch_directory_path(patch_id)
+            self._repo.hgit.add(str(patch_path))
 
+            # Create commit message
+            if description:
+                commit_message = f"Add Patches/{patch_id} directory - {description}"
+            else:
+                commit_message = f"Add Patches/{patch_id} directory"
+
+            # Commit the changes
+            self._repo.hgit.commit('-m', commit_message)
+
+        except Exception as e:
+            raise PatchManagerError(
+                f"Failed to commit patch directory {patch_id}: {e}"
+            )
 
     def _create_local_tag(self, patch_id: str, description: Optional[str] = None) -> None:
         """
@@ -858,8 +875,23 @@ class PatchManager:
             self._create_local_tag("456-user-auth", "Add user authentication")
             # Creates local tag: ho-patch/456 with message "Patch 456: Add user authentication"
         """
-        raise NotImplementedError("_create_local_tag not yet implemented")
+        # Extract patch number
+        patch_number = patch_id.split('-')[0]
+        tag_name = f"ho-patch/{patch_number}"
 
+        # Create tag message
+        if description:
+            tag_message = f"Patch {patch_number}: {description}"
+        else:
+            tag_message = f"Patch {patch_number} reserved"
+
+        try:
+            # Create tag locally (no push)
+            self._repo.hgit.create_tag(tag_name, tag_message)
+        except Exception as e:
+            raise PatchManagerError(
+                f"Failed to create local tag {tag_name}: {e}"
+            )
 
     def _push_tag_to_reserve_number(self, patch_id: str) -> None:
         """
@@ -891,8 +923,18 @@ class PatchManager:
             # Pushes tag ho-patch/456 to remote
             # After this succeeds, patch number is globally reserved
         """
-        raise NotImplementedError("_push_tag_to_reserve_number not yet implemented")
+        # Extract patch number
+        patch_number = patch_id.split('-')[0]
+        tag_name = f"ho-patch/{patch_number}"
 
+        try:
+            # Push tag to reserve globally (ATOMIC OPERATION)
+            self._repo.hgit.push_tag(tag_name)
+        except Exception as e:
+            raise PatchManagerError(
+                f"Failed to push reservation tag {tag_name}: {e}\n"
+                f"Patch number reservation failed."
+            )
 
     def _push_branch_to_remote(self, branch_name: str, retry_count: int = 3) -> None:
         """
@@ -923,8 +965,27 @@ class PatchManager:
             self._push_branch_to_remote("ho-patch/456-user-auth", retry_count=5)
             # Custom retry count for unreliable networks
         """
-        raise NotImplementedError("_push_branch_to_remote not yet implemented")
+        last_error = None
 
+        for attempt in range(retry_count):
+            try:
+                # Attempt to push branch
+                self._repo.hgit.push_branch(branch_name, set_upstream=True)
+                return  # Success!
+
+            except Exception as e:
+                last_error = e
+
+                # If not last attempt, wait before retry
+                if attempt < retry_count - 1:
+                    delay = 2 ** attempt  # Exponential backoff: 1, 2, 4 seconds
+                    time.sleep(delay)
+
+        # All retries failed
+        raise PatchManagerError(
+            f"Failed to push branch {branch_name} after {retry_count} attempts: {last_error}\n"
+            "Check network connection and remote access permissions."
+        )
 
     def _update_readme_with_description(
         self, 
@@ -955,7 +1016,15 @@ class PatchManager:
             )
             # Updates README.md with description
         """
-        raise NotImplementedError("_update_readme_with_description not yet implemented")
+        try:
+            readme_path = patch_dir / "README.md"
+            readme_content = f"# Patch {patch_id}\n\n{description}\n"
+            readme_path.write_text(readme_content, encoding='utf-8')
+
+        except Exception as e:
+            raise PatchManagerError(
+                f"Failed to update README for patch {patch_id}: {e}"
+            )
 
 
     def _rollback_patch_creation(
@@ -997,8 +1066,39 @@ class PatchManager:
             )
             # Reverts all local changes, returns to ho-prod
         """
-        raise NotImplementedError("_rollback_patch_creation not yet implemented")
+        # Best-effort cleanup - continue even if individual operations fail
 
+        # 1. Try to checkout to initial branch
+        try:
+            self._repo.hgit.checkout(initial_branch)
+        except Exception:
+            # Continue cleanup even if checkout fails
+            pass
+
+        # 2. Try to delete local branch
+        try:
+            self._repo.hgit.delete_local_branch(branch_name)
+        except Exception:
+            # Branch may not exist yet or deletion may fail - continue
+            pass
+
+        # 3. Try to delete local tag
+        patch_number = patch_id.split('-')[0]
+        tag_name = f"ho-patch/{patch_number}"
+        try:
+            self._repo.hgit.delete_local_tag(tag_name)
+        except Exception:
+            # Tag may not exist yet or deletion may fail - continue
+            pass
+
+        # 4. Try to delete patch directory
+        if patch_dir and patch_dir.exists():
+            try:
+                import shutil
+                shutil.rmtree(patch_dir)
+            except Exception:
+                # Directory deletion may fail (permissions, etc.) - continue
+                pass
 
     def create_patch(self, patch_id: str, description: Optional[str] = None) -> dict:
         """
