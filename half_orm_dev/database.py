@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 
+from pathlib import Path
 from psycopg2 import OperationalError
 from half_orm.model import Model
 from half_orm.model_errors import UnknownRelation
@@ -167,7 +168,7 @@ class Database:
             schema_path = database._generate_schema_sql("1.3.4", model_dir)
             # → Creates model/schema-1.3.4.sql
             # → Updates symlink model/schema.sql → schema-1.3.4.sql
-            # → Old symlink removed, new one created
+            # → Old symlink removed, negit commit -m "docs: mark create-patch as complete in dev_logw one created
 
             # Hotfix deployment - overwrites base version
             schema_path = database._generate_schema_sql("1.3.4", model_dir)
