@@ -393,3 +393,114 @@ class HGit:
             if isinstance(e, GitCommandError):
                 raise
             raise GitCommandError(f"git tag -d {tag_name}", 1, stderr=str(e))
+
+def get_local_commit_hash(self, branch_name: str) -> str:
+        """
+        Get the commit hash of a local branch.
+
+        Retrieves the SHA-1 hash of the HEAD commit for the specified
+        local branch. Used to compare local state with remote state.
+
+        Args:
+            branch_name: Local branch name (e.g., "ho-prod", "ho-patch/456")
+
+        Returns:
+            str: Full SHA-1 commit hash (40 characters)
+
+        Raises:
+            GitCommandError: If branch doesn't exist locally
+
+        Examples:
+            # Get commit hash of ho-prod
+            hash_prod = hgit.get_local_commit_hash("ho-prod")
+            print(f"Local ho-prod at: {hash_prod[:8]}")
+
+            # Get commit hash of patch branch
+            hash_patch = hgit.get_local_commit_hash("ho-patch/456")
+        """
+        pass
+
+    def get_remote_commit_hash(self, branch_name: str, remote: str = 'origin') -> str:
+        """
+        Get the commit hash of a remote branch.
+
+        Retrieves the SHA-1 hash of the HEAD commit for the specified
+        branch on the remote repository. Requires prior fetch to have
+        up-to-date information.
+
+        Args:
+            branch_name: Branch name (e.g., "ho-prod", "ho-patch/456")
+            remote: Remote name (default: "origin")
+
+        Returns:
+            str: Full SHA-1 commit hash (40 characters)
+
+        Raises:
+            GitCommandError: If remote or branch doesn't exist on remote
+
+        Examples:
+            # Get remote commit hash (after fetch)
+            hgit.fetch_from_origin()
+            hash_remote = hgit.get_remote_commit_hash("ho-prod")
+            print(f"Remote ho-prod at: {hash_remote[:8]}")
+
+            # Compare with local
+            hash_local = hgit.get_local_commit_hash("ho-prod")
+            if hash_local == hash_remote:
+                print("Branch is synced")
+        """
+        pass
+
+    def is_branch_synced(self, branch_name: str, remote: str = 'origin') -> tuple[bool, str]:
+        """
+        Check if local branch is synchronized with remote branch.
+
+        Compares local and remote commit hashes to determine sync status.
+        Returns both a boolean indicating if synced and a status message.
+
+        Requires fetch_from_origin() to be called first for accurate results.
+
+        Sync states:
+        - "synced": Local and remote at same commit
+        - "ahead": Local has commits not on remote (need push)
+        - "behind": Remote has commits not in local (need pull)
+        - "diverged": Both have different commits (need merge/rebase)
+
+        Args:
+            branch_name: Branch name to check (e.g., "ho-prod")
+            remote: Remote name (default: "origin")
+
+        Returns:
+            tuple[bool, str]: (is_synced, status_message)
+                - is_synced: True only if "synced", False otherwise
+                - status_message: One of "synced", "ahead", "behind", "diverged"
+
+        Raises:
+            GitCommandError: If branch doesn't exist locally or on remote
+
+        Examples:
+            # Basic sync check
+            hgit.fetch_from_origin()
+            is_synced, status = hgit.is_branch_synced("ho-prod")
+
+            if is_synced:
+                print("✅ ho-prod is synced with origin")
+            else:
+                print(f"⚠️  ho-prod is {status}")
+                if status == "behind":
+                    print("Run: git pull")
+                elif status == "ahead":
+                    print("Run: git push")
+                elif status == "diverged":
+                    print("Run: git pull --rebase or git merge")
+
+            # Use in validation
+            def validate_branch_synced(branch):
+                is_synced, status = hgit.is_branch_synced(branch)
+                if not is_synced:
+                    raise ValidationError(
+                        f"Branch {branch} is {status}. "
+                        f"Sync required before creating patch."
+                    )
+        """
+        pass
