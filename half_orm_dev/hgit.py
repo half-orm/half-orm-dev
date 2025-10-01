@@ -468,7 +468,30 @@ class HGit:
             if hash_local == hash_remote:
                 print("Branch is synced")
         """
-        pass
+        try:
+            # Get remote
+            remote_obj = self.__git_repo.remote(remote)
+            
+            # Check if branch exists in remote refs
+            if branch_name not in remote_obj.refs:
+                raise GitCommandError(
+                    f"git ls-remote {remote} {branch_name}",
+                    1,
+                    stderr=f"Branch '{branch_name}' not found on remote '{remote}'"
+                )
+            
+            # Get commit hash from remote ref
+            remote_ref = remote_obj.refs[branch_name]
+            return remote_ref.commit.hexsha
+
+        except GitCommandError:
+            raise
+        except Exception as e:
+            raise GitCommandError(
+                f"git ls-remote {remote} {branch_name}",
+                1,
+                stderr=str(e)
+            )
 
     def is_branch_synced(self, branch_name: str, remote: str = 'origin') -> tuple[bool, str]:
         """
