@@ -394,7 +394,7 @@ class HGit:
                 raise
             raise GitCommandError(f"git tag -d {tag_name}", 1, stderr=str(e))
 
-def get_local_commit_hash(self, branch_name: str) -> str:
+    def get_local_commit_hash(self, branch_name: str) -> str:
         """
         Get the commit hash of a local branch.
 
@@ -418,7 +418,26 @@ def get_local_commit_hash(self, branch_name: str) -> str:
             # Get commit hash of patch branch
             hash_patch = hgit.get_local_commit_hash("ho-patch/456")
         """
-        pass
+        try:
+            # Access branch from heads
+            if branch_name not in self.__git_repo.heads:
+                raise GitCommandError(
+                    f"git rev-parse {branch_name}",
+                    1,
+                    stderr=f"Branch '{branch_name}' not found locally"
+                )
+            
+            branch = self.__git_repo.heads[branch_name]
+            return branch.commit.hexsha
+            
+        except GitCommandError:
+            raise
+        except Exception as e:
+            raise GitCommandError(
+                f"git rev-parse {branch_name}",
+                1,
+                stderr=str(e)
+            )
 
     def get_remote_commit_hash(self, branch_name: str, remote: str = 'origin') -> str:
         """
