@@ -2,6 +2,7 @@
 """
 
 import os
+import re
 import subprocess
 import sys
 
@@ -188,8 +189,57 @@ class Database:
             - Symlink is relative (schema.sql → schema-X.Y.Z.sql)
             - Existing symlink is replaced atomically
             - Version format should be X.Y.Z (semantic versioning)
-        """
-        pass
+        """        
+        # Validate version format (X.Y.Z where X, Y, Z are integers)
+        version_pattern = r'^\d+\.\d+\.\d+$'
+        if not re.match(version_pattern, version):
+            raise ValueError(
+                f"Invalid version format: '{version}'. "
+                f"Expected semantic versioning (X.Y.Z, e.g., '1.3.4')"
+            )
+        
+        # Validate model_dir exists
+        if not model_dir.exists():
+            raise FileNotFoundError(
+                f"Model directory does not exist: {model_dir}"
+            )
+        
+        if not model_dir.is_dir():
+            raise FileNotFoundError(
+                f"Model path exists but is not a directory: {model_dir}"
+            )
+        
+        # Construct versioned schema file path
+        schema_file = model_dir / f"schema-{version}.sql"
+        
+        # Generate schema dump using pg_dump
+        try:
+            self._execute_pg_command('pg_dump', '--schema-only', '-f', str(schema_file))
+        except Exception as e:
+            raise Exception(f"Failed to generate schema SQL: {e}") from e
+        
+        # Create or update symlink
+        symlink_path = model_dir / "schema.sql"
+        symlink_target = f"schema-{version}.sql"  # Relative path
+        
+        try:
+            # Remove existing symlink if it exists
+            if symlink_path.exists() or symlink_path.is_symlink():
+                symlink_path.unlink()
+            
+            # Create new symlink (relative)
+            symlink_path.symlink_to(symlink_target)
+            
+        except PermissionError as e:
+            raise PermissionError(
+                f"Permission denied: cannot create symlink in {model_dir}"
+            ) from e
+        except OSError as e:
+            raise OSError(
+                f"Failed to create symlink {symlink_path} → {symlink_target}: {e}"
+            ) from e
+        
+        return schema_file
 
     @classmethod
     def _save_configuration(cls, database_name, connection_params):

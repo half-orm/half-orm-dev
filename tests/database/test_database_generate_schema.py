@@ -19,7 +19,6 @@ from half_orm_dev.database import Database
 class TestGenerateSchemaSql:
     """Test _generate_schema_sql() method."""
 
-    @pytest.mark.skip(reason="Database._generate_schema_sql() not implemented yet")
     def test_generate_schema_sql_creates_versioned_file(self, tmp_path):
         """Test schema file creation with version."""
         model_dir = tmp_path / "model"
@@ -42,7 +41,6 @@ class TestGenerateSchemaSql:
             'pg_dump', '--schema-only', '-f', str(expected_file)
         )
 
-    @pytest.mark.skip(reason="Database._generate_schema_sql() not implemented yet")
     def test_generate_schema_sql_creates_symlink(self, tmp_path):
         """Test symlink creation to versioned file."""
         model_dir = tmp_path / "model"
@@ -59,7 +57,6 @@ class TestGenerateSchemaSql:
         assert symlink.is_symlink()
         assert symlink.resolve().name == "schema-1.3.4.sql"
 
-    @pytest.mark.skip(reason="Database._generate_schema_sql() not implemented yet")
     def test_generate_schema_sql_updates_existing_symlink(self, tmp_path):
         """Test updating existing symlink to new version."""
         model_dir = tmp_path / "model"
@@ -82,7 +79,6 @@ class TestGenerateSchemaSql:
         assert symlink.is_symlink()
         assert symlink.resolve().name == "schema-1.3.4.sql"
 
-    @pytest.mark.skip(reason="Database._generate_schema_sql() not implemented yet")
     def test_generate_schema_sql_overwrites_existing_version(self, tmp_path):
         """Test overwriting existing schema file (hotfix scenario)."""
         model_dir = tmp_path / "model"
@@ -102,7 +98,6 @@ class TestGenerateSchemaSql:
         # Should call pg_dump (which overwrites the file)
         database._execute_pg_command.assert_called_once()
 
-    @pytest.mark.skip(reason="Database._generate_schema_sql() not implemented yet")
     def test_generate_schema_sql_model_dir_not_exists(self, tmp_path):
         """Test error when model directory doesn't exist."""
         model_dir = tmp_path / "nonexistent_model"
@@ -110,10 +105,9 @@ class TestGenerateSchemaSql:
         database = Mock(spec=Database)
         database._name = "test_db"
 
-        with pytest.raises(FileNotFoundError, match="model.*directory.*not exist"):
+        with pytest.raises(FileNotFoundError, match="Model.*directory.*not exist"):
             Database._generate_schema_sql(database, "1.0.0", model_dir)
 
-    @pytest.mark.skip(reason="Database._generate_schema_sql() not implemented yet")
     def test_generate_schema_sql_pg_dump_fails(self, tmp_path):
         """Test handling of pg_dump command failure."""
         model_dir = tmp_path / "model"
@@ -126,7 +120,6 @@ class TestGenerateSchemaSql:
         with pytest.raises(Exception, match="pg_dump failed"):
             Database._generate_schema_sql(database, "1.0.0", model_dir)
 
-    @pytest.mark.skip(reason="Database._generate_schema_sql() not implemented yet")
     def test_generate_schema_sql_permission_denied_write(self, tmp_path):
         """Test handling of permission denied when writing schema file."""
         model_dir = tmp_path / "model"
@@ -143,7 +136,6 @@ class TestGenerateSchemaSql:
         finally:
             model_dir.chmod(0o755)  # Restore for cleanup
 
-    @pytest.mark.skip(reason="Database._generate_schema_sql() not implemented yet")
     def test_generate_schema_sql_permission_denied_symlink(self, tmp_path):
         """Test handling of permission denied when creating symlink."""
         model_dir = tmp_path / "model"
@@ -164,7 +156,6 @@ class TestGenerateSchemaSql:
         finally:
             model_dir.chmod(0o755)  # Restore for cleanup
 
-    @pytest.mark.skip(reason="Database._generate_schema_sql() not implemented yet")
     def test_generate_schema_sql_invalid_version_format(self, tmp_path):
         """Test validation of version format."""
         model_dir = tmp_path / "model"
@@ -180,7 +171,6 @@ class TestGenerateSchemaSql:
             with pytest.raises(ValueError, match="Invalid version format"):
                 Database._generate_schema_sql(database, invalid_version, model_dir)
 
-    @pytest.mark.skip(reason="Database._generate_schema_sql() not implemented yet")
     def test_generate_schema_sql_valid_version_formats(self, tmp_path):
         """Test acceptance of valid version formats."""
         model_dir = tmp_path / "model"
@@ -197,7 +187,6 @@ class TestGenerateSchemaSql:
             result = Database._generate_schema_sql(database, valid_version, model_dir)
             assert result.name == f"schema-{valid_version}.sql"
 
-    @pytest.mark.skip(reason="Database._generate_schema_sql() not implemented yet")
     def test_generate_schema_sql_symlink_is_relative(self, tmp_path):
         """Test that symlink uses relative path, not absolute."""
         model_dir = tmp_path / "model"
@@ -216,7 +205,6 @@ class TestGenerateSchemaSql:
         assert not os.path.isabs(link_target)
         assert link_target == "schema-1.0.0.sql"
 
-    @pytest.mark.skip(reason="Database._generate_schema_sql() not implemented yet")
     def test_generate_schema_sql_returns_correct_path(self, tmp_path):
         """Test that method returns correct Path object."""
         model_dir = tmp_path / "model"
@@ -232,7 +220,6 @@ class TestGenerateSchemaSql:
         assert result == model_dir / "schema-2.5.1.sql"
         assert result.parent == model_dir
 
-    @pytest.mark.skip(reason="Database._generate_schema_sql() not implemented yet")
     def test_generate_schema_sql_uses_schema_only_flag(self, tmp_path):
         """Test that pg_dump uses --schema-only flag (no data)."""
         model_dir = tmp_path / "model"
