@@ -7,6 +7,7 @@ import tempfile
 import shutil
 from pathlib import Path
 from unittest.mock import Mock
+from half_orm_dev.database import Database
 
 
 @pytest.fixture
@@ -138,5 +139,50 @@ def mock_database():
     mock_db.execute_query = Mock()
     mock_db.execute = Mock()
     mock_db.cursor = Mock()
+
+    return mock_db
+
+@pytest.fixture
+def mock_database_for_schema_generation():
+    """
+    Create complete Database mock for _generate_schema_sql() testing.
+
+    Provides a mock with all necessary attributes and methods for schema
+    generation tests, including mangled private attributes.
+
+    Returns:
+        Mock: Configured Database mock with:
+            - _Database__name: Database name (mangled private attribute)
+            - _collect_connection_params(): Returns connection parameters
+            - _get_connection_params(): Returns connection parameters
+            - _execute_pg_command(): Mock for pg_dump execution
+
+    Example:
+        def test_something(self, mock_database_for_schema_generation, tmp_path):
+            database = mock_database_for_schema_generation
+            model_dir = tmp_path / "model"
+            model_dir.mkdir()
+
+            result = Database._generate_schema_sql(database, "1.0.0", model_dir)
+    """
+    mock_db = Mock(spec=Database)
+
+    # Set mangled private attribute for database name
+    mock_db._Database__name = "test_db"
+
+    # Mock connection parameter methods
+    connection_params = {
+        'user': 'test_user',
+        'password': 'test_pass',
+        'host': 'localhost',
+        'port': 5432,
+        'production': False
+    }
+
+    mock_db._collect_connection_params = Mock(return_value=connection_params)
+    mock_db._get_connection_params = Mock(return_value=connection_params)
+
+    # Mock pg_dump execution
+    mock_db._execute_pg_command = Mock()
 
     return mock_db

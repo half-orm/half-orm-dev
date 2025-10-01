@@ -197,40 +197,40 @@ class Database:
                 f"Invalid version format: '{version}'. "
                 f"Expected semantic versioning (X.Y.Z, e.g., '1.3.4')"
             )
-        
+
         # Validate model_dir exists
         if not model_dir.exists():
             raise FileNotFoundError(
                 f"Model directory does not exist: {model_dir}"
             )
-        
+
         if not model_dir.is_dir():
             raise FileNotFoundError(
                 f"Model path exists but is not a directory: {model_dir}"
             )
-        
+
         # Construct versioned schema file path
         schema_file = model_dir / f"schema-{version}.sql"
-        
+
         # Generate schema dump using pg_dump
         complete_params = self._collect_connection_params(self.__name, self._get_connection_params())
         try:
             self._execute_pg_command(self.__name, complete_params, 'pg_dump', self.__name, '--schema-only', '-f', str(schema_file))
         except Exception as e:
             raise Exception(f"Failed to generate schema SQL: {e}") from e
-        
+
         # Create or update symlink
         symlink_path = model_dir / "schema.sql"
         symlink_target = f"schema-{version}.sql"  # Relative path
-        
+
         try:
             # Remove existing symlink if it exists
             if symlink_path.exists() or symlink_path.is_symlink():
                 symlink_path.unlink()
-            
+
             # Create new symlink (relative)
             symlink_path.symlink_to(symlink_target)
-            
+
         except PermissionError as e:
             raise PermissionError(
                 f"Permission denied: cannot create symlink in {model_dir}"
@@ -239,7 +239,7 @@ class Database:
             raise OSError(
                 f"Failed to create symlink {symlink_path} → {symlink_target}: {e}"
             ) from e
-        
+
         return schema_file
 
     @classmethod
