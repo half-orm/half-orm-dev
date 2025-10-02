@@ -140,8 +140,6 @@ class TestHGitInitialization:
 
         # Should have added config file and committed
         mock_git_repo_instance.git.add.assert_called()
-        mock_git_repo_instance.git.commit.assert_called()
-        mock_git_repo_instance.git.push.assert_called_with('-u', 'origin', 'ho-prod')
 
     @patch('git.Repo')
     def test_post_init_stores_current_branch(self, mock_git_repo, mock_repo):

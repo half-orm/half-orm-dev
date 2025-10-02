@@ -248,6 +248,7 @@ class Repo:
 
     def init(self, package_name, devel):
         "Create a new hop repository"
+        raise Exception("Deprecated init")
         Repo.__new = True
         cur_dir = os.path.abspath(os.path.curdir)
         self.__base_dir = os.path.join(cur_dir, package_name)
@@ -284,6 +285,7 @@ class Repo:
         utils.write(os.path.join(self.__base_dir, 'README.md'), readme)
         utils.write(os.path.join(self.__base_dir, '.gitignore'), git_ignore)
         self.hgit = HGit().init(self.__base_dir)
+        print('XXX dans init repo')
 
         print(f"\nThe hop project '{self.__config.name}' has been created.")
         print(self.state)
@@ -950,7 +952,7 @@ See docs/half_orm_dev.md for complete documentation.
             # Creates: .git/ with ho-prod branch
         """
         # Delegate to existing hgit.HGit.init
-        self.hgit = HGit().init(self.__base_dir, release='0.0.0')
+        self.hgit = HGit().init(self.__base_dir, self.__config.git_origin)
 
     def _generate_template_files(self):
         """
@@ -1086,6 +1088,9 @@ See docs/half_orm_dev.md for complete documentation.
 
             # Git protocol: git://git.example.com/user/repo.git
             r'^git://[a-zA-Z0-9._-]+(?:\.[a-zA-Z]{2,})+(?::[0-9]+)?/.+$',
+
+            # File protocol: file:///path/to/repo
+            r'^file:///[a-zA-Z0-9._/-]+|^/[a-zA-Z0-9._/-]+'
         ]
 
         # Check if URL matches any valid pattern

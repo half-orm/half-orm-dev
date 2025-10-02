@@ -31,8 +31,6 @@ class HGit:
         if self.__origin == '' and origin:
             self.__repo.git_origin = origin
             self.add(os.path.join('.hop', 'config'))
-            self.commit("-m", f"[ho] Set remote origin to {origin}.")
-            self.__git_repo.git.push('-u', 'origin', 'ho-prod')
             self.__origin = origin
         elif origin and self.__origin != origin:
             utils.error(f'Git remote origin should be {self.__origin}. Got {origin}\n', 1)
@@ -49,7 +47,7 @@ class HGit:
         res.append(f'- last commit: {self.last_commit()}')
         return '\n'.join(res)
 
-    def init(self, base_dir, release='0.0.0'):
+    def init(self, base_dir, git_origin):
         "Initializes the git repo."
         cur_dir = os.path.abspath(os.path.curdir)
         self.__base_dir = base_dir
@@ -63,9 +61,10 @@ class HGit:
 
             # Then add files and commit on ho-prod
             self.__git_repo.git.add('.')
-            self.__git_repo.git.commit(m=f'[ho] Initial commit (release: {release})')
+            self.__git_repo.git.remote('add', 'origin', git_origin)
+            self.__git_repo.git.commit(m=f'[ho] Initial commit (release: 0.0.0)')
+            self.__git_repo.git.push('--set-upstream', 'origin', 'ho-prod')
             os.chdir(cur_dir)
-            self.__post_init()
         except GitCommandError as err:
             utils.error(
                 f'Something went wrong initializing git repo in {base_dir}\n{err}\n', exit_code=1)
