@@ -1384,6 +1384,7 @@ class PatchManager:
 
             # Step 10: Push tag FIRST → ATOMIC RESERVATION
             self._push_tag_to_reserve_number(normalized_id)
+            self._push_branch_to_remote('ho-prod', retry_count=3)
             tag_pushed = True  # Tag pushed = point of no return
             # ✅ If we reach here: patch number globally reserved!
 
