@@ -10,7 +10,7 @@ Focused on testing:
 
 import pytest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 from git.exc import GitCommandError
 
 from half_orm_dev.patch_manager import PatchManager, PatchManagerError
@@ -235,7 +235,8 @@ class TestPatchManagerTagReservation:
         mock_hgit_complete.push_tag.assert_called_once_with("ho-patch/456")
 
         # 5. Branch push
-        mock_hgit_complete.push_branch.assert_called_once()
+        calls = mock_hgit_complete.push_branch.call_args_list
+        assert calls[1] == call("ho-patch/456-user-auth", set_upstream=True)
 
         # 6. Directory created
         expected_dir = patches_dir / "456-user-auth"

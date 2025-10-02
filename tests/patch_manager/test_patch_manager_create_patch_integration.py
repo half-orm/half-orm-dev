@@ -41,7 +41,8 @@ class TestCreatePatchIntegration:
         # 4. Checkout to new branch
         mock_hgit_complete.checkout.assert_any_call("ho-patch/456-user-auth")
 
-        mock_hgit_complete.push_branch.assert_called_once_with("ho-patch/456-user-auth", set_upstream=True)
+        calls = mock_hgit_complete.push_branch.call_args_list
+        assert calls[1] == call("ho-patch/456-user-auth", set_upstream=True)
 
         # 5. Return value complete
         assert result['patch_id'] == "456-user-auth"

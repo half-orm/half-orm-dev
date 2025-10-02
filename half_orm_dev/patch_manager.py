@@ -1384,7 +1384,7 @@ class PatchManager:
 
             # Step 10: Push tag FIRST → ATOMIC RESERVATION
             self._push_tag_to_reserve_number(normalized_id)
-            self._push_branch_to_remote('ho-prod', retry_count=3)
+            self._repo.hgit.push_branch('ho-prod')
             tag_pushed = True  # Tag pushed = point of no return
             # ✅ If we reach here: patch number globally reserved!
 
@@ -1395,7 +1395,7 @@ class PatchManager:
 
             # Step 12: Push branch (with retry)
             try:
-                self._push_branch_to_remote(branch_name, retry_count=3)
+                self._push_branch_to_remote(branch_name)
             except PatchManagerError as e:
                 # Tag already pushed = success, just warn about branch
                 import click

@@ -9,7 +9,7 @@ Focused on testing:
 
 import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, call
 from git.exc import GitCommandError
 
 from half_orm_dev.patch_manager import PatchManager, PatchManagerError
@@ -112,7 +112,8 @@ class TestPatchManagerRemoteValidation:
         result = patch_mgr.create_patch("456")
 
         # Should have pushed branch
-        mock_hgit_complete.push_branch.assert_called_once_with("ho-patch/456", set_upstream=True)
+        calls = mock_hgit_complete.push_branch.call_args_list
+        assert calls[1] == call("ho-patch/456", set_upstream=True)
 
     def test_create_patch_validation_order_with_remote(self, patch_manager):
         """Test validation order includes remote check."""
@@ -133,10 +134,14 @@ class TestPatchManagerRemoteValidation:
         """Test handling of network errors during branch push after tag push succeeds."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Mock HGit with network error on branch push (but tag push succeeds)
-        mock_hgit_complete.push_branch.side_effect = GitCommandError(
-            "git push", 1, stderr="Could not resolve host"
-        )
+        # Mock push_branch: ho-prod succeeds, branch patch fails
+        def push_branch_side_effect(branch_name, set_upstream=True):
+            if branch_name == 'ho-prod':
+                return None  # Success for ho-prod
+            else:
+                raise GitCommandError("git push", 1, stderr="Could not resolve host")
+
+        mock_hgit_complete.push_branch.side_effect = push_branch_side_effect
         repo.hgit = mock_hgit_complete
 
         # Should NOT raise - tag was pushed successfully, patch is reserved
@@ -154,7 +159,7 @@ class TestPatchManagerRemoteValidation:
         mock_hgit_complete.push_tag.assert_called_once_with("ho-patch/456")
 
         # Should have attempted branch push 3 times
-        assert mock_hgit_complete.push_branch.call_count == 3
+        assert mock_hgit_complete.push_branch.call_count == 4
 
         # Should display warning about branch push failure
         captured = capsys.readouterr()
@@ -191,10 +196,9 @@ class TestPatchManagerRemoteValidation:
         mock_hgit_complete.push_tag.assert_called_once_with("ho-patch/456")
 
         # 5. Branch pushed for tracking
-        mock_hgit_complete.push_branch.assert_called_once_with(
-            "ho-patch/456-user-auth", 
-            set_upstream=True
-        )
+        calls = mock_hgit_complete.push_branch.call_args_list
+        assert calls[0] == call("ho-prod")
+        assert calls[1] == call("ho-patch/456-user-auth", set_upstream=True)
 
         # 6. Directory created
         expected_dir = patches_dir / "456-user-auth"
