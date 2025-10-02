@@ -22,18 +22,54 @@ class HGit:
             self.__post_init()
 
     def __post_init(self):
+        """
+        Initialize HGit for existing repository.
+
+        Verifies that Git remote origin matches configuration.
+        For new projects, remote is configured during init().
+
+        Raises:
+            SystemExit: If no remote configured or remote mismatch detected
+        """
         self.__git_repo = git.Repo(self.__base_dir)
-        origin = None
+
+        # Verify remote origin is configured
         try:
-            origin = self.__git_repo.git.remote('get-url', 'origin')
-        except Exception as err:
-            utils.warning(utils.Color.red(f"No origin\n{err}\n"))
-        if self.__origin == '' and origin:
-            self.__repo.git_origin = origin
-            self.add(os.path.join('.hop', 'config'))
-            self.__origin = origin
-        elif origin and self.__origin != origin:
-            utils.error(f'Git remote origin should be {self.__origin}. Got {origin}\n', 1)
+            git_remote_origin = self.__git_repo.git.remote('get-url', 'origin')
+        except Exception:
+            # No remote origin configured - this is an error
+            utils.error(
+                "❌ Git remote origin not configured!\n\n"
+                "half_orm_dev requires a Git remote for patch management.\n"
+                "The remote origin is used for:\n"
+                "  • Patch ID reservation (via tags)\n"
+                "  • Branch synchronization (ho-patch branches)\n"
+                "  • Collaborative development workflow\n\n"
+                "To fix this, add a remote origin:\n"
+                f"  cd {self.__base_dir}\n"
+                "  git remote add origin <your-git-url>\n"
+                "  git push -u origin ho-prod\n\n"
+                "Or update .hop/config with the correct git_origin.",
+                exit_code=1
+            )
+
+        # Verify remote matches configuration
+        if self.__origin != git_remote_origin:
+            utils.error(
+                f"❌ Git remote origin mismatch detected!\n\n"
+                f"Configuration (.hop/config): {self.__origin}\n"
+                f"Git remote (git remote -v):  {git_remote_origin}\n\n"
+                "This mismatch can cause issues with patch management.\n\n"
+                "To fix this, choose one:\n\n"
+                "Option 1: Update Git remote to match config\n"
+                f"  cd {self.__base_dir}\n"
+                f"  git remote set-url origin {self.__origin}\n\n"
+                "Option 2: Update config to match Git remote\n"
+                f"  Edit {self.__base_dir}/.hop/config\n"
+                f"  Set: git_origin = {git_remote_origin}",
+                exit_code=1
+            )
+
         self.__current_branch = self.branch
 
     def __str__(self):

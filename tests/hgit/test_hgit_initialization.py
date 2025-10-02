@@ -84,26 +84,9 @@ class TestHGitInitialization:
         mock_git_repo.assert_called_once_with(mock_repo.base_dir)
 
     @patch('git.Repo')
-    @patch('half_orm_dev.hgit.utils.warning')
-    def test_post_init_no_origin_warning(self, mock_warning, mock_git_repo, mock_repo):
-        """Test __post_init handles missing git origin with warning."""
-        # Setup git.Repo to raise exception for get-url
-        mock_git_repo_instance = Mock()
-        mock_git_repo.return_value = mock_git_repo_instance
-        mock_git_repo_instance.git.remote.side_effect = Exception("No remote origin")
-        mock_git_repo_instance.active_branch = "ho-prod"
-
-        hgit = HGit(mock_repo)
-
-        # Should have warned about missing origin
-        assert mock_warning.called
-        warning_call_args = mock_warning.call_args[0][0]
-        assert "No origin" in warning_call_args
-
-    @patch('git.Repo')
     @patch('half_orm_dev.hgit.utils.error')
     def test_post_init_origin_mismatch_error(self, mock_error, mock_git_repo, mock_repo):
-        """Test __post_init handles origin mismatch with error."""
+        """Test __post_init raises error on origin mismatch."""
         # Setup conflicting origins
         mock_repo.git_origin = "https://github.com/user/project.git"
 
@@ -114,32 +97,11 @@ class TestHGitInitialization:
 
         hgit = HGit(mock_repo)
 
-        # Should have called error for origin mismatch
+        # Should have called error
         assert mock_error.called
         error_call_args = mock_error.call_args[0][0]
-        assert "Git remote origin should be" in error_call_args
-
-    @patch('git.Repo')
-    def test_post_init_sets_origin_from_git(self, mock_git_repo, mock_repo_empty_origin):
-        """Test __post_init sets origin from git when repo origin is empty."""
-        git_origin = "https://github.com/discovered/repo.git"
-
-        # Setup mocks
-        mock_git_repo_instance = Mock()
-        mock_git_repo.return_value = mock_git_repo_instance
-        mock_git_repo_instance.git.remote.return_value = git_origin
-        mock_git_repo_instance.active_branch = "ho-prod"
-        mock_git_repo_instance.git.push = Mock()
-
-        # Mock file operations for config update
-        with patch('os.path.join', return_value='.hop/config'):
-            hgit = HGit(mock_repo_empty_origin)
-
-        # Should have updated repo git_origin
-        assert mock_repo_empty_origin.git_origin == git_origin
-
-        # Should have added config file and committed
-        mock_git_repo_instance.git.add.assert_called()
+        assert "mismatch" in error_call_args
+        assert "git remote set-url" in error_call_args
 
     @patch('git.Repo')
     def test_post_init_stores_current_branch(self, mock_git_repo, mock_repo):
