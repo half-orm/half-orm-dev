@@ -9,7 +9,7 @@ REFACTORED in v0.16.0 - Git-centric patch workflow
 from .init_database import init_database
 from .init_project import init_project
 from .create_patch import create_patch
-from .todo import apply_patch
+from .apply_patch import apply_patch
 from .todo import add_to_release
 from .todo import promote_to_rc
 from .todo import promote_to_prod
@@ -18,7 +18,6 @@ from .todo import create_hotfix
 from .todo import rollback
 
 # ♻️ Adapted existing commands
-from .todo import apply          # Adapted for new architecture
 from .todo import sync_package    # Unchanged
 from .todo import upgrade      # Adapted for production workflow
 from .todo import restore      # Adapted for new architecture
@@ -29,8 +28,8 @@ ALL_COMMANDS = {
     'init-database': init_database,
     'init-project': init_project,
     'create-patch': create_patch,
-    # 🚧 (stubs)
     'apply-patch': apply_patch,
+    # 🚧 (stubs)
     'add-to-release': add_to_release,
 
     # 🚧 Release management (stubs)
@@ -43,7 +42,6 @@ ALL_COMMANDS = {
     'rollback': rollback,
 
     # ♻️ Adapted commands
-    'apply': apply,              # Will be adapted
     'sync-package': sync_package, # Unchanged
     'upgrade': upgrade,          # Adapted for production
     'restore': restore,          # Adapted

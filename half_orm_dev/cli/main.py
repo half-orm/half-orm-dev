@@ -24,7 +24,7 @@ class Hop:
             return ['init-database', 'init-project']
         else:
             # Inside hop repository - development commands
-            return ['create-patch']  # ✅ Added create-patch command
+            return ['create-patch', 'apply-patch']
 
     @property
     def repo_checked(self):
@@ -61,7 +61,8 @@ def create_cli_group():
                 click.echo(hop.state)
                 click.echo(f"\n{utils.Color.bold('Available commands:')}")
                 click.echo(f"  • {utils.Color.bold('create-patch <patch_id>')} - Create new patch branch and directory")
-                click.echo(f"\nTry {utils.Color.bold('half_orm dev create-patch --help')} for more information.\n")
+                click.echo(f"  • {utils.Color.bold('apply-patch')} - Apply current patch files to database")
+                click.echo(f"\nTry {utils.Color.bold('half_orm dev create-patch --help')} or {utils.Color.bold('half_orm dev apply-patch --help')} for more information.\n")
             else:
                 click.echo(hop.state)
                 click.echo("\nNot in a hop repository.")

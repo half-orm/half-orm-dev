@@ -1,2 +1,2 @@
-python3.12:.hop_venv
-default:.hop_venv
+python3.13:.half_orm_dev_venv
+default:.half_orm_dev_venv

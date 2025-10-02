@@ -62,9 +62,6 @@ def todo(ctx):
 
 # Create aliases for ALL commands (new + adapted)
 # 🚧 New Git-centric commands
-init_project = todo
-create_patch = todo  
-apply_patch = todo
 add_to_release = todo
 promote_to_rc = todo
 promote_to_prod = todo
@@ -76,7 +73,6 @@ list_patches = todo
 status = todo
 
 # ♻️ Commands to adapt (also in todo for now)
-apply = todo          # Legacy apply → new apply-patch logic  
 sync_package = todo   # Keep functionality, adapt to new architecture
 upgrade = todo        # Adapt for production Git-centric workflow
 restore = todo        # Adapt for new backup/restore logic
