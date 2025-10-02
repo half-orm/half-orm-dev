@@ -974,3 +974,127 @@ See docs/half_orm_dev.md for complete documentation.
 
     def _dump_initial_schema(self):
         self.database._generate_schema_sql("0.0.0", Path(f"{self.__base_dir}/model"))
+
+    def _validate_git_origin_url(self, git_origin_url):
+        """
+        Validate Git origin URL format.
+
+        Validates that the provided URL follows valid Git remote URL formats.
+        Supports HTTPS, SSH (git@), and git:// protocols for common Git hosting
+        services (GitHub, GitLab, Bitbucket) and self-hosted Git servers.
+
+        Args:
+            git_origin_url: Git remote origin URL to validate
+
+        Raises:
+            ValueError: If URL is None, empty, or has invalid format
+            UserWarning: If URL contains embedded credentials (discouraged)
+
+        Valid URL formats:
+            - HTTPS: https://git.example.com/user/repo.git
+            - SSH: git@git.example.com:user/repo.git
+            - SSH with port: ssh://git@host:port/path/repo.git
+            - Git protocol: git://git.example.com/user/repo.git
+
+        Examples:
+            # Valid URLs
+            _validate_git_origin_url("https://git.example.com/user/repo.git")
+            _validate_git_origin_url("git@git.example.com:user/repo.git")
+            _validate_git_origin_url("https://git.company.com/team/project.git")
+
+            # Invalid URLs raise ValueError
+            _validate_git_origin_url("not-a-url")  # → ValueError
+            _validate_git_origin_url("http://git.example.com/user/repo.git")  # → ValueError (HTTP not allowed)
+            _validate_git_origin_url("")  # → ValueError
+
+        Notes:
+            - URLs with embedded credentials trigger a warning but are accepted
+            - Leading/trailing whitespace is automatically stripped
+            - .git extension is optional
+        """
+        import re
+        import warnings
+
+        # Type validation
+        if git_origin_url is None:
+            raise ValueError("Git origin URL cannot be None")
+
+        if not isinstance(git_origin_url, str):
+            raise ValueError(
+                f"Git origin URL must be a string, got {type(git_origin_url).__name__}"
+            )
+
+        # Strip whitespace
+        git_origin_url = git_origin_url.strip()
+
+        # Empty check
+        if not git_origin_url:
+            raise ValueError("Git origin URL cannot be empty")
+
+        # Warn about embedded credentials (security issue)
+        if re.search(r'://[^@/]+:[^@/]+@', git_origin_url):
+            warnings.warn(
+                "Git origin URL contains embedded credentials. "
+                "Consider using SSH keys or credential helpers instead.",
+                UserWarning
+            )
+
+        # Define valid URL patterns
+        patterns = [
+            # HTTPS: https://github.com/user/repo.git or https://user:pass@github.com/user/repo.git
+            r'^https://(?:[^@/]+@)?[a-zA-Z0-9._-]+(?:\.[a-zA-Z]{2,})+(?::[0-9]+)?/.+$',
+
+            # SSH (git@): git@git.example.com:user/repo.git or git@git.example.com:user/repo
+            r'^git@[a-zA-Z0-9._-]+(?:\.[a-zA-Z]{2,})+:.+$',
+
+            # SSH with explicit protocol and port: ssh://git@host:port/path/repo.git
+            r'^ssh://git@[a-zA-Z0-9._-]+(?:\.[a-zA-Z]{2,})+(?::[0-9]+)?/.+$',
+
+            # Git protocol: git://git.example.com/user/repo.git
+            r'^git://[a-zA-Z0-9._-]+(?:\.[a-zA-Z]{2,})+(?::[0-9]+)?/.+$',
+        ]
+
+        # Check if URL matches any valid pattern
+        is_valid = any(re.match(pattern, git_origin_url) for pattern in patterns)
+
+        if not is_valid:
+            raise ValueError(
+                f"Invalid Git origin URL format: '{git_origin_url}'\n"
+                "Valid formats:\n"
+                "  - HTTPS: https://git.example.com/user/repo.git\n"
+                "  - SSH: git@git.example.com:user/repo.git\n"
+                "  - Git protocol: git://git.example.com/user/repo.git"
+            )
+
+        # Additional validation: ensure URL has a repository path
+        # Extract path component based on URL type
+        if git_origin_url.startswith('git@'):
+            # SSH format: git@host:path
+            parts = git_origin_url.split(':', 1)
+            if len(parts) < 2 or not parts[1].strip():
+                raise ValueError(
+                    "Git origin URL must include repository path. "
+                    f"Got: '{git_origin_url}'"
+                )
+        elif git_origin_url.startswith(('https://', 'git://', 'ssh://')):
+            # Protocol-based format: check for path after host
+            # Split on first / after protocol://host
+            protocol_end = git_origin_url.index('://') + 3
+            remaining = git_origin_url[protocol_end:]
+
+            # Find first / (path separator)
+            if '/' not in remaining:
+                raise ValueError(
+                    "Git origin URL must include repository path. "
+                    f"Got: '{git_origin_url}'"
+                )
+
+            path = remaining.split('/', 1)[1]
+            if not path.strip():
+                raise ValueError(
+                    "Git origin URL must include repository path. "
+                    f"Got: '{git_origin_url}'"
+                )
+
+        # Validation passed
+        return True
