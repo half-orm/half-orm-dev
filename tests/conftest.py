@@ -56,60 +56,54 @@ def patch_manager(temp_repo):
 @pytest.fixture
 def mock_hgit_complete():
     """
-    Create complete HGit mock with all necessary methods for patch creation.
+    Create complete mock HGit for create_patch workflow tests.
 
-    Use this fixture when you need to replace repo.hgit in tests to ensure
-    all required methods are mocked properly.
-
-    Returns:
-        Mock: Configured HGit mock with:
-            - branch: Current branch name
-            - repos_is_clean(): Returns True
-            - has_remote(): Returns True
-            - fetch_from_origin(): Fetch all references from remote
-            - checkout(): Branch checkout
-            - fetch_tags(): Tag fetching
-            - tag_exists(): Returns False (tag doesn't exist)
-            - create_tag(): Tag creation
-            - push_tag(): Tag push
-            - push_branch(): Branch push (for reservation)
-
-    Example:
-        def test_something(self, patch_manager, mock_hgit_complete):
-            patch_mgr, repo, temp_dir, patches_dir = patch_manager
-
-            # Use complete mock instead of creating new one
-            mock_hgit_complete.branch = "ho-prod"
-            repo.hgit = mock_hgit_complete
-
-            result = patch_mgr.create_patch("456-test")
+    Provides all necessary mocks for successful patch creation workflow:
+    - Branch validation (on ho-prod)
+    - Repository clean check
+    - Remote configuration check
+    - Remote fetch operations
+    - Branch synchronization check (NEW)
+    - Tag availability check
+    - Git operations (checkout, add, commit, tag, push)
+    - Branch operations (create, delete, checkout)
     """
     mock_hgit = Mock()
 
-    # Branch context
+    # Branch and repo state
     mock_hgit.branch = "ho-prod"
+    mock_hgit.repos_is_clean.return_value = True
+    mock_hgit.has_remote.return_value = True
 
-    # Repository state
-    mock_hgit.repos_is_clean = Mock(return_value=True)
-    mock_hgit.has_remote = Mock(return_value=True)
+    # NEW: Branch synchronization check
+    # Returns (is_synced, status) tuple
+    mock_hgit.is_branch_synced.return_value = (True, "synced")
 
-    # Remote synchronization
-    mock_hgit.fetch_from_origin = Mock()
+    # Fetch operations
+    mock_hgit.fetch_from_origin.return_value = None
+    mock_hgit.fetch_tags.return_value = None
+
+    # Tag operations
+    mock_hgit.tag_exists.return_value = False  # No existing tags
+    mock_hgit.create_tag.return_value = None
+    mock_hgit.push_tag.return_value = None
+    mock_hgit.delete_local_tag.return_value = None
 
     # Branch operations
-    mock_hgit.checkout = Mock()
-    mock_hgit.push_branch = Mock()
+    mock_hgit.checkout.return_value = None
+    mock_hgit.delete_local_branch.return_value = None
+    mock_hgit.push_branch.return_value = None
 
-    # Tag operations (for patch number reservation)
-    mock_hgit.fetch_tags = Mock()
-    mock_hgit.tag_exists = Mock(return_value=False)  # By default, tag doesn't exist
-    mock_hgit.create_tag = Mock()
-    mock_hgit.push_tag = Mock()
-    mock_hgit.delete_local_branch = Mock()
-    mock_hgit.delete_local_tag = Mock()
+    # Git proxy methods
+    mock_hgit.add.return_value = None
+    mock_hgit.commit.return_value = None
+
+    # Git repo access for reset operations
+    mock_git_repo = Mock()
+    mock_git_repo.git.reset.return_value = None
+    mock_hgit._HGit__git_repo = mock_git_repo
 
     return mock_hgit
-
 
 @pytest.fixture
 def sample_patch_files():

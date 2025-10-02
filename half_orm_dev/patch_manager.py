@@ -1187,7 +1187,8 @@ class PatchManager:
         initial_branch: str,
         branch_name: str,
         patch_id: str,
-        patch_dir: Optional[Path] = None
+        patch_dir: Optional[Path] = None,
+        commit_created: bool = False  # DEFAULT: False pour rétrocompatibilité
     ) -> None:
         """
         Rollback patch creation to initial state on failure.
@@ -1196,11 +1197,14 @@ class PatchManager:
         when an error occurs BEFORE the tag is pushed to remote. This ensures a
         clean repository state for retry.
 
+        UPDATED FOR NEW WORKFLOW: Now handles commit on ho-prod (not on branch).
+
         Rollback operations (best-effort, continues on individual failures):
-        1. Checkout to initial branch
-        2. Delete patch branch (local)
-        3. Delete patch tag (local)
-        4. Delete patch directory (if created)
+        1. Ensure we're on initial branch (ho-prod)
+        2. Reset commit if it was created (git reset --hard HEAD~1)
+        3. Delete patch branch if it was created (may not exist in new workflow)
+        4. Delete patch tag (local)
+        5. Delete patch directory (if created)
 
         Note: This method is only called when tag push has NOT succeeded yet.
         Once tag is pushed, rollback is not performed as the patch number is
@@ -1208,36 +1212,59 @@ class PatchManager:
 
         Args:
             initial_branch: Branch to return to (usually "ho-prod")
-            branch_name: Patch branch to delete (e.g., "ho-patch/456-user-auth")
+            branch_name: Patch branch name (e.g., "ho-patch/456-user-auth")
             patch_id: Patch identifier for tag/directory cleanup
             patch_dir: Path to patch directory if it was created
+            commit_created: Whether commit was created on ho-prod (NEW)
 
         Examples:
+            # NEW WORKFLOW: Rollback with commit on ho-prod
             self._rollback_patch_creation(
                 "ho-prod",
                 "ho-patch/456-user-auth",
                 "456-user-auth",
-                Path("Patches/456-user-auth")
+                Path("Patches/456-user-auth"),
+                commit_created=True  # NEW: commit was made on ho-prod
             )
-            # Reverts all local changes, returns to ho-prod
+            # Reverts commit, deletes tag/directory, returns to clean state
+
+            # OLD WORKFLOW (still supported): Rollback with commit on branch
+            self._rollback_patch_creation(
+                "ho-prod",
+                "ho-patch/456-user-auth",
+                "456-user-auth",
+                Path("Patches/456-user-auth"),
+                commit_created=False  # No commit on ho-prod
+            )
         """
         # Best-effort cleanup - continue even if individual operations fail
 
-        # 1. Try to checkout to initial branch
+        # 1. Ensure we're on initial branch (usually ho-prod)
+        # ALWAYS checkout to ensure we're on the right branch for reset
         try:
             self._repo.hgit.checkout(initial_branch)
         except Exception:
             # Continue cleanup even if checkout fails
             pass
 
-        # 2. Try to delete local branch
+        # 2. Reset commit if it was created on ho-prod (NEW WORKFLOW)
+        if commit_created:
+            try:
+                # Hard reset to remove the commit
+                # Using git reset --hard HEAD~1
+                self._repo.hgit._HGit__git_repo.git.reset('--hard', 'HEAD~1')
+            except Exception:
+                # Continue cleanup even if reset fails
+                pass
+
+        # 3. Delete patch branch (may not exist if failure before branch creation)
         try:
             self._repo.hgit.delete_local_branch(branch_name)
         except Exception:
             # Branch may not exist yet or deletion may fail - continue
             pass
 
-        # 3. Try to delete local tag
+        # 4. Delete local tag
         patch_number = patch_id.split('-')[0]
         tag_name = f"ho-patch/{patch_number}"
         try:
@@ -1246,7 +1273,7 @@ class PatchManager:
             # Tag may not exist yet or deletion may fail - continue
             pass
 
-        # 4. Try to delete patch directory
+        # 5. Delete patch directory (if created)
         if patch_dir and patch_dir.exists():
             try:
                 import shutil
@@ -1265,20 +1292,21 @@ class PatchManager:
         3. Validates git remote is configured
         4. Validates and normalizes patch ID format
         5. Fetches all references from remote (branches + tags)
+        5.5 Validates ho-prod is synced with origin/ho-prod (NEW)
         6. Checks patch number available via tag lookup
-        7. Creates ho-patch/PATCH_ID branch (local)
-        8. Creates Patches/PATCH_ID/ directory
-        9. Commits directory "Add Patches/{patch_id} directory"
-        10. Creates local tag ho-patch/{number} (points to commit with Patches/)
-        11. **Pushes tag to reserve number globally** ← POINT OF NO RETURN
+        7. Creates Patches/PATCH_ID/ directory (on ho-prod)
+        8. Commits directory on ho-prod "Add Patches/{patch_id} directory"
+        9. Creates local tag ho-patch/{number} (points to commit on ho-prod)
+        10. **Pushes tag to reserve number globally** ← POINT OF NO RETURN
+        11. Creates ho-patch/PATCH_ID branch from current commit
         12. Pushes branch to remote (with retry)
         13. Checkouts to new patch branch
 
         Transactional guarantees:
-        - Failure before step 11 (tag push): Complete rollback to initial state
-        - Success at step 11 (tag push): Patch reserved, no rollback even if branch push fails
+        - Failure before step 10 (tag push): Complete rollback to initial state
+        - Success at step 10 (tag push): Patch reserved, no rollback even if branch push fails
         - Tag-first strategy prevents race conditions between developers
-        - Remote fetch ensures up-to-date view of all reservations
+        - Remote fetch + sync validation ensures up-to-date base
 
         Race condition prevention:
         Tag pushed BEFORE branch ensures atomic reservation:
@@ -1322,37 +1350,47 @@ class PatchManager:
         # Step 5: Fetch all references from remote (branches + tags)
         self._fetch_from_remote()
 
+        # Step 5.5: Validate ho-prod is synced with origin (NEW)
+        self._validate_ho_prod_synced_with_origin()
+
         # Step 6: Check patch number available (via tag)
         branch_name = f"ho-patch/{normalized_id}"
         self._check_patch_id_available(normalized_id)
 
         # Save initial state for rollback
         initial_branch = self._repo.hgit.branch
+        patch_dir = None
+        commit_created = False
+        tag_pushed = False
 
         try:
-            # === LOCAL OPERATIONS (rollback on failure) ===
+            # === LOCAL OPERATIONS ON HO-PROD (rollback on failure) ===
 
-            # Step 7: Create git branch (local)
-            self._create_git_branch(branch_name)
-
-            # Step 8: Create patch directory
+            # Step 7: Create patch directory (on ho-prod, not on branch!)
             patch_dir = self.create_patch_directory(normalized_id)
 
-            # Step 8b: Update README if description provided
+            # Step 7b: Update README if description provided
             if description:
                 self._update_readme_with_description(patch_dir, normalized_id, description)
 
-            # Step 9: Commit patch directory
+            # Step 8: Commit patch directory ON HO-PROD
             self._commit_patch_directory(normalized_id, description)
+            commit_created = True  # Track that commit was made
 
-            # Step 10: Create local tag (points to commit with Patches/)
+            # Step 9: Create local tag (points to commit on ho-prod with Patches/)
             self._create_local_tag(normalized_id, description)
 
             # === REMOTE OPERATIONS (point of no return) ===
 
-            # Step 11: Push tag FIRST → ATOMIC RESERVATION
+            # Step 10: Push tag FIRST → ATOMIC RESERVATION
             self._push_tag_to_reserve_number(normalized_id)
+            tag_pushed = True  # Tag pushed = point of no return
             # ✅ If we reach here: patch number globally reserved!
+
+            # === BRANCH CREATION (after reservation) ===
+
+            # Step 11: Create branch FROM current commit (after tag push)
+            self._create_git_branch(branch_name)
 
             # Step 12: Push branch (with retry)
             try:
@@ -1360,24 +1398,24 @@ class PatchManager:
             except PatchManagerError as e:
                 # Tag already pushed = success, just warn about branch
                 import click
-                click.echo(f"⚠️  Warning: Branch push failed after {3} attempts")
+                click.echo(f"⚠️  Warning: Branch push failed after 3 attempts")
                 click.echo(f"⚠️  Patch {normalized_id} is reserved (tag pushed successfully)")
                 click.echo(f"⚠️  Push branch manually: git push -u origin {branch_name}")
                 # Don't raise - tag pushed means success
 
         except Exception as e:
             # Only rollback if tag NOT pushed yet
-            # If tag was pushed, we're past point of no return
-            if '_push_tag_to_reserve_number' not in str(e.__traceback__):
+            if not tag_pushed:
                 self._rollback_patch_creation(
                     initial_branch,
                     branch_name,
                     normalized_id,
-                    patch_dir if 'patch_dir' in locals() else None
+                    patch_dir,
+                    commit_created=commit_created  # Pass commit status
                 )
             raise PatchManagerError(f"Patch creation failed: {e}")
 
-        # Step 12: Checkout to new branch (non-critical, warn if fails)
+        # Step 13: Checkout to new branch (non-critical, warn if fails)
         try:
             self._checkout_branch(branch_name)
         except Exception as e:
