@@ -86,8 +86,7 @@ def devel_repo(temp_devel_repo):
         mock_abspath.return_value = temp_devel_repo
 
         with patch('half_orm_dev.repo.Database') as mock_db, \
-             patch('half_orm_dev.repo.HGit') as mock_hgit, \
-             patch('half_orm_dev.repo.Changelog') as mock_changelog:
+             patch('half_orm_dev.repo.HGit') as mock_hgit:
 
             mock_database_instance = Mock()
             mock_database_instance.production = False
@@ -391,8 +390,7 @@ class TestPatchManagerIntegrationEdgeCases:
             mock_abspath.return_value = temp_devel_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 # Start with devel=True
                 mock_database_instance = Mock()

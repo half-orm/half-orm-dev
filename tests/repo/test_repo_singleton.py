@@ -97,8 +97,7 @@ devel = True
 
             # Mock Database and HGit to avoid complex initialization
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 # First instance
                 repo1 = Repo()
@@ -128,8 +127,7 @@ devel = True
 """)
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 # First instance from first directory
                 with patch('os.path.abspath', return_value=temp_hop_repo):
@@ -216,8 +214,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 # Create instance
                 repo = Repo()
@@ -232,8 +229,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 # Create multiple instances
                 repo1 = Repo()
@@ -252,8 +248,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 # Create instance
                 repo = Repo()
@@ -277,8 +272,7 @@ devel = True
             mock_database.model = mock_model
 
             with patch('half_orm_dev.repo.Database') as mock_db_class, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_db_class.return_value = mock_database
 
@@ -297,8 +291,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 # Create instance
                 repo = Repo()
@@ -322,8 +315,7 @@ devel = True
             mock_database.model = mock_model
 
             with patch('half_orm_dev.repo.Database') as mock_db_class, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_db_class.return_value = mock_database
 
@@ -345,9 +337,9 @@ devel = True
             with patch('os.path.abspath') as mock_abspath:
                 mock_abspath.return_value = temp_hop_repo
 
+                # CORRECTION: Retirer le patch de Changelog qui n'existe plus
                 with patch('half_orm_dev.repo.Database') as mock_db, \
-                     patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                     patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                     patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                     # Add small delay to increase chance of race condition
                     time.sleep(0.01)
@@ -381,8 +373,7 @@ devel = True
         project_dir, sub_dir = nested_hop_repo
 
         with patch('half_orm_dev.repo.Database') as mock_db, \
-             patch('half_orm_dev.repo.HGit') as mock_hgit, \
-             patch('half_orm_dev.repo.Changelog') as mock_changelog:
+             patch('half_orm_dev.repo.HGit') as mock_hgit:
 
             # First call from subdirectory (should find project_dir)
             with patch('os.path.abspath', return_value=sub_dir):

@@ -9,7 +9,6 @@ import psycopg2
 
 from half_orm import utils
 from half_orm_dev import modules
-from half_orm_dev.changelog import Changelog
 
 from .utils import hop_version
 
@@ -232,6 +231,7 @@ class Patch:
 
     def release(self, push):
         "Release a patch"
+        raise Exception("Deprecated legacy release")
         # We must be on the first branch in devel (see CHANGELOG)
         next_release = self.__repo.changelog.releases_in_dev[0]
         next_branch = f'hop_{next_release}'

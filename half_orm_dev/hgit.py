@@ -119,6 +119,7 @@ class HGit:
 
     def cherry_pick_changelog(self, release_s):
         "Sync CHANGELOG on all hop_x.y.z branches in devel different from release_s"
+        raise Exception("Deprecated legacy cherry_pick_changelog")
         branch = self.__git_repo.active_branch
         self.__git_repo.git.checkout('hop_main')
         commit_sha = self.__git_repo.head.commit.hexsha[0:8]
@@ -131,12 +132,14 @@ class HGit:
 
     def rebase_devel_branches(self, release_s):
         "Rebase all hop_x.y.z branches in devel different from release_s on hop_main:HEAD"
+        raise Exception("Deprecated legacy rebase_devel_branches")
         for release in self.__repo.changelog.releases_in_dev:
             if release != release_s:
                 self.__git_repo.git.checkout(f'hop_{release}')
                 self.__git_repo.git.rebase('hop_main')
 
     def check_rebase_hop_main(self, current_branch):
+        raise Exception("Deprecated legacy check_rebase_hop_main")
         git = self.__git_repo.git
         try:
             git.branch("-D", "hop_temp")

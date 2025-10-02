@@ -102,8 +102,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_database_instance = Mock()
                 mock_database_instance.production = False
@@ -136,8 +135,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_database_instance = Mock()
                 mock_database_instance.production = False
@@ -161,8 +159,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 # Test production = True
                 mock_database_instance = Mock()
@@ -178,8 +175,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 # Test production = False
                 mock_database_instance = Mock()
@@ -195,8 +191,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_model = Mock()
                 mock_database_instance = Mock()
@@ -213,8 +208,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_database_instance = Mock()
                 mock_database_instance.production = False
@@ -230,8 +224,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_database_instance = Mock()
                 mock_database_instance.production = False
@@ -247,8 +240,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_database_instance = Mock()
                 mock_database_instance.production = False
@@ -263,8 +255,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_database_instance = Mock()
                 mock_database_instance.production = False
@@ -280,8 +271,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_database_instance = Mock()
                 mock_database_instance.production = False
@@ -302,8 +292,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_database_instance = Mock()
                 mock_database_instance.production = False
@@ -319,8 +308,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_database_instance = Mock()
                 mock_database_instance.production = False
@@ -331,7 +319,6 @@ devel = True
                 # Should create Database, HGit, and Changelog instances
                 mock_db.assert_called_once_with(repo)
                 mock_hgit.assert_called_once_with(repo)
-                mock_changelog.assert_called_once_with(repo)
 
     def test_state_property_includes_version_info(self, temp_hop_repo):
         """Test state property includes version information."""
@@ -343,7 +330,6 @@ devel = True
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
                  patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog, \
                  patch('half_orm.utils.Color.bold') as mock_color_bold, \
                  patch('half_orm.utils.Color.red') as mock_color_red, \
                  patch('half_orm.utils.Color.green') as mock_color_green:
@@ -398,8 +384,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_database_instance = Mock()
                 mock_database_instance.production = False
@@ -421,8 +406,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_database_instance = Mock()
                 mock_database_instance.production = False
@@ -439,7 +423,6 @@ devel = True
                 assert repo.checked is True
                 assert hasattr(repo, 'database')
                 assert hasattr(repo, 'hgit')
-                assert hasattr(repo, 'changelog')
 
     def test_config_class_integration(self, temp_hop_repo):
         """Test integration with Config class."""
@@ -447,8 +430,7 @@ devel = True
             mock_abspath.return_value = temp_hop_repo
 
             with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm_dev.repo.Changelog') as mock_changelog:
+                 patch('half_orm_dev.repo.HGit') as mock_hgit:
 
                 mock_database_instance = Mock()
                 mock_database_instance.production = False

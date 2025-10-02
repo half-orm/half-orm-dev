@@ -14,7 +14,6 @@ from half_orm_dev.hgit import HGit
 from half_orm_dev import modules
 from half_orm.model import Model
 from half_orm_dev.patch import Patch
-from half_orm_dev.changelog import Changelog
 from half_orm_dev.patch_manager import PatchManager, PatchManagerError
 
 from .utils import TEMPLATE_DIRS, hop_version
@@ -185,11 +184,6 @@ class Repo:
                 self.database = Database(self)
                 if self.devel:
                     self.hgit = HGit(self)
-                    current_branch = self.hgit.branch
-                    self.changelog = Changelog(self)
-                    # only check if the branch is clean
-                    if self.hgit.repos_is_clean():
-                        self.hgit.check_rebase_hop_main(current_branch)
                 self.__checked = True
             par_dir = os.path.split(base_dir)[0]
             if par_dir == base_dir:
