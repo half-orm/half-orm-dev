@@ -10,7 +10,9 @@ from .init_database import init_database
 from .init_project import init_project
 from .create_patch import create_patch
 from .apply_patch import apply_patch
+from .todo import prepare_release
 from .todo import add_to_release
+from .todo import apply_release
 from .todo import promote_to_rc
 from .todo import promote_to_prod
 from .todo import deploy_to_prod
@@ -30,7 +32,9 @@ ALL_COMMANDS = {
     'create-patch': create_patch,
     'apply-patch': apply_patch,
     # 🚧 (stubs)
+    'prepare_release': prepare_release,
     'add-to-release': add_to_release,
+    'apply_release': apply_release,
 
     # 🚧 Release management (stubs)
     'promote-to-rc': promote_to_rc,
@@ -53,14 +57,15 @@ __all__ = [
     'init_project',
     'create_patch', 
     'apply_patch',
+    'prepare_release',
     'add_to_release',
+    'apply_release',
     'promote_to_rc',
     'promote_to_prod', 
     'deploy_to_prod',
     'create_hotfix',
     'rollback',
     # Adapted commands
-    'apply',
     'sync_package',
     'upgrade', 
     'restore',

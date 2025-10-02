@@ -33,17 +33,17 @@ def todo(ctx):
         'create-patch': 'Create ho-patch/patch-name branch with Patches/patch-name/ directory',
         'apply-patch': 'Apply current patch files using PatchManager.apply_patch_files()',
         'add-to-release': 'Add patch to releases/X.Y.Z-stage.txt and merge to ho-prod',
+        'prepare-release': 'Create next releases/X.Y.Z-stage.txt file',
+        'apply-release': 'Apply next release',
         'promote-to-rc': 'Promote stage → rc with automatic branch cleanup',
         'promote-to-prod': 'Promote rc → production release',
         'deploy-to-prod': 'Apply release patches to production database',
         'create-hotfix': 'Create emergency hotfix bypassing normal workflow',
         'rollback': 'Rollback database to previous version using backups/',
-        'prepare-release': 'Create next releases/X.Y.Z-stage.txt file',
         'list-patches': 'List all patches in Patches/ directory',
         'status': 'Show development status with patch/release information',
 
         # ♻️ Commands to adapt
-        'apply': 'Apply patches (legacy - being replaced by apply-patch)',
         'sync-package': 'Synchronize Python package with database model',
         'upgrade': 'Apply patches in production (adapt for Git-centric)',
         'restore': 'Restore database to specific version (adapt for new backups)',
@@ -63,12 +63,13 @@ def todo(ctx):
 # Create aliases for ALL commands (new + adapted)
 # 🚧 New Git-centric commands
 add_to_release = todo
+prepare_release = todo
+apply_release = todo
 promote_to_rc = todo
 promote_to_prod = todo
 deploy_to_prod = todo
 create_hotfix = todo
 rollback = todo
-prepare_release = todo
 list_patches = todo
 status = todo
 
