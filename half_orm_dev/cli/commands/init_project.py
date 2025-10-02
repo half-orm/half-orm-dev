@@ -12,7 +12,13 @@ from half_orm import utils
 
 @click.command()
 @click.argument('package_name')
-def init_project(package_name):
+@click.option(
+    '--git-origin',
+    default=None,
+    help='Git remote origin URL (HTTPS, SSH, or Git protocol). '
+         'If not provided, will prompt interactively.'
+)
+def init_project(package_name, git_origin):
     """
     Initialize a new halfORM project with Git-centric patch management.
 
@@ -34,10 +40,11 @@ def init_project(package_name):
         # Configure database first
         half_orm dev init-database my_blog_db --create-db
 
-        # Then create project
-        half_orm dev init-project my_blog
+        # Create project with explicit git origin
+        half_orm dev init-project my_blog --git-origin=https://github.com/user/my_blog.git
 
-        # Project name must match configured database name
+        # Create project with interactive prompt for git origin
+        half_orm dev init-project my_blog
 
     Git-centric workflow:
     \b
@@ -58,6 +65,10 @@ def init_project(package_name):
             f"Directory '{package_name}' already exists in current directory!"
         )
 
+    # Collect git_origin (from parameter or interactive prompt)
+    if not git_origin:
+        git_origin = _prompt_for_git_origin()
+
     click.echo(
         f"🚀 Initializing halfORM project '{package_name}' "
         "with Git-centric architecture..."
@@ -66,7 +77,10 @@ def init_project(package_name):
     try:
         # Créer nouveau repo avec architecture Git-centric
         repo = Repo()
-        repo.init_git_centric_project(package_name=package_name)
+        repo.init_git_centric_project(
+            package_name=package_name,
+            git_origin=git_origin
+        )
 
         click.echo()
         click.echo(f"✅ Project '{package_name}' initialized successfully!")
@@ -87,7 +101,7 @@ def init_project(package_name):
         click.echo("   half_orm dev create-patch <patch-name>")
 
     except ValueError as e:
-        # Errors from validation methods (package name, database not configured, etc.)
+        # Errors from validation methods (package name, database not configured, git_origin, etc.)
         raise click.ClickException(str(e))
     except FileExistsError as e:
         # Directory already exists (should be caught above, but defensive)
@@ -96,3 +110,44 @@ def init_project(package_name):
         # Unexpected errors
         click.echo(f"\n❌ Error during project initialization: {e}", err=True)
         raise
+
+
+def _prompt_for_git_origin():
+    """
+    Prompt user interactively for Git remote origin URL.
+
+    Validates the URL and re-prompts if invalid. Strips whitespace
+    from input.
+
+    Returns:
+        str: Valid Git origin URL
+
+    Examples:
+        git_origin = _prompt_for_git_origin()
+        # User enters: https://github.com/user/repo.git
+        # Returns: 'https://github.com/user/repo.git'
+    """
+    from half_orm_dev.repo import Repo
+
+    while True:
+        click.echo()
+        git_origin = click.prompt(
+            "Git remote origin URL",
+            type=str
+        ).strip()
+
+        # Check if empty
+        if not git_origin:
+            click.echo("❌ Git origin URL cannot be empty. Please try again.")
+            continue
+
+        # Validate URL format
+        try:
+            # Use Repo's validation method
+            repo = Repo()
+            repo._validate_git_origin_url(git_origin)
+            return git_origin
+        except ValueError as e:
+            click.echo(f"❌ {e}")
+            click.echo("Please try again.")
+            continue
