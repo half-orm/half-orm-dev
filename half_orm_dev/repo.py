@@ -426,19 +426,6 @@ class Repo:
             Args:
                 package_name: Name for the project directory and Python package
 
-            Process:
-                1. Validate package_name format
-                2. Check database configuration exists (~/.half_orm/<package_name>)
-                3. Connect to database and detect mode (metadata → devel=True)
-                4. Create project directory structure
-                5. Generate configuration files (.hop/config)
-                6. Create Git-centric directories (Patches/, releases/)
-                7. Initialize Database instance (self.database)
-                8. Generate Python package structure
-                9. Initialize Git repository with ho-prod branch
-                10. Generate template files (README, .gitignore, setup.py, Pipfile)
-                11. Save model/schema-0.0.0.sql
-
             Git-centric Architecture:
                 - Main branch: ho-prod (replaces hop_main)
                 - Patch branches: ho-patch/<patch-name>
@@ -483,7 +470,7 @@ class Repo:
             # Step 6: Create Git-centric directories
             self._create_git_centric_structure()
 
-            # Step 7: Initialize Database instance (CRITICAL - must be before generate)
+            # Step 7: Initialize Database instance
             self.database = Database(self)
 
             # Step 8: Generate Python package
@@ -492,11 +479,12 @@ class Repo:
             # Step 9: Generate template files
             self._generate_template_files()
 
-            # Step 10: Initialize Git repository with ho-prod branch
+            # Step 10: Save initial schema dump
+            self._dump_initial_schema()
+
+            # Step 11: Initialize Git repository with ho-prod branch
             self._initialize_git_repository()
 
-            # Step 11: Save initial schema dump
-            self._dump_initial_schema()
 
     def _validate_package_name(self, package_name):
         """
