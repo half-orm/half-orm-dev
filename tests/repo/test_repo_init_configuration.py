@@ -35,7 +35,7 @@ class TestConfigurationInitialization:
         repo._Repo__checked = False
         repo._Repo__base_dir = "/test/project"
 
-        repo._initialize_configuration("my_blog", devel_mode=True)
+        repo._initialize_configuration("my_blog", devel_mode=True, git_origin="git@git.example.com:user/repo")
 
         # Should create .hop directory
         expected_hop_dir = "/test/project/.hop"
@@ -52,7 +52,7 @@ class TestConfigurationInitialization:
         repo._Repo__checked = False
         repo._Repo__base_dir = "/test/project"
 
-        repo._initialize_configuration("my_blog", devel_mode=True)
+        repo._initialize_configuration("my_blog", devel_mode=True, git_origin="git@git.example.com:user/repo")
 
         # Should open config file for writing
         expected_config_path = "/test/project/.hop/config"
@@ -66,7 +66,7 @@ class TestConfigurationInitialization:
         repo._Repo__checked = False
         repo._Repo__base_dir = "/test/project"
 
-        repo._initialize_configuration("my_blog", devel_mode=True)
+        repo._initialize_configuration("my_blog", devel_mode=True, git_origin="git@git.example.com:user/repo")
 
         # Verify written content
         handle = mock_file()
@@ -90,7 +90,7 @@ class TestConfigurationInitialization:
         repo._Repo__checked = False
         repo._Repo__base_dir = "/test/project"
 
-        repo._initialize_configuration("legacy_app", devel_mode=False)
+        repo._initialize_configuration("legacy_app", devel_mode=False, git_origin="git@git.example.com:user/repo")
 
         # Verify written content
         handle = mock_file()
@@ -111,7 +111,7 @@ class TestConfigurationInitialization:
         repo._Repo__checked = False
         repo._Repo__base_dir = "/test/project"
 
-        repo._initialize_configuration("my_blog", devel_mode=True)
+        repo._initialize_configuration("my_blog", devel_mode=True, git_origin="git@git.example.com:user/repo")
 
         # Should have created and stored Config instance
         assert hasattr(repo, '_Repo__config')
@@ -126,7 +126,7 @@ class TestConfigurationInitialization:
         repo._Repo__checked = False
         repo._Repo__base_dir = "/test/project"
 
-        repo._initialize_configuration("my_blog", devel_mode=True)
+        repo._initialize_configuration("my_blog", devel_mode=True, git_origin="git@git.example.com:user/repo")
 
         config = repo._Repo__config
 
@@ -134,7 +134,7 @@ class TestConfigurationInitialization:
         assert config.name == "my_blog"
         assert config.devel is True
         assert config.hop_version is not None  # Version set by Config.write()
-        assert config.git_origin == ""  # Empty initially
+        assert config.git_origin == "git@git.example.com:user/repo"
 
     @patch('os.makedirs')
     def test_initialize_configuration_handles_permission_error(self, mock_makedirs):
@@ -146,7 +146,7 @@ class TestConfigurationInitialization:
         repo._Repo__base_dir = "/readonly/project"
 
         with pytest.raises(PermissionError):
-            repo._initialize_configuration("my_blog", devel_mode=True)
+            repo._initialize_configuration("my_blog", devel_mode=True, git_origin="git@git.example.com:user/repo")
 
     @patch('os.makedirs')
     @patch('builtins.open', new_callable=mock_open)
@@ -159,4 +159,4 @@ class TestConfigurationInitialization:
         repo._Repo__base_dir = "/test/project"
 
         with pytest.raises(OSError):
-            repo._initialize_configuration("my_blog", devel_mode=True)
+            repo._initialize_configuration("my_blog", devel_mode=True, git_origin="git@git.example.com:user/repo")

@@ -25,10 +25,11 @@ from .todo import restore      # Adapted for new architecture
 
 # Registry of all available commands - Git-centric architecture
 ALL_COMMANDS = {
-    # 🚧 Core workflow (stubs)
+    # Core workflow
     'init-database': init_database,
     'init-project': init_project,
     'create-patch': create_patch,
+    # 🚧 (stubs)
     'apply-patch': apply_patch,
     'add-to-release': add_to_release,
 
