@@ -223,6 +223,10 @@ class HGit:
         "Proxy to git.commit method"
         return self.__git_repo.git.checkout(*args, **kwargs)
 
+    def pull(self, *args, **kwargs):
+        "Proxy to git.pull method"
+        return self.__git_repo.git.pull(*args, **kwargs)
+
     def checkout_to_hop_main(self):
         "Checkout to hop_main branch"
         self.__git_repo.git.checkout('hop_main')
