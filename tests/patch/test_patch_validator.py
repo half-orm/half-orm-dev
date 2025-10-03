@@ -62,7 +62,7 @@ class TestPatchValidator:
         """Test validation with invalid characters."""
         invalid_ids = [
             "456@invalid",
-            "456_underscore", 
+            "456_underscore",
             "456-Invalid-Case",
             "456-with space",
             "456-with.dot",

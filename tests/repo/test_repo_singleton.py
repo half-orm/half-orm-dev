@@ -66,7 +66,7 @@ devel = True
                 temp_path.mkdir(parents=True)
 
             # Create nested structure: temp_dir/project/.hop/config
-            project_dir = temp_path / "project" 
+            project_dir = temp_path / "project"
             project_dir.mkdir(parents=True)
 
             hop_dir = project_dir / ".hop"
@@ -76,7 +76,7 @@ devel = True
             config_content = """[halfORM]
 package_name = nested_db
 hop_version = 0.16.0
-git_origin = 
+git_origin =
 devel = True
 """
             config_file.write_text(config_content)
@@ -122,7 +122,7 @@ devel = True
             config_file2.write_text("""[halfORM]
 package_name = test_db2
 hop_version = 0.16.0
-git_origin = 
+git_origin =
 devel = True
 """)
 
@@ -196,7 +196,7 @@ devel = True
             # Mock path traversal to eventually reach root
             split_results = [
                 ("/nonexistent/very/deep", "path"),
-                ("/nonexistent/very", "deep"), 
+                ("/nonexistent/very", "deep"),
                 ("/nonexistent", "very"),
                 ("/", "nonexistent"),
                 ("/", "")  # Root reached
@@ -233,7 +233,7 @@ devel = True
 
                 # Create multiple instances
                 repo1 = Repo()
-                repo2 = Repo() 
+                repo2 = Repo()
                 repo3 = Repo()
 
                 # All should be the same instance

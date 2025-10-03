@@ -155,7 +155,7 @@ class TestLoadConfiguration:
         """Test various production flag formats (True/False/true/false)."""
         test_cases = [
             ('True', True),
-            ('true', True), 
+            ('true', True),
             ('TRUE', True),
             ('False', False),
             ('false', False),
@@ -268,7 +268,7 @@ class TestLoadConfiguration:
 
     def test_load_configuration_dbconn_compatibility(self, mock_conf_dir):
         """Test full compatibility with existing  configuration files."""
-        # Simulate exact format created by 
+        # Simulate exact format created by
         database_name = "dbconn_compat"
 
         # Create config exactly as .set_params() would
@@ -290,7 +290,7 @@ class TestLoadConfiguration:
         # Should match exactly what  would provide
         expected = {
             'name': database_name,
-            'user': 'dbconn_user', 
+            'user': 'dbconn_user',
             'password': 'dbconn_pass',
             'host': 'dbconn_host',
             'port': 5433,
@@ -316,7 +316,7 @@ class TestLoadConfiguration:
 
         # Verify types are standardized
         assert isinstance(result['name'], str)
-        assert isinstance(result['user'], str) 
+        assert isinstance(result['user'], str)
         assert isinstance(result['password'], str)
         assert isinstance(result['host'], str)
         assert isinstance(result['port'], int)

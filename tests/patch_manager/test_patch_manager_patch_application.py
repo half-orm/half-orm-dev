@@ -60,7 +60,7 @@ class TestApplyPatchFiles:
         """Test applying patch with only Python files."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Create patch with Python files only  
+        # Create patch with Python files only
         patch_path = patches_dir / "456-python-only"
         patch_path.mkdir()
         (patch_path / "migrate.py").write_text("print('Migration started')")

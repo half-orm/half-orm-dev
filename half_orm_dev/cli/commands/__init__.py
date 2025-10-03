@@ -55,19 +55,19 @@ __all__ = [
     # New commands
     'init_database',
     'init_project',
-    'create_patch', 
+    'create_patch',
     'apply_patch',
     'prepare_release',
     'add_to_release',
     'apply_release',
     'promote_to_rc',
-    'promote_to_prod', 
+    'promote_to_prod',
     'deploy_to_prod',
     'create_hotfix',
     'rollback',
     # Adapted commands
     'sync_package',
-    'upgrade', 
+    'upgrade',
     'restore',
     'ALL_COMMANDS'
 ]

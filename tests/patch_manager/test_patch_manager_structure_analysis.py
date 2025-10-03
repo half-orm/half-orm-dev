@@ -125,7 +125,7 @@ class TestValidatePatchStructure:
         """Test validating patch with Python files - should be valid."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Create patch with Python files  
+        # Create patch with Python files
         patch_path = patches_dir / "456-python-files"
         patch_path.mkdir()
         (patch_path / "01_migrate.py").write_text("print('Migration script')")
@@ -169,7 +169,7 @@ class TestValidatePatchStructure:
         data_dir.mkdir()
         (data_dir / "users.json").write_text('{"users": []}')
 
-        templates_dir = patch_path / "templates"  
+        templates_dir = patch_path / "templates"
         templates_dir.mkdir()
         (templates_dir / "email.html").write_text("<html>Email template</html>")
 
@@ -337,7 +337,7 @@ class TestGetPatchStructure:
 
         # Create files out of lexicographic order
         (patch_path / "z_last.sql").write_text("-- Last file")
-        (patch_path / "a_first.py").write_text("# First file")  
+        (patch_path / "a_first.py").write_text("# First file")
         (patch_path / "m_middle.sql").write_text("-- Middle file")
         (patch_path / "02_conventional.sql").write_text("-- Conventional naming")
         (patch_path / "01_also_conventional.py").write_text("# Also conventional")
@@ -371,7 +371,7 @@ class TestGetPatchStructure:
         file_types = {f.name: (f.is_sql, f.is_python, f.extension) for f in structure.files}
 
         assert file_types["script.sql"] == (True, False, "sql")
-        assert file_types["script.py"] == (False, True, "py") 
+        assert file_types["script.py"] == (False, True, "py")
         assert file_types["data.json"] == (False, False, "json")
         assert file_types["config.txt"] == (False, False, "txt")
 

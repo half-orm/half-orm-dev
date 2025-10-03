@@ -197,7 +197,7 @@ class TestHGitInitialization:
             # Check all private attributes exist
             required_attrs = [
                 '_HGit__origin',
-                '_HGit__repo', 
+                '_HGit__repo',
                 '_HGit__base_dir',
                 '_HGit__git_repo',
                 '_HGit__current_branch'

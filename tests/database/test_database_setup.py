@@ -3,7 +3,7 @@ Tests for Database.setup_database() classmethod - Updated for automatic metadata
 
 Comprehensive unit tests covering:
 - Automatic metadata installation when create_db=True (NEW BEHAVIOR)
-- Parameter collection from CLI options vs interactive prompts  
+- Parameter collection from CLI options vs interactive prompts
 - Database creation with create_db flag
 - Explicit metadata installation with add_metadata flag
 - Configuration file saving to HALFORM_CONF_DIR
@@ -35,13 +35,13 @@ class TestDatabaseSetup:
             'production': False
         }
 
-    @pytest.fixture  
+    @pytest.fixture
     def production_connection_options(self):
         """Production connection parameters."""
         return {
             'host': 'prod.db.com',
             'port': 5432,
-            'user': 'produser', 
+            'user': 'produser',
             'password': 'prodpass',
             'production': True
         }
@@ -53,7 +53,7 @@ class TestDatabaseSetup:
             'host': 'localhost',
             'port': 5432,
             'user': None,  # Should prompt
-            'password': None,  # Should prompt  
+            'password': None,  # Should prompt
             'production': False
         }
 
@@ -314,7 +314,7 @@ class TestDatabaseSetup:
 
     @patch('half_orm_dev.database.Database._execute_pg_command')
     @patch('half_orm_dev.database.Database._save_configuration')
-    @patch('half_orm_dev.database.Model')  
+    @patch('half_orm_dev.database.Model')
     def test_setup_database_creation_error(self, mock_model, mock_save_config, mock_execute_pg, basic_connection_options):
         """Test handling of database creation errors."""
         mock_save_config.return_value = "/path/to/config/creation_fail_db"
@@ -325,7 +325,7 @@ class TestDatabaseSetup:
 
         with pytest.raises(Exception):
             Database.setup_database(
-                database_name="creation_fail_db", 
+                database_name="creation_fail_db",
                 connection_options=basic_connection_options,
                 create_db=True,
                 add_metadata=False
@@ -336,7 +336,7 @@ class TestDatabaseSetup:
         # Test database name validation
         with pytest.raises(ValueError, match="Database name cannot be None"):
             Database.setup_database(
-                database_name=None,  # None name  
+                database_name=None,  # None name
                 connection_options={},
                 create_db=False,
                 add_metadata=False
@@ -394,7 +394,7 @@ class TestDatabaseSetup:
 
         with pytest.raises(TypeError, match="must be a dictionary"):
             Database.setup_database(
-                database_name="test_db", 
+                database_name="test_db",
                 connection_options="not_a_dict",
                 create_db=False,
                 add_metadata=False
@@ -418,7 +418,7 @@ class TestDatabaseSetup:
 
         with pytest.raises(ValueError, match="Port must be an integer between 1 and 65535"):
             Database.setup_database(
-                database_name="test_db", 
+                database_name="test_db",
                 connection_options={'port': -1},  # Negative port
                 create_db=False,
                 add_metadata=False
@@ -435,7 +435,7 @@ class TestDatabaseSetup:
     # NEW TESTS for automatic metadata behavior
 
     @patch('half_orm_dev.database.Database._execute_pg_command')
-    @patch('half_orm_dev.database.Database._save_configuration')  
+    @patch('half_orm_dev.database.Database._save_configuration')
     @patch('half_orm_dev.database.Model')
     def test_setup_database_automatic_metadata_logic(self, mock_model, mock_save_config, mock_execute_pg, basic_connection_options):
         """Test the automatic metadata installation logic for new databases."""

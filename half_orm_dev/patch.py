@@ -71,7 +71,7 @@ class Patch:
                 'ERROR! Wrong branch. Please, switch to the hop_main branch before.\n', exit_code=1)
 
     def prep_release(self, release_level, message=None):
-        """LEGACY METHOD - No longer supported"""  
+        """LEGACY METHOD - No longer supported"""
         raise NotImplementedError(
             "Legacy release preparation removed. "
             "Use new PatchManager via repo.patch_manager"

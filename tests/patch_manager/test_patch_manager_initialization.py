@@ -10,7 +10,7 @@ from unittest.mock import Mock
 from pathlib import Path
 
 from half_orm_dev.patch_manager import (
-    PatchManager, 
+    PatchManager,
     PatchManagerError
 )
 
@@ -196,7 +196,7 @@ class TestPatchDirectoryInitialization:
             repo1.devel = True
 
             repo2 = Mock()
-            repo2.base_dir = temp_dir2  
+            repo2.base_dir = temp_dir2
             repo2.name = "database2"
             repo2.devel = True
 

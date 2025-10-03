@@ -34,7 +34,7 @@ class TestHGitGetLocalCommitHash:
         mock_commit = Mock()
         mock_commit.hexsha = "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0"
         mock_branch.commit = mock_commit
-        
+
         # Mock heads to return our branch
         mock_git_repo.heads = {"ho-prod": mock_branch}
 

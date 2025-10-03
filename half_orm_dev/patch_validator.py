@@ -48,7 +48,7 @@ class PatchValidator:
 
         # Full patch ID
         info = validator.validate_patch_id("456-user-authentication")
-        # Returns: PatchInfo(original_id="456-user-authentication", 
+        # Returns: PatchInfo(original_id="456-user-authentication",
         #                   normalized_id="456-user-authentication", ...)
 
         # Invalid format raises exception
@@ -264,7 +264,7 @@ class PatchValidator:
         """
         Generate a fallback description for numeric patch IDs.
 
-        Returns a simple default description. Developers should provide 
+        Returns a simple default description. Developers should provide
         meaningful descriptions themselves for better clarity.
 
         Args:

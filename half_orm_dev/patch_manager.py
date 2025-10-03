@@ -60,7 +60,7 @@ class PatchManager:
     """
     Manages patch directory structure and file operations.
 
-    Handles creation, validation, and management of Patches/patch-name/ 
+    Handles creation, validation, and management of Patches/patch-name/
     directories following the patch-centric workflow specifications.
 
     Examples:
@@ -374,7 +374,7 @@ class PatchManager:
         Examples:
             patch_info = validator.validate_patch_id("456-user-auth")
             content = patch_mgr.generate_readme_content(
-                patch_info, 
+                patch_info,
                 "User authentication and session management"
             )
 
@@ -1143,9 +1143,9 @@ class PatchManager:
         )
 
     def _update_readme_with_description(
-        self, 
-        patch_dir: Path, 
-        patch_id: str, 
+        self,
+        patch_dir: Path,
+        patch_id: str,
         description: str
     ) -> None:
         """
@@ -1849,7 +1849,7 @@ class PatchManager:
         Sync requirements:
         - Local ho-prod must be at the same commit as origin/ho-prod (synced)
         - If ahead: Must push local commits before creating patch
-        - If behind: Must pull remote commits before creating patch  
+        - If behind: Must pull remote commits before creating patch
         - If diverged: Must resolve conflicts before creating patch
 
         Raises:
@@ -1878,7 +1878,7 @@ class PatchManager:
             try:
                 self._validate_ho_prod_synced_with_origin()
             except PatchManagerError as e:
-                # Error: "ho-prod has diverged from origin/ho-prod. 
+                # Error: "ho-prod has diverged from origin/ho-prod.
                 #         Resolve conflicts first."
         """
         try:

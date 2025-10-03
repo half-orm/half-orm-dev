@@ -8,7 +8,7 @@ Notes for halfORM packager usage
 pipenv install half-orm-dev
 pipenv install half-orm
 pipenv shell
-export HALFORM_CONF_DIR=/path/to/half_orm/private/dir 
+export HALFORM_CONF_DIR=/path/to/half_orm/private/dir
 hop new my_hop_project
 ```
 

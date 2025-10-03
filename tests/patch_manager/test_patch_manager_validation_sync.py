@@ -31,7 +31,7 @@ class TestPatchManagerSyncValidation:
         mock_repo.base_dir = str(tmp_path)
         mock_repo.devel = True
         mock_repo.name = "test_repo"
-        
+
         # Mock HGit
         mock_hgit = Mock()
         mock_repo.hgit = mock_hgit

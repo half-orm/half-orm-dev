@@ -227,8 +227,6 @@ class HGit:
         "Checkout to hop_main branch"
         self.__git_repo.git.checkout('hop_main')
 
-# Add these methods to the HGit class in half_orm_dev/hgit.py
-
     def has_remote(self) -> bool:
         """
         Check if git remote 'origin' is configured.
@@ -274,7 +272,7 @@ class HGit:
             # Push with upstream tracking
             hgit.push_branch("ho-patch/456-user-auth")
 
-            # Push without upstream tracking  
+            # Push without upstream tracking
             hgit.push_branch("ho-patch/456-user-auth", set_upstream=False)
         """
         # Get origin remote

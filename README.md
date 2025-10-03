@@ -178,7 +178,7 @@ You will now be able to manage your package with the `half_orm dev` command.
 ## Get the status of your package: *`half_orm dev`*
 
 ```
-$ half_orm dev 
+$ half_orm dev
 STATUS
 
         connection_file_name: pagila
@@ -204,7 +204,7 @@ X.Y.<Z+1>, X.<Y+1>.Z, <X+1>.Y.Z.
 
 
 To prepare a new patch, run `half_orm dev patch -p <patch_level>` where patch_level is one
-of ['patch', 'minor', 'major']. The command will create a directory in 
+of ['patch', 'minor', 'major']. The command will create a directory in
 `Patches/X/Y/Z` with a CHANGELOG.md description file. You can add in this
 directory a series of patches scripts.
 The scripts are applied in alphabetical order and can only be of two types:
@@ -242,7 +242,7 @@ $ pytest pagila/
 ================= test session starts =================
 platform linux -- Python 3.8.5, pytest-6.2.5, py-1.10.0, pluggy-1.0.0
 rootdir: /home/joel/Dev/halfORM_packager/tmp/pagila
-collected 28 items                                    
+collected 28 items
 
 pagila/public/actor_info_test.py .              [  3%]
 pagila/public/actor_test.py .                   [  7%]

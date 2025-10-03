@@ -324,7 +324,7 @@ class Repo:
 
         Provides access to Patches/ directory management including:
         - Creating patch directories with minimal README templates
-        - Validating patch structure following KISS principles  
+        - Validating patch structure following KISS principles
         - Applying SQL and Python files in lexicographic order
         - Listing and managing existing patches
 

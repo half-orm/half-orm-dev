@@ -18,7 +18,7 @@ def todo(ctx):
 
     Target Git-centric architecture:
     - ho-prod + ho-patch/patch-name branches
-    - Patches/patch-name/ directory structure  
+    - Patches/patch-name/ directory structure
     - releases/X.Y.Z-stage.txt → rc → production workflow
     - PatchManager integration via repo.patch_manager
     - Single active development rule (one RC at a time)

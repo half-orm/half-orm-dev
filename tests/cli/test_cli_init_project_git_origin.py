@@ -144,7 +144,7 @@ class TestInitProjectCLIWithGitOrigin:
 
         # Should eventually succeed (click.prompt re-prompts automatically on empty)
         assert result.exit_code == 0
-        
+
         # Should have called with valid URL eventually
         mock_repo_success.init_git_centric_project.assert_called_once_with(
             package_name='my_blog',

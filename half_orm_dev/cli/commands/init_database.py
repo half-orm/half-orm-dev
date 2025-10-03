@@ -35,7 +35,7 @@ def init_database(database_name, host, port, user, password, create_db, add_meta
         # Interactive setup for new database
         half_orm dev init-database my_blog_db --create-db
 
-        # Non-interactive with all parameters  
+        # Non-interactive with all parameters
         half_orm dev init-database blog_prod --host=db.company.com --user=app_user --password=secret123 --add-metadata --production
 
         # Add metadata to existing database
@@ -45,7 +45,7 @@ def init_database(database_name, host, port, user, password, create_db, add_meta
         # Collect connection parameters from CLI options
         connection_options = {
             'host': host,
-            'port': port, 
+            'port': port,
             'user': user,
             'password': password,
             'production': production

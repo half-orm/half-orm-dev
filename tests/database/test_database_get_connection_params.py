@@ -186,7 +186,7 @@ class TestGetConnectionParams:
 
         # Verify each property matches what DbConn would return
         assert result['user'] == 'dbconn_user'      # replaces self.__connection_params.user
-        assert result['host'] == 'dbconn_host'      # replaces self.__connection_params.host  
+        assert result['host'] == 'dbconn_host'      # replaces self.__connection_params.host
         assert result['port'] == 5433               # replaces self.__connection_params.port
         assert result['production'] is False        # replaces self.__connection_params.production
         assert result['password'] == 'dbconn_password'
@@ -200,7 +200,7 @@ class TestGetConnectionParams:
         repo1.devel = True
 
         repo2 = Mock()
-        repo2.name = "database_two"  
+        repo2.name = "database_two"
         repo2.new = False
         repo2.devel = True
 
@@ -215,7 +215,7 @@ class TestGetConnectionParams:
 
         config2 = {
             'name': 'database_two',
-            'user': 'user2', 
+            'user': 'user2',
             'password': 'pass2',
             'host': 'host2',
             'port': 5433,

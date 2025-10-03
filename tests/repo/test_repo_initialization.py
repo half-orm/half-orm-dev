@@ -2,7 +2,7 @@
 Tests pour l'initialisation de la classe Repo.
 
 Module de test focalisé uniquement sur TestRepoInitialization :
-- Tests d'initialisation et validation repository  
+- Tests d'initialisation et validation repository
 - Tests des propriétés checked, devel, production
 - Tests de __check et __set_base_dir
 - Tests de configuration et état du repository
