@@ -76,7 +76,7 @@ ho-prod (1.3.4) ─→ ho-patch/critical-fix ─→ 1.3.4-hotfix1 ─→ auto-in
 Release Flow with Single File Evolution:
 releases/1.3.4-stage.txt → git mv → 1.3.4-rc1.txt → git mv → 1.3.4.txt
 (development)                      (validation)              (production)
-                                   ↑ branches deleted       
+                                   ↑ branches deleted
 
 Git History Preservation:
 - Complete audit trail via git log --follow
@@ -214,7 +214,7 @@ releases/1.3.5-stage.txt:
 # Promotion to RC (branches deleted)
 half_orm dev promote-to-rc
 # → git mv releases/1.3.5-stage.txt releases/1.3.5-rc1.txt
-# → Automatic cleanup: 
+# → Automatic cleanup:
 #   git branch -d ho-patch/456-user-authentication
 #   git push origin --delete ho-patch/456-user-authentication
 #   git branch -d ho-patch/789-security-fix
@@ -368,7 +368,7 @@ pyproject.toml              # Project configuration (inherited)
    Developer A: Push branch ho-patch/456 ✅ (content available)
 
    # vs. old branch-first approach (problematic):
-   # Dev A: Push branch → Dev B: Checks (no tag yet) → 
+   # Dev A: Push branch → Dev B: Checks (no tag yet) →
    # Dev B: Creates patch → Dev A: Push tag → CONFLICT!
    ```
 
@@ -503,7 +503,7 @@ pyproject.toml              # Project configuration (inherited)
     # → Preserves complete Git history with --follow
     # → **AUTOMATIC BRANCH CLEANUP**: Deletes all branches from this stage release
     #   git branch -d ho-patch/456-user-authentication
-    #   git branch -d ho-patch/789-security-fix  
+    #   git branch -d ho-patch/789-security-fix
     #   git push origin --delete ho-patch/456-user-authentication
     #   git push origin --delete ho-patch/789-security-fix
     # → Freezes content for validation (immutable RC)
@@ -630,7 +630,7 @@ def notify_branches_for_resync():
 
 # Example notification evolution:
 # Commit 1: "RESYNC REQUIRED: 456-user-auth integrated"
-# Commit 2: "RESYNC REQUIRED: 789-security-fix integrated"  
+# Commit 2: "RESYNC REQUIRED: 789-security-fix integrated"
 # Commit 3: "RESYNC REQUIRED: 234-performance integrated"
 ```
 
@@ -859,7 +859,7 @@ releases/1.3.4-hotfix1.txt:
 
 # Continue normal development (hotfix auto-included)
 releases/1.3.5-stage.txt:
-  - 891-new-reports  
+  - 891-new-reports
   - 345-ui-improvements
   - critical-vulnerability     # Auto-included from ho-prod history
 ```
@@ -999,9 +999,9 @@ US	United States
 **3. Handle conflicts gracefully**
 ```sql
 -- Use ON CONFLICT for idempotent seed loading
-INSERT INTO actor.role (id, name, description) 
+INSERT INTO actor.role (id, name, description)
 VALUES (1, 'admin', 'System administrator')
-ON CONFLICT (id) DO UPDATE 
+ON CONFLICT (id) DO UPDATE
 SET description = EXCLUDED.description;
 ```
 
@@ -1172,7 +1172,7 @@ Available releases: 1.2.2, 1.2.3, 1.3.0, 1.3.1, 1.3.2, 1.3.3, 1.3.4
 
 # Automatic sequential application (NO VERSION SKIPPING):
 Step 1: Deploy 1.2.2 (1.2.1 → 1.2.2)
-Step 2: Deploy 1.2.3 (1.2.2 → 1.2.3)  
+Step 2: Deploy 1.2.3 (1.2.2 → 1.2.3)
 Step 3: Deploy 1.3.0 (1.2.3 → 1.3.0)
 Step 4: Deploy 1.3.1 (1.3.0 → 1.3.1)
 Step 5: Deploy 1.3.2 (1.3.1 → 1.3.2)
@@ -1290,7 +1290,7 @@ half_orm dev apply-patch
 
 # Example generated class update:
 # Before patch: user.py with basic user model
-# After patch (adding authentication): 
+# After patch (adding authentication):
 # → user.py updated with new columns
 # → user.authenticate() method stub created
 # → user.change_password() method stub created
@@ -1359,13 +1359,13 @@ half_orm dev apply-patch
 
 ### Database-Driven Version Calculation
 - **Version source**: Queried from `half_orm_meta.hop_release` table
-- **Current database version**: Latest record in hop_release table  
+- **Current database version**: Latest record in hop_release table
 - **Version calculation**: Automatic increment based on metadata (NO SKIPPING)
 - **Sequential requirement**: Next version MUST be current_version + 1 (except hotfixes)
 
 ```sql
 -- Version query (always deterministic)
-SELECT version FROM half_orm_meta.hop_release 
+SELECT version FROM half_orm_meta.hop_release
 ORDER BY created_date DESC LIMIT 1;
 -- Result: "1.3.3" or "1.3.3-hotfix2"
 -- Next allowed version: "1.3.4" (automatic calculation)
@@ -1423,7 +1423,7 @@ half_orm dev init-database <database_name> [OPTIONS]
   database_name         PostgreSQL database name
 
 # Options:
-  --host=<host>         PostgreSQL host (default: localhost)  
+  --host=<host>         PostgreSQL host (default: localhost)
   --port=<port>         PostgreSQL port (default: 5432)
   --user=<user>         Database user (default: $USER)
   --password=<password> Database password (prompts if missing)
@@ -1455,11 +1455,11 @@ Configures database connection parameters and installs half-orm-dev metadata sch
 # Interactive setup for new database
 $ half_orm dev init-database my_blog_db --create-db
 Connection parameters for database 'my_blog_db':
-. user (joel): 
+. user (joel):
 . password: [hidden input]
-. host (localhost): 
-. port (5432): 
-. production (False): 
+. host (localhost):
+. port (5432):
+. production (False):
 Creating database 'my_blog_db'...
 Installing half-orm metadata schemas...
 Configuration saved to ~/.half_orm/my_blog_db
@@ -1541,7 +1541,7 @@ half_orm dev init-database my_blog_db --create-db
 # → Interactive prompts for connection parameters
 # → Creates database and installs metadata
 
-# Step 2: Create project structure  
+# Step 2: Create project structure
 half_orm dev init-project my_blog --database=my_blog_db
 # → Creates project directory and Git repository
 ```
@@ -1605,7 +1605,7 @@ Error: Directory 'existing_project' already exists.
 Choose a different project name or remove the existing directory.
 
 # Database lacks metadata (sync-only mode)
-$ half_orm dev init-project my_app --database=no_metadata_db  
+$ half_orm dev init-project my_app --database=no_metadata_db
 Warning: Database 'no_metadata_db' lacks half-orm-dev metadata.
 Project created in sync-only mode (no patch/release management).
 Available commands: sync-package
@@ -1624,7 +1624,7 @@ Check database status and connection configuration.
 ```ini
 [database]
 name = my_blog_db
-user = developer  
+user = developer
 password = <secure_storage>
 host = localhost
 port = 5432
@@ -1637,7 +1637,7 @@ production = False
 package_name = my_project
 hop_version = 0.16.0
 database_name = my_blog_db
-git_origin = 
+git_origin =
 # Mode (full/sync-only) auto-detected at runtime based on metadata presence
 ```
 
@@ -1728,7 +1728,7 @@ half_orm dev apply-patch
    ✅ Executing 01_create_user_table.sql
       → Created table 'users' with 5 columns
       → Added primary key constraint
-   ✅ Executing 02_add_indexes.sql  
+   ✅ Executing 02_add_indexes.sql
       → Created index 'idx_users_username'
       → Created index 'idx_users_email'
    ✅ Executing 03_update_permissions.py
@@ -1759,7 +1759,7 @@ half_orm dev apply-patch
    Database: ✅ Schema updated successfully
    Generated Code: ✅ 3 files updated
    Business logic: ⚠️ 2 methods need implementation
-   Next Steps: 
+   Next Steps:
    1. Implement user.authenticate() in <dbname>/<dbname>/public/user.py:45
    2. Implement user.change_password() in <dbname>/<dbname>/public/user.py:52
    3. Run 'half_orm dev test' to validate
@@ -1932,7 +1932,7 @@ half_orm dev status --notifications
 
 # Example output:
 # ho-patch/789-performance: ⚠️  Resync needed (user-authentication, security-fix)
-# ho-patch/234-reports: ✅ Up to date  
+# ho-patch/234-reports: ✅ Up to date
 # ho-patch/567-bugfix: ⚠️  Resync needed (user-authentication)
 
 # Show release status
@@ -2099,7 +2099,7 @@ git pull
 
 # Developer can check what needs resyncing
 half_orm dev status --notifications
-# → ho-patch/789-performance: ⚠️  Resync needed (user-authentication)  
+# → ho-patch/789-performance: ⚠️  Resync needed (user-authentication)
 # → ho-patch/234-reports: ✅ Up to date
 # → ho-patch/567-bugfix: ⚠️  Resync needed (user-authentication)
 ```
@@ -2174,7 +2174,7 @@ half_orm dev apply-patch
 
 # Automatic rollback:
 # → Restore database to pre-application state (from model/schema.sql)
-# → No partial changes committed  
+# → No partial changes committed
 # → Clear error message with failure point
 # → Generated code reverted if any
 # → Patch files remain for fixing

@@ -207,7 +207,7 @@ my_project/
 - Cas d'usage multi-repo non envisagé
 - Variables de classe fonctionnent pour usage mono-repo
 
-**Recommandation :** 
+**Recommandation :**
 - Reporter indéfiniment (pas de besoin identifié)
 - Garder trace pour référence future
 - Pas de priorité pour refactoring

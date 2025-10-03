@@ -20,20 +20,20 @@ class TestReleaseManagerParseVersion:
     def release_manager_basic(self, tmp_path):
         """Create basic ReleaseManager instance."""
         from unittest.mock import Mock
-        
+
         mock_repo = Mock()
         mock_repo.base_dir = str(tmp_path)
-        
+
         # Create releases/ directory
         releases_dir = tmp_path / "releases"
         releases_dir.mkdir()
-        
+
         return ReleaseManager(mock_repo)
 
     def test_parse_production_release(self, release_manager_basic):
         """Test parsing production release format X.Y.Z.txt."""
         version = release_manager_basic.parse_version_from_filename("1.3.5.txt")
-        
+
         assert version.major == 1
         assert version.minor == 3
         assert version.patch == 5
@@ -42,7 +42,7 @@ class TestReleaseManagerParseVersion:
     def test_parse_stage_release(self, release_manager_basic):
         """Test parsing stage release format X.Y.Z-stage.txt."""
         version = release_manager_basic.parse_version_from_filename("1.4.0-stage.txt")
-        
+
         assert version.major == 1
         assert version.minor == 4
         assert version.patch == 0
@@ -51,7 +51,7 @@ class TestReleaseManagerParseVersion:
     def test_parse_rc_release_with_number(self, release_manager_basic):
         """Test parsing RC release format X.Y.Z-rc[N].txt."""
         version = release_manager_basic.parse_version_from_filename("1.3.5-rc2.txt")
-        
+
         assert version.major == 1
         assert version.minor == 3
         assert version.patch == 5
@@ -60,7 +60,7 @@ class TestReleaseManagerParseVersion:
     def test_parse_rc1_release(self, release_manager_basic):
         """Test parsing first RC release X.Y.Z-rc1.txt."""
         version = release_manager_basic.parse_version_from_filename("2.0.0-rc1.txt")
-        
+
         assert version.major == 2
         assert version.minor == 0
         assert version.patch == 0
@@ -69,7 +69,7 @@ class TestReleaseManagerParseVersion:
     def test_parse_hotfix_release(self, release_manager_basic):
         """Test parsing hotfix release format X.Y.Z-hotfix[N].txt."""
         version = release_manager_basic.parse_version_from_filename("1.3.5-hotfix1.txt")
-        
+
         assert version.major == 1
         assert version.minor == 3
         assert version.patch == 5
@@ -78,7 +78,7 @@ class TestReleaseManagerParseVersion:
     def test_parse_hotfix_multiple(self, release_manager_basic):
         """Test parsing multiple hotfix release X.Y.Z-hotfix3.txt."""
         version = release_manager_basic.parse_version_from_filename("1.3.4-hotfix3.txt")
-        
+
         assert version.major == 1
         assert version.minor == 3
         assert version.patch == 4
@@ -87,7 +87,7 @@ class TestReleaseManagerParseVersion:
     def test_parse_large_version_numbers(self, release_manager_basic):
         """Test parsing with large version numbers."""
         version = release_manager_basic.parse_version_from_filename("10.20.30.txt")
-        
+
         assert version.major == 10
         assert version.minor == 20
         assert version.patch == 30
@@ -96,7 +96,7 @@ class TestReleaseManagerParseVersion:
     def test_parse_zero_version(self, release_manager_basic):
         """Test parsing version 0.0.1-stage.txt (first release)."""
         version = release_manager_basic.parse_version_from_filename("0.0.1-stage.txt")
-        
+
         assert version.major == 0
         assert version.minor == 0
         assert version.patch == 1
@@ -140,7 +140,7 @@ class TestReleaseManagerParseVersion:
     def test_parse_without_path(self, release_manager_basic):
         """Test parsing works with just filename (no path)."""
         version = release_manager_basic.parse_version_from_filename("1.3.5-rc1.txt")
-        
+
         assert version.major == 1
         assert version.minor == 3
         assert version.patch == 5
@@ -149,7 +149,7 @@ class TestReleaseManagerParseVersion:
     def test_parse_with_path(self, release_manager_basic):
         """Test parsing works with full path."""
         version = release_manager_basic.parse_version_from_filename("releases/1.3.5.txt")
-        
+
         assert version.major == 1
         assert version.minor == 3
         assert version.patch == 5
