@@ -914,6 +914,233 @@ half_orm dev deploy-to-prod "1.3.4"
 # → Database and schema file now synchronized
 ```
 
+### Reference Data Management (Seed Files)
+
+#### model/seed-X.Y.Z.sql Purpose and Lifecycle
+
+Reference data files (`seed-X.Y.Z.sql`) manage **shared application data** that should be identical across all instances of a database. This complements `metadata-X.Y.Z.sql` (half-orm-dev tracking) and `schema-X.Y.Z.sql` (structure).
+
+```bash
+# Three types of versioned data files:
+model/
+├── schema-1.3.4.sql        # Database structure (tables, views, functions)
+├── metadata-1.3.4.sql      # half-orm tracking data (releases, patches)
+└── seed-1.3.4.sql          # Application reference data (roles, configs)
+
+# Only schema.sql has a symlink (determines the version)
+├── schema.sql → schema-1.3.4.sql  # ← Version indicator
+```
+
+#### What Belongs in Seed Files?
+
+**✅ Include in seed files:**
+- Application roles and permissions (`actor.role`, `actor.permission`)
+- System configuration settings (default preferences, feature flags)
+- Reference lookup tables (countries, currencies, status codes)
+- Initial admin users or demo accounts
+- Static content that defines application behavior
+
+**❌ Do NOT include in seed files:**
+- User-generated data (blog posts, user profiles, transactions)
+- Instance-specific configuration (database IDs, server URLs)
+- Test-only data (use separate test fixtures instead)
+- Secrets or credentials (use environment variables)
+- half-orm metadata (automatically managed via `metadata-X.Y.Z.sql`)
+
+#### Seed File Generation and Management
+
+```bash
+# Generate seed file during production deployment
+half_orm dev deploy-to-prod "1.3.4"
+# → Creates model/schema-1.3.4.sql (structure)
+# → Creates model/metadata-1.3.4.sql (half-orm tracking)
+# → Creates model/seed-1.3.4.sql (reference data) ← NEW
+
+# Manual seed file creation for specific tables
+pg_dump my_database \
+  --data-only \
+  --table='actor.role' \
+  --table='actor.permission' \
+  --table='config.settings' \
+  > model/seed-1.3.4.sql
+
+# Seed file application during restoration
+half_orm dev apply-patch
+# → Step 1: Restore structure (psql -f model/schema.sql)
+# → Step 2: Restore half-orm metadata (psql -f model/metadata-X.Y.Z.sql)
+# → Step 3: Restore reference data (psql -f model/seed-X.Y.Z.sql) ← NEW
+# → Step 4: Apply patch files
+```
+
+#### Seed File Best Practices
+
+**1. Keep seed files minimal and focused**
+```sql
+-- ✅ Good: Only essential reference data
+INSERT INTO actor.role (name, description) VALUES
+  ('admin', 'System administrator'),
+  ('user', 'Regular user'),
+  ('guest', 'Read-only access');
+
+-- ❌ Bad: Thousands of rows of test data
+-- (Use separate test fixtures instead)
+```
+
+**2. Use COPY format for performance**
+```sql
+-- Faster for large reference datasets
+COPY config.countries (code, name) FROM stdin;
+FR	France
+GB	United Kingdom
+US	United States
+\.
+```
+
+**3. Handle conflicts gracefully**
+```sql
+-- Use ON CONFLICT for idempotent seed loading
+INSERT INTO actor.role (id, name, description) 
+VALUES (1, 'admin', 'System administrator')
+ON CONFLICT (id) DO UPDATE 
+SET description = EXCLUDED.description;
+```
+
+**4. Document seed file purpose**
+```sql
+-- model/seed-1.3.4.sql
+-- Reference data for application roles and permissions
+-- Generated: 2025-10-03
+-- Version: 1.3.4
+-- Tables: actor.role, actor.permission, config.settings
+```
+
+#### Seed File Workflow Integration
+
+**During development (apply-patch):**
+```bash
+half_orm dev apply-patch
+# → Restore database: schema + metadata + seed
+# → Apply patch SQL files
+# → Patch may INSERT/UPDATE seed data
+# → Tests run against seeded database
+```
+
+**During production deployment:**
+```bash
+half_orm dev deploy-to-prod "1.3.4"
+# → Backup current state (schema + metadata + seed)
+# → Apply all release patches
+# → Generate new seed-1.3.4.sql from final state
+# → Commit all three files (schema, metadata, seed)
+```
+
+**For new production instances:**
+```bash
+half_orm dev deploy-to-prod --new-instance "1.3.4"
+# → Use model/schema.sql (structure)
+# → Use model/metadata-X.Y.Z.sql (tracking)
+# → Use model/seed-X.Y.Z.sql (reference data) ← NEW
+# → Skip patch application (clean deployment)
+```
+
+#### Seed File Versioning Strategy
+
+```bash
+# Seed files follow same versioning as schema files
+model/
+├── schema-0.0.0.sql + metadata-0.0.0.sql + seed-0.0.0.sql    # Initial
+├── schema-1.0.0.sql + metadata-1.0.0.sql + seed-1.0.0.sql    # First release
+├── schema-1.3.4.sql + metadata-1.3.4.sql + seed-1.3.4.sql    # Current
+└── schema.sql → schema-1.3.4.sql  # Symlink determines version
+
+# Version deduction:
+# - schema.sql → schema-1.3.4.sql
+# - Load metadata-1.3.4.sql (automatically)
+# - Load seed-1.3.4.sql (automatically) ← NEW
+```
+
+#### Troubleshooting Seed Files
+
+**Problem: Seed file conflicts with existing data**
+```bash
+# Error during restoration:
+ERROR: duplicate key value violates unique constraint "role_pkey"
+
+# Solution: Use ON CONFLICT in seed file
+INSERT INTO actor.role VALUES (...) ON CONFLICT DO NOTHING;
+
+```
+
+**Problem: Seed file references missing schema objects**
+```bash
+# Error: table "config.settings" does not exist
+
+# Solution: Ensure seed file matches schema version
+# → Check: schema.sql → schema-1.3.4.sql
+# → Ensure: seed-1.3.4.sql references tables in schema-1.3.4.sql
+```
+
+**Problem: Seed file too large (performance)**
+```bash
+# Symptom: Restoration takes > 10 seconds
+
+# Solution 1: Use COPY format instead of INSERT
+# Solution 2: Split into essential vs optional seed files
+model/
+├── seed-1.3.4-essential.sql      # Core roles, minimal config
+└── seed-1.3.4-optional.sql       # Extended reference data
+
+# Solution 3: Consider if data truly belongs in seed files
+# (Maybe it should be loaded via patch files instead)
+```
+
+#### Configuration for Seed Files
+
+Seed file generation can be configured in `.hop/config`:
+
+```ini
+[seed]
+# Tables to include in seed files (optional)
+# If not specified, seed file generation is manual
+tables = actor.role, actor.permission, config.settings
+
+# Schemas to exclude from seed files (optional)
+exclude_schemas = half_orm_meta, pg_catalog, information_schema
+
+# Generate seed files automatically during deploy-to-prod (default: false)
+auto_generate = false
+```
+
+**Manual vs Automatic Generation:**
+- **Manual (default)**: Developer creates seed files using `pg_dump` commands
+- **Automatic**: System generates seed files during `deploy-to-prod` based on config
+- **Recommendation**: Start with manual, move to automatic once stable
+
+---
+
+## Notes d'implémentation
+
+### Questions ouvertes pour l'implémentation :
+
+1. **Génération automatique vs manuelle** :
+   - Par défaut : manuel (développeur fait `pg_dump` à la main)
+   - Option future : automatique via configuration dans `.hop/config`
+
+2. **Application lors de la restauration** :
+   - Si `model/seed-X.Y.Z.sql` existe → l'appliquer
+   - Si absent → continuer sans erreur (seed optionnel)
+
+3. **Ordre de chargement** :
+   - schema.sql (structure)
+   - metadata-X.Y.Z.sql (half-orm tracking)
+   - seed-X.Y.Z.sql (reference data)
+   - patch files (modifications)
+
+4. **Gestion des versions** :
+   - Même logique que schema : un fichier par version production
+   - Pas de seed pour stage/RC (optionnel)
+   - Hotfixes peuvent mettre à jour le seed de la version base
+
 ### Production Database Upgrade Scenarios
 
 #### Scenario 1: Sequential Version Upgrade
