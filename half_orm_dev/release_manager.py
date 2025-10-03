@@ -306,4 +306,45 @@ class ReleaseManager:
             ver = release_mgr.parse_version_from_filename("1.3.5-rc2.txt")
             # Version(1, 3, 5, stage="rc2")
         """
-        pass  # Implementation in next phase
+        import re
+        from pathlib import Path
+        
+        # Extract just filename if path provided
+        filename = Path(filename).name
+        
+        # Validate not empty
+        if not filename:
+            raise ReleaseVersionError("Invalid format: empty filename")
+        
+        # Must end with .txt
+        if not filename.endswith('.txt'):
+            raise ReleaseVersionError(f"Invalid format: missing .txt extension in '{filename}'")
+        
+        # Remove .txt extension
+        version_str = filename[:-4]
+        
+        # Pattern: X.Y.Z or X.Y.Z-stage or X.Y.Z-rc1 or X.Y.Z-hotfix1
+        pattern = r'^(\d+)\.(\d+)\.(\d+)(?:-(stage|rc\d+|hotfix\d+))?$'
+
+        match = re.match(pattern, version_str)
+        
+        if not match:
+            raise ReleaseVersionError(
+                f"Invalid format: '{filename}' does not match X.Y.Z[-stage].txt pattern"
+            )
+        
+        major, minor, patch, stage = match.groups()
+        
+        # Convert to integers
+        try:
+            major = int(major)
+            minor = int(minor)
+            patch = int(patch)
+        except ValueError:
+            raise ReleaseVersionError(f"Invalid format: non-numeric version components in '{filename}'")
+        
+        # Validate non-negative
+        if major < 0 or minor < 0 or patch < 0:
+            raise ReleaseVersionError(f"Invalid format: negative version numbers in '{filename}'")
+        
+        return Version(major, minor, patch, stage)
