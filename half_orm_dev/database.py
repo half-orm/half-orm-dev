@@ -114,13 +114,12 @@ class Database:
                     major=0, minor=0, patch=0, changelog='Initial release')
         return self(self.__name)
 
-    def execute_pg_command(self, *command_args, stdout=subprocess.DEVNULL):
+    def execute_pg_command(self, *command_args):
         """Execute PostgreSQL command with instance's connection parameters."""
         return self._execute_pg_command(
             self.__name,
             self._get_connection_params(),
-            *command_args,
-            stdout
+            *command_args
         )
 
     def register_release(self, major, minor, patch, changelog):

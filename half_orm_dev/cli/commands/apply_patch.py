@@ -86,4 +86,65 @@ def apply_patch() -> None:
         - Generated code auto-committed with [ho] prefix
         - Requires database connection configured via init-database
     """
-    pass  # Implementation in Phase 2.3
+    try:
+        # Get repository instance
+        repo = Repo()
+
+        # Get current branch
+        current_branch = repo.hgit.current_branch()
+
+        # Validate branch is ho-patch/*
+        if not current_branch.startswith('ho-patch/'):
+            raise click.ClickException(
+                f"Must be on ho-patch/* branch to apply patch.\n"
+                f"Current branch: {current_branch}\n\n"
+                f"Create a patch first: half_orm dev create-patch <patch_id>"
+            )
+
+        # Extract patch_id from branch name (remove 'ho-patch/' prefix)
+        patch_id = current_branch[len('ho-patch/'):]
+
+        # Display detection info
+        click.echo(f"✓ Current branch: {current_branch}")
+        click.echo(f"✓ Detected patch: {patch_id}")
+        click.echo()
+
+        # Execute complete workflow via PatchManager
+        result = repo.patch_manager.apply_patch_complete_workflow(patch_id)
+
+        # Display success report
+        click.echo("✓ Database restored from model/schema.sql")
+        click.echo()
+
+        # Display applied files
+        if result['applied_files']:
+            click.echo(f"✓ Applied {len(result['applied_files'])} patch file(s):")
+            for filename in result['applied_files']:
+                click.echo(f"  • {filename}")
+            click.echo()
+        else:
+            click.echo("ℹ No patch files to apply (empty patch)")
+            click.echo()
+
+        # Display generated files
+        if result['generated_files']:
+            click.echo(f"✓ Generated {len(result['generated_files'])} Python file(s):")
+            for filepath in result['generated_files']:
+                click.echo(f"  • {filepath}")
+            click.echo()
+        else:
+            click.echo("ℹ No Python files generated (no schema changes)")
+            click.echo()
+
+        # Display next steps
+        click.echo("📝 Next steps:")
+        click.echo("  1. Review generated code")
+        click.echo("  2. Implement business logic stubs")
+        click.echo("  3. Run: half_orm dev test")
+        click.echo("  4. Commit: git add . && git commit -m 'Implement business logic'")
+        click.echo()
+
+    except PatchManagerError as e:
+        raise click.ClickException(str(e))
+    except Exception as e:
+        raise click.ClickException(f"Unexpected error: {e}")
