@@ -231,7 +231,6 @@ class ReleaseManager:
 
         # Parse into Version object for calculation
         prod_version = self.parse_version_from_filename(f"{prod_version_str}.txt")
-        print('XXX', prod_version)
 
         # 6. Calculate next version
         next_version = self.calculate_next_version(prod_version, increment_type)
@@ -250,7 +249,7 @@ class ReleaseManager:
 
         # 9. Commit
         self._repo.hgit.add(str(stage_file))
-        self._repo.hgit.commit(f"Prepare release {next_version}-stage")
+        self._repo.hgit.commit("-m", f"Prepare release {next_version}-stage")
 
         # 10. Push to origin (global reservation)
         self._repo.hgit.push()

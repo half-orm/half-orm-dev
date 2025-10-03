@@ -63,7 +63,6 @@ def todo(ctx):
 # Create aliases for ALL commands (new + adapted)
 # 🚧 New Git-centric commands
 add_to_release = todo
-prepare_release = todo
 apply_release = todo
 promote_to_rc = todo
 promote_to_prod = todo

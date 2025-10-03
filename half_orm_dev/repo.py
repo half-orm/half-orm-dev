@@ -15,6 +15,7 @@ from half_orm_dev import modules
 from half_orm.model import Model
 from half_orm_dev.patch import Patch
 from half_orm_dev.patch_manager import PatchManager, PatchManagerError
+from half_orm_dev.release_manager import ReleaseManager
 
 from .utils import TEMPLATE_DIRS, hop_version
 
@@ -105,6 +106,7 @@ class Repo:
     database: Optional[Database] = None
     hgit: Optional[HGit] = None
     _patch_directory: Optional[PatchManager] = None
+    _release_manager: Optional[ReleaseManager] = None
 
     def __new__(cls):
         """Singleton implementation based on current working directory"""
@@ -410,6 +412,65 @@ class Repo:
                 print("Repository not in development mode")
         """
         return self.__checked and self.devel
+
+    @property
+    def release_manager(self) -> ReleaseManager:
+        """
+        Get ReleaseManager instance for release lifecycle operations.
+
+        Provides access to releases/ directory management including:
+        - Preparing new releases (stage files creation)
+        - Version calculation and management
+        - Release lifecycle (stage → rc → production)
+        - Production version tracking
+
+        Lazy initialization ensures ReleaseManager is only created when needed
+        and cached for subsequent accesses.
+
+        Returns:
+            ReleaseManager: Instance for managing releases/ operations
+
+        Raises:
+            RuntimeError: If repository not properly initialized
+
+        Examples:
+            # Prepare new patch release
+            result = repo.release_manager.prepare_release('patch')
+            print(f"Created: {result['version']}")
+
+            # Find latest version
+            latest = repo.release_manager.find_latest_version()
+
+            # Calculate next version
+            next_ver = repo.release_manager.calculate_next_version(latest, 'minor')
+        """
+        # Validate repository is properly initialized
+        if not self.__checked:
+            raise RuntimeError(
+                "Repository not initialized. ReleaseManager requires valid repository context."
+            )
+
+        # Lazy initialization with caching
+        if self._release_manager is None:
+            self._release_manager = ReleaseManager(self)
+
+        return self._release_manager
+
+    def clear_release_manager_cache(self) -> None:
+        """
+        Clear cached ReleaseManager instance.
+
+        Forces re-initialization of ReleaseManager on next access.
+        Useful for testing or when repository configuration changes.
+
+        Examples:
+            # Clear cache after configuration change
+            repo.clear_release_manager_cache()
+
+            # Next access will create fresh instance
+            new_release_mgr = repo.release_manager
+        """
+        self._release_manager = None
 
     def init_git_centric_project(self, package_name, git_origin):
         """
