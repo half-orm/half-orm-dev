@@ -180,3 +180,146 @@ def mock_database_for_schema_generation():
     mock_db._execute_pg_command = Mock()
 
     return mock_db
+
+"""
+Additional fixtures for ReleaseManager tests.
+Add these to tests/conftest.py
+"""
+
+@pytest.fixture
+def mock_release_manager_basic(tmp_path):
+    """
+    Create basic ReleaseManager with minimal mocks.
+
+    Provides:
+    - ReleaseManager instance
+    - Mock repo with base_dir
+    - Temporary releases/ directory
+
+    Returns:
+        Tuple of (release_mgr, mock_repo, tmp_path)
+    """
+    from unittest.mock import Mock
+    from half_orm_dev.release_manager import ReleaseManager
+
+    mock_repo = Mock()
+    mock_repo.base_dir = str(tmp_path)
+
+    # Create releases/ directory
+    releases_dir = tmp_path / "releases"
+    releases_dir.mkdir()
+
+    release_mgr = ReleaseManager(mock_repo)
+
+    return release_mgr, mock_repo, tmp_path
+
+
+@pytest.fixture
+def mock_release_manager_with_hgit(mock_release_manager_basic):
+    """
+    Create ReleaseManager with fully mocked HGit.
+
+    Provides:
+    - ReleaseManager instance
+    - Mock repo with HGit configured
+    - HGit mocked for all Git operations
+    - Default "happy path" configuration
+
+    Returns:
+        Tuple of (release_mgr, mock_repo, mock_hgit, tmp_path)
+    """
+    from unittest.mock import Mock
+
+    release_mgr, mock_repo, tmp_path = mock_release_manager_basic
+
+    # Mock HGit with all required methods
+    mock_hgit = Mock()
+
+    # Branch and repo state
+    mock_hgit.branch = "ho-prod"
+    mock_hgit.repos_is_clean.return_value = True
+
+    # Fetch and sync
+    mock_hgit.fetch_from_origin.return_value = None
+    mock_hgit.is_branch_synced.return_value = (True, "synced")
+    mock_hgit.pull.return_value = None
+
+    # Git operations
+    mock_hgit.add.return_value = None
+    mock_hgit.commit.return_value = None
+    mock_hgit.push.return_value = None
+
+    mock_repo.hgit = mock_hgit
+
+    return release_mgr, mock_repo, mock_hgit, tmp_path
+
+
+@pytest.fixture
+def mock_release_manager_with_production(mock_release_manager_with_hgit):
+    """
+    Create ReleaseManager with production version mocking.
+
+    Provides:
+    - Everything from mock_release_manager_with_hgit
+    - Mock _get_production_version() to return "1.3.5"
+    - Mock model/schema.sql symlink (for tests that directly test _get_production_version)
+    - Default production version: 1.3.5
+
+    Returns:
+        Tuple of (release_mgr, mock_repo, mock_hgit, tmp_path, prod_version)
+    """
+    from unittest.mock import Mock, patch
+
+    release_mgr, mock_repo, mock_hgit, tmp_path = mock_release_manager_with_hgit
+
+    # Create model/ directory with schema files (for tests that test _get_production_version directly)
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+
+    # Create versioned schema file
+    prod_version = "1.3.5"
+    schema_file = model_dir / f"schema-{prod_version}.sql"
+    schema_file.write_text("-- Schema version 1.3.5")
+
+    # Create symlink schema.sql -> schema-1.3.5.sql
+    schema_symlink = model_dir / "schema.sql"
+    schema_symlink.symlink_to(f"schema-{prod_version}.sql")
+
+    # Mock database last_release_s
+    mock_database = Mock()
+    mock_database.last_release_s = prod_version
+    mock_repo.database = mock_database
+
+    # CRITICAL: Mock _get_production_version() to avoid reading symlink in most tests
+    # This allows tests to focus on workflow without setting up full file structure
+    release_mgr._get_production_version = Mock(return_value=prod_version)
+
+    return release_mgr, mock_repo, mock_hgit, tmp_path, prod_version
+
+
+@pytest.fixture
+def sample_release_files(tmp_path):
+    """
+    Create sample release files in releases/ directory.
+
+    Creates:
+    - releases/1.3.4.txt (production)
+    - releases/1.3.5-rc2.txt (rc)
+    - releases/1.4.0-stage.txt (stage)
+
+    Returns:
+        Tuple of (releases_dir, dict of created files)
+    """
+    releases_dir = tmp_path / "releases"
+    releases_dir.mkdir()
+
+    files = {
+        '1.3.4.txt': '',
+        '1.3.5-rc2.txt': '',
+        '1.4.0-stage.txt': '',
+    }
+
+    for filename, content in files.items():
+        (releases_dir / filename).write_text(content)
+
+    return releases_dir, files

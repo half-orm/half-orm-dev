@@ -140,7 +140,7 @@ class ReleaseManager:
         2. Validate repository is clean
         3. Fetch from origin
         4. Synchronize with origin/ho-prod (pull if behind)
-        5. Find latest version across all stages
+        5. Read production version from model/schema.sql
         6. Calculate next version based on increment type
         7. Verify stage file doesn't already exist
         8. Create empty stage file
@@ -165,7 +165,7 @@ class ReleaseManager:
             dict: Preparation result with keys:
                 - version: New version string (e.g., "1.4.0")
                 - file: Path to created stage file
-                - previous_version: Previous latest version
+                - previous_version: Previous production version
 
         Raises:
             ReleaseManagerError: If validation fails
@@ -178,11 +178,11 @@ class ReleaseManager:
         Examples:
             # Prepare minor release
             result = release_mgr.prepare_release('minor')
-            # Latest was 1.3.5 → creates releases/1.4.0-stage.txt
+            # Production was 1.3.5 → creates releases/1.4.0-stage.txt
 
             # Prepare patch release
             result = release_mgr.prepare_release('patch')
-            # Latest was 1.3.5-rc2 → creates releases/1.3.6-stage.txt
+            # Production was 1.3.5 → creates releases/1.3.6-stage.txt
 
             # Error handling
             try:
@@ -190,7 +190,182 @@ class ReleaseManager:
             except ReleaseManagerError as e:
                 print(f"Failed: {e}")
         """
-        pass  # Implementation in next phase
+        # 1. Validate on ho-prod branch
+        if self._repo.hgit.branch != 'ho-prod':
+            raise ReleaseManagerError(
+                f"Must be on ho-prod branch to prepare release.\n"
+                f"Current branch: {self._repo.hgit.branch}\n"
+                f"Switch to ho-prod: git checkout ho-prod"
+            )
+
+        # 2. Validate repository is clean
+        if not self._repo.hgit.repos_is_clean():
+            raise ReleaseManagerError(
+                "Repository has uncommitted changes.\n"
+                "Commit or stash changes before preparing release:\n"
+                "  git status\n"
+                "  git add . && git commit"
+            )
+
+        # 3. Fetch from origin
+        self._repo.hgit.fetch_from_origin()
+
+        # 4. Synchronize with origin
+        is_synced, status = self._repo.hgit.is_branch_synced("ho-prod")
+
+        if status == "behind":
+            # Pull automatically
+            self._repo.hgit.pull()
+        elif status == "diverged":
+            raise ReleaseManagerError(
+                "ho-prod has diverged from origin/ho-prod.\n"
+                "Manual resolution required:\n"
+                "  git pull --rebase origin ho-prod\n"
+                "  or\n"
+                "  git merge origin/ho-prod"
+            )
+        # If "synced" or "ahead", continue
+
+        # 5. Read production version from model/schema.sql
+        prod_version_str = self._get_production_version()
+
+        # Parse into Version object for calculation
+        prod_version = self.parse_version_from_filename(f"{prod_version_str}.txt")
+        print('XXX', prod_version)
+
+        # 6. Calculate next version
+        next_version = self.calculate_next_version(prod_version, increment_type)
+
+        # 7. Verify stage file doesn't exist
+        stage_file = self._releases_dir / f"{next_version}-stage.txt"
+        if stage_file.exists():
+            raise ReleaseFileError(
+                f"Stage file already exists: {stage_file}\n"
+                f"Version {next_version} is already in development.\n"
+                f"To continue with this version, use existing stage file."
+            )
+
+        # 8. Create empty stage file
+        stage_file.touch()
+
+        # 9. Commit
+        self._repo.hgit.add(str(stage_file))
+        self._repo.hgit.commit(f"Prepare release {next_version}-stage")
+
+        # 10. Push to origin (global reservation)
+        self._repo.hgit.push()
+
+        # Return result
+        return {
+            'version': next_version,
+            'file': str(stage_file),
+            'previous_version': prod_version_str
+        }
+
+    def _get_production_version(self) -> str:
+        """
+        Get production version from model/schema.sql symlink.
+
+        Reads the version from model/schema.sql symlink target filename.
+        Validates consistency with database metadata if accessible.
+
+        Returns:
+            str: Production version (e.g., "1.3.5")
+
+        Raises:
+            ReleaseFileError: If model/ directory or schema.sql missing
+            ReleaseFileError: If symlink target has invalid format
+
+        Examples:
+            # schema.sql -> schema-1.3.5.sql
+            version = mgr._get_production_version()
+            # Returns: "1.3.5"
+        """
+        schema_path = Path(self._base_dir) / "model" / "schema.sql"
+
+        # Parse version from symlink
+        version_from_file = self._parse_version_from_symlink(schema_path)
+
+        # Optional validation against database
+        try:
+            version_from_db = self._repo.database.last_release_s
+            if version_from_file != version_from_db:
+                # Warning but not error (file is source of truth)
+                import sys
+                sys.stderr.write(
+                    f"Warning: Version mismatch detected:\n"
+                    f"  model/schema.sql: {version_from_file}\n"
+                    f"  Database metadata: {version_from_db}\n"
+                    f"Using file version as source of truth.\n"
+                )
+        except Exception:
+            # Database not accessible or no metadata: OK, continue
+            pass
+
+        return version_from_file
+
+    def _parse_version_from_symlink(self, schema_path: Path) -> str:
+        """
+        Parse version from model/schema.sql symlink target.
+
+        Extracts version number from symlink target filename following
+        the pattern schema-X.Y.Z.sql.
+
+        Args:
+            schema_path: Path to model/schema.sql symlink
+
+        Returns:
+            str: Version string (e.g., "1.3.5")
+
+        Raises:
+            ReleaseFileError: If symlink missing, broken, or invalid format
+
+        Examples:
+            # schema.sql -> schema-1.3.5.sql
+            version = mgr._parse_version_from_symlink(Path("model/schema.sql"))
+            # Returns: "1.3.5"
+        """
+        import re
+
+        # Check model/ directory exists
+        model_dir = schema_path.parent
+        if not model_dir.exists():
+            raise ReleaseFileError(
+                f"Model directory not found: {model_dir}\n"
+                "Run 'half_orm dev init-project' first."
+            )
+
+        # Check schema.sql exists
+        if not schema_path.exists():
+            raise ReleaseFileError(
+                f"Production schema file not found: {schema_path}\n"
+                "Run 'half_orm dev init-project' to generate initial schema."
+            )
+
+        # Check it's a symlink
+        if not schema_path.is_symlink():
+            raise ReleaseFileError(
+                f"Expected symlink but found regular file: {schema_path}"
+            )
+
+        # Get symlink target
+        target = schema_path.readlink()
+        target_name = target.name if hasattr(target, 'name') else str(target)
+
+        # Parse version from target filename: schema-X.Y.Z.sql
+        pattern = r'^schema-(\d+\.\d+\.\d+)\.sql$'
+        match = re.match(pattern, target_name)
+
+        if not match:
+            raise ReleaseFileError(
+                f"Invalid schema symlink target format: {target_name}\n"
+                f"Expected: schema-X.Y.Z.sql (e.g., schema-1.3.5.sql)"
+            )
+
+        # Extract version from capture group
+        version = match.group(1)
+
+        return version
 
     def find_latest_version(self) -> Optional[Version]:
         """
