@@ -313,7 +313,24 @@ class ReleaseManager:
             next_ver = release_mgr.calculate_next_version(None, 'minor')
             print(next_ver)  # "0.0.1"
         """
-        pass  # Implementation in next phase
+        # Validate increment type
+        valid_types = ['major', 'minor', 'patch']
+        if not increment_type or increment_type not in valid_types:
+            raise ReleaseVersionError(
+                f"Invalid increment type: '{increment_type}'. "
+                f"Must be one of: {', '.join(valid_types)}"
+            )
+
+        # Calculate next version based on increment type
+        if increment_type == 'major':
+            return f"{current_version.major + 1}.0.0"
+        elif increment_type == 'minor':
+            return f"{current_version.major}.{current_version.minor + 1}.0"
+        elif increment_type == 'patch':
+            return f"{current_version.major}.{current_version.minor}.{current_version.patch + 1}"
+
+        # Should never reach here due to validation above
+        raise ReleaseVersionError(f"Unexpected increment type: {increment_type}")
 
     def parse_version_from_filename(self, filename: str) -> Version:
         """

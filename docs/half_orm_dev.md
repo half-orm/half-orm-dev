@@ -544,7 +544,7 @@ half_orm dev apply-patch
 # BUT half_orm_meta.hop_release shows 1.3.4
 
 # Error raised: "Production state inconsistent"
-# Resolution: 
+# Resolution:
 # - Check last deployment completed successfully
 # - Verify schema.sql symlink correct
 # - Verify database contains 1.3.5 in hop_release
