@@ -330,6 +330,272 @@ pyproject.toml              # Project configuration (inherited)
 5. **Integration**: Patch merged to ho-prod and added to release file
 6. **Branch cleanup**: Automatic deletion when stage is promoted to RC
 
+## Version Management Architecture
+
+### Single Source of Truth: Production State
+
+**CRITICAL: The production database state is the only source of truth for version management.**
+
+The production version is represented by two synchronized sources:
+1. **`model/schema.sql`** (symlink to `model/schema-X.Y.Z.sql`)
+2. **`half_orm_meta.hop_release`** table (latest record)
+
+These two sources MUST always be synchronized and represent the current deployed production state.
+
+### Single Line of Development Rule
+
+**Once a version is deployed to production, it becomes the immutable base for all future development.**
+
+```bash
+# Example: Production is currently 1.3.5
+model/schema.sql -> model/schema-1.3.5.sql
+half_orm_meta.hop_release: 1.3.5 (latest record)
+
+# ALLOWED: New development based on 1.3.5
+half_orm dev prepare-release patch  # Creates 1.3.6-stage.txt
+half_orm dev prepare-release minor  # Creates 1.4.0-stage.txt
+half_orm dev prepare-release major  # Creates 2.0.0-stage.txt
+
+# FORBIDDEN: Cannot go backwards
+# Cannot create: 1.3.4, 1.2.x, 0.x.x
+# Once 1.4.0 is in production, cannot create 1.3.6
+```
+
+### Version Sources Hierarchy
+
+```
+┌─────────────────────────────────────────────────┐
+│ PRODUCTION STATE (Source of Truth)              │
+│ - model/schema-X.Y.Z.sql                        │
+│ - half_orm_meta.hop_release (latest)            │
+│ - Immutable once deployed                       │
+└─────────────────────────────────────────────────┘
+                    ↓ Base for
+┌─────────────────────────────────────────────────┐
+│ PLANNED RELEASES (Development Planning)         │
+│ - releases/X.Y.Z-stage.txt (active development) │
+│ - releases/X.Y.Z-rc[N].txt (validation)         │
+│ - releases/X.Y.Z.txt (ready for deployment)     │
+│ - Must always be >= production version          │
+└─────────────────────────────────────────────────┘
+                    ↓ Contains
+┌─────────────────────────────────────────────────┐
+│ PATCHES (Schema Changes)                        │
+│ - Patches/patch-name/*.sql                      │
+│ - Applied on top of production state            │
+│ - Tested via apply-patch (restore + apply)      │
+└─────────────────────────────────────────────────┘
+```
+
+### Development Workflow with Version Sources
+
+#### 1. Check Current Production State
+```bash
+# Production version is in model/schema.sql
+ls -l model/schema.sql
+# -> model/schema.sql -> schema-1.3.5.sql
+
+# Verify consistency with database
+# half_orm_meta.hop_release should show 1.3.5 as latest
+```
+
+#### 2. Prepare New Release (Based on Production)
+```bash
+# prepare-release reads production version from model/schema.sql
+half_orm dev prepare-release patch
+
+# Process:
+# 1. Read production version: 1.3.5 (from model/schema.sql)
+# 2. Calculate next: 1.3.6
+# 3. Validate: 1.3.6 > 1.3.5 ✓
+# 4. Create: releases/1.3.6-stage.txt
+```
+
+#### 3. Develop Patches (Against Production State)
+```bash
+# On ho-patch/456-user-auth branch
+# Create schema changes in Patches/456-user-auth/
+
+half_orm dev apply-patch
+# Process:
+# 1. Restore DB from model/schema.sql (production state 1.3.5)
+# 2. Apply patches from Patches/456-user-auth/
+# 3. Generate code for new schema
+# Result: Testing changes on top of production baseline
+```
+
+#### 4. Add Patch to Release
+```bash
+half_orm dev add-to-release "456" --to-version="1.3.6"
+# Adds patch to releases/1.3.6-stage.txt
+# Patch tested against production 1.3.5 baseline
+```
+
+#### 5. Promote Through Stages
+```bash
+# Stage → RC
+half_orm dev promote-to-rc
+# Renames: 1.3.6-stage.txt → 1.3.6-rc1.txt
+# Still based on production 1.3.5
+
+# RC → Production file
+half_orm dev promote-to-prod
+# Renames: 1.3.6-rc1.txt → 1.3.6.txt
+# File ready for deployment
+```
+
+#### 6. Deploy to Production (Updates Source of Truth)
+```bash
+half_orm dev deploy-to-prod "1.3.6"
+# Process:
+# 1. Restore from model/schema.sql (1.3.5)
+# 2. Apply all patches from releases/1.3.6.txt
+# 3. Generate new schema: model/schema-1.3.6.sql
+# 4. Update symlink: model/schema.sql -> schema-1.3.6.sql
+# 5. Update half_orm_meta.hop_release: INSERT 1.3.6
+# 6. Commit: "Deploy version 1.3.6 to production"
+
+# NOW: Production is 1.3.6 (new source of truth)
+# All future releases must be >= 1.3.6
+```
+
+### Version Validation Rules
+
+#### Rule 1: Production Version is Immutable Base
+```bash
+# Production: 1.3.5
+prepare-release patch   # ✓ Creates 1.3.6-stage.txt
+prepare-release minor   # ✓ Creates 1.4.0-stage.txt
+
+# After 1.4.0 deployed:
+prepare-release patch   # ✓ Creates 1.4.1-stage.txt
+# ✗ CANNOT create 1.3.6 (< 1.4.0 prod)
+```
+
+#### Rule 2: Multiple Concurrent Stages Allowed
+```bash
+# Production: 1.3.5
+releases/1.3.6-stage.txt  # ✓ Patch release
+releases/1.4.0-stage.txt  # ✓ Minor release
+releases/2.0.0-stage.txt  # ✓ Major release
+
+# All based on same production baseline (1.3.5)
+# Sequential promotion: only 1.3.6 can promote to RC first
+```
+
+#### Rule 3: RC Promotion is Sequential
+```bash
+# Production: 1.3.5
+releases/1.3.6-stage.txt
+releases/1.4.0-stage.txt
+
+promote-to-rc  # ✓ Promotes 1.3.6-stage → 1.3.6-rc1.txt
+promote-to-rc  # ✗ BLOCKED: 1.3.6-rc1 must deploy first
+
+# After 1.3.6 deployed to production:
+# Production: 1.3.6
+promote-to-rc  # ✓ Now can promote 1.4.0-stage → 1.4.0-rc1.txt
+```
+
+#### Rule 4: apply-patch Always Restores Production Baseline
+```bash
+# Production: 1.3.5 (model/schema.sql)
+# Working on: ho-patch/456-user-auth
+
+half_orm dev apply-patch
+# 1. DROP + CREATE database
+# 2. psql -f model/schema.sql  (restores to 1.3.5)
+# 3. Apply Patches/456-user-auth/*.sql
+# 4. Generate code
+
+# Result: Changes tested on clean production baseline
+# Guarantees patch compatibility with production state
+```
+
+### Version Consistency Checks
+
+#### On prepare-release
+```bash
+# Checks performed:
+1. Read production version from model/schema.sql symlink
+2. Verify consistency with half_orm_meta.hop_release (if accessible)
+3. Validate new version > production version
+4. Check releases/*.txt don't contain versions < production
+5. Create new stage file
+```
+
+#### On deploy-to-prod
+```bash
+# Updates both sources of truth:
+1. Generate model/schema-X.Y.Z.sql from final database state
+2. Update model/schema.sql symlink -> schema-X.Y.Z.sql
+3. INSERT INTO half_orm_meta.hop_release (version, created_date)
+4. Git commit with both files
+5. Git tag release-X.Y.Z
+
+# Both sources now synchronized at new production version
+```
+
+### Error Scenarios and Recovery
+
+#### Scenario 1: Inconsistent Production State
+```bash
+# model/schema.sql -> schema-1.3.5.sql
+# BUT half_orm_meta.hop_release shows 1.3.4
+
+# Error raised: "Production state inconsistent"
+# Resolution: 
+# - Check last deployment completed successfully
+# - Verify schema.sql symlink correct
+# - Verify database contains 1.3.5 in hop_release
+# - Manual intervention required
+```
+
+#### Scenario 2: Release File Older Than Production
+```bash
+# Production: 1.4.0
+# Found: releases/1.3.6-stage.txt
+
+# Error raised: "Release 1.3.6 < production 1.4.0"
+# Resolution:
+# - Delete obsolete release file
+# - Or mark as archived (move to releases/archive/)
+# - Cannot develop against old production state
+```
+
+#### Scenario 3: Production Deployed But Files Not Updated
+```bash
+# Patches applied to production database (1.3.6)
+# BUT model/schema.sql still points to schema-1.3.5.sql
+
+# Next prepare-release will fail:
+# Error: "Database version (1.3.6) != schema file version (1.3.5)"
+# Resolution:
+# - Run: half_orm dev generate-schema 1.3.6
+# - Updates model/schema-1.3.6.sql
+# - Updates symlink model/schema.sql
+```
+
+### Migration from Legacy System
+
+#### Legacy System (DEPRECATED)
+```bash
+# Old: Version in database only
+# Old: CHANGELOG file tracking
+# Old: Branch per release (hop_X.Y.Z)
+```
+
+#### New System (v0.16.0+)
+```bash
+# New: model/schema.sql as primary source
+# New: releases/*.txt for planning
+# New: Single ho-prod branch + ho-patch/* branches
+# New: File-based release workflow
+```
+
+**No automatic migration provided.** New projects start with new system.
+Existing projects must complete all pending releases in old system before migrating.
+
 ## Detailed Workflow
 
 ### Phase 1: Patch Development
