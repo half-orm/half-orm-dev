@@ -33,11 +33,19 @@ class TestGenerateSchemaSql:
         expected_file = model_dir / "schema-0.0.0.sql"
         assert result == expected_file
 
-        # Should call pg_dump with correct arguments
-        call_args = database._execute_pg_command.call_args[0]
-        assert call_args[0] == "test_db"  # database_name
-        assert call_args[2] == 'pg_dump'  # command
-        assert '--schema-only' in call_args
+        # Should call execute_pg_command twice: once for schema, once for metadata
+        assert database.execute_pg_command.call_count == 2
+
+        # First call: schema dump
+        schema_call = database.execute_pg_command.call_args_list[0]
+        assert 'pg_dump' in schema_call[0]
+        assert '--schema-only' in schema_call[0]
+
+        # Second call: metadata dump
+        metadata_call = database.execute_pg_command.call_args_list[1]
+        assert 'pg_dump' in metadata_call[0]
+        assert '--data-only' in metadata_call[0]
+        assert '--table=half_orm_meta.database' in metadata_call[0]
 
     def test_generate_schema_sql_creates_symlink(self, mock_database_for_schema_generation, tmp_path):
         """Test symlink creation to versioned file."""
@@ -87,8 +95,8 @@ class TestGenerateSchemaSql:
         # Generate same version (overwrites)
         Database._generate_schema_sql(database, "1.3.4", model_dir)
 
-        # Should call pg_dump (which overwrites the file)
-        database._execute_pg_command.assert_called_once()
+        # Should call execute_pg_command twice (schema + metadata)
+        assert database.execute_pg_command.call_count == 2
 
     def test_generate_schema_sql_model_dir_not_exists(self, mock_database_for_schema_generation, tmp_path):
         """Test error when model directory doesn't exist."""
@@ -105,7 +113,8 @@ class TestGenerateSchemaSql:
         model_dir.mkdir()
 
         database = mock_database_for_schema_generation
-        database._execute_pg_command = Mock(side_effect=Exception("pg_dump failed"))
+        # Mock execute_pg_command to fail on first call (schema generation)
+        database.execute_pg_command = Mock(side_effect=Exception("pg_dump failed"))
 
         with pytest.raises(Exception, match="Failed to generate schema SQL"):
             Database._generate_schema_sql(database, "1.0.0", model_dir)
@@ -208,6 +217,69 @@ class TestGenerateSchemaSql:
 
         Database._generate_schema_sql(database, "1.0.0", model_dir)
 
-        # Verify --schema-only is in the pg_dump call
-        call_args = database._execute_pg_command.call_args[0]
-        assert '--schema-only' in call_args
+        # Verify --schema-only is in the FIRST pg_dump call (schema)
+        schema_call = database.execute_pg_command.call_args_list[0]
+        assert '--schema-only' in schema_call[0]
+
+    def test_generate_schema_sql_creates_metadata_file(self, mock_database_for_schema_generation, tmp_path):
+        """Test metadata file creation alongside schema."""
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
+
+        database = mock_database_for_schema_generation
+
+        # Call method
+        Database._generate_schema_sql(database, "1.2.3", model_dir)
+
+        # Should create both files
+        schema_file = model_dir / "schema-1.2.3.sql"
+        metadata_file = model_dir / "metadata-1.2.3.sql"
+
+        # Verify both calls were made
+        assert database.execute_pg_command.call_count == 2
+
+        # Second call should be for metadata with correct tables
+        metadata_call = database.execute_pg_command.call_args_list[1]
+        call_args = metadata_call[0]
+
+        assert 'pg_dump' in call_args
+        assert '--data-only' in call_args
+        assert '--table=half_orm_meta.database' in call_args
+        assert '--table=half_orm_meta.hop_release' in call_args
+        assert '--table=half_orm_meta.hop_release_issue' in call_args
+        assert str(metadata_file) in call_args
+
+
+    def test_generate_schema_sql_no_metadata_symlink(self, mock_database_for_schema_generation, tmp_path):
+        """Test that no symlink is created for metadata file."""
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
+
+        database = mock_database_for_schema_generation
+
+        Database._generate_schema_sql(database, "1.0.0", model_dir)
+
+        # Schema symlink should exist
+        schema_symlink = model_dir / "schema.sql"
+        assert schema_symlink.is_symlink()
+
+        # Metadata symlink should NOT exist
+        metadata_symlink = model_dir / "metadata.sql"
+        assert not metadata_symlink.exists()
+
+
+    def test_generate_schema_sql_metadata_failure(self, mock_database_for_schema_generation, tmp_path):
+        """Test handling of metadata generation failure."""
+        model_dir = tmp_path / "model"
+        model_dir.mkdir()
+
+        database = mock_database_for_schema_generation
+
+        # Mock: schema succeeds, metadata fails
+        database.execute_pg_command = Mock(side_effect=[
+            None,  # First call (schema) succeeds
+            Exception("metadata dump failed")  # Second call (metadata) fails
+        ])
+
+        with pytest.raises(Exception, match="Failed to generate metadata SQL"):
+            Database._generate_schema_sql(database, "1.0.0", model_dir)

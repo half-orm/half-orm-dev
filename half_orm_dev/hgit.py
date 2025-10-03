@@ -111,6 +111,10 @@ class HGit:
         "Returns the active branch"
         return str(self.__git_repo.active_branch)
 
+    def current_branch(self):
+        "Returns the active branch"
+        return str(self.__git_repo.active_branch)
+
     @property
     def current_release(self):
         "Returns the current branch name without 'hop_'"

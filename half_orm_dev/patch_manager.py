@@ -1656,114 +1656,186 @@ class PatchManager:
             )
 
     def restore_database_from_schema(self) -> None:
-            """
-            Restore database from model/schema.sql.
+        """
+        Restore database from model/schema.sql and model/metadata-X.Y.Z.sql.
 
-            Restores database to clean production state by dropping and recreating
-            database, then loading schema from model/schema.sql file. This provides
-            a clean baseline before applying patch files during patch development.
+        Restores database to clean production state by dropping and recreating
+        database, then loading schema structure and half_orm_meta data. This provides
+        a clean baseline before applying patch files during patch development.
 
-            Process:
-            1. Verify model/schema.sql exists (file or symlink)
-            2. Disconnect halfORM Model from database
-            3. Drop existing database using dropdb command
-            4. Create fresh empty database using createdb command
-            5. Load schema from model/schema.sql using psql -f
-            6. Reconnect halfORM Model to restored database
+        Process:
+        1. Verify model/schema.sql exists (file or symlink)
+        2. Disconnect halfORM Model from database
+        3. Drop existing database using dropdb command
+        4. Create fresh empty database using createdb command
+        5. Load schema structure from model/schema.sql using psql -f
+        5b. Load half_orm_meta data from model/metadata-X.Y.Z.sql using psql -f (if exists)
+        6. Reconnect halfORM Model to restored database
 
-            The method uses Database.execute_pg_command() for all PostgreSQL
-            operations (dropdb, createdb, psql) with connection parameters from
-            repository configuration.
+        The method uses Database.execute_pg_command() for all PostgreSQL
+        operations (dropdb, createdb, psql) with connection parameters from
+        repository configuration.
 
-            File Resolution:
-            - Accepts model/schema.sql as regular file or symlink
-            - Symlink typically points to versioned schema-X.Y.Z.sql file
-            - Follows symlink automatically during psql execution
+        File Resolution:
+        - Accepts model/schema.sql as regular file or symlink
+        - Symlink typically points to versioned schema-X.Y.Z.sql file
+        - Follows symlink automatically during psql execution
+        - Deduces metadata file version from schema.sql symlink target
+        - If metadata-X.Y.Z.sql doesn't exist, continues without error (backward compatibility)
 
-            Error Handling:
-            - Raises PatchManagerError if model/schema.sql not found
-            - Raises PatchManagerError if dropdb fails
-            - Raises PatchManagerError if createdb fails
-            - Raises PatchManagerError if psql schema load fails
-            - Database state rolled back on any failure
+        Error Handling:
+        - Raises PatchManagerError if model/schema.sql not found
+        - Raises PatchManagerError if dropdb fails
+        - Raises PatchManagerError if createdb fails
+        - Raises PatchManagerError if psql schema load fails
+        - Raises PatchManagerError if psql metadata load fails (when file exists)
+        - Database state rolled back on any failure
 
-            Usage Context:
-            - Called by apply-patch workflow (Step 1: Database Restoration)
-            - Ensures clean state before applying patch SQL files
-            - Part of isolated patch testing strategy
+        Usage Context:
+        - Called by apply-patch workflow (Step 1: Database Restoration)
+        - Ensures clean state before applying patch SQL files
+        - Part of isolated patch testing strategy
 
-            Returns:
-                None
+        Returns:
+            None
 
-            Raises:
-                PatchManagerError: If schema file not found
-                PatchManagerError: If database restoration fails at any step
+        Raises:
+            PatchManagerError: If schema file not found
+            PatchManagerError: If database restoration fails at any step
 
-            Examples:
-                # Restore database from model/schema.sql before applying patch
-                patch_mgr = PatchManager(repo)
+        Examples:
+            # Restore database from model/schema.sql before applying patch
+            patch_mgr = PatchManager(repo)
+            patch_mgr.restore_database_from_schema()
+            # Database now contains clean production schema + half_orm_meta data
+
+            # Typical apply-patch workflow
+            patch_mgr.restore_database_from_schema()  # Step 1: Clean state + metadata
+            patch_mgr.apply_patch_files("456-user-auth", repo.model)  # Step 2: Apply patch
+
+            # With versioned schema and metadata
+            # If schema.sql → schema-1.2.3.sql exists
+            # Then metadata-1.2.3.sql is loaded automatically (if it exists)
+
+            # Error handling
+            try:
                 patch_mgr.restore_database_from_schema()
-                # Database now contains clean production schema
+            except PatchManagerError as e:
+                print(f"Database restoration failed: {e}")
+                # Handle error: check schema.sql exists, verify permissions
 
-                # Typical apply-patch workflow
-                patch_mgr.restore_database_from_schema()  # Step 1: Clean state
-                patch_mgr.apply_patch_files("456-user-auth", repo.model)  # Step 2: Apply patch
-
-                # Error handling
-                try:
-                    patch_mgr.restore_database_from_schema()
-                except PatchManagerError as e:
-                    print(f"Database restoration failed: {e}")
-                    # Handle error: check schema.sql exists, verify permissions
-
-            Notes:
+        Notes:
             - Silences psql output using stdout=subprocess.DEVNULL
             - Uses Model.ping() for reconnection after restoration
             - Supports both schema.sql file and schema.sql -> schema-X.Y.Z.sql symlink
+            - Metadata file is optional (backward compatibility with older schemas)
             - All PostgreSQL commands use repository connection configuration
-            """
-            # 1. Verify model/schema.sql exists
-            schema_path = Path(self._base_dir) / "model" / "schema.sql"
+            - Version deduction: schema.sql → schema-1.2.3.sql ⇒ metadata-1.2.3.sql
+        """
+        # 1. Verify model/schema.sql exists
+        schema_path = Path(self._base_dir) / "model" / "schema.sql"
 
-            if not schema_path.exists():
-                raise PatchManagerError(
-                    f"Schema file not found: {schema_path}. "
-                    "Cannot restore database without model/schema.sql."
-                )
+        if not schema_path.exists():
+            raise PatchManagerError(
+                f"Schema file not found: {schema_path}. "
+                "Cannot restore database without model/schema.sql."
+            )
 
+        try:
+            # 2. Disconnect Model from database
+            self._repo.model.disconnect()
+
+            # 3. Drop existing database
             try:
-                # 2. Disconnect Model from database
-                self._repo.model.disconnect()
+                self._repo.database.execute_pg_command('dropdb', self._repo.name)
+            except Exception as e:
+                raise PatchManagerError(f"Failed to drop database: {e}") from e
 
-                # 3. Drop existing database
-                try:
-                    self._repo.database.execute_pg_command('dropdb')
-                except Exception as e:
-                    raise PatchManagerError(f"Failed to drop database: {e}") from e
+            # 4. Create fresh empty database
+            try:
+                self._repo.database.execute_pg_command('createdb', self._repo.name)
+            except Exception as e:
+                raise PatchManagerError(f"Failed to create database: {e}") from e
 
-                # 4. Create fresh empty database
-                try:
-                    self._repo.database.execute_pg_command('createdb')
-                except Exception as e:
-                    raise PatchManagerError(f"Failed to create database: {e}") from e
+            # 5. Load schema from model/schema.sql
+            try:
+                self._repo.database.execute_pg_command(
+                    'psql', '-d', self._repo.name, '-f', str(schema_path)
+                )
+            except Exception as e:
+                raise PatchManagerError(f"Failed to load schema from {schema_path.name}: {e}") from e
 
-                # 5. Load schema from model/schema.sql
+            # 5b. Load metadata from model/metadata-X.Y.Z.sql (if exists)
+            metadata_path = self._deduce_metadata_path(schema_path)
+
+            if metadata_path and metadata_path.exists():
                 try:
                     self._repo.database.execute_pg_command(
-                        'psql', '-f', str(schema_path), stdout=subprocess.DEVNULL
+                        'psql', '-d', self._repo.name, '-f', str(metadata_path)
                     )
+                    # Optional: Log success (can be removed if too verbose)
+                    # print(f"✓ Loaded metadata from {metadata_path.name}")
                 except Exception as e:
-                    raise PatchManagerError(f"Failed to load schema from {schema_path.name}: {e}") from e
+                    raise PatchManagerError(
+                        f"Failed to load metadata from {metadata_path.name}: {e}"
+                    ) from e
+            # else: metadata file doesn't exist, continue without error (backward compatibility)
 
-                # 6. Reconnect Model to restored database
-                self._repo.model.ping()
+            # 6. Reconnect Model to restored database
+            self._repo.model.ping()
 
-            except PatchManagerError:
-                # Re-raise PatchManagerError as-is
-                raise
-            except Exception as e:
-                # Catch any unexpected errors
-                raise PatchManagerError(f"Database restoration failed: {e}") from e
+        except PatchManagerError:
+            # Re-raise PatchManagerError as-is
+            raise
+        except Exception as e:
+            # Catch any unexpected errors
+            raise PatchManagerError(f"Database restoration failed: {e}") from e
+
+    def _deduce_metadata_path(self, schema_path: Path) -> Path | None:
+        """
+        Deduce metadata file path from schema.sql symlink target.
+
+        If schema.sql is a symlink pointing to schema-X.Y.Z.sql,
+        returns Path to metadata-X.Y.Z.sql in the same directory.
+
+        Args:
+            schema_path: Path to model/schema.sql (may be file or symlink)
+
+        Returns:
+            Path to metadata-X.Y.Z.sql if version can be deduced, None otherwise
+
+        Examples:
+            # schema.sql → schema-1.2.3.sql
+            metadata_path = _deduce_metadata_path(Path("model/schema.sql"))
+            # Returns: Path("model/metadata-1.2.3.sql")
+
+            # schema.sql is regular file (not symlink)
+            metadata_path = _deduce_metadata_path(Path("model/schema.sql"))
+            # Returns: None
+        """
+        import re
+
+        # Check if schema.sql is a symlink
+        if not schema_path.is_symlink():
+            return None
+
+        # Read symlink target (e.g., "schema-1.2.3.sql")
+        try:
+            target = schema_path.readlink()
+        except OSError:
+            return None
+
+        # Extract version from target filename
+        match = re.match(r'schema-(\d+\.\d+\.\d+)\.sql$', target.name)
+        if not match:
+            return None
+
+        version = match.group(1)
+
+        # Construct metadata file path
+        metadata_path = schema_path.parent / f"metadata-{version}.sql"
+
+        return metadata_path
 
     def _validate_ho_prod_synced_with_origin(self) -> None:
         """

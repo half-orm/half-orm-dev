@@ -114,10 +114,14 @@ class Database:
                     major=0, minor=0, patch=0, changelog='Initial release')
         return self(self.__name)
 
-    @property
-    def execute_pg_command(self):
-        "Helper: execute a postgresql command"
-        return self._execute_pg_command
+    def execute_pg_command(self, *command_args, stdout=subprocess.DEVNULL):
+        """Execute PostgreSQL command with instance's connection parameters."""
+        return self._execute_pg_command(
+            self.__name,
+            self._get_connection_params(),
+            *command_args,
+            stdout
+        )
 
     def register_release(self, major, minor, patch, changelog):
         "Register the release into half_orm_meta.hop_release"
@@ -130,8 +134,9 @@ class Database:
         Generate versioned schema SQL dump.
 
         Creates model/schema-{version}.sql with current database structure
-        using pg_dump --schema-only. Updates model/schema.sql symlink to
-        point to the new version for easy access to current schema.
+        using pg_dump --schema-only. Creates model/metadata-{version}.sql
+        with half_orm_meta data using pg_dump --data-only.
+        Updates model/schema.sql symlink to point to the new version.
 
         This method is used by:
         - init-project: Generate initial schema-0.0.0.sql after database setup
@@ -162,34 +167,35 @@ class Database:
             model_dir = Path("/project/model")
             schema_path = database._generate_schema_sql("0.0.0", model_dir)
             # → Creates model/schema-0.0.0.sql
+            # → Creates model/metadata-0.0.0.sql
             # → Creates symlink model/schema.sql → schema-0.0.0.sql
             # → Returns Path("/project/model/schema-0.0.0.sql")
 
             # During deploy-to-prod - save production schema
             schema_path = database._generate_schema_sql("1.3.4", model_dir)
             # → Creates model/schema-1.3.4.sql
+            # → Creates model/metadata-1.3.4.sql
             # → Updates symlink model/schema.sql → schema-1.3.4.sql
-            # → Old symlink removed, negit commit -m "docs: mark create-patch as complete in dev_logw one created
-
-            # Hotfix deployment - overwrites base version
-            schema_path = database._generate_schema_sql("1.3.4", model_dir)
-            # → Overwrites existing model/schema-1.3.4.sql
-            # → Symlink model/schema.sql still points to schema-1.3.4.sql
 
         File Structure Created:
             model/
             ├── schema.sql          # Symlink to current version
-            ├── schema-0.0.0.sql    # Initial version
-            ├── schema-1.0.0.sql    # Production version
+            ├── schema-0.0.0.sql    # Initial version (structure)
+            ├── metadata-0.0.0.sql  # Initial version (half_orm_meta data)
+            ├── schema-1.0.0.sql    # Production version (structure)
+            ├── metadata-1.0.0.sql  # Production version (half_orm_meta data)
             ├── schema-1.3.4.sql    # Latest production version (current)
+            ├── metadata-1.3.4.sql  # Latest production version (current)
             └── ...
 
         Notes:
-            - Uses pg_dump --schema-only (no data, structure only)
+            - Uses pg_dump --schema-only for structure (no data)
+            - Uses pg_dump --data-only for metadata (only half_orm_meta tables)
             - Symlink is relative (schema.sql → schema-X.Y.Z.sql)
+            - No symlink for metadata (version deduced from schema.sql)
             - Existing symlink is replaced atomically
             - Version format should be X.Y.Z (semantic versioning)
-        """        
+        """
         # Validate version format (X.Y.Z where X, Y, Z are integers)
         version_pattern = r'^\d+\.\d+\.\d+$'
         if not re.match(version_pattern, version):
@@ -213,11 +219,33 @@ class Database:
         schema_file = model_dir / f"schema-{version}.sql"
 
         # Generate schema dump using pg_dump
-        complete_params = self._collect_connection_params(self.__name, self._get_connection_params())
         try:
-            self._execute_pg_command(self.__name, complete_params, 'pg_dump', self.__name, '--schema-only', '-f', str(schema_file))
+            self.execute_pg_command(
+                'pg_dump',
+                self.__name,
+                '--schema-only',
+                '-f',
+                str(schema_file)
+            )
         except Exception as e:
             raise Exception(f"Failed to generate schema SQL: {e}") from e
+
+        # Generate metadata dump (half_orm_meta data only)
+        metadata_file = model_dir / f"metadata-{version}.sql"
+
+        try:
+            self.execute_pg_command(
+                'pg_dump',
+                self.__name,
+                '--data-only',
+                '--table=half_orm_meta.database',
+                '--table=half_orm_meta.hop_release',
+                '--table=half_orm_meta.hop_release_issue',
+                '-f',
+                str(metadata_file)
+            )
+        except Exception as e:
+            raise Exception(f"Failed to generate metadata SQL: {e}") from e
 
         # Create or update symlink
         symlink_path = model_dir / "schema.sql"
@@ -323,7 +351,7 @@ class Database:
 
         return result
 
-    @classmethod 
+    @classmethod
     def setup_database(cls, database_name, connection_options, create_db=False, add_metadata=False):
         """
         Configure database connection and install half-orm metadata schemas.
@@ -338,7 +366,7 @@ class Database:
             database_name (str): PostgreSQL database name
             connection_options (dict): Connection parameters from CLI
                 - host (str): PostgreSQL host (default: localhost)
-                - port (int): PostgreSQL port (default: 5432)  
+                - port (int): PostgreSQL port (default: 5432)
                 - user (str): Database user (default: $USER)
                 - password (str): Database password (prompts if None)
                 - production (bool): Production environment flag
@@ -356,7 +384,7 @@ class Database:
 
         Process Flow:
             1. Parameter Collection: Use provided options or prompt for missing ones
-            2. Connection Test: Verify PostgreSQL connection with provided credentials  
+            2. Connection Test: Verify PostgreSQL connection with provided credentials
             3. Database Setup: Create database if create_db=True, or connect to existing
             4. Metadata Installation: Add half_orm_meta and half_orm_meta.view schemas
             - Automatically installed for newly created databases (create_db=True)
@@ -374,7 +402,7 @@ class Database:
 
             # Add metadata to existing database manually
             Database.setup_database(
-                database_name="legacy_db", 
+                database_name="legacy_db",
                 connection_options={'host': 'prod.db.com', 'user': 'admin'},
                 create_db=False,
                 add_metadata=True  # Explicit metadata installation
@@ -391,7 +419,7 @@ class Database:
         # Step 1: Validate input parameters
         cls._validate_parameters(database_name, connection_options)
 
-        # Step 2: Collect connection parameters  
+        # Step 2: Collect connection parameters
         complete_params = cls._collect_connection_params(database_name, connection_options)
 
         # Step 3: Save configuration to file
@@ -424,9 +452,9 @@ class Database:
                 # Install metadata schemas
                 hop_init_sql_file = os.path.join(HOP_PATH, 'patches', 'sql', 'half_orm_meta.sql')
                 cls._execute_pg_command(
-                    database_name, 
-                    complete_params, 
-                    'psql', 
+                    database_name,
+                    complete_params,
+                    'psql',
                     '-d', database_name,
                     '-f', hop_init_sql_file
                 )
@@ -507,7 +535,7 @@ class Database:
             if not isinstance(port, int) or port <= 0 or port > 65535:
                 raise ValueError(f"Port must be an integer between 1 and 65535, got {port}")
 
-        # Validate production flag if provided  
+        # Validate production flag if provided
         if 'production' in connection_options and connection_options['production'] is not None:
             production = connection_options['production']
             if not isinstance(production, bool):
@@ -526,7 +554,7 @@ class Database:
             database_name (str): PostgreSQL database name for context
             connection_options (dict): Partial connection parameters from CLI
                 - host (str|None): PostgreSQL host
-                - port (int|None): PostgreSQL port  
+                - port (int|None): PostgreSQL port
                 - user (str|None): Database user
                 - password (str|None): Database password
                 - production (bool|None): Production environment flag
@@ -560,7 +588,7 @@ class Database:
 
             # Missing user and password - prompts interactively
             complete = Database._collect_connection_params(
-                "my_db", 
+                "my_db",
                 {'host': 'localhost', 'port': 5432, 'user': None, 'password': None, 'production': False}
             )
             # Prompts: "User (current_user): " and "Password: [hidden]"
@@ -608,7 +636,7 @@ class Database:
             else:
                 complete_params['password'] = password_input
 
-        # Prompt for host if None  
+        # Prompt for host if None
         if complete_params.get('host') is None:
             host_input = input("Host (localhost): ").strip()
             complete_params['host'] = host_input if host_input else 'localhost'
@@ -660,7 +688,7 @@ class Database:
         Returns:
             dict | None: Connection parameters dictionary with standardized keys:
                 - name (str): Database name (always present)
-                - user (str): Database user (defaults to $USER environment variable)  
+                - user (str): Database user (defaults to $USER environment variable)
                 - password (str): Database password (empty string if not set)
                 - host (str): Database host (empty string for Unix socket, 'localhost' otherwise)
                 - port (int): Database port (5432 if not specified)
@@ -669,7 +697,7 @@ class Database:
 
         Raises:
             FileNotFoundError: If CONF_DIR doesn't exist or isn't accessible
-            PermissionError: If configuration file exists but isn't readable  
+            PermissionError: If configuration file exists but isn't readable
             ValueError: If configuration file format is invalid or corrupted
 
         Examples:
@@ -680,7 +708,7 @@ class Database:
 
             # Minimal trust mode configuration (only name=database_name)
             config = Database._load_configuration("local_dev")
-            # Returns: {'name': 'local_dev', 'user': 'joel', 'password': '',  
+            # Returns: {'name': 'local_dev', 'user': 'joel', 'password': '',
             #           'host': '', 'port': 5432, 'production': False}
 
             # Non-existent configuration
@@ -769,7 +797,7 @@ class Database:
         Returns:
             dict: Connection parameters dictionary with standardized keys:
                 - name (str): Database name
-                - user (str): Database user  
+                - user (str): Database user
                 - password (str): Database password (empty string if not set)
                 - host (str): Database host (empty string for Unix socket)
                 - port (int): Database port (5432 default)
@@ -780,7 +808,7 @@ class Database:
             # Get connection parameters for existing database instance
             db = Database(repo)
             params = db._get_connection_params()
-            # Returns: {'name': 'my_db', 'user': 'dev', 'password': '', 
+            # Returns: {'name': 'my_db', 'user': 'dev', 'password': '',
             #           'host': 'localhost', 'port': 5432, 'production': False}
 
             # Access specific parameters (replaces DbConn.property access)
@@ -790,7 +818,7 @@ class Database:
 
         Implementation Notes:
             - Uses _load_configuration() internally but handles all exceptions
-            - Provides stable interface - never raises exceptions  
+            - Provides stable interface - never raises exceptions
             - Returns sensible defaults if configuration is missing/invalid
             - Serves as protective wrapper around _load_configuration()
             - Exceptions from _load_configuration() are caught and handled gracefully

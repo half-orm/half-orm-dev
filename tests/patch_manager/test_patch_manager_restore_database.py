@@ -66,13 +66,13 @@ class TestRestoreDatabaseFromSchema:
         mock_model.disconnect.assert_called_once()
 
         # 2. Database dropped
-        mock_execute.assert_any_call('dropdb')
+        mock_execute.assert_any_call('dropdb', 'test_database')
 
         # 3. Database created
-        mock_execute.assert_any_call('createdb')
+        mock_execute.assert_any_call('createdb', 'test_database')
 
         # 4. Schema loaded via psql -f
-        psql_call = call('psql', '-f', str(schema_file), stdout=subprocess.DEVNULL)
+        psql_call = call('psql', '-d', 'test_database', '-f', str(schema_file))
         assert psql_call in mock_execute.call_args_list
 
         # 5. Model reconnected
@@ -211,7 +211,7 @@ class TestRestoreDatabaseFromSchema:
         patch_mgr.restore_database_from_schema()
 
         # Should work with symlink (psql follows symlinks automatically)
-        psql_call = call('psql', '-f', str(schema_symlink), stdout=subprocess.DEVNULL)
+        psql_call = call('psql', '-d', 'test_database', '-f', str(schema_symlink))
         assert psql_call in mock_execute.call_args_list
 
         # Workflow should complete successfully
@@ -246,7 +246,7 @@ class TestRestoreDatabaseFromSchema:
         patch_mgr.restore_database_from_schema()
 
         # Should work with regular file
-        psql_call = call('psql', '-f', str(schema_file), stdout=subprocess.DEVNULL)
+        psql_call = call('psql', '-d', 'test_database', '-f', str(schema_file))
         assert psql_call in mock_execute.call_args_list
 
         # Workflow should complete
