@@ -1823,7 +1823,7 @@ class PatchManager:
 
         # Read symlink target (e.g., "schema-1.2.3.sql")
         try:
-            target = schema_path.readlink()
+            target = Path(os.readlink(schema_path))
         except OSError:
             return None
 

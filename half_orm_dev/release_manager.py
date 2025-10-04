@@ -5,6 +5,7 @@ Manages release files (releases/*.txt), version calculation, and release
 lifecycle (stage → rc → production) for the Git-centric workflow.
 """
 
+import os
 from pathlib import Path
 from typing import Optional, Tuple, List
 from dataclasses import dataclass
@@ -348,7 +349,7 @@ class ReleaseManager:
             )
 
         # Get symlink target
-        target = schema_path.readlink()
+        target = Path(os.readlink(schema_path))
         target_name = target.name if hasattr(target, 'name') else str(target)
 
         # Parse version from target filename: schema-X.Y.Z.sql
