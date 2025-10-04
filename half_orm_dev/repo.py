@@ -1,12 +1,15 @@
 """The pkg_conf module provides the Repo class.
 """
 
+from __future__ import annotations
+
 import os
 import sys
 from configparser import ConfigParser
 from pathlib import Path
 from typing import Optional
 from psycopg2 import OperationalError
+
 import half_orm
 from half_orm import utils
 from half_orm_dev.database import Database

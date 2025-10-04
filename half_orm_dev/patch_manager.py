@@ -5,6 +5,8 @@ Manages Patches/patch-name/ directory structure, SQL/Python files,
 and README.md generation for the patch-centric workflow.
 """
 
+from __future__ import annotations
+
 import os
 import re
 import shutil

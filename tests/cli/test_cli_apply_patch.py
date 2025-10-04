@@ -30,68 +30,85 @@ class TestApplyPatchCLI:
         """
         Mock Repo environment on valid ho-patch branch.
 
-        Returns:
-            Tuple of (mock_repo, mock_hgit, mock_patch_mgr)
+        Returns a context manager that patches Repo correctly.
         """
-        mock_repo = Mock()
-        mock_hgit = Mock()
-        mock_patch_mgr = Mock()
+        from contextlib import contextmanager
 
-        # Mock branch detection
-        mock_hgit.current_branch.return_value = 'ho-patch/456-user-auth'
-        mock_repo.hgit = mock_hgit
+        @contextmanager
+        def _patch():
+            mock_hgit = Mock()
+            mock_patch_mgr = Mock()
+            mock_repo_instance = Mock()
 
-        # Mock successful workflow
-        mock_patch_mgr.apply_patch_complete_workflow.return_value = {
-            'patch_id': '456-user-auth',
-            'status': 'success',
-            'applied_files': ['01_create_users.sql', '02_add_indexes.sql'],
-            'generated_files': [
-                'mydb/mydb/public/user.py',
-                'mydb/mydb/public/user_session.py',
-                'tests/mydb/public/test_user.py'
-            ],
-            'error': None
-        }
-        mock_repo.patch_manager = mock_patch_mgr
+            # Mock branch detection
+            mock_hgit.current_branch.return_value = 'ho-patch/456-user-auth'
+            mock_repo_instance.hgit = mock_hgit
 
-        return mock_repo, mock_hgit, mock_patch_mgr
+            # Mock successful workflow
+            mock_patch_mgr.apply_patch_complete_workflow.return_value = {
+                'patch_id': '456-user-auth',
+                'status': 'success',
+                'applied_files': ['01_create_users.sql', '02_add_indexes.sql'],
+                'generated_files': [
+                    'mydb/mydb/public/user.py',
+                    'mydb/mydb/public/user_session.py',
+                    'tests/mydb/public/test_user.py'
+                ],
+                'error': None
+            }
+            mock_repo_instance.patch_manager = mock_patch_mgr
+
+            with patch('half_orm_dev.cli.commands.apply_patch.Repo') as mock_repo_class:
+                mock_repo_class.return_value = mock_repo_instance
+                yield mock_repo_instance, mock_hgit, mock_patch_mgr
+
+        return _patch
 
     @pytest.fixture
     def mock_repo_on_prod_branch(self):
         """Mock Repo environment on ho-prod branch."""
-        mock_repo = Mock()
-        mock_hgit = Mock()
+        from contextlib import contextmanager
 
-        # Mock branch detection - on ho-prod
-        mock_hgit.current_branch.return_value = 'ho-prod'
-        mock_repo.hgit = mock_hgit
+        @contextmanager
+        def _patch():
+            mock_hgit = Mock()
+            mock_repo_instance = Mock()
 
-        return mock_repo, mock_hgit
+            # Mock branch detection - on ho-prod
+            mock_hgit.current_branch.return_value = 'ho-prod'
+            mock_repo_instance.hgit = mock_hgit
+
+            with patch('half_orm_dev.cli.commands.apply_patch.Repo') as mock_repo_class:
+                mock_repo_class.return_value = mock_repo_instance
+                yield mock_repo_instance, mock_hgit
+
+        return _patch
 
     @pytest.fixture
     def mock_repo_on_invalid_branch(self):
         """Mock Repo environment on non-ho-patch branch."""
-        mock_repo = Mock()
-        mock_hgit = Mock()
+        from contextlib import contextmanager
 
-        # Mock branch detection - on feature branch
-        mock_hgit.current_branch.return_value = 'feature/new-feature'
-        mock_repo.hgit = mock_hgit
+        @contextmanager
+        def _patch():
+            mock_hgit = Mock()
+            mock_repo_instance = Mock()
 
-        return mock_repo, mock_hgit
+            # Mock branch detection - on feature branch
+            mock_hgit.current_branch.return_value = 'feature/new-feature'
+            mock_repo_instance.hgit = mock_hgit
+
+            with patch('half_orm_dev.cli.commands.apply_patch.Repo') as mock_repo_class:
+                mock_repo_class.return_value = mock_repo_instance
+                yield mock_repo_instance, mock_hgit
+
+        return _patch
 
     def test_apply_patch_success(self, cli_runner, mock_repo_on_patch_branch):
         """Test successful patch application with formatted output."""
-        mock_repo, mock_hgit, mock_patch_mgr = mock_repo_on_patch_branch
-
-        with patch('half_orm_dev.cli.commands.apply_patch.Repo') as mock_repo_class:
-            mock_repo_class.return_value = mock_repo
-
-            # Invoke CLI
+        with mock_repo_on_patch_branch() as (mock_repo, mock_hgit, mock_patch_mgr):
             result = cli_runner.invoke(apply_patch, [])
 
-            # Should succeed
             assert result.exit_code == 0
 
             # Verify workflow called with correct patch_id
@@ -112,115 +129,81 @@ class TestApplyPatchCLI:
 
     def test_apply_patch_on_ho_prod_branch(self, cli_runner, mock_repo_on_prod_branch):
         """Test error when running on ho-prod branch."""
-        mock_repo, mock_hgit = mock_repo_on_prod_branch
-
-        with patch('half_orm_dev.cli.commands.apply_patch.Repo') as mock_repo_class:
-            mock_repo_class.return_value = mock_repo
-
-            # Invoke CLI
+        with mock_repo_on_prod_branch() as (mock_repo, mock_hgit):
             result = cli_runner.invoke(apply_patch, [])
 
-            # Should fail with error
             assert result.exit_code != 0
             assert 'ho-patch' in result.output.lower()
             assert 'ho-prod' in result.output
 
     def test_apply_patch_on_invalid_branch(self, cli_runner, mock_repo_on_invalid_branch):
         """Test error when running on non-ho-patch branch."""
-        mock_repo, mock_hgit = mock_repo_on_invalid_branch
-
-        with patch('half_orm_dev.cli.commands.apply_patch.Repo') as mock_repo_class:
-            mock_repo_class.return_value = mock_repo
-
-            # Invoke CLI
+        with mock_repo_on_invalid_branch() as (mock_repo, mock_hgit):
             result = cli_runner.invoke(apply_patch, [])
 
-            # Should fail with error
             assert result.exit_code != 0
             assert 'ho-patch' in result.output.lower()
             assert 'feature/new-feature' in result.output
 
     def test_apply_patch_workflow_failure(self, cli_runner, mock_repo_on_patch_branch):
         """Test error handling when workflow fails."""
-        mock_repo, mock_hgit, mock_patch_mgr = mock_repo_on_patch_branch
+        with mock_repo_on_patch_branch() as (mock_repo, mock_hgit, mock_patch_mgr):
+            # Mock workflow to raise error
+            mock_patch_mgr.apply_patch_complete_workflow.side_effect = PatchManagerError(
+                "Patch directory not found: Patches/456-user-auth/"
+            )
 
-        # Mock workflow to raise error
-        mock_patch_mgr.apply_patch_complete_workflow.side_effect = PatchManagerError(
-            "Patch directory not found: Patches/456-user-auth/"
-        )
-
-        with patch('half_orm_dev.cli.commands.apply_patch.Repo') as mock_repo_class:
-            mock_repo_class.return_value = mock_repo
-
-            # Invoke CLI
             result = cli_runner.invoke(apply_patch, [])
 
-            # Should fail with error
             assert result.exit_code != 0
             assert 'Patch directory not found' in result.output
 
     def test_apply_patch_database_restoration_failure(self, cli_runner, mock_repo_on_patch_branch):
         """Test error handling when database restoration fails."""
-        mock_repo, mock_hgit, mock_patch_mgr = mock_repo_on_patch_branch
+        with mock_repo_on_patch_branch() as (mock_repo, mock_hgit, mock_patch_mgr):
+            # Mock workflow to raise database error
+            mock_patch_mgr.apply_patch_complete_workflow.side_effect = PatchManagerError(
+                "Database restoration failed: model/schema.sql not found"
+            )
 
-        # Mock workflow to raise database error
-        mock_patch_mgr.apply_patch_complete_workflow.side_effect = PatchManagerError(
-            "Database restoration failed: model/schema.sql not found"
-        )
-
-        with patch('half_orm_dev.cli.commands.apply_patch.Repo') as mock_repo_class:
-            mock_repo_class.return_value = mock_repo
-
-            # Invoke CLI
             result = cli_runner.invoke(apply_patch, [])
 
-            # Should fail with error
             assert result.exit_code != 0
             assert 'Database restoration failed' in result.output or 'schema.sql' in result.output
 
     def test_apply_patch_unexpected_error(self, cli_runner, mock_repo_on_patch_branch):
         """Test error handling for unexpected exceptions."""
-        mock_repo, mock_hgit, mock_patch_mgr = mock_repo_on_patch_branch
+        with mock_repo_on_patch_branch() as (mock_repo, mock_hgit, mock_patch_mgr):
+            # Mock workflow to raise unexpected error
+            mock_patch_mgr.apply_patch_complete_workflow.side_effect = Exception(
+                "Unexpected database error"
+            )
 
-        # Mock workflow to raise unexpected error
-        mock_patch_mgr.apply_patch_complete_workflow.side_effect = Exception(
-            "Unexpected database error"
-        )
-
-        with patch('half_orm_dev.cli.commands.apply_patch.Repo') as mock_repo_class:
-            mock_repo_class.return_value = mock_repo
-
-            # Invoke CLI
             result = cli_runner.invoke(apply_patch, [])
 
-            # Should fail with error
             assert result.exit_code != 0
             assert 'Unexpected' in result.output or 'error' in result.output.lower()
 
     def test_apply_patch_empty_patch(self, cli_runner, mock_repo_on_patch_branch):
         """Test successful run with empty patch (no files applied)."""
-        mock_repo, mock_hgit, mock_patch_mgr = mock_repo_on_patch_branch
+        with mock_repo_on_patch_branch() as (mock_repo, mock_hgit, mock_patch_mgr):
+            # Mock workflow with empty patch
+            mock_patch_mgr.apply_patch_complete_workflow.return_value = {
+                'patch_id': '456-empty',
+                'status': 'success',
+                'applied_files': [],  # No files
+                'generated_files': [],  # No generation needed
+                'error': None
+            }
 
-        # Mock workflow with empty patch
-        mock_patch_mgr.apply_patch_complete_workflow.return_value = {
-            'patch_id': '456-empty',
-            'status': 'success',
-            'applied_files': [],  # No files
-            'generated_files': [],  # No generation needed
-            'error': None
-        }
-
-        with patch('half_orm_dev.cli.commands.apply_patch.Repo') as mock_repo_class:
-            mock_repo_class.return_value = mock_repo
-
-            # Invoke CLI
             result = cli_runner.invoke(apply_patch, [])
 
-            # Should succeed
             assert result.exit_code == 0
 
     def test_apply_patch_branch_name_extraction(self, cli_runner):
         """Test correct extraction of patch_id from various branch names."""
+        from contextlib import contextmanager
+
         test_cases = [
             ('ho-patch/456', '456'),
             ('ho-patch/456-user-auth', '456-user-auth'),
@@ -228,25 +211,29 @@ class TestApplyPatchCLI:
         ]
 
         for branch_name, expected_patch_id in test_cases:
-            mock_repo = Mock()
-            mock_hgit = Mock()
-            mock_patch_mgr = Mock()
+            @contextmanager
+            def create_mock():
+                mock_hgit = Mock()
+                mock_patch_mgr = Mock()
+                mock_repo_instance = Mock()
 
-            mock_hgit.current_branch.return_value = branch_name
-            mock_repo.hgit = mock_hgit
-            mock_repo.patch_manager = mock_patch_mgr
+                mock_hgit.current_branch.return_value = branch_name
+                mock_repo_instance.hgit = mock_hgit
+                mock_repo_instance.patch_manager = mock_patch_mgr
 
-            mock_patch_mgr.apply_patch_complete_workflow.return_value = {
-                'patch_id': expected_patch_id,
-                'status': 'success',
-                'applied_files': [],
-                'generated_files': [],
-                'error': None
-            }
+                mock_patch_mgr.apply_patch_complete_workflow.return_value = {
+                    'patch_id': expected_patch_id,
+                    'status': 'success',
+                    'applied_files': [],
+                    'generated_files': [],
+                    'error': None
+                }
 
-            with patch('half_orm_dev.cli.commands.apply_patch.Repo') as mock_repo_class:
-                mock_repo_class.return_value = mock_repo
+                with patch('half_orm_dev.cli.commands.apply_patch.Repo') as mock_repo_class:
+                    mock_repo_class.return_value = mock_repo_instance
+                    yield mock_patch_mgr
 
+            with create_mock() as mock_patch_mgr:
                 result = cli_runner.invoke(apply_patch, [])
 
                 # Should succeed and call with correct patch_id
@@ -255,11 +242,7 @@ class TestApplyPatchCLI:
 
     def test_apply_patch_output_format_structure(self, cli_runner, mock_repo_on_patch_branch):
         """Test that output follows expected structure."""
-        mock_repo, mock_hgit, mock_patch_mgr = mock_repo_on_patch_branch
-
-        with patch('half_orm_dev.cli.commands.apply_patch.Repo') as mock_repo_class:
-            mock_repo_class.return_value = mock_repo
-
+        with mock_repo_on_patch_branch() as (mock_repo, mock_hgit, mock_patch_mgr):
             result = cli_runner.invoke(apply_patch, [])
 
             assert result.exit_code == 0
