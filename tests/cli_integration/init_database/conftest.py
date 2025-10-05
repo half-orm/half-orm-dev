@@ -12,7 +12,7 @@ from half_orm.model import Model
 
 
 @pytest.fixture(scope="session")
-def initialized_database(ensure_postgres, isolated_config_session):
+def initialized_database(setup_halftest_user, ensure_postgres, isolated_config_session):
     """
     Database WITH half-orm metadata installed.
 
@@ -22,20 +22,22 @@ def initialized_database(ensure_postgres, isolated_config_session):
     This fixture is the foundation for testing development mode (repo.devel = True).
 
     Process:
-        1. Create database via createdb
-        2. Run: half_orm dev init-database <db_name> (with connection params)
-        3. Verify metadata installation
-        4. Return Model instance + database info
+        1. Create database config in tests/.config/
+        2. Run: half_orm dev init-database <db_name> --create-db (via CLI)
+        3. HALFORM_CONF_DIR already set by isolated_config_session
+        4. Verify metadata installation
+        5. Return Model instance + database info
 
     Args:
+        setup_halftest_user: Ensures halftest user exists
         ensure_postgres: Ensures PostgreSQL is available
-        isolated_config_session: Isolated config directory
+        isolated_config_session: Config directory pointing to tests/.config/
 
     Yields:
         tuple: (model: Model, db_name: str, config_dir: Path)
             - model: halfORM Model instance connected to database
             - db_name: Database name
-            - config_dir: Path to isolated config directory
+            - config_dir: Path to config directory (tests/.config/)
 
     Cleanup:
         Drops database after test session completes
@@ -48,29 +50,34 @@ def initialized_database(ensure_postgres, isolated_config_session):
     """
     db_name = f"hop_test_devel_{os.getpid()}"
 
-    # Create database
-    result = subprocess.run(
-        ['createdb', db_name],
-        capture_output=True,
-        text=True
-    )
-    if result.returncode != 0:
-        pytest.fail(f"Failed to create database {db_name}: {result.stderr}")
+    # Create config file for this database in tests/.config/
+    from configparser import ConfigParser
+    config = ConfigParser()
+    config['database'] = {
+        'name': db_name,
+        'user': 'halftest',
+        'password': 'halftest',
+        'host': 'localhost',
+        'port': '5432',
+        'production': 'False'
+    }
+    config_file = isolated_config_session / db_name
+    with open(config_file, 'w') as f:
+        config.write(f)
 
-    # Install half-orm metadata via CLI
-    # Use environment USER and local trust connection (no password)
-    user = os.environ.get('USER', 'postgres')
-
+    # Install database + metadata via CLI (--create-db creates the DB)
     result = subprocess.run([
         'half_orm', 'dev', 'init-database', db_name,
-        '--user', user,
+        '--create-db',
+        '--user', 'halftest',
+        '--password', 'halftest',
         '--host', 'localhost',
         '--port', '5432'
-    ], capture_output=True, text=True, input='\n')  # Accept default password (empty)
+    ], capture_output=True, text=True)
 
     if result.returncode != 0:
-        # Cleanup database before failing
-        subprocess.run(['dropdb', '--if-exists', db_name], check=False)
+        # Cleanup config file before failing
+        config_file.unlink(missing_ok=True)
         pytest.fail(
             f"Failed to initialize database {db_name}:\n"
             f"STDOUT: {result.stdout}\n"
@@ -81,15 +88,28 @@ def initialized_database(ensure_postgres, isolated_config_session):
     try:
         model = Model(db_name)
     except Exception as e:
-        # Cleanup database before failing
-        subprocess.run(['dropdb', '--if-exists', db_name], check=False)
+        # Cleanup database and config before failing
+        subprocess.run(
+            ['dropdb', '-U', 'halftest', '-h', 'localhost', '--if-exists', db_name],
+            check=False,
+            env={**os.environ, 'PGPASSWORD': 'halftest'}
+        )
+        config_file.unlink(missing_ok=True)
         pytest.fail(f"Failed to create Model for {db_name}: {e}")
 
     yield model, db_name, isolated_config_session
 
-    # Cleanup: drop database
+    # Cleanup: disconnect Model and drop database
+    try:
+        model.disconnect()
+    except Exception:
+        pass  # Ignore disconnect errors
+
+    # Use --force to terminate active connections (PostgreSQL 13+)
     subprocess.run(
-        ['dropdb', '--if-exists', db_name],
+        ['dropdb', '-U', 'halftest', '-h', 'localhost', '--force', '--if-exists', db_name],
         capture_output=True,
-        check=False
+        check=False,
+        env={**os.environ, 'PGPASSWORD': 'halftest'}
     )
+    config_file.unlink(missing_ok=True)
