@@ -70,6 +70,27 @@ class TestInitProjectDevelopmentDirectories:
         assert model_dir.exists(), "model/ directory not created"
         assert model_dir.is_dir(), "model/ should be a directory"
 
+        # Verify model/schema-0.0.0.sql sql dump
+        schema_dump = model_dir / "schema-0.0.0.sql"
+        assert schema_dump.exists(), "model/schema-0.0.0.sql dump not created"
+        assert schema_dump.is_file(), "model/schema.sql should be a file"
+
+        # Verify model/metadata-0.0.0.sql sql dump
+        schema_dump = model_dir / "metadata-0.0.0.sql"
+        assert schema_dump.exists(), "model/metadata-0.0.0.sql dump not created"
+        assert schema_dump.is_file(), "model/metadata.sql should be a file"
+
+        # Verify model/schema.sql symlink
+        schema_link = model_dir / "schema.sql"
+        assert schema_link.exists(), "model/schema.sql symlink not created"
+        assert schema_link.is_symlink(), "model/schema.sql should be a link"
+        assert str(schema_link.readlink()) == "schema-0.0.0.sql"
+
+        # Verify model/ directory
+        schema_link = model_dir / "schema.sql"
+        assert schema_link.exists(), "model/schema.sql link not created"
+        assert schema_link.is_symlink(), "model/schema.sql should be a link"
+
         # Verify backups/ directory
         backups_dir = project_dir / "backups"
         assert backups_dir.exists(), "backups/ directory not created"
