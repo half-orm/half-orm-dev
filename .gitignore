@@ -13,5 +13,4 @@ half_orm_dev.egg-info/
 pyproject.toml
 packager/test/hop_test
 .hop_venv
-hop_test
 site
