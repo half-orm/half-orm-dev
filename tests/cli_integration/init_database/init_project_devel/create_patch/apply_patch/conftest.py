@@ -1,81 +1,154 @@
 """
 Pytest fixtures for apply-patch CLI integration tests.
 
-Provides:
-- applied_patch: Creates and applies first patch via CLI
+Provides autonomous fixture that doesn't depend on other integration fixtures.
+Creates complete environment from scratch for each test.
 """
 
 import pytest
 import subprocess
+import shutil
+import os
 from pathlib import Path
 
 
-@pytest.fixture
-def applied_patch(first_patch):
+@pytest.fixture(scope="function")
+def standalone_applied_patch(tmp_path):
     """
-    Create and apply first patch on halfORM project via CLI.
+    Autonomous fixture for apply-patch integration tests.
     
-    Depends on first_patch fixture (patch branch created, on ho-patch/1-first-patch).
+    Creates complete test environment from scratch:
+    - Unique temporary database with half_orm metadata
+    - Git repository with remote
+    - halfORM project initialized
+    - Patch branch created
+    - SQL file added
+    - Patch applied
     
-    Creates:
-        - 01_create_table.sql in Patches/1-first-patch/
-        - Simple test table: test_users(id, name)
-    
-    Executes:
-        half_orm dev apply-patch
+    Does NOT depend on initialized_database, devel_project, or first_patch fixtures.
+    Complete isolation for each test.
     
     Yields:
-        tuple: (project_dir: Path, database_name: str, patch_id: str, sql_file: Path, remote_repo: Path)
-            - project_dir: Path to project directory
-            - database_name: Name of the database
-            - patch_id: ID of the patch ("1-first-patch")
-            - sql_file: Path to created SQL file
-            - remote_repo: Path to bare Git repository (remote)
+        tuple: (project_dir: Path, db_name: str, patch_id: str)
     
     Cleanup:
-        - All cleanup handled by first_patch fixture
+        - Drops database (with --force)
+        - Removes project directory
+        - Removes remote repository
     
     Example:
-        def test_something(applied_patch):
-            project_dir, db_name, patch_id, sql_file, _ = applied_patch
-            # Verify table exists in database
+        def test_something(standalone_applied_patch):
+            project_dir, db_name, patch_id = standalone_applied_patch
+            # Test with fully applied patch
     """
-    project_dir, database_name, patch_id, remote_repo = first_patch
+    # Generate unique database name
+    db_name = f"hop_test_apply_{os.getpid()}_{id(tmp_path)}"
+    patch_id = "1-test-patch"
+    project_dir = tmp_path / db_name
+    remote_repo = tmp_path / "remote.git"
     
-    # Create Patches/<patch_id>/ directory (should exist from first_patch)
-    patch_dir = project_dir / "Patches" / patch_id
-    assert patch_dir.exists(), f"Patches/{patch_id}/ should exist from first_patch"
-    
-    # Create simple SQL file for testing
-    sql_file = patch_dir / "01_create_table.sql"
-    sql_content = """-- Create test table for integration testing
+    try:
+        # === 1. Create database with metadata ===
+        
+        # Install half_orm metadata
+        # Use half_orm dev init-database to install metadata
+        result = subprocess.run(
+            [
+                "half_orm", "dev", "init-database", db_name,
+                "--create-db",
+                "--user", "halftest",
+                "--password", "halftest",
+                "--host", "localhost",
+                "--port", "5432"
+            ],
+            capture_output=True,
+            text=True
+        )
+        assert result.returncode == 0, f"init-database failed: {result.stderr}"
+        
+        # === 2. Create bare Git repository (remote) ===
+        
+        remote_repo.mkdir()
+        result = subprocess.run(
+            ["git", "init", "--bare"],
+            cwd=str(remote_repo),
+            capture_output=True,
+            text=True
+        )
+        assert result.returncode == 0, f"git init --bare failed: {result.stderr}"
+        
+        # === 3. Initialize halfORM project ===
+        
+        git_origin = f"file://{remote_repo.absolute()}"
+        result = subprocess.run(
+            [
+                "half_orm", "dev", "init-project",
+                db_name,
+                "--git-origin", git_origin
+            ],
+            cwd=str(tmp_path),
+            capture_output=True,
+            text=True
+        )
+        assert result.returncode == 0, f"init-project failed: {result.stderr}"
+        assert project_dir.exists(), f"Project directory {project_dir} not created"
+        
+        # === 4. Create patch branch ===
+        
+        result = subprocess.run(
+            ["half_orm", "dev", "create-patch", patch_id],
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True
+        )
+        assert result.returncode == 0, f"create-patch failed: {result.stderr}"
+        
+        # === 5. Add SQL file to patch ===
+        
+        patch_dir = project_dir / "Patches" / patch_id
+        assert patch_dir.exists(), f"Patch directory {patch_dir} not created"
+        
+        sql_file = patch_dir / "01_create_table.sql"
+        sql_content = """-- Test table for apply-patch integration tests
 CREATE TABLE test_users (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL
 );
 """
-    sql_file.write_text(sql_content)
-    
-    # Execute apply-patch CLI command
-    cmd = ["half_orm", "dev", "apply-patch"]
-    
-    result = subprocess.run(
-        cmd,
-        cwd=str(project_dir),
-        capture_output=True,
-        text=True
-    )
-    
-    # Verify command succeeded
-    assert result.returncode == 0, (
-        f"apply-patch command failed:\n"
-        f"STDOUT: {result.stdout}\n"
-        f"STDERR: {result.stderr}"
-    )
-    
-    # Yield patch application info to tests
-    yield project_dir, database_name, patch_id, sql_file, remote_repo
-    
-    # === Cleanup ===
-    # All cleanup handled by first_patch fixture
-    # (database, branches, project directory)
+        sql_file.write_text(sql_content)
+        
+        # === 6. Apply patch ===
+        
+        result = subprocess.run(
+            ["half_orm", "dev", "apply-patch"],
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True
+        )
+        assert result.returncode == 0, (
+            f"apply-patch failed:\n"
+            f"STDOUT: {result.stdout}\n"
+            f"STDERR: {result.stderr}"
+        )
+        
+        # === Yield to test ===
+        
+        yield project_dir, db_name, patch_id
+        
+    finally:
+        # === Cleanup ===
+        
+        # Drop database with --force (terminates connections)
+        subprocess.run(
+            ["dropdb", "--force", db_name],
+            capture_output=True,
+            text=True
+        )
+        
+        # Remove project directory
+        if project_dir.exists():
+            shutil.rmtree(project_dir)
+        
+        # Remove remote repository
+        if remote_repo.exists():
+            shutil.rmtree(remote_repo)
