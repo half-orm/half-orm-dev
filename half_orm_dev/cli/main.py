@@ -24,7 +24,7 @@ class Hop:
             return ['init-database', 'init-project']
         else:
             # Inside hop repository - development commands
-            return ['create-patch', 'apply-patch', 'prepare-release']
+            return ['create-patch', 'apply-patch', 'prepare-release', 'add-to-release']
 
     @property
     def repo_checked(self):
@@ -63,6 +63,7 @@ def create_cli_group():
                 click.echo(f"  • {utils.Color.bold('create-patch <patch_id>')} - Create new patch branch and directory")
                 click.echo(f"  • {utils.Color.bold('apply-patch')} - Apply current patch files to database")
                 click.echo(f"  • {utils.Color.bold('prepare-release <level>')} - Prepare next release stage file (patch/minor/major)")
+                click.echo(f"  • {utils.Color.bold('add-to-release <patch_id>')} - Add patch to stage release with validation")
                 click.echo(f"\nTry {utils.Color.bold('half_orm dev <command> --help')} for more information.\n")
             else:
                 click.echo(hop.state)

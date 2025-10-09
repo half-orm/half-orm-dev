@@ -11,7 +11,7 @@ from .init_project import init_project
 from .create_patch import create_patch
 from .apply_patch import apply_patch
 from .prepare_release import prepare_release
-from .todo import add_to_release
+from .add_to_release import add_to_release
 from .todo import apply_release
 from .todo import promote_to_rc
 from .todo import promote_to_prod
