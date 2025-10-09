@@ -308,7 +308,7 @@ half_orm dev apply-patch
 **4. Breaking Changes**
 - `apply_patch_complete_workflow()` return structure modifiée :
   - ❌ Supprimé : `'applied_files'`
-  - ✅ Ajouté : `'release_patches'`, `'applied_release_files'`, 
+  - ✅ Ajouté : `'release_patches'`, `'applied_release_files'`,
     `'applied_current_files'`, `'patch_was_in_release'`
 - CLI mis à jour pour nouvelle structure
 - Tests d'intégration mis à jour

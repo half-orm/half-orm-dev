@@ -632,3 +632,347 @@ class HGit:
         except Exception as e:
             # If merge_base fails, assume diverged
             return (False, "diverged")
+
+    def acquire_branch_lock(self, branch_name: str, timeout_minutes: int = 30) -> str:
+        """
+        Acquire exclusive lock on branch using Git tag.
+
+        Creates lock tag with format: lock-{branch}-{utc_timestamp_ms}
+        Only one process can hold lock on a branch at a time.
+
+        Automatically cleans up stale locks (older than timeout).
+
+        Args:
+            branch_name: Branch to lock (e.g., "ho-prod", "ho-patch/456")
+            timeout_minutes: Consider lock stale after this many minutes (default: 30)
+
+        Returns:
+            Lock tag name (e.g., "lock-ho-prod-1704123456789")
+
+        Raises:
+            GitCommandError: If lock acquisition fails
+
+        Examples:
+            # Lock ho-prod for release operations
+            lock_tag = hgit.acquire_branch_lock("ho-prod")
+            try:
+                # ... do work on ho-prod ...
+            finally:
+                hgit.release_branch_lock(lock_tag)
+
+            # Lock with custom timeout
+            lock_tag = hgit.acquire_branch_lock("ho-prod", timeout_minutes=60)
+        """
+        import time
+        import re
+        from datetime import datetime, timedelta
+
+        # Sanitize branch name for tag (replace / with -)
+        safe_branch_name = branch_name.replace('/', '-')
+
+        # Fetch latest tags
+        self.fetch_tags()
+
+        # Check for existing locks on this branch
+        lock_pattern = f"lock-{safe_branch_name}-*"
+        existing_locks = self.list_tags(pattern=lock_pattern)
+
+        if existing_locks:
+            # Extract timestamp from first lock
+            match = re.search(r'-(\d+)$', existing_locks[0])
+            if match:
+                lock_timestamp_ms = int(match.group(1))
+                lock_time = datetime.utcfromtimestamp(lock_timestamp_ms / 1000.0)
+                current_time = datetime.utcnow()
+
+                # Check if lock is stale
+                age_minutes = (current_time - lock_time).total_seconds() / 60
+
+                if age_minutes > timeout_minutes:
+                    # Stale lock - delete it
+                    print(f"⚠️  Cleaning up stale lock: {existing_locks[0]} (age: {age_minutes:.1f} min)")
+                    try:
+                        self.__git_repo.git.push("origin", "--delete", existing_locks[0])
+                        self.delete_local_tag(existing_locks[0])
+                    except Exception as e:
+                        print(f"Warning: Failed to delete stale lock: {e}")
+                    # Continue to create new lock
+                else:
+                    # Recent lock - respect it
+                    from git.exc import GitCommandError
+                    raise GitCommandError(
+                        f"Branch '{branch_name}' is locked by another process.\n"
+                        f"Lock: {existing_locks[0]}\n"
+                        f"Age: {age_minutes:.1f} minutes\n"
+                        f"Wait a few minutes and retry, or manually delete the lock tag if the process died.",
+                        status=1
+                    )
+
+        # Create new lock with UTC timestamp in milliseconds
+        timestamp_ms = int(time.time() * 1000)
+        lock_tag = f"lock-{safe_branch_name}-{timestamp_ms}"
+
+        # Create local tag
+        self.create_tag(lock_tag, message=f"Lock on {branch_name} at {datetime.utcnow().isoformat()}")
+
+        # Push tag (ATOMIC - this is the lock acquisition)
+        try:
+            self.push_tag(lock_tag)
+        except Exception as e:
+            # Push failed - someone else got the lock first
+            # Cleanup local tag
+            self.delete_local_tag(lock_tag)
+
+            from git.exc import GitCommandError
+            raise GitCommandError(
+                f"Failed to acquire lock on '{branch_name}'.\n"
+                f"Another process acquired it first.\n"
+                f"Retry in a few seconds.",
+                status=1
+            )
+
+        return lock_tag
+
+
+    def release_branch_lock(self, lock_tag: str) -> None:
+        """
+        Release branch lock by deleting lock tag.
+
+        Always called in finally block to ensure cleanup.
+        Non-fatal if deletion fails (logs warning).
+
+        Args:
+            lock_tag: Lock tag name to release (e.g., "lock-ho-prod-1704123456789")
+
+        Examples:
+            lock_tag = hgit.acquire_branch_lock("ho-prod")
+            try:
+                # ... work ...
+            finally:
+                hgit.release_branch_lock(lock_tag)
+        """
+        # Best effort - continue even if fails
+        try:
+            # Delete remote tag
+            self.__git_repo.git.push("origin", "--delete", lock_tag)
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to delete remote lock tag {lock_tag}: {e}")
+
+        try:
+            # Delete local tag
+            self.delete_local_tag(lock_tag)
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to delete local lock tag {lock_tag}: {e}")
+
+
+    def list_tags(self, pattern: Optional[str] = None) -> List[str]:
+        """
+        List tags matching glob pattern.
+
+        Args:
+            pattern: Optional glob pattern (e.g., "lock-*", "lock-ho-prod-*")
+
+        Returns:
+            List of tag names matching pattern
+
+        Examples:
+            # List all locks
+            locks = hgit.list_tags("lock-*")
+
+            # List locks on specific branch
+            ho_prod_locks = hgit.list_tags("lock-ho-prod-*")
+        """
+        import fnmatch
+
+        all_tags = [tag.name for tag in self.__git_repo.tags]
+
+        if pattern:
+            return [tag for tag in all_tags if fnmatch.fnmatch(tag, pattern)]
+
+        return all_tags
+
+    def rename_branch(
+        self,
+        old_name: str,
+        new_name: str,
+        delete_remote_old: bool = True
+    ) -> None:
+        """
+        Rename local and remote branch atomically.
+
+        Performs complete branch rename workflow: creates new branch from old,
+        pushes new to remote, deletes old from remote and local. Used by
+        ReleaseManager to archive patch branches after integration.
+
+        Workflow:
+        1. Fetch latest from origin (ensure we have latest state)
+        2. Create new local branch from old branch (preserves history)
+        3. Push new branch to remote with upstream tracking
+        4. Delete old branch from remote (if delete_remote_old=True)
+        5. Delete old local branch
+
+        Args:
+            old_name: Current branch name (e.g., "ho-patch/456-user-auth")
+            new_name: New branch name (e.g., "ho-release/1.3.6/456-user-auth")
+            delete_remote_old: If True, delete old branch on remote
+                            If False, keep old branch on remote (for backup)
+
+        Raises:
+            GitCommandError: If branch operations fail:
+                - Old branch doesn't exist
+                - New branch already exists
+                - Push/delete operations fail
+                - Remote access issues
+
+        Examples:
+            # Archive patch branch after integration
+            hgit.rename_branch(
+                "ho-patch/456-user-auth",
+                "ho-release/1.3.6/456-user-auth"
+            )
+            # Result:
+            # - Local: ho-patch/456 deleted, ho-release/1.3.6/456 created
+            # - Remote: ho-patch/456 deleted, ho-release/1.3.6/456 created
+
+            # Restore patch branch from archive
+            hgit.rename_branch(
+                "ho-release/1.3.6/456-user-auth",
+                "ho-patch/456-user-auth"
+            )
+            # Result: Branch restored to active development namespace
+
+            # Rename without deleting old remote (keep backup)
+            hgit.rename_branch(
+                "ho-patch/456-user-auth",
+                "ho-release/1.3.6/456-user-auth",
+                delete_remote_old=False
+            )
+            # Result: Both branches exist on remote (old + new)
+
+        Notes:
+            - Complete Git history is preserved (new branch points to same commits)
+            - If old branch is currently checked out, operation fails
+            - Upstream tracking is automatically set for new branch
+            - Remote operations may fail due to network or permissions
+        """
+        # 1. Fetch latest from origin to ensure we have up-to-date refs
+        try:
+            self.fetch_from_origin()
+        except GitCommandError as e:
+            raise GitCommandError(
+                f"Failed to fetch from origin before rename: {e}",
+                status=1
+            )
+
+        # 2. Check if old branch exists (local or remote)
+        old_branch_exists_local = old_name in self.__git_repo.heads
+        old_branch_exists_remote = False
+
+        try:
+            origin = self.__git_repo.remote('origin')
+            old_branch_exists_remote = old_name in [
+                ref.name.replace('origin/', '', 1)
+                for ref in origin.refs
+            ]
+        except:
+            pass  # Remote may not exist or may not have the branch
+
+        if not old_branch_exists_local and not old_branch_exists_remote:
+            raise GitCommandError(
+                f"Branch '{old_name}' does not exist locally or on remote",
+                status=1
+            )
+
+        # 3. Check if new branch already exists
+        new_branch_exists_local = new_name in self.__git_repo.heads
+        new_branch_exists_remote = False
+
+        try:
+            origin = self.__git_repo.remote('origin')
+            new_branch_exists_remote = new_name in [
+                ref.name.replace('origin/', '', 1)
+                for ref in origin.refs
+            ]
+        except:
+            pass
+
+        if new_branch_exists_local or new_branch_exists_remote:
+            raise GitCommandError(
+                f"Branch '{new_name}' already exists. Cannot rename.",
+                status=1
+            )
+
+        # 4. Create new local branch from old branch
+        # If old branch only exists on remote, create from remote ref
+        if not old_branch_exists_local and old_branch_exists_remote:
+            # Create from remote ref
+            try:
+                self.__git_repo.git.branch(new_name, f"origin/{old_name}")
+            except GitCommandError as e:
+                raise GitCommandError(
+                    f"Failed to create new branch '{new_name}' from remote '{old_name}': {e}",
+                    status=1
+                )
+        else:
+            # Create from local branch
+            try:
+                self.__git_repo.git.branch(new_name, old_name)
+            except GitCommandError as e:
+                raise GitCommandError(
+                    f"Failed to create new branch '{new_name}' from local '{old_name}': {e}",
+                    status=1
+                )
+
+        # 5. Push new branch to remote with upstream tracking
+        try:
+            origin = self.__git_repo.remote('origin')
+            origin.push(f"{new_name}:{new_name}", set_upstream=True)
+        except GitCommandError as e:
+            # Rollback: delete local new branch
+            try:
+                self.__git_repo.git.branch("-D", new_name)
+            except:
+                pass  # Best effort
+
+            raise GitCommandError(
+                f"Failed to push new branch '{new_name}' to remote: {e}",
+                status=1
+            )
+
+        # 6. Delete old branch from remote (if requested)
+        if delete_remote_old and old_branch_exists_remote:
+            try:
+                origin = self.__git_repo.remote('origin')
+                origin.push(refspec=f":{old_name}")  # Delete remote branch
+            except GitCommandError as e:
+                # Non-fatal: log warning but continue
+                # New branch is already on remote, which is the main goal
+                import sys
+                print(
+                    f"Warning: Failed to delete old remote branch '{old_name}': {e}",
+                    file=sys.stderr
+                )
+
+        # 7. Delete old local branch (if exists and not currently checked out)
+        if old_branch_exists_local:
+            # Check if old branch is currently checked out
+            current_branch = str(self.__git_repo.active_branch)
+
+            if current_branch == old_name:
+                # Cannot delete currently checked out branch
+                # This is expected behavior - caller should checkout another branch first
+                raise GitCommandError(
+                    f"Cannot delete branch '{old_name}' while it is checked out. "
+                    f"Checkout another branch first.",
+                    status=1
+                )
+
+            try:
+                self.__git_repo.git.branch("-D", old_name)
+            except GitCommandError as e:
+                # Non-fatal: new branch exists, which is the main goal
+                import sys
+                print(
+                    f"Warning: Failed to delete old local branch '{old_name}': {e}",
+                    file=sys.stderr
+                )

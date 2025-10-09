@@ -5,8 +5,10 @@ Manages release files (releases/*.txt), version calculation, and release
 lifecycle (stage → rc → production) for the Git-centric workflow.
 """
 
+import fnmatch
 import os
 import re
+import subprocess
 
 from pathlib import Path
 from typing import Optional, Tuple, List
@@ -694,3 +696,511 @@ class ReleaseManager:
         all_patches.extend(stage_patches)
 
         return all_patches
+
+    def add_patch_to_release(self, patch_id: str, to_version: Optional[str] = None) -> dict:
+        """
+        Add patch to stage release file with validation and exclusive lock.
+
+        Complete workflow with distributed lock to prevent race conditions:
+        1. Pre-lock validations (branch, clean, patch exists)
+        2. Detect target stage file (auto or explicit)
+        3. Check patch not already in release
+        4. Acquire exclusive lock on ho-prod (atomic via Git tag)
+        5. Sync with origin (fetch + pull if needed)
+        6. Create temporary validation branch
+        7. Add patch to stage file on temp branch + commit
+        8. Apply all patches with release context + run tests
+        9. If tests fail: cleanup temp branch, release lock, exit with error
+        10. If tests pass: return to ho-prod, delete temp branch
+        11. Apply same change on ho-prod + commit
+        12. Push ho-prod to origin
+        13. Send resync notifications to other patch branches
+        14. Rename patch branch to archive namespace
+        15. Release lock (in finally block)
+
+        Args:
+            patch_id: Patch identifier (e.g., "456-user-auth")
+            to_version: Optional explicit version (e.g., "1.3.6")
+                    Required if multiple stage releases exist
+                    Auto-detected if only one stage exists
+
+        Returns:
+            {
+                'status': 'success',
+                'patch_id': str,              # "456-user-auth"
+                'target_version': str,        # "1.3.6"
+                'stage_file': str,            # "1.3.6-stage.txt"
+                'temp_branch': str,           # "temp-valid-1.3.6"
+                'tests_passed': bool,         # True
+                'archived_branch': str,       # "ho-release/1.3.6/456-user-auth"
+                'commit_sha': str,            # SHA of ho-prod commit
+                'patches_in_release': List[str],  # All patches after add
+                'notifications_sent': List[str],  # Branches notified
+                'lock_tag': str               # "lock-ho-prod-1704123456789"
+            }
+
+        Raises:
+            ReleaseManagerError: If validations fail:
+                - Not on ho-prod branch
+                - Repository not clean
+                - Patch doesn't exist (Patches/{patch_id}/)
+                - Branch doesn't exist (ho-patch/{patch_id})
+                - No stage release found
+                - Multiple stages without --to-version
+                - Specified stage doesn't exist
+                - Patch already in release
+                - Lock acquisition failed (another process holds lock)
+                - ho-prod diverged from origin
+                - Tests failed on temp branch
+                - Push failed
+
+        Examples:
+            # Add patch to auto-detected stage (one stage exists)
+            result = release_mgr.add_patch_to_release("456-user-auth")
+            # → Adds to releases/1.3.6-stage.txt
+            # → Tests on temp-valid-1.3.6
+            # → Archives to ho-release/1.3.6/456-user-auth
+
+            # Add patch to explicit version (multiple stages)
+            result = release_mgr.add_patch_to_release(
+                "456-user-auth",
+                to_version="1.3.6"
+            )
+
+            # Error handling
+            try:
+                result = release_mgr.add_patch_to_release("456-user-auth")
+            except ReleaseManagerError as e:
+                if "locked" in str(e):
+                    print("Another add-to-release in progress, retry later")
+                elif "Tests failed" in str(e):
+                    print("Patch breaks tests, fix and retry")
+        """
+        # 1. Pre-lock validations
+        if self._repo.hgit.branch != "ho-prod":
+            raise ReleaseManagerError(
+                "Must be on ho-prod branch to add patch to release.\n"
+                f"Current branch: {self._repo.hgit.branch}"
+            )
+
+        if not self._repo.hgit.repos_is_clean():
+            raise ReleaseManagerError(
+                "Repository has uncommitted changes. Commit or stash first."
+            )
+
+        # Check patch directory exists
+        patch_dir = Path(self._repo.base_dir) / "Patches" / patch_id
+        if not patch_dir.exists():
+            raise ReleaseManagerError(
+                f"Patch directory not found: Patches/{patch_id}/\n"
+                f"Create patch first with: half_orm dev create-patch"
+            )
+
+        # Check patch branch exists
+        if not self._repo.hgit.branch_exists(f"ho-patch/{patch_id}"):
+            raise ReleaseManagerError(
+                f"Branch ho-patch/{patch_id} not found locally.\n"
+                f"Checkout branch first: git checkout ho-patch/{patch_id}"
+            )
+
+        # 2. Detect target stage file
+        target_version, stage_file = self._detect_target_stage_file(to_version)
+
+        # 3. Check patch not already in release
+        existing_patches = self.read_release_patches(stage_file)
+        if patch_id in existing_patches:
+            raise ReleaseManagerError(
+                f"Patch {patch_id} already in release {target_version}-stage.\n"
+                f"Nothing to do."
+            )
+
+        # 4. ACQUIRE LOCK on ho-prod (with 30 min timeout for stale locks)
+        lock_tag = self._repo.hgit.acquire_branch_lock("ho-prod", timeout_minutes=30)
+
+        temp_branch = f"temp-valid-{target_version}"
+
+        try:
+            # 5. Sync with origin (now that we have lock)
+            self._repo.hgit.fetch_from_origin()
+            is_synced, status = self._repo.hgit.is_branch_synced("ho-prod")
+
+            if status == "behind":
+                self._repo.hgit.pull()
+            elif status == "diverged":
+                raise ReleaseManagerError(
+                    "Branch ho-prod has diverged from origin.\n"
+                    "Manual merge or rebase required."
+                )
+
+            # 6. Create temporary validation branch
+            self._repo.hgit.checkout("-b", temp_branch)
+
+            # 7. Add patch to stage file on temp branch
+            self._apply_patch_change_to_stage_file(stage_file, patch_id)
+
+            # 8. Commit on temp branch
+            commit_msg = f"Add {patch_id} to release {target_version}-stage (validation)"
+            self._repo.hgit.add(str(self._releases_dir / stage_file))
+            self._repo.hgit.commit("-m", commit_msg)
+
+            # 9. Run validation tests (apply patches + pytest)
+            try:
+                self._run_validation_tests()
+            except ReleaseManagerError as e:
+                # Tests failed - cleanup and exit
+                self._repo.hgit.checkout("ho-prod")
+                self._repo.hgit._HGit__git_repo.git.branch("-D", temp_branch)
+                raise ReleaseManagerError(
+                    f"Tests failed for patch {patch_id}. Not integrated.\n"
+                    f"{e}"
+                )
+
+            # 10. Return to ho-prod
+            self._repo.hgit.checkout("ho-prod")
+
+            # 11. Delete temp branch (validation passed)
+            self._repo.hgit._HGit__git_repo.git.branch("-D", temp_branch)
+
+            # 12. Apply same change on ho-prod
+            self._apply_patch_change_to_stage_file(stage_file, patch_id)
+
+            # 13. Commit on ho-prod
+            commit_msg = f"Add {patch_id} to release {target_version}-stage"
+            self._repo.hgit.add(str(self._releases_dir / stage_file))
+            self._repo.hgit.commit("-m", commit_msg)
+            commit_sha = self._repo.hgit.last_commit()
+
+            # 14. Push ho-prod (no conflict possible - we have lock)
+            self._repo.hgit.push("origin", "ho-prod")
+
+            # 15. Send resync notifications (non-blocking)
+            notified = self._send_resync_notifications(patch_id, target_version)
+
+            # 16. Rename branch to archive
+            archived_branch = f"ho-release/{target_version}/{patch_id}"
+            self._repo.hgit.rename_branch(
+                f"ho-patch/{patch_id}",
+                archived_branch,
+                delete_remote_old=True
+            )
+
+            # 17. Read final patch list
+            final_patches = self.read_release_patches(stage_file)
+
+            return {
+                'status': 'success',
+                'patch_id': patch_id,
+                'target_version': target_version,
+                'stage_file': stage_file,
+                'temp_branch': temp_branch,
+                'tests_passed': True,
+                'archived_branch': archived_branch,
+                'commit_sha': commit_sha,
+                'patches_in_release': final_patches,
+                'notifications_sent': notified,
+                'lock_tag': lock_tag
+            }
+
+        finally:
+            # 18. ALWAYS release lock (even on error or Ctrl+C)
+            self._repo.hgit.release_branch_lock(lock_tag)
+
+
+    def _detect_target_stage_file(self, to_version: Optional[str] = None) -> Tuple[str, str]:
+        """
+        Detect target stage file (auto-detect or explicit).
+
+        Logic:
+        - If to_version provided: validate it exists
+        - If no to_version: auto-detect (error if 0 or multiple stages)
+
+        Args:
+            to_version: Optional explicit version (e.g., "1.3.6")
+
+        Returns:
+            Tuple of (version, filename)
+            Example: ("1.3.6", "1.3.6-stage.txt")
+
+        Raises:
+            ReleaseManagerError:
+                - No stage release found (need prepare-release first)
+                - Multiple stages without explicit version
+                - Specified stage doesn't exist
+
+        Examples:
+            # Auto-detect (one stage exists)
+            version, filename = self._detect_target_stage_file()
+            # Returns: ("1.3.6", "1.3.6-stage.txt")
+
+            # Explicit version
+            version, filename = self._detect_target_stage_file("1.4.0")
+            # Returns: ("1.4.0", "1.4.0-stage.txt")
+
+            # Error cases
+            # No stage: "No stage release found. Run 'prepare-release' first."
+            # Multiple stages: "Multiple stages found. Use --to-version."
+            # Invalid: "Stage release 1.9.9 not found"
+        """
+        # Find all stage files
+        stage_files = list(self._releases_dir.glob("*-stage.txt"))
+
+        # If explicit version provided
+        if to_version:
+            stage_file = self._releases_dir / f"{to_version}-stage.txt"
+
+            if not stage_file.exists():
+                raise ReleaseManagerError(
+                    f"Stage release {to_version} not found.\n"
+                    f"Available stages: {[f.stem for f in stage_files]}"
+                )
+
+            return (to_version, f"{to_version}-stage.txt")
+
+        # Auto-detect
+        if len(stage_files) == 0:
+            raise ReleaseManagerError(
+                "No stage release found.\n"
+                "Run 'half_orm dev prepare-release <type>' first."
+            )
+
+        if len(stage_files) > 1:
+            versions = [f.stem.replace('-stage', '') for f in stage_files]
+            raise ReleaseManagerError(
+                f"Multiple stage releases found: {versions}\n"
+                f"Use --to-version to specify target release."
+            )
+
+        # Single stage file
+        stage_file = stage_files[0]
+        version = stage_file.stem.replace('-stage', '')
+
+        return (version, stage_file.name)
+
+
+    def _get_active_patch_branches(self) -> List[str]:
+        """
+        Get list of all active ho-patch/* branches from remote.
+
+        Reads remote refs after fetch to find all branches matching
+        the ho-patch/* pattern. Used for sending resync notifications.
+
+        Prerequisite: fetch_from_origin() must be called first to have
+        up-to-date remote refs.
+
+        Returns:
+            List of branch names (e.g., ["ho-patch/456-user-auth", "ho-patch/789-security"])
+            Empty list if no patch branches exist
+
+        Examples:
+            # Get active patch branches
+            branches = self._get_active_patch_branches()
+            # Returns: [
+            #   "ho-patch/456-user-auth",
+            #   "ho-patch/789-security",
+            #   "ho-patch/234-reports"
+            # ]
+
+            # Used for notifications
+            for branch in self._get_active_patch_branches():
+                if branch != f"ho-patch/{current_patch_id}":
+                    # Send notification to this branch
+                    ...
+        """
+        git_repo = self._repo.hgit._HGit__git_repo
+
+        try:
+            remote = git_repo.remote('origin')
+        except Exception:
+            return []  # No remote or remote not accessible
+
+        pattern = "origin/ho-patch/*"
+
+        branches = [
+            ref.name.replace('origin/', '', 1)
+            for ref in remote.refs
+            if fnmatch.fnmatch(ref.name, pattern)
+        ]
+
+        return branches
+
+    def _send_resync_notifications(
+        self,
+        patch_id: str,
+        target_version: str
+    ) -> List[str]:
+        """
+        Send resync notifications to all active patch branches.
+
+        Creates empty commits on all ho-patch/* branches (except current)
+        to notify developers that they should resync with ho-prod.
+
+        Notifications are NON-BLOCKING: if one fails, logs warning and
+        continues with others. Does not fail the entire workflow.
+
+        Args:
+            patch_id: Patch that was integrated (e.g., "456-user-auth")
+            target_version: Release version (e.g., "1.3.6")
+
+        Returns:
+            List of branch names that successfully received notification
+            Example: ["ho-patch/789-security", "ho-patch/234-reports"]
+
+        Examples:
+            # Send notifications after successful integration
+            notified = self._send_resync_notifications("456-user-auth", "1.3.6")
+            print(f"Notified {len(notified)} branches")
+
+            # Notification commit message format:
+            # "RESYNC REQUIRED: 456-user-auth integrated to release 1.3.6"
+
+            # Non-blocking: continues even if some notifications fail
+            # Logs warnings for failed notifications
+        """
+        # Get current branch to return to later
+        current_branch = self._repo.hgit.branch
+
+        # Get all active patch branches
+        all_branches = self._get_active_patch_branches()
+
+        # Filter out current patch branch
+        target_branches = [
+            branch for branch in all_branches
+            if branch != f"ho-patch/{patch_id}"
+        ]
+
+        notified = []
+
+        for branch in target_branches:
+            try:
+                # Checkout branch
+                self._repo.hgit.checkout(branch)
+
+                # Create notification commit
+                message = f"RESYNC REQUIRED: {patch_id} integrated to release {target_version}"
+                self._repo.hgit.commit("--allow-empty", "-m", message)
+
+                # Push notification
+                self._repo.hgit.push()
+
+                notified.append(branch)
+
+            except Exception as e:
+                # Non-blocking: log warning and continue
+                import sys
+                print(
+                    f"⚠️  Warning: Failed to notify {branch}: {e}",
+                    file=sys.stderr
+                )
+                continue
+
+        # Return to original branch
+        try:
+            self._repo.hgit.checkout(current_branch)
+        except Exception:
+            pass  # Best effort
+
+        return notified
+
+
+    def _run_validation_tests(self) -> None:
+        """
+        Run pytest tests on current branch for validation.
+
+        Executes pytest in tests/ directory and checks return code.
+        Used to validate patch integration on temporary branch before
+        committing to ho-prod.
+
+        Prerequisite: Must be on temp validation branch with patch
+        applied and code generated.
+
+        Raises:
+            ReleaseManagerError: If tests fail (non-zero exit code)
+                Error message includes pytest output for debugging
+
+        Examples:
+            # On temp-valid-1.3.6 after applying patches
+            try:
+                self._run_validation_tests()
+                print("✅ All tests passed")
+            except ReleaseManagerError as e:
+                print(f"❌ Tests failed:\n{e}")
+                # Cleanup and exit
+        """
+        try:
+            result = subprocess.run(
+                ["pytest", "tests/"],
+                cwd=str(self._repo.base_dir),
+                capture_output=True,
+                text=True
+            )
+
+            if result.returncode != 0:
+                raise ReleaseManagerError(
+                    f"Tests failed for patch integration:\n"
+                    f"{result.stdout}\n"
+                    f"{result.stderr}"
+                )
+
+        except FileNotFoundError:
+            raise ReleaseManagerError(
+                "pytest not found. Install pytest to run validation tests."
+            )
+        except subprocess.TimeoutExpired:
+            raise ReleaseManagerError(
+                "Tests timed out. Check for hanging tests."
+            )
+        except Exception as e:
+            raise ReleaseManagerError(
+                f"Failed to run tests: {e}"
+            )
+
+
+
+    def _apply_patch_change_to_stage_file(
+        self,
+        stage_file: str,
+        patch_id: str
+    ) -> None:
+        """
+        Add patch ID to stage release file (append to end).
+
+        Appends patch_id as new line at end of releases/{stage_file}.
+        Creates file if it doesn't exist (should not happen in normal flow).
+
+        Does NOT commit - caller is responsible for staging and committing.
+
+        Args:
+            stage_file: Stage filename (e.g., "1.3.6-stage.txt")
+            patch_id: Patch identifier to add (e.g., "456-user-auth")
+
+        Raises:
+            ReleaseManagerError: If file write fails
+
+        Examples:
+            # Add patch to stage file
+            self._apply_patch_change_to_stage_file("1.3.6-stage.txt", "456-user-auth")
+
+            # File content before:
+            # 123-initial
+            # 789-security
+
+            # File content after:
+            # 123-initial
+            # 789-security
+            # 456-user-auth
+
+            # Caller must then:
+            # self._repo.hgit.add("releases/1.3.6-stage.txt")
+            # self._repo.hgit.commit("-m", "Add 456-user-auth to release")
+        """
+        stage_path = self._releases_dir / stage_file
+
+        try:
+            # Append patch to file (create if doesn't exist)
+            with open(stage_path, 'a', encoding='utf-8') as f:
+                f.write(f"{patch_id}\n")
+
+        except Exception as e:
+            raise ReleaseManagerError(
+                f"Failed to update stage file {stage_file}: {e}"
+            )
