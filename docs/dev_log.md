@@ -161,29 +161,187 @@ my_project/
    git checkout ho-prod  # Ensure we're on main branch
    half_orm dev create-patch "456"  # Check ticket 456 on github or gitlab
    ```
+### Commande `apply-patch`
+**Status :** ✅ Fonctionnelle et testée (217 tests passent, 1 skip)
 
+**Implémentation complète :**
+
+**Fonctionnalités principales :**
+- ✅ Détection automatique patch depuis branche `ho-patch/*`
+- ✅ Restauration DB depuis `model/schema.sql` (état production)
+- ✅ **Support contexte de release (RC + stage)**
+- ✅ Application patches en séquence : RC1 → RC2 → ... → stage → patch courant
+- ✅ Ordre préservé si patch dans release
+- ✅ Génération code Python via `modules.generate()`
+- ✅ Rollback automatique sur erreur
+- ✅ Messages CLI détaillés
+
+**Architecture release context :**
+```python
+# ReleaseManager - Nouvelles méthodes
+get_next_release_version()          # Détecte prochaine release (patch > minor > major)
+get_rc_files(version)                # Liste RC files triés par numéro
+read_release_patches(filename)       # Lit patch IDs depuis fichier release
+get_all_release_context_patches()   # Séquence complète (RC1 + RC2 + ... + stage)
+
+# PatchManager - Workflow modifié
+apply_patch_complete_workflow(patch_id):
+    1. Restore DB depuis model/schema.sql
+    2. Récupérer contexte release (get_all_release_context_patches)
+    3. Appliquer patches en ordre:
+       - Si patch courant dans release → appliqué dans l'ordre
+       - Si patch courant hors release → appliqué à la fin
+    4. Générer code Python
+    5. Retourner rapport détaillé
+```
+
+**Workflow avec contexte de release :**
+```bash
+# Scénario 1: Patch dans release
+# releases/1.3.6-rc1.txt: 123, 456
+# releases/1.3.6-stage.txt: 789, 234
+# Patch courant: 789
+
+half_orm dev apply-patch
+# Exécution:
+# 1. Restore DB (1.3.5 depuis model/schema.sql)
+# 2. Apply 123 (depuis rc1)
+# 3. Apply 456 (depuis rc1)
+# 4. Apply 789 ← Patch courant appliqué DANS L'ORDRE
+# 5. Apply 234 (depuis stage)
+# 6. Generate code
+
+# Scénario 2: Patch hors release
+# releases/1.3.6-stage.txt: 123, 456
+# Patch courant: 999
+
+half_orm dev apply-patch
+# Exécution:
+# 1. Restore DB (1.3.5)
+# 2. Apply 123 (depuis stage)
+# 3. Apply 456 (depuis stage)
+# 4. Apply 999 ← Patch courant appliqué À LA FIN
+# 5. Generate code
+
+# Scénario 3: Aucun contexte de release
+half_orm dev apply-patch
+# Exécution:
+# 1. Restore DB (1.3.5)
+# 2. Apply patch courant uniquement
+# 3. Generate code
+# → Backward compatibility préservée
+```
+
+**Structure de retour modifiée :**
+```python
+{
+    'patch_id': str,                    # ID du patch courant
+    'release_patches': List[str],       # Patches de release (sans patch courant)
+    'applied_release_files': List[str], # Fichiers appliqués depuis release
+    'applied_current_files': List[str], # Fichiers appliqués du patch courant
+    'patch_was_in_release': bool,       # True si patch dans release
+    'generated_files': List[str],       # Fichiers Python générés
+    'status': str,                      # 'success' ou 'failed'
+    'error': Optional[str]              # Message d'erreur si échec
+}
+```
+
+**Gestion des erreurs et rollback :**
+- ✅ Rollback automatique sur échec restauration DB
+- ✅ Rollback automatique sur échec application patch
+- ✅ Rollback automatique sur échec génération code
+- ✅ Préservation erreur originale (rollback ne masque pas l'erreur)
+- ✅ Suppression erreurs rollback (évite confusion)
+- ✅ Validation pré-exécution (patch existe, schema.sql présent)
+
+**Tests unitaires (217 passed, 1 skipped) :**
+
+**1. Release context workflow (19 tests) :**
+- `test_patch_manager_apply_patch_complet_workflow.py`
+  - Tests `ReleaseManager.get_all_release_context_patches()`
+  - Pas de release (backward compatibility)
+  - Patch dans release (ordre préservé)
+  - Patch hors release (appliqué à la fin)
+  - Séquence RC + stage
+  - Gestion commentaires et lignes vides
+  - Préférence patch > minor > major
+
+**2. Validation scenarios (7 tests + 1 skip) :**
+- `test_patch_manager_apply_patch_validation.py`
+  - Patch inexistant
+  - Patch invalide (file au lieu de directory)
+  - Schema.sql manquant
+  - Patch vide (0 fichiers SQL/Python)
+  - Patch avec fichiers non-exécutables uniquement
+  - Patch avec mix fichiers valides/invalides
+  - Schema.sql non-lisible (skip - dépend plateforme)
+
+**3. Rollback scenarios (9 tests) :**
+- `test_patch_manager_apply_patch_rollback.py`
+  - Échec dropdb, createdb, psql
+  - Échec application patch
+  - Échec génération code
+  - Préservation erreur originale
+  - Suppression erreurs rollback
+  - Rollback sur toute exception
+  - Comportement avec release context
+  - Validation des erreurs (sans rollback inutile)
+
+**Implementation Notes :**
+
+**1. Release Context Integration**
+- Détection automatique de la prochaine release (patch → minor → major)
+- Support RC incrémentaux (rc1 = patches initiaux, rc2 = nouveaux patches uniquement)
+- Pas de déduplication nécessaire (chaque RC est incrémental par design)
+- Application séquentielle stricte : RC1 → RC2 → ... → stage
+
+**2. Ordre d'application préservé**
+- Si patch courant dans release : appliqué dans l'ordre exact de la release
+- Si patch courant hors release : appliqué après tous les patches de release
+- Garantit cohérence entre tests développement et déploiement production
+
+**3. Backward Compatibility**
+- Comportement actuel préservé si aucun contexte de release
+- Pas d'impact sur projets existants sans releases/
+- Structure de retour étendue (pas cassée)
+
+**4. Breaking Changes**
+- `apply_patch_complete_workflow()` return structure modifiée :
+  - ❌ Supprimé : `'applied_files'`
+  - ✅ Ajouté : `'release_patches'`, `'applied_release_files'`, 
+    `'applied_current_files'`, `'patch_was_in_release'`
+- CLI mis à jour pour nouvelle structure
+- Tests d'intégration mis à jour
+
+**5. Edge Cases Gérés**
+- ✅ Aucun fichier de release
+- ✅ Fichier release vide
+- ✅ Patch courant en première/dernière position de release
+- ✅ Commentaires et lignes vides dans fichiers release
+- ✅ Multiples RC pour même version
+- ✅ Mix RC + stage
+
+**Prochaines étapes :**
+- [ ] Implémentation `add-to-release` (ajout patch à stage)
+- [ ] Tests avec vraies bases de données (intégration)
+- [ ] Documentation workflow complet avec release context
 
 ## 🚧 En cours d'implémentation
 
 ### Commandes à implémenter (v0.16.0)
 
-**1. `apply-patch`**
-- ⏸️ Application fichiers SQL/Python
-- ⏸️ Génération code Python (modules.generate())
-- ⏸️ Validation patch
-- ⏸️ Tests unitaires
-
-**2. `add-to-release`**
+**1. `add-to-release`**
 - ⏸️ Ajout patch à releases/X.Y.Z-stage.txt
 - ⏸️ Merge vers ho-prod
 - ⏸️ Tests unitaires
+- ⏸️ Tests d'intégration
 
-**3. `promote-to-rc` / `promote-to-prod`**
+**2. `promote-to-rc` / `promote-to-prod`**
 - ⏸️ Promotion stage → rc → production
 - ⏸️ Cleanup branches automatique
 - ⏸️ Tests unitaires
 
-**4. `deploy-to-prod`**
+**3. `deploy-to-prod`**
 - ⏸️ Application patches en production
 - ⏸️ Gestion backups
 - ⏸️ Tests unitaires
