@@ -1954,81 +1954,173 @@ half_orm dev create-hotfix "critical-vulnerability"
 # → Emergency workflow, bypasses normal release sequence
 ```
 
-#### `apply-patch`
+#### `apply-patch` - Apply Patch with Release Context
+
 ```bash
-# Apply current patch and generate code (must be run from ho-patch/* branch)
+# Apply current patch with full release context (must be run from ho-patch/* branch)
 # On ho-patch/456-user-authentication:
 half_orm dev apply-patch
 
-# Explicit step-by-step process:
-# 1. 🔄 Restore database from model/schema.sql (latest production state)
-# 2. 📁 Apply patch files from Patches/456-user-authentication/ in lexicographic order:
-#    → Execute 01_create_user_table.sql
-#    → Execute 02_add_indexes.sql
-#    → Execute 03_update_permissions.py
-# 3. 🔧 Generate halfORM code using modules.py integration
-#    → Update <dbname>/<dbname>/public/user.py (if table structure changed)
-#    → Create new model classes (if new tables)
-#    → COMMIT: "Auto-update: Generated code for patch 456-user-authentication"
-# 4. 📊 Report business logic changes needed:
-#    → "⚠️ New table 'users' requires business logic implementation"
-#    → "⚠️ Method user.authenticate() stub created - needs implementation"
-#    → "✅ All existing business logic still compatible"
-# 5. 📋 Summary report:
-#    → Database schema: ✅ Applied successfully
-#    → Generated code: ✅ Updated 3 files
-#    → Business logic: ⚠️ 2 methods need implementation
+# Complete workflow with release context:
+# 1. Restore database from model/schema.sql (clean production state)
+# 2. **Apply ALL patches from next release in sequence:**
+#    a. RC patches (if exist): 1.3.6-rc1.txt → 1.3.6-rc2.txt → ...
+#    b. Stage patches (if exist): 1.3.6-stage.txt
+# 3. Apply current patch (in correct order if already in release)
+# 4. Generate halfORM Python code
+# 5. Report applied files and next steps
+
+# Result: Patch tested in realistic deployment context with all release dependencies
 ```
 
-#### Detailed Apply-Patch Output Example
+**Release Context Integration**
+
+The `apply-patch` command automatically detects and applies the release context to ensure patches are tested in the same environment they will be deployed in:
 
 ```bash
+# Scenario 1: No release in preparation
+# Production: 1.3.5
+# No release files exist
+
 half_orm dev apply-patch
-# Running on ho-patch/456-user-authentication
+# Execution:
+# 1. Restore DB (1.3.5)
+# 2. Apply current patch only
+# 3. Generate code
+# Result: Testing against clean production baseline
 
-🔄 Step 1: Database Restoration
-   ✅ Restored database from model/schema.sql (version 1.3.3)
-   ✅ Database clean state confirmed
+# Scenario 2: Release in stage
+# Production: 1.3.5
+# releases/1.3.6-stage.txt contains: 123, 456, 789
 
-📁 Step 2: Applying Patch Files
-   ✅ Executing 01_create_user_table.sql
-      → Created table 'users' with 5 columns
-      → Added primary key constraint
-   ✅ Executing 02_add_indexes.sql
-      → Created index 'idx_users_username'
-      → Created index 'idx_users_email'
-   ✅ Executing 03_update_permissions.py
-      → Updated 15 user permissions
-      → No errors detected
+# Working on: ho-patch/999-new-feature
+half_orm dev apply-patch
+# Execution:
+# 1. Restore DB (1.3.5)
+# 2. Apply release patches: 123 → 456 → 789
+# 3. Apply current patch: 999
+# 4. Generate code
+# Result: Testing 999 with all other patches in release
 
-🔧 Step 3: Code Generation (modules.py integration)
-   ✅ Generated <dbname>/<dbname>/public/user.py
-      → Added class User with 5 properties
-      → Added relationship methods: user.orders(), user.sessions()
-   ✅ Updated <dbname>/<dbname>/public/__init__.py
-      → Added User import
-   ⚠️  Method stubs created (need implementation):
-      → user.authenticate(password) in <dbname>/<dbname>/public/user.py:45
-      → user.change_password(old, new) in <dbname>/<dbname>/public/user.py:52
-   📝 Auto-committed: "Generated code for patch 456-user-authentication"
+# Scenario 3: Patch already in release
+# releases/1.3.6-stage.txt contains: 123, 456, 789, 234
 
-📊 Step 4: Business Logic Analysis
-   ✅ Schema changes: All applied successfully
-   ✅ Generated code: 3 files updated, no conflicts
-   ⚠️  Business logic required:
-      → Implement user.authenticate() method
-      → Implement user.change_password() method
-      → Add password hashing utilities in <dbname>/<dbname>/public/user.py
-   ✅ Existing code: No breaking changes detected
+# Working on: ho-patch/789-my-patch
+half_orm dev apply-patch
+# Execution:
+# 1. Restore DB (1.3.5)
+# 2. Apply patches in order: 123 → 456 → 789 → 234
+#    (789 applied in correct position, not at end)
+# 3. Generate code
+# Result: Testing with exact deployment order
 
-📋 SUMMARY
-   Database: ✅ Schema updated successfully
-   Generated Code: ✅ 3 files updated
-   Business logic: ⚠️ 2 methods need implementation
-   Next Steps:
-   1. Implement user.authenticate() in <dbname>/<dbname>/public/user.py:45
-   2. Implement user.change_password() in <dbname>/<dbname>/public/user.py:52
-   3. Run 'half_orm dev test' to validate
+# Scenario 4: RC + stage sequence
+# Production: 1.3.5
+# releases/1.3.6-rc1.txt contains: 123, 456
+# releases/1.3.6-rc2.txt contains: 789
+# releases/1.3.6-stage.txt contains: 234, 567
+
+# Working on: ho-patch/999-new-feature
+half_orm dev apply-patch
+# Execution:
+# 1. Restore DB (1.3.5)
+# 2. Apply RC1 patches: 123 → 456
+# 3. Apply RC2 patches: 789
+# 4. Apply stage patches: 234 → 567
+# 5. Apply current patch: 999
+# 6. Generate code
+# Result: Testing in complete deployment context
+```
+
+**Why Release Context Matters**
+
+Testing patches in isolation can hide critical issues:
+
+```bash
+# Without release context (OLD behavior - NOT RECOMMENDED):
+# Patch 456 adds column users.email
+# Patch 789 adds index on users.email
+# Both patches tested independently work fine
+# But in production, 789 fails if 456 not applied first
+
+# With release context (NEW behavior - AUTOMATIC):
+# When developing patch 789:
+half_orm dev apply-patch
+# → Automatically applies 456 first (from release)
+# → Then applies 789
+# → Detects any dependencies or conflicts immediately
+# → Tests reflect actual deployment order
+```
+
+**Release Context Detection Logic**
+
+The system automatically determines which patches to apply:
+
+1. **Find next release to deploy**: Searches for next sequential version after production
+   - Priority order: patch increment (1.3.6) > minor (1.4.0) > major (2.0.0)
+   - Only considers the NEXT sequential version (1.3.6 must deploy before 1.4.0)
+
+2. **Collect all patches from release**:
+   - RC files first: `1.3.6-rc1.txt` → `1.3.6-rc2.txt` → ... (incremental)
+   - Stage file last: `1.3.6-stage.txt` (if exists)
+   - Each RC contains ONLY new patches (incremental, not cumulative)
+
+3. **Apply in correct order**:
+   - If current patch in release: apply in position (preserves order)
+   - If current patch NOT in release: apply at end (after all release patches)
+
+**Important Notes**
+
+- **Automatic detection**: No configuration needed, works transparently
+- **Backward compatible**: If no release exists, applies patch only (old behavior)
+- **No side effects**: Database always restored first (clean state)
+- **Order preservation**: Patches always applied in release file order
+- **Incremental RCs**: RC2 contains only NEW patches, not all patches from RC1
+- **Testing fidelity**: Exact replica of deployment sequence
+
+**Example Output**
+
+```bash
+$ half_orm dev apply-patch
+
+✓ Database restored from model/schema.sql (production 1.3.5)
+
+✓ Applying release context (1.3.6-rc1, 1.3.6-rc2, 1.3.6-stage):
+  • 123-user-auth: 2 files (from rc1)
+  • 456-security-fix: 1 file (from rc1)
+  • 789-performance: 3 files (from rc2)
+  • 234-validation: 2 files (from stage)
+
+✓ Applying current patch 999-new-feature:
+  • 01_create_table.sql
+  • 02_add_indexes.sql
+
+✓ Generated 8 Python files
+
+📝 Your patch 999-new-feature is not yet in any release.
+   Use 'half_orm dev add-to-release 999' to integrate it.
+
+Next steps:
+  1. Review generated code in mydb/mydb/
+  2. Implement business logic stubs
+  3. Run: half_orm dev test
+  4. Commit: git add . && git commit -m "Add business logic"
+```
+
+**Troubleshooting**
+
+```bash
+# If patch fails due to release context:
+# Error: SQL execution failed in 234-validation/01_check.sql
+# → One of the release patches failed
+# → Fix the failing patch or remove from release
+# → Then re-run apply-patch
+
+# If current patch conflicts with release:
+# Error: Column 'email' already exists
+# → Your patch conflicts with a release patch
+# → Review release patches: cat releases/1.3.6-stage.txt
+# → Adjust your patch or coordinate with release maintainer
 ```
 
 #### `test`
