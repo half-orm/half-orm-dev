@@ -115,11 +115,11 @@ def apply_patch() -> None:
         # Display success report
         click.echo("✓ Database restored from model/schema.sql")
         click.echo()
-
+        applied_files = result.get('applied_release_files', []) + result.get('applied_current_files', [])
         # Display applied files
-        if result['applied_files']:
-            click.echo(f"✓ Applied {len(result['applied_files'])} patch file(s):")
-            for filename in result['applied_files']:
+        if applied_files:
+            click.echo(f"✓ Applied {len(applied_files)} patch file(s):")
+            for filename in applied_files:
                 click.echo(f"  • {filename}")
             click.echo()
         else:

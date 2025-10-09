@@ -90,7 +90,7 @@ class TestCreatePatchCommit:
         )
         assert result.returncode == 0
         commit_message = result.stdout.strip()
-        
+
         # Should contain patch directory reference
         assert f"Patches/{patch_id}" in commit_message, (
             f"Commit message should reference Patches/{patch_id}"
@@ -105,7 +105,7 @@ class TestCreatePatchCommit:
         )
         assert result.returncode == 0
         committed_files = result.stdout.strip().split('\n')
-        
+
         assert f"Patches/{patch_id}/README.md" in committed_files, (
             f"Patches/{patch_id}/README.md should be committed"
         )
@@ -160,7 +160,7 @@ class TestCreatePatchRemote:
         )
         assert result.returncode == 0
         committed_files = result.stdout.strip().split('\n')
-        
+
         assert f"Patches/{patch_id}/README.md" in committed_files, (
             f"Tag {tag_name} should point to commit with Patches/{patch_id}/README.md"
         )

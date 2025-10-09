@@ -6,6 +6,8 @@ lifecycle (stage → rc → production) for the Git-centric workflow.
 """
 
 import os
+import re
+
 from pathlib import Path
 from typing import Optional, Tuple, List
 from dataclasses import dataclass
@@ -507,7 +509,8 @@ class ReleaseManager:
         # Should never reach here due to validation above
         raise ReleaseVersionError(f"Unexpected increment type: {increment_type}")
 
-    def parse_version_from_filename(self, filename: str) -> Version:
+    @classmethod
+    def parse_version_from_filename(cls, filename: str) -> Version:
         """
         Parse version from release filename.
 
@@ -580,3 +583,114 @@ class ReleaseManager:
             raise ReleaseVersionError(f"Invalid format: negative version numbers in '{filename}'")
 
         return Version(major, minor, patch, stage)
+
+    def get_next_release_version(self) -> Optional[str]:
+        """
+        Détermine LA prochaine release à déployer.
+
+        Returns:
+            Version string ou None
+        """
+        production_str = self._get_production_version()
+
+        for level in ['patch', 'minor', 'major']:
+            next_version = self.calculate_next_version(
+                self.parse_version_from_filename(f"{production_str}.txt"), level)
+
+            # Cherche RC ou stage pour cette version
+            rc_pattern = f"{next_version}-rc*.txt"
+            stage_file = self._releases_dir / f"{next_version}-stage.txt"
+
+            if list(self._releases_dir.glob(rc_pattern)) or stage_file.exists():
+                return next_version
+
+        return None
+
+    def get_rc_files(self, version: str) -> List[str]:
+        """
+        Liste tous les fichiers RC pour une version, triés par numéro.
+
+        Returns:
+            Liste triée (ex: ["1.3.6-rc1.txt", "1.3.6-rc2.txt"])
+        """
+        pattern = f"{version}-rc*.txt"
+        rc_pattern = re.compile(r'-rc(\d+)\.txt$')
+        rc_files = list(self._releases_dir.glob(pattern))
+
+        return sorted(rc_files, key=lambda f: int(re.search(rc_pattern, f.name).group(1)))
+
+    def read_release_patches(self, filename: str) -> List[str]:
+        """
+        Lit les patch IDs d'un fichier de release.
+
+        Ignore:
+        - Lignes vides
+        - Commentaires (#)
+        - Whitespace
+        """
+        file_path = self._releases_dir / filename
+
+        if not file_path.exists():
+            return []
+
+        patch_ids = []
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    patch_ids.append(line)
+
+        return patch_ids
+
+    def get_all_release_context_patches(self) -> List[str]:
+        """
+        Récupère TOUS les patches du contexte de la prochaine release.
+
+        IMPORTANT: Application séquentielle des RC incrémentaux.
+        - rc1: patches initiaux (ex: 123, 456, 789)
+        - rc2: patches nouveaux (ex: 999)
+        - rc3: patches nouveaux (ex: 888, 777)
+
+        Résultat: [123, 456, 789, 999, 888, 777]
+
+        Pas de déduplication car chaque RC est incrémental.
+
+        Returns:
+            Liste ordonnée des patch IDs (séquence complète)
+
+        Examples:
+            # Production: 1.3.5
+            # 1.3.6-rc1.txt: 123, 456, 789
+            # 1.3.6-rc2.txt: 999
+            # 1.3.6-stage.txt: 234, 567
+
+            patches = mgr.get_all_release_context_patches()
+            # → ["123", "456", "789", "999", "234", "567"]
+
+            # Pour apply-patch sur patch 888:
+            # 1. Restore DB (1.3.5)
+            # 2. Apply 123, 456, 789 (rc1)
+            # 3. Apply 999 (rc2)
+            # 4. Apply 234, 567 (stage)
+            # 5. Apply 888 (patch courant)
+        """
+        next_version = self.get_next_release_version()
+
+        if not next_version:
+            return []
+
+        all_patches = []
+
+        # 1. Appliquer tous les RC dans l'ordre (incrémentaux)
+        rc_files = self.get_rc_files(next_version)
+        for rc_file in rc_files:
+            patches = self.read_release_patches(rc_file)
+            # Chaque RC est incrémental, pas besoin de déduplication
+            all_patches.extend(patches)
+
+        # 2. Appliquer stage (nouveaux patches en développement)
+        stage_file = f"{next_version}-stage.txt"
+        stage_patches = self.read_release_patches(stage_file)
+        all_patches.extend(stage_patches)
+
+        return all_patches

@@ -48,7 +48,7 @@ class TestApplyPatchCLI:
             mock_patch_mgr.apply_patch_complete_workflow.return_value = {
                 'patch_id': '456-user-auth',
                 'status': 'success',
-                'applied_files': ['01_create_users.sql', '02_add_indexes.sql'],
+                'applied_current_files': ['01_create_users.sql', '02_add_indexes.sql'],
                 'generated_files': [
                     'mydb/mydb/public/user.py',
                     'mydb/mydb/public/user_session.py',
