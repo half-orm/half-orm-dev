@@ -26,6 +26,7 @@ import shutil
 import sys
 import time
 from keyword import iskeyword
+from pathlib import Path
 from typing import Any
 
 from half_orm.pg_meta import camel_case
@@ -51,7 +52,7 @@ MODULE_TEMPLATE_1 = read_template('module_template_1')
 MODULE_TEMPLATE_2 = read_template('module_template_2')
 MODULE_TEMPLATE_3 = read_template('module_template_3')
 WARNING_TEMPLATE = read_template('warning')
-BASE_TEST = read_template('base_test')
+CONFTEST = read_template('conftest_template')
 TEST = read_template('relation_test')
 SQL_ADAPTER_TEMPLATE = read_template('sql_adapter')
 SKIP = re.compile('[A-Z]')
@@ -65,16 +66,76 @@ MODULE_FORMAT = (
     "{bc_}{user_s_code}")
 AP_EPILOG = """"""
 INIT_PY = '__init__.py'
-BASE_TEST_PY = 'base_test.py'
-DO_NOT_REMOVE = [INIT_PY, BASE_TEST_PY]
-TEST_EXT = '_test.py'
+CONFTEST_PY = 'conftest.py'
+DO_NOT_REMOVE = [INIT_PY]
+TEST_PREFIX = 'test_'
+TEST_SUFFIX = '.py'
 
 MODEL = None
+
+
+def __get_test_directory_path(schema_name, table_name, base_dir):
+    """
+    Calculate the test directory path for a given schema and table.
+    
+    Args:
+        schema_name: PostgreSQL schema name (e.g., 'public')
+        table_name: PostgreSQL table name (e.g., 'user_profiles')
+        base_dir: Project base directory path
+        
+    Returns:
+        Path: tests/schema_name/table_name/
+        
+    Example:
+        __get_test_directory_path('public', 'user_profiles', '/path/to/project')
+        # Returns: Path('/path/to/project/tests/public/user_profiles')
+    """
+    base_path = Path(base_dir)
+    tests_dir = base_path / 'tests'
+    
+    # Convert schema name: dots to underscores, keep original underscores
+    schema_dir_name = schema_name.replace('.', '_')
+    
+    # Table name: keep underscores as-is
+    table_dir_name = table_name
+    
+    return tests_dir / schema_dir_name / table_dir_name
+
+
+def __get_test_file_path(schema_name, table_name, base_dir, package_name):
+    """
+    Calculate the complete test file path for a given schema and table.
+    
+    Args:
+        schema_name: PostgreSQL schema name (e.g., 'public')
+        table_name: PostgreSQL table name (e.g., 'user_profiles')
+        base_dir: Project base directory path
+        package_name: Python package name
+        
+    Returns:
+        Path: Complete path to test file
+        
+    Example:
+        __get_test_file_path('public', 'user_profiles', '/path', 'mydb')
+        # Returns: Path('/path/tests/public/user_profiles/test_public_user_profiles.py')
+    """
+    test_dir = __get_test_directory_path(schema_name, table_name, base_dir)
+    
+    # Convert schema and table names for filename
+    schema_file_name = schema_name.replace('.', '_')
+    table_file_name = table_name
+    
+    # Construct filename: test_<schema>_<table>.py
+    test_filename = f"{TEST_PREFIX}{schema_file_name}_{table_file_name}{TEST_SUFFIX}"
+    
+    return test_dir / test_filename
+
 
 def __get_full_class_name(schemaname, relationname):
     schemaname = ''.join([elt.capitalize() for elt in schemaname.split('.')])
     relationname = ''.join([elt.capitalize() for elt in relationname.split('_')])
     return f'{schemaname}{relationname}'
+
 
 def __get_field_desc(field_name, field):
     #TODO: REFACTOR
@@ -103,6 +164,7 @@ def __get_field_desc(field_name, field):
         field_desc = f'# {field_desc} FIX ME! {error}'
     return field_desc
 
+
 def __gen_dataclass(relation, fkeys):
     rel = relation()
     dc_name = relation._ho_dataclass_name()
@@ -120,6 +182,7 @@ def __gen_dataclass(relation, fkeys):
             post_init.append(f"        self.{fkey_alias} = {fdc_name}")
     return '\n'.join([f'@dataclasses.dataclass\nclass {dc_name}(DC_Relation):'] + fields + post_init)
 
+
 def __get_modules_list(dir, files_list, files):
     all_ = []
     for file_ in files:
@@ -127,17 +190,22 @@ def __get_modules_list(dir, files_list, files):
             continue
         path_ = os.path.join(dir, file_)
         if path_ not in files_list and file_ not in DO_NOT_REMOVE:
-            if path_.find('__pycache__') == -1 and path_.find(TEST_EXT) == -1:
+            # Filter out both old and new test file patterns
+            if (path_.find('__pycache__') == -1 and 
+                not file_.endswith('_test.py') and 
+                not file_.startswith('test_')):
                 print(f"REMOVING: {path_}")
             os.remove(path_)
             continue
         if (re.findall('.py$', file_) and
                 file_ != INIT_PY and
                 file_ != '__pycache__' and
-                file_.find(TEST_EXT) == -1):
+                not file_.endswith('_test.py') and
+                not file_.startswith('test_')):
             all_.append(file_.replace('.py', ''))
     all_.sort()
     return all_
+
 
 def __update_init_files(package_dir, files_list, warning):
     """Update __all__ lists in __init__ files.
@@ -159,6 +227,7 @@ def __update_init_files(package_dir, files_list, warning):
                 all_ = ",\n    ".join([f"'{elt}'" for elt in all_])
                 init_file.write(f'__all__ = [\n    {all_}\n]\n')
 
+
 def __get_inheritance_info(rel, package_name):
     """Returns inheritance informations for the rel relation.
     """
@@ -179,6 +248,7 @@ def __get_inheritance_info(rel, package_name):
         inherited_classes = f"{inherited_classes}, "
     return inheritance_import, inherited_classes
 
+
 def __get_fkeys(repo, class_name, module_path):
     try:
         mod_path = module_path.replace(repo.base_dir, '').replace(os.path.sep, '.')[1:-3]
@@ -190,6 +260,7 @@ def __get_fkeys(repo, class_name, module_path):
     except ModuleNotFoundError:
         pass
     return {}
+
 
 def __assemble_module_template(module_path):
     """Construct the module after slicing it if it already exists.
@@ -216,9 +287,10 @@ def __assemble_module_template(module_path):
         user_s_class_attr=user_s_class_attr,
         user_s_code=user_s_code)
 
+
 def __update_this_module(
         repo, relation, package_dir, package_name):
-    """Updates the module."""
+    """Updates the module and generates corresponding test file."""
     _, fqtn = relation
     path = list(fqtn)
     if path[1].find('half_orm_meta') == 0:
@@ -231,6 +303,7 @@ def __update_this_module(
         sys.stderr.write(f"{err}\n{fqtn}\n")
         sys.stderr.flush()
         return None
+    
     fields = []
     kwargs = []
     arg_names = []
@@ -247,6 +320,7 @@ def __update_this_module(
     kwargs.append('**kwargs')
     kwargs = ", ".join(kwargs)
     arg_names = ", ".join(arg_names)
+    
     path[0] = package_dir
     path[1] = path[1].replace('.', os.sep)
 
@@ -256,9 +330,12 @@ def __update_this_module(
     path_1 = os.path.join(*path[:-1])
     if not os.path.exists(path_1):
         os.makedirs(path_1)
+    
     module_template = __assemble_module_template(module_path)
     inheritance_import, inherited_classes = __get_inheritance_info(
         rel, package_name)
+    
+    # Generate Python module
     with open(module_path, 'w', encoding='utf-8') as file_:
         documentation = "\n".join([line and f"    {line}" or "" for line in str(rel).split("\n")])
         file_.write(
@@ -275,18 +352,28 @@ def __update_this_module(
                 kwargs=kwargs,
                 arg_names=arg_names,
                 warning=WARNING_TEMPLATE.format(package_name=package_name)))
-    if not os.path.exists(module_path.replace('.py', TEST_EXT)):
-        with open(module_path.replace('.py', TEST_EXT), 'w', encoding='utf-8') as file_:
+    
+    # Generate test file in tests/ directory structure
+    schema_name = path[1].replace(os.sep, '.')  # Convert back to schema.name format
+    table_name = path[-1]
+    test_file_path = __get_test_file_path(schema_name, table_name, repo.base_dir, package_name)
+    
+    if not test_file_path.exists():
+        # Create test directory structure
+        test_file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Generate test file
+        with open(test_file_path, 'w', encoding='utf-8') as file_:
             file_.write(TEST.format(
-                BEGIN_CODE=utils.BEGIN_CODE,
-                END_CODE=utils.END_CODE,
                 package_name=package_name,
                 module=f"{package_name}.{fqtn}",
-                class_name=camel_case(path[-1]))
-            )
+                class_name=class_name))
+    
     HO_DATACLASSES.append(__gen_dataclass(
         rel, __get_fkeys(repo, class_name, module_path)))
+    
     return module_path
+
 
 def __reset_dataclasses(repo, package_dir):
     with open(os.path.join(package_dir, "ho_dataclasses.py"), "w", encoding='utf-8') as file_:
@@ -295,6 +382,7 @@ def __reset_dataclasses(repo, package_dir):
             if t_qrn[0].find('half_orm') == 0:
                 continue
             file_.write(f'class DC_{__get_full_class_name(*t_qrn)}: ...\n')
+
 
 def __gen_dataclasses(package_dir, package_name):
     with open(os.path.join(package_dir, "ho_dataclasses.py"), "w", encoding='utf-8') as file_:
@@ -307,51 +395,62 @@ def __gen_dataclasses(package_dir, package_name):
         for dc in HO_DATACLASSES:
             file_.write(f"\n{dc}\n")
 
+
 def generate(repo):
-    """Synchronize the modules with the structure of the relation in PG.
-    """
+    """Synchronize the modules with the structure of the relation in PG."""
     package_name = repo.name
-    package_dir = os.path.join(repo.base_dir, package_name)
+    base_dir = Path(repo.base_dir)
+    package_dir = base_dir / package_name
     files_list = []
+    
     try:
         sql_adapter_module = importlib.import_module('.sql_adapter', package_name)
         SQL_ADAPTER.update(sql_adapter_module.SQL_ADAPTER)
     except ModuleNotFoundError as exc:
-        os.makedirs(package_dir)
-        with open(os.path.join(package_dir, 'sql_adapter.py'), "w") as file_:
+        package_dir.mkdir(parents=True, exist_ok=True)
+        with open(package_dir / 'sql_adapter.py', "w", encoding='utf-8') as file_:
             file_.write(SQL_ADAPTER_TEMPLATE)
         sys.stderr.write(f"{exc}\n")
     except AttributeError as exc:
         sys.stderr.write(f"{exc}\n")
+    
     repo.database.model._reload()
-    if not os.path.exists(package_dir):
-        os.mkdir(package_dir)
+    
+    if not package_dir.exists():
+        package_dir.mkdir(parents=True)
 
-    __reset_dataclasses(repo, package_dir)
+    __reset_dataclasses(repo, str(package_dir))
 
-    with open(os.path.join(package_dir, INIT_PY), 'w', encoding='utf-8') as file_:
+    # Generate package __init__.py
+    with open(package_dir / INIT_PY, 'w', encoding='utf-8') as file_:
         file_.write(INIT_MODULE_TEMPLATE.format(package_name=package_name))
 
-    if not os.path.exists(os.path.join(package_dir, BASE_TEST_PY)):
-        with open(os.path.join(package_dir, BASE_TEST_PY), 'w', encoding='utf-8') as file_:
-            file_.write(BASE_TEST.format(
-                BEGIN_CODE=utils.BEGIN_CODE,
-                END_CODE=utils.END_CODE,
-                package_name=package_name))
+    # Generate tests/conftest.py instead of package/base_test.py
+    tests_dir = base_dir / 'tests'
+    tests_dir.mkdir(exist_ok=True)
+    
+    conftest_path = tests_dir / CONFTEST_PY
+    if not conftest_path.exists():
+        with open(conftest_path, 'w', encoding='utf-8') as file_:
+            file_.write(CONFTEST.format(
+                package_name=package_name,
+                hop_release=hop_version()))
+    
     warning = WARNING_TEMPLATE.format(package_name=package_name)
+    
+    # Generate modules for each relation
     for relation in repo.database.model._relations():
-        module_path = __update_this_module(repo, relation, package_dir, package_name)
+        module_path = __update_this_module(repo, relation, str(package_dir), package_name)
         if module_path:
             files_list.append(module_path)
-            if module_path.find(INIT_PY) == -1:
-                test_file_path = module_path.replace('.py', TEST_EXT)
-                files_list.append(test_file_path)
+            # Tests are no longer added to files_list (they live in tests/ directory)
 
-    __gen_dataclasses(package_dir, package_name)
+    __gen_dataclasses(str(package_dir), package_name)
 
     if len(NO_APAPTER):
         print("MISSING ADAPTER FOR SQL TYPE")
-        print(f"Add the following items to __SQL_ADAPTER in {os.path.join(package_dir, 'sql_adapter.py')}")
+        print(f"Add the following items to __SQL_ADAPTER in {package_dir / 'sql_adapter.py'}")
         for key in NO_APAPTER.keys():
             print(f"  '{key}': typing.Any,")
-    __update_init_files(package_dir, files_list, warning)
+    
+    __update_init_files(str(package_dir), files_list, warning)

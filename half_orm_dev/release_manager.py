@@ -8,6 +8,7 @@ lifecycle (stage → rc → production) for the Git-centric workflow.
 import fnmatch
 import os
 import re
+import sys
 import subprocess
 
 from pathlib import Path
@@ -295,7 +296,6 @@ class ReleaseManager:
             version_from_db = self._repo.database.last_release_s
             if version_from_file != version_from_db:
                 # Warning but not error (file is source of truth)
-                import sys
                 sys.stderr.write(
                     f"Warning: Version mismatch detected:\n"
                     f"  model/schema.sql: {version_from_file}\n"
@@ -1086,7 +1086,6 @@ class ReleaseManager:
 
             except Exception as e:
                 # Non-blocking: log warning and continue
-                import sys
                 print(
                     f"⚠️  Warning: Failed to notify {branch}: {e}",
                     file=sys.stderr

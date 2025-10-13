@@ -1,19 +1,23 @@
-"""Test file for the {module} module.
+"""Basic test file for the {module} module. DO NOT EDIT
+
+This test file ensures that {module}.{class_name} is instanciable and
+a subclass of half_orm.relation.Relation
+
+Fixtures are provided by tests/conftest.py
 """
 
-from {package_name}.base_test import BaseTest
 from {module} import {class_name}
-{BEGIN_CODE}
 
-{END_CODE}
 
-class Test(BaseTest):
-    def test_instanciate_relation(self):
-        "It shoud instanciate {class_name}"
-        {class_name}()
+def test_instanciate_relation():
+    """It should instanciate {class_name}."""
+    {class_name}()
 
-    def test_is_relation(self):
-        "{class_name} should be a subclass of half_orm.Relation."
-        self.assertTrue(issubclass({class_name}, self.Relation))
 
-    {BEGIN_CODE}
+def test_is_relation(relation_class):
+    """
+    {class_name} should be a subclass of half_orm.Relation.
+    
+    Uses relation_class fixture from tests/conftest.py
+    """
+    assert issubclass({class_name}, relation_class)
