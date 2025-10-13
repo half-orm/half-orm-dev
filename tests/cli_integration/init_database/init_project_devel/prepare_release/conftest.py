@@ -21,7 +21,7 @@ def prepared_release(devel_project):
         half_orm dev prepare-release patch
 
     Yields:
-        tuple: (project_dir: Path, database_name: str, version: str, 
+        tuple: (project_dir: Path, database_name: str, version: str,
                 stage_file: Path, remote_repo: Path)
             - project_dir: Path to project directory
             - database_name: Name of the database
