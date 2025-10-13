@@ -110,7 +110,7 @@ def standalone_applied_patch(tmp_path):
 
         sql_file = patch_dir / "01_create_table.sql"
         sql_content = """-- Test table for apply-patch integration tests
-CREATE TABLE test_users (
+CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL
 );

@@ -18,20 +18,20 @@ class TestApplyPatchSqlExecution:
         """Test that SQL files in patch are executed and table is created."""
         project_dir, db_name, patch_id = standalone_applied_patch
 
-        # Verify table test_users was created in database
+        # Verify table users was created in database
         from half_orm.model import Model
 
         try:
             model = Model(db_name)
 
-            # Check if test_users table exists
-            TestUsers = model.get_relation_class('public.test_users')
+            # Check if users table exists
+            Users = model.get_relation_class('public.users')
 
-            # TestUsers shoud be instantiable
-            test_users = TestUsers()
+            # Users shoud be instantiable
+            users = Users()
 
-            assert hasattr(test_users, 'id'), "Column 'id' should exist"
-            assert hasattr(test_users, 'name'), "Column 'name' should exist"
+            assert hasattr(users, 'id'), "Column 'id' should exist"
+            assert hasattr(users, 'name'), "Column 'name' should exist"
 
             model.disconnect()
         except Exception as e:
@@ -43,7 +43,7 @@ class TestApplyPatchCodeGeneration:
     """Test Python code generation from database schema."""
 
     def test_apply_patch_generates_python_code(self, standalone_applied_patch):
-        """Test that Python code is generated and is functional for test_users table."""
+        """Test that Python code is generated and is functional for users table."""
         project_dir, db_name, patch_id = standalone_applied_patch
 
         # Add project to sys.path for imports
@@ -51,25 +51,29 @@ class TestApplyPatchCodeGeneration:
 
         try:
             # Verify Python package structure exists
-            package_dir = project_dir / db_name / "public"
+            package_dir = project_dir / db_name
             assert package_dir.exists(), f"Package directory {package_dir} should exist"
 
-            # Verify test_users.py was generated
-            test_users_file = package_dir / "test_users.py"
-            assert test_users_file.exists(), "test_users.py should be generated"
+            # Verify users.py module was generated (NOT users.py anymore)
+            users_module_file = package_dir / "public" / "users.py"
+            assert users_module_file.exists(), "users.py should be generated"
+
+            # Verify test file in new structure: tests/public/users/test_public_users.py
+            test_file = project_dir / "tests" / "public" / "users" / "test_public_users.py"
+            assert test_file.exists(), "test_public_users.py should be generated in tests/"
 
             # Import the generated module
             import importlib
-            module_name = f"{db_name}.public.test_users"
+            module_name = f"{db_name}.public.users"
             module = importlib.import_module(module_name)
 
-            # Verify class exists
-            assert hasattr(module, 'TestUsers'), "TestUsers class should exist in module"
+            # Verify class exists (should be Users, not Users)
+            assert hasattr(module, 'Users'), "Users class should exist in module"
 
             # Verify we can instantiate the class
-            TestUsers = getattr(module, 'TestUsers')
-            instance = TestUsers()
-            assert instance is not None, "Should be able to instantiate TestUsers"
+            Users = getattr(module, 'Users')
+            instance = Users()
+            assert instance is not None, "Should be able to instantiate Users"
 
             # Verify the instance has expected attributes from table schema
             assert hasattr(instance, 'id'), "Instance should have 'id' attribute"
