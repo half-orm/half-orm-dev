@@ -707,16 +707,24 @@ class ReleaseManager:
         3. Check patch not already in release
         4. Acquire exclusive lock on ho-prod (atomic via Git tag)
         5. Sync with origin (fetch + pull if needed)
-        6. Create temporary validation branch
-        7. Add patch to stage file on temp branch + commit
-        8. Apply all patches with release context + run tests
-        9. If tests fail: cleanup temp branch, release lock, exit with error
-        10. If tests pass: return to ho-prod, delete temp branch
-        11. Apply same change on ho-prod + commit
-        12. Push ho-prod to origin
-        13. Send resync notifications to other patch branches
-        14. Rename patch branch to archive namespace
-        15. Release lock (in finally block)
+        6. Create temporary validation branch FROM ho-prod
+        7. Merge ALL patches already in release (from ho-release/X.Y.Z/* branches)
+        8. Merge new patch branch (from ho-patch/{patch_id})
+        9. Add patch to stage file on temp branch + commit
+        10. Run validation tests (with ALL patches integrated)
+        11. If tests fail: cleanup temp branch, release lock, exit with error
+        12. If tests pass: return to ho-prod, delete temp branch
+        13. Add patch to stage file on ho-prod + commit (file change only)
+        14. Push ho-prod to origin
+        15. Send resync notifications to other patch branches
+        16. Archive patch branch to ho-release/{version}/{patch_id}
+        17. Release lock (in finally block)
+
+        CRITICAL: ho-prod NEVER contains patch code directly. It only contains
+        the releases/*.txt files that list which patches are in each release.
+        The temp-valid branch is used to test the integration of ALL patches
+        together, but only the release file change is committed to ho-prod.
+        Actual patch code remains in archived branches (ho-release/X.Y.Z/*).
 
         Args:
             patch_id: Patch identifier (e.g., "456-user-auth")
@@ -751,14 +759,18 @@ class ReleaseManager:
                 - Patch already in release
                 - Lock acquisition failed (another process holds lock)
                 - ho-prod diverged from origin
+                - Merge conflicts during integration
                 - Tests failed on temp branch
                 - Push failed
 
         Examples:
             # Add patch to auto-detected stage (one stage exists)
             result = release_mgr.add_patch_to_release("456-user-auth")
-            # → Adds to releases/1.3.6-stage.txt
-            # → Tests on temp-valid-1.3.6
+            # → Creates temp-valid-1.3.6
+            # → Merges all patches from releases/1.3.6-stage.txt
+            # → Merges ho-patch/456-user-auth
+            # → Tests complete integration
+            # → Updates releases/1.3.6-stage.txt on ho-prod
             # → Archives to ho-release/1.3.6/456-user-auth
 
             # Add patch to explicit version (multiple stages)
@@ -774,7 +786,9 @@ class ReleaseManager:
                 if "locked" in str(e):
                     print("Another add-to-release in progress, retry later")
                 elif "Tests failed" in str(e):
-                    print("Patch breaks tests, fix and retry")
+                    print("Patch breaks integration, fix and retry")
+                elif "Merge conflict" in str(e):
+                    print("Patch conflicts with existing patches")
         """
         # 1. Pre-lock validations
         if self._repo.hgit.branch != "ho-prod":
@@ -832,18 +846,69 @@ class ReleaseManager:
                     "Manual merge or rebase required."
                 )
 
-            # 6. Create temporary validation branch
+            # 6. Create temporary validation branch FROM ho-prod
             self._repo.hgit.checkout("-b", temp_branch)
 
-            # 7. Add patch to stage file on temp branch
+            # 7. Merge ALL existing patches in the release (already validated)
+            for existing_patch_id in existing_patches:
+                archived_branch = f"ho-release/{target_version}/{existing_patch_id}"
+                if self._repo.hgit.branch_exists(archived_branch):
+                    try:
+                        self._repo.hgit.merge(
+                            archived_branch,
+                            no_ff=True,
+                            m=f"Merge {existing_patch_id} (already in release)"
+                        )
+                    except Exception as e:
+                        # Should not happen (already validated), but handle it
+                        self._repo.hgit.checkout("ho-prod")
+                        self._repo.hgit._HGit__git_repo.git.branch("-D", temp_branch)
+                        raise ReleaseManagerError(
+                            f"Failed to merge existing patch {existing_patch_id}.\n"
+                            f"This should not happen (patch already validated).\n"
+                            f"Manual intervention required.\n"
+                            f"Error: {e}"
+                        )
+                else:
+                    # Branch not found - might be an old patch before archiving system
+                    import sys
+                    sys.stderr.write(
+                        f"Warning: Branch {archived_branch} not found. "
+                        f"Patch {existing_patch_id} might be from old workflow.\n"
+                    )
+
+            # 8. Merge new patch branch into temp-valid
+            try:
+                self._repo.hgit.merge(
+                    f"ho-patch/{patch_id}",
+                    no_ff=True,
+                    m=f"Merge {patch_id} for validation in {target_version}-stage"
+                )
+            except Exception as e:
+                # Merge conflict - cleanup and exit
+                self._repo.hgit.checkout("ho-prod")
+                self._repo.hgit._HGit__git_repo.git.branch("-D", temp_branch)
+                raise ReleaseManagerError(
+                    f"Merge conflict integrating {patch_id}.\n"
+                    f"The patch conflicts with existing patches in the release.\n"
+                    f"Resolve conflicts manually:\n"
+                    f"  1. git checkout ho-patch/{patch_id}\n"
+                    f"  2. git merge ho-prod\n"
+                    f"  3. Resolve conflicts\n"
+                    f"  4. half_orm dev apply-patch (re-test)\n"
+                    f"  5. Retry add-to-release\n"
+                    f"Error: {e}"
+                )
+
+            # 9. Add patch to stage file on temp branch
             self._apply_patch_change_to_stage_file(stage_file, patch_id)
 
-            # 8. Commit on temp branch
+            # 10. Commit release file on temp branch
             commit_msg = f"Add {patch_id} to release {target_version}-stage (validation)"
             self._repo.hgit.add(str(self._releases_dir / stage_file))
             self._repo.hgit.commit("-m", commit_msg)
 
-            # 9. Run validation tests (apply patches + pytest)
+            # 11. Run validation tests (ALL patches integrated)
             try:
                 self._run_validation_tests()
             except ReleaseManagerError as e:
@@ -852,31 +917,32 @@ class ReleaseManager:
                 self._repo.hgit._HGit__git_repo.git.branch("-D", temp_branch)
                 raise ReleaseManagerError(
                     f"Tests failed for patch {patch_id}. Not integrated.\n"
+                    f"The patch breaks the integration with existing patches.\n"
                     f"{e}"
                 )
 
-            # 10. Return to ho-prod
+            # 12. Tests passed! Return to ho-prod
             self._repo.hgit.checkout("ho-prod")
 
-            # 11. Delete temp branch (validation passed)
+            # 13. Delete temp branch (validation complete, no longer needed)
             self._repo.hgit._HGit__git_repo.git.branch("-D", temp_branch)
 
-            # 12. Apply same change on ho-prod
+            # 14. Add patch to stage file on ho-prod (file change ONLY)
             self._apply_patch_change_to_stage_file(stage_file, patch_id)
 
-            # 13. Commit on ho-prod
+            # 15. Commit on ho-prod (only release file change)
             commit_msg = f"Add {patch_id} to release {target_version}-stage"
             self._repo.hgit.add(str(self._releases_dir / stage_file))
             self._repo.hgit.commit("-m", commit_msg)
             commit_sha = self._repo.hgit.last_commit()
 
-            # 14. Push ho-prod (no conflict possible - we have lock)
+            # 16. Push ho-prod (no conflict possible - we have lock)
             self._repo.hgit.push("origin", "ho-prod")
 
-            # 15. Send resync notifications (non-blocking)
+            # 17. Send resync notifications (non-blocking)
             notified = self._send_resync_notifications(patch_id, target_version)
 
-            # 16. Rename branch to archive
+            # 18. Archive patch branch to ho-release namespace
             archived_branch = f"ho-release/{target_version}/{patch_id}"
             self._repo.hgit.rename_branch(
                 f"ho-patch/{patch_id}",
@@ -884,7 +950,7 @@ class ReleaseManager:
                 delete_remote_old=True
             )
 
-            # 17. Read final patch list
+            # 19. Read final patch list
             final_patches = self.read_release_patches(stage_file)
 
             return {
@@ -902,7 +968,7 @@ class ReleaseManager:
             }
 
         finally:
-            # 18. ALWAYS release lock (even on error or Ctrl+C)
+            # 20. ALWAYS release lock (even on error)
             self._repo.hgit.release_branch_lock(lock_tag)
 
 

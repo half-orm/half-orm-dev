@@ -77,57 +77,57 @@ MODEL = None
 def __get_test_directory_path(schema_name, table_name, base_dir):
     """
     Calculate the test directory path for a given schema and table.
-    
+
     Args:
         schema_name: PostgreSQL schema name (e.g., 'public')
         table_name: PostgreSQL table name (e.g., 'user_profiles')
         base_dir: Project base directory path
-        
+
     Returns:
         Path: tests/schema_name/table_name/
-        
+
     Example:
         __get_test_directory_path('public', 'user_profiles', '/path/to/project')
         # Returns: Path('/path/to/project/tests/public/user_profiles')
     """
     base_path = Path(base_dir)
     tests_dir = base_path / 'tests'
-    
+
     # Convert schema name: dots to underscores, keep original underscores
     schema_dir_name = schema_name.replace('.', '_')
-    
+
     # Table name: keep underscores as-is
     table_dir_name = table_name
-    
+
     return tests_dir / schema_dir_name / table_dir_name
 
 
 def __get_test_file_path(schema_name, table_name, base_dir, package_name):
     """
     Calculate the complete test file path for a given schema and table.
-    
+
     Args:
         schema_name: PostgreSQL schema name (e.g., 'public')
         table_name: PostgreSQL table name (e.g., 'user_profiles')
         base_dir: Project base directory path
         package_name: Python package name
-        
+
     Returns:
         Path: Complete path to test file
-        
+
     Example:
         __get_test_file_path('public', 'user_profiles', '/path', 'mydb')
         # Returns: Path('/path/tests/public/user_profiles/test_public_user_profiles.py')
     """
     test_dir = __get_test_directory_path(schema_name, table_name, base_dir)
-    
+
     # Convert schema and table names for filename
     schema_file_name = schema_name.replace('.', '_')
     table_file_name = table_name
-    
+
     # Construct filename: test_<schema>_<table>.py
     test_filename = f"{TEST_PREFIX}{schema_file_name}_{table_file_name}{TEST_SUFFIX}"
-    
+
     return test_dir / test_filename
 
 
@@ -191,8 +191,8 @@ def __get_modules_list(dir, files_list, files):
         path_ = os.path.join(dir, file_)
         if path_ not in files_list and file_ not in DO_NOT_REMOVE:
             # Filter out both old and new test file patterns
-            if (path_.find('__pycache__') == -1 and 
-                not file_.endswith('_test.py') and 
+            if (path_.find('__pycache__') == -1 and
+                not file_.endswith('_test.py') and
                 not file_.startswith('test_')):
                 print(f"REMOVING: {path_}")
             os.remove(path_)
@@ -303,7 +303,7 @@ def __update_this_module(
         sys.stderr.write(f"{err}\n{fqtn}\n")
         sys.stderr.flush()
         return None
-    
+
     fields = []
     kwargs = []
     arg_names = []
@@ -320,7 +320,7 @@ def __update_this_module(
     kwargs.append('**kwargs')
     kwargs = ", ".join(kwargs)
     arg_names = ", ".join(arg_names)
-    
+
     path[0] = package_dir
     path[1] = path[1].replace('.', os.sep)
 
@@ -330,11 +330,11 @@ def __update_this_module(
     path_1 = os.path.join(*path[:-1])
     if not os.path.exists(path_1):
         os.makedirs(path_1)
-    
+
     module_template = __assemble_module_template(module_path)
     inheritance_import, inherited_classes = __get_inheritance_info(
         rel, package_name)
-    
+
     # Generate Python module
     with open(module_path, 'w', encoding='utf-8') as file_:
         documentation = "\n".join([line and f"    {line}" or "" for line in str(rel).split("\n")])
@@ -352,26 +352,26 @@ def __update_this_module(
                 kwargs=kwargs,
                 arg_names=arg_names,
                 warning=WARNING_TEMPLATE.format(package_name=package_name)))
-    
+
     # Generate test file in tests/ directory structure
     schema_name = path[1].replace(os.sep, '.')  # Convert back to schema.name format
     table_name = path[-1]
     test_file_path = __get_test_file_path(schema_name, table_name, repo.base_dir, package_name)
-    
+
     if not test_file_path.exists():
         # Create test directory structure
         test_file_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Generate test file
         with open(test_file_path, 'w', encoding='utf-8') as file_:
             file_.write(TEST.format(
                 package_name=package_name,
                 module=f"{package_name}.{fqtn}",
                 class_name=class_name))
-    
+
     HO_DATACLASSES.append(__gen_dataclass(
         rel, __get_fkeys(repo, class_name, module_path)))
-    
+
     return module_path
 
 
@@ -402,7 +402,7 @@ def generate(repo):
     base_dir = Path(repo.base_dir)
     package_dir = base_dir / package_name
     files_list = []
-    
+
     try:
         sql_adapter_module = importlib.import_module('.sql_adapter', package_name)
         SQL_ADAPTER.update(sql_adapter_module.SQL_ADAPTER)
@@ -413,9 +413,9 @@ def generate(repo):
         sys.stderr.write(f"{exc}\n")
     except AttributeError as exc:
         sys.stderr.write(f"{exc}\n")
-    
+
     repo.database.model._reload()
-    
+
     if not package_dir.exists():
         package_dir.mkdir(parents=True)
 
@@ -428,16 +428,16 @@ def generate(repo):
     # Generate tests/conftest.py instead of package/base_test.py
     tests_dir = base_dir / 'tests'
     tests_dir.mkdir(exist_ok=True)
-    
+
     conftest_path = tests_dir / CONFTEST_PY
     if not conftest_path.exists():
         with open(conftest_path, 'w', encoding='utf-8') as file_:
             file_.write(CONFTEST.format(
                 package_name=package_name,
                 hop_release=hop_version()))
-    
+
     warning = WARNING_TEMPLATE.format(package_name=package_name)
-    
+
     # Generate modules for each relation
     for relation in repo.database.model._relations():
         module_path = __update_this_module(repo, relation, str(package_dir), package_name)
@@ -452,5 +452,5 @@ def generate(repo):
         print(f"Add the following items to __SQL_ADAPTER in {package_dir / 'sql_adapter.py'}")
         for key in NO_APAPTER.keys():
             print(f"  '{key}': typing.Any,")
-    
+
     __update_init_files(str(package_dir), files_list, warning)

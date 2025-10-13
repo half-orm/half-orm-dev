@@ -17,7 +17,7 @@ def test_instanciate_relation():
 def test_is_relation(relation_class):
     """
     {class_name} should be a subclass of half_orm.Relation.
-    
+
     Uses relation_class fixture from tests/conftest.py
     """
     assert issubclass({class_name}, relation_class)

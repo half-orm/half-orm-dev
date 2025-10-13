@@ -15,10 +15,10 @@ from half_orm.relation import Relation
 def database_model():
     """
     Provide database Model for integration tests.
-    
+
     Scope: session (created once per test session)
     Returns: Model instance for {package_name} database
-    
+
     Example:
         def test_query(database_model):
             users = database_model.get_relation_class('public.users')
@@ -31,9 +31,9 @@ def database_model():
 def relation_class():
     """
     Provide Relation base class for tests.
-    
+
     Returns: half_orm.relation.Relation class
-    
+
     Example:
         def test_inheritance(relation_class):
             from {package_name}.public.users import Users

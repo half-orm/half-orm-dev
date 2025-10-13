@@ -2122,7 +2122,6 @@ Next steps:
 # → Review release patches: cat releases/1.3.6-stage.txt
 # → Adjust your patch or coordinate with release maintainer
 ```
-
 #### `test`
 ```bash
 # Run complete test suite (standard halfORM command)
@@ -2132,23 +2131,74 @@ half_orm dev test
 ```
 
 #### `add-to-release`
-```bash
-# Integrate patch into specified stage release (version required when multiple stages exist)
-git checkout ho-patch/456-user-authentication
-half_orm dev add-to-release "456" --to-version="1.3.5"
 
-# Or from any branch with explicit version:
-half_orm dev add-to-release "456" --to-version="1.4.0"
+```sh
+half_orm dev add-to-release "456"
 
-# If only one stage exists, version can be omitted (auto-detected):
-half_orm dev add-to-release "456"  # Uses the single existing stage
+# 1. Validations pré-lock
+✓ On ho-prod branch
+✓ Repository clean
+✓ Patch exists, branch exists
 
-# Actions:
-# → Merge ho-patch/456-user-authentication → ho-prod
-# → Add "456-user-authentication" to current stage release file
-# → Send resync notifications via commit --allow-empty to all other active patch branches
-# → Commit: "Add 456-user-authentication to release X.Y.Z-stage"
-# → Preserve branch until promote-to-rc
+# 2. Detect target stage
+✓ releases/1.3.6-stage.txt
+
+# 3. ACQUIRE LOCK on ho-prod (ATOMIC)
+LOCK_TAG="lock-ho-prod-$(date -u +%s%3N)"
+# Example: lock-ho-prod-1704123456789
+
+git tag $LOCK_TAG
+git push origin $LOCK_TAG
+
+# If push fails:
+# → Check if lock is stale (older than 30 min)
+# → If stale: delete and retry
+# → If recent: exit with error
+
+# If push succeeds:
+# → Lock acquired on ho-prod ✅
+# → Other add-to-release blocked until lock released
+# → Operations on other branches (ho-patch/*) still possible
+
+try:
+    # 4. Sync ho-prod with origin
+    git fetch origin
+    git pull origin ho-prod
+
+    # 5. Create temp validation branch
+    git checkout -b temp-valid-1.3.6
+
+    # 6. Add patch + commit on temp
+    echo "456-user-auth" >> releases/1.3.6-stage.txt
+    git commit -am "Add 456-user-auth to release 1.3.6-stage (validation)"
+
+    # 7. Run tests
+    half_orm dev apply-patch
+    pytest tests/
+
+    # 8. Return to ho-prod
+    git checkout ho-prod
+
+    # 9. Delete temp branch
+    git branch -D temp-valid-1.3.6
+
+    # 10. Apply change on ho-prod
+    echo "456-user-auth" >> releases/1.3.6-stage.txt
+    git commit -am "Add 456-user-auth to release 1.3.6-stage"
+
+    # 11. Push ho-prod
+    git push origin ho-prod
+
+    # 12. Notifications
+    # ...
+
+    # 13. Rename branch
+    # ...
+
+finally:
+    # 14. ALWAYS release lock
+    git push origin --delete $LOCK_TAG
+    git tag -d $LOCK_TAG
 ```
 
 #### `add-to-hotfix`
