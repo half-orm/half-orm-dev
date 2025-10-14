@@ -215,10 +215,10 @@ class TestDetermineRCNumber:
 
         # Should use get_rc_files() which returns sorted list
         rc_files = release_mgr.get_rc_files(version)
-        
+
         # get_rc_files() returns Path objects sorted by RC number
         assert len(rc_files) == 2
-        
+
         # _determine_rc_number should return len + 1
         rc_number = release_mgr._determine_rc_number(version)
         assert rc_number == 3

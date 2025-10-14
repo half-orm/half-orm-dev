@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional, Tuple, List
 from dataclasses import dataclass
 
+from git.exc import GitCommandError
 
 class ReleaseManagerError(Exception):
     """Base exception for ReleaseManager operations."""
@@ -1714,8 +1715,38 @@ class ReleaseManager:
             This is called AFTER merging archived branches to ho-prod, so the
             code is preserved in ho-prod even though branches are deleted.
         """
-        pass
+        patch_ids = self.read_release_patches(stage_file)
 
+        if not patch_ids:
+            # Empty stage file, no branches to cleanup
+            return []
+
+        deleted_branches = []
+
+        for patch_id in patch_ids:
+            # Construct branch name
+            branch_name = f"ho-patch/{patch_id}"
+
+            # Delete local branch (force delete with -D)
+            try:
+                self._repo.hgit.delete_branch(branch_name, force=True)
+            except GitCommandError as e:
+                # Best effort: continue even if deletion fails
+                # (branch might already be deleted)
+                pass
+
+            # Delete remote branch
+            try:
+                self._repo.hgit.delete_remote_branch(branch_name)
+            except GitCommandError as e:
+                # Best effort: continue even if deletion fails
+                # (branch might already be deleted from remote)
+                pass
+
+            # Add to deleted list (best effort reporting)
+            deleted_branches.append(branch_name)
+
+        return deleted_branches
 
     def _send_rebase_notifications(self, version: str, rc_number: int) -> List[str]:
         """
