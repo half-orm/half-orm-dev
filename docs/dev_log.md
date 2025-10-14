@@ -326,24 +326,262 @@ half_orm dev apply-patch
 - [ ] Tests avec vraies bases de données (intégration)
 - [ ] Documentation workflow complet avec release context
 
+### Commande `add-to-release`
+**Status :** ✅ Fonctionnelle et testée (tests complets)
+
+**Implémentation complète :**
+
+**Méthodes ReleaseManager :**
+1. ✅ `add_patch_to_release()` - Workflow complet avec lock distribué
+2. ✅ `_detect_target_stage_file()` - Détection auto stage file (ou explicit)
+3. ✅ `_apply_patch_change_to_stage_file()` - Ajout patch au fichier stage
+4. ✅ `_run_validation_tests()` - Exécution pytest tests/
+5. ✅ `_get_active_patch_branches()` - Liste branches patch actives
+6. ✅ `_send_resync_notifications()` - Notifications aux autres branches
+7. ✅ `_create_notification_commit()` - Commit vide avec message
+
+**CLI (half_orm_dev/cli/commands/add_to_release.py) :**
+- ✅ Commande `half_orm dev add-to-release <patch_id>`
+- ✅ Option `--to-version` pour sélection explicite
+- ✅ Messages d'aide et next steps
+- ✅ Gestion erreurs avec cleanup
+
+**Fonctionnalités principales :**
+
+**1. Lock distribué pour sécurité concurrentielle**
+```bash
+# Acquisition lock atomique via Git tag
+LOCK_TAG="lock-ho-prod-$(date -u +%s%3N)"
+git tag $LOCK_TAG && git push origin $LOCK_TAG
+
+# Timeout 30 minutes avec détection staleness
+# Lock toujours releasé (finally block) même sur erreur
+```
+
+**2. Workflow complet avec validation sur branche temporaire**
+```bash
+# Workflow en 17 étapes atomiques
+1. Validations pré-lock (ho-prod, clean, patch exists)
+2. Détection target stage (auto ou explicit)
+3. Vérification patch pas déjà dans release
+4. Acquisition lock distribué (atomic via tag)
+5. Sync avec origin (fetch + pull si nécessaire)
+6. Création branche temp-valid-{version}
+7. Merge ALL patches déjà dans release (ho-release/X.Y.Z/*)
+8. Merge nouveau patch (ho-patch/{patch_id})
+9. Ajout patch au stage file + commit sur temp
+10. Exécution tests validation (pytest tests/)
+11. Si échec → cleanup + release lock + exit
+12. Si succès → retour ho-prod + delete temp
+13. Ajout patch au stage file sur ho-prod + commit (metadata only)
+14. Push ho-prod vers origin
+15. Notifications resync autres branches patch (stage mutable)
+16. Archivage branche → ho-release/{version}/{patch_id}
+17. Release lock (finally)
+
+Note: Le code du patch n'est PAS mergé dans ho-prod à cette étape.
+Le merge du code sera effectué lors du promote-to-rc (release immuable).
+```
+
+**3. Gestion du code vs metadata**
+- ✅ **Stage (mutable)** : ho-prod contient SEULEMENT `releases/*.txt` (metadata)
+- ✅ **RC/Production (immuable)** : ho-prod contient code + metadata (merge effectué)
+- ✅ Branche temp-valid = test intégration de TOUS les patches
+- ✅ Code reste dans `ho-release/X.Y.Z/*` jusqu'au promote-to-rc
+- ✅ promote-to-rc déclenche : merge code → ho-prod + notifications rebase
+
+**Cycle de vie du code dans ho-prod :**
+```bash
+# Phase 1: add-to-release (stage mutable)
+releases/1.3.6-stage.txt: "456-user-auth"  # Metadata seulement
+ho-release/1.3.6/456-user-auth             # Code archivé ici
+
+# Phase 2: promote-to-rc (release immuable)
+git mv releases/1.3.6-stage.txt releases/1.3.6-rc1.txt
+git merge ho-release/1.3.6/456-user-auth   # CODE arrive dans ho-prod
+git branch -D ho-patch/*                    # Cleanup branches dev
+
+# Phase 3: branches actives rebasent
+[ho] Resync notification: 1.3.6-rc1 promoted (REBASE REQUIRED)
+# Développeurs font: git rebase ho-prod
+```
+
+**4. Validations robustes**
+```python
+# Pré-lock (exit early sans lock si échec)
+- Branch = ho-prod
+- Repository clean
+- Patch exists (Patches/{patch_id}/)
+- ho-patch/{patch_id} branch exists
+
+# Post-lock (release lock en finally)
+- ho-prod synced with origin (auto-pull if behind)
+- Patch not already in release
+- Tests pass on temp branch
+```
+
+**5. Archivage automatique**
+```bash
+# Après succès, branche archivée automatiquement
+ho-patch/456-user-auth → ho-release/1.3.6/456-user-auth
+
+# Suppression branche remote originale
+git push origin --delete ho-patch/456-user-auth
+```
+
+**6. Notifications de resync**
+```bash
+# Notifications envoyées à toutes les branches patch actives
+# Format: commit --allow-empty avec message structuré
+
+[ho] Resync notification: 456-user-auth added to release 1.3.6-stage
+
+Patch 456-user-auth has been integrated into 1.3.6-stage.
+This is a stage release (mutable) - no immediate action required.
+
+The code will be merged to ho-prod when the stage is promoted to RC.
+At that point, active patch branches should rebase to include the changes.
+```
+
+**Tests unitaires (tous passent) :**
+
+**1. Workflow complet :**
+- `test_released_manager_add_patch_to_release.py`
+  - Workflow succès complet avec lock
+  - Échec acquisition lock (exit early)
+  - Échec tests validation (cleanup + rollback)
+  - Échec push (lock released)
+  - Lock released sur erreur inattendue (finally)
+  - Multiples stages (--to-version requis)
+
+**2. Validations pré-lock :**
+- `test_released_manager_add_to_release_validations.py`
+  - Not on ho-prod branch
+  - Repository not clean
+  - Patch directory not exists
+  - Patch branch not exists
+  - Patch already in release
+
+**3. Sync avec origin :**
+- `test_released_manager_add_patch_to_release.py`
+  - ho-prod behind → auto-pull
+  - ho-prod diverged → error
+  - ho-prod synced → continue
+
+**4. Manipulation fichiers release :**
+- `test_released_manager_add_to_release_helpers_branches_file.py`
+  - Append to existing file
+  - Append to empty file
+  - Create file if not exists
+  - Preserve existing content
+  - Handle special chars in patch IDs
+  - Proper newline handling
+  - Error on permission denied
+
+**5. Détection target stage :**
+- `test_released_manager_add_to_release_helpers_detect_target.py`
+  - Single stage → auto-detect
+  - Multiple stages + explicit → use explicit
+  - Multiple stages sans explicit → error
+  - No stage files → error
+
+**6. Notifications :**
+- `test_released_manager_add_to_release_helpers_notifications.py`
+  - Send to active branches
+  - Skip archived branches
+  - No notifications if no active
+  - Commit format correct
+  - Error handling
+
+**7. Validation tests runner :**
+- `test_released_manager_add_to_release_run_validation.py`
+  - Tests pass → continue
+  - Tests fail → error with output
+  - Pytest command format
+  - Working directory set
+  - Stdout/stderr captured
+
+**Edge Cases gérés :**
+- ✅ Pas de stage file existant
+- ✅ Multiples stage files (nécessite --to-version)
+- ✅ Patch déjà dans release (erreur avant lock)
+- ✅ Branches archivées ignorées (notifications)
+- ✅ Lock stale (>30 min) → auto-cleanup et retry
+- ✅ ho-prod diverged → erreur explicite
+- ✅ Tests failure → rollback complet
+
+**Structure de retour :**
+```python
+{
+    'status': 'success',
+    'patch_id': '456-user-auth',
+    'target_version': '1.3.6',
+    'stage_file': '1.3.6-stage.txt',
+    'commit_sha': 'abc123def456...',
+    'archived_branch': 'ho-release/1.3.6/456-user-auth',
+    'notifications_sent': ['ho-patch/789-security'],
+    'patches_in_release': ['123-initial', '456-user-auth']
+}
+```
+
+**Usage :**
+```bash
+# Auto-detect stage (si une seule existe)
+half_orm dev add-to-release "456-user-auth"
+
+# Explicit version (si multiples stages)
+half_orm dev add-to-release "456" --to-version="1.3.6"
+
+# Output:
+# ✓ Patch 456-user-auth added to release 1.3.6-stage
+# ✓ Tests passed on temporary validation branch
+# ✓ Committed to ho-prod: abc123de
+# ✓ Branch archived: ho-release/1.3.6/456-user-auth
+# ✓ Notified 2 active patch branches
+#
+# 📦 Release 1.3.6-stage now contains:
+#    123-initial
+#  → 456-user-auth
+#    789-security
+```
+
+**Garanties transactionnelles :**
+- Échec avant lock → Exit sans modification
+- Lock acquis → Toujours released (finally)
+- Échec validation → Cleanup temp branch + lock released
+- Succès validation → Commit ho-prod + archivage + notifications
+
+**Prévention race conditions :**
+- Lock via Git tag (atomique)
+- Premier à acquérir lock = seul autorisé
+- Autres add-to-release bloqués jusqu'à release
+- Opérations sur ho-patch/* toujours possibles
+
+**Prochaines étapes :**
+- [ ] Implémentation `promote-to-rc` (promotion stage → rc)
+- [ ] Tests avec vraies bases de données (intégration)
+- [ ] Documentation workflow complet release
+
+---
+
 ## 🚧 En cours d'implémentation
 
 ### Commandes à implémenter (v0.16.0)
 
-**1. `add-to-release`**
-- ⏸️ Ajout patch à releases/X.Y.Z-stage.txt
-- ⏸️ Merge vers ho-prod
+**1. `promote-to-rc`**
+- ⏸️ Promotion stage → rc (via git mv)
+- ⏸️ Cleanup branches automatique (suppression ho-patch/*)
+- ⏸️ Validation single active RC rule
 - ⏸️ Tests unitaires
-- ⏸️ Tests d'intégration
 
-**2. `promote-to-rc` / `promote-to-prod`**
-- ⏸️ Promotion stage → rc → production
-- ⏸️ Cleanup branches automatique
+**2. `promote-to-prod`**
+- ⏸️ Promotion rc → production
+- ⏸️ Création backup avant déploiement
 - ⏸️ Tests unitaires
 
 **3. `deploy-to-prod`**
 - ⏸️ Application patches en production
-- ⏸️ Gestion backups
+- ⏸️ Gestion backups et rollback
 - ⏸️ Tests unitaires
 
 ---
