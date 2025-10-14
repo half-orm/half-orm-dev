@@ -2187,7 +2187,7 @@ $ half_orm dev add-to-release "456-user-auth"
 
 # 7-8. Merge patches for testing
 ✓ Merged ho-release/1.3.6/123-initial
-✓ Merged ho-release/1.3.6/789-security  
+✓ Merged ho-release/1.3.6/789-security
 ✓ Merged ho-patch/456-user-auth
 
 # 9. Add patch to stage file on temp branch
@@ -2272,7 +2272,7 @@ temp-valid-1.3.6:
 # After add-to-release:
 ho-prod:
   releases/1.3.6-stage.txt  ← Contains "456-user-auth" (metadata)
-  
+
 ho-release/1.3.6/456-user-auth  ← Contains actual patch code
 
 # Code will be merged to ho-prod later at promote-to-rc
@@ -2341,7 +2341,7 @@ $ half_orm dev add-to-release "456" --to-version="1.3.6"
    → temp branch cleaned up
    → ho-prod unchanged
    → lock released
-   
+
 ❌ ho-prod has diverged from origin
    → manual merge required
    → lock released
@@ -2444,7 +2444,7 @@ $ half_orm dev add-to-release "456"
 $ half_orm dev add-to-release "456"
 ❌ Tests failed on temporary validation branch
    FAILED tests/test_user.py::test_authentication
-   
+
    → Review your patch code
    → Or review interaction with other patches
    → Fix and retry

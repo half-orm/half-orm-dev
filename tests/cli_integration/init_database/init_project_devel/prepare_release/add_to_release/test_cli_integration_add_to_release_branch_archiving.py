@@ -68,7 +68,7 @@ class TestAddToReleaseBranchArchiving:
 
     def test_multiple_patches_archived_separately(self, release_with_second_patch):
         """Test that multiple patches are archived in separate branches."""
-        (project_dir, db_name, second_patch_id, version, 
+        (project_dir, db_name, second_patch_id, version,
          stage_file, _, first_patch_id) = release_with_second_patch
 
         # Both patches should be archived

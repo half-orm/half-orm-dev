@@ -80,7 +80,7 @@ class TestAddToReleaseErrorHandling:
 
         # Create a patch without prepared_release (no stage file)
         patch_id = "999-test-patch"
-        
+
         # Ensure on ho-prod
         subprocess.run(
             ["git", "checkout", "ho-prod"],
@@ -179,7 +179,7 @@ class TestAddToReleaseErrorHandling:
         # Patch branch was archived, need to recreate it temporarily for this test
         archived_branch = f"ho-release/{version}/{patch_id}"
         original_branch = f"ho-patch/{patch_id}"
-        
+
         # Recreate the patch branch from archived location
         result = subprocess.run(
             ["git", "branch", original_branch, archived_branch],

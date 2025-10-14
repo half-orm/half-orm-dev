@@ -64,7 +64,7 @@ def first_patch(prepared_release):
 
     # Create mock patch with SQL + Python code + tests (without apply-patch)
     patch_dir = project_dir / "Patches" / patch_id
-    
+
     # 1. Add SQL file
     sql_file = patch_dir / "01_create_table.sql"
     sql_file.write_text("CREATE TABLE test_table (id SERIAL PRIMARY KEY, name TEXT);")
@@ -73,18 +73,18 @@ def first_patch(prepared_release):
     db_package_dir = project_dir / database_name
     public_schema_dir = db_package_dir / "public"
     public_schema_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Create __init__.py files
     (db_package_dir / "__init__.py").touch()
     (public_schema_dir / "__init__.py").touch()
-    
+
     # Create mock model file
     model_file = public_schema_dir / "test_table.py"
     model_file.write_text('''"""Mock generated model for test_table."""
 
 class TestTable:
     """Mock model class for test_table."""
-    
+
     def __init__(self):
         self.id = None
         self.name = None
@@ -94,7 +94,7 @@ class TestTable:
     tests_dir = project_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
     (tests_dir / "__init__.py").touch()
-    
+
     test_file = tests_dir / f"test_{patch_id.replace('-', '_')}.py"
     test_file.write_text(f'''"""Mock tests for patch {patch_id}."""
 
@@ -205,7 +205,7 @@ def second_patch(first_patch):
 
     # Create mock patch with SQL + Python code + tests (without apply-patch)
     patch_dir = project_dir / "Patches" / patch_id
-    
+
     # 1. Add SQL file (different table to avoid conflict)
     sql_file = patch_dir / "01_create_table.sql"
     sql_file.write_text("CREATE TABLE test_table_2 (id SERIAL PRIMARY KEY, description TEXT);")
@@ -214,18 +214,18 @@ def second_patch(first_patch):
     db_package_dir = project_dir / database_name
     public_schema_dir = db_package_dir / "public"
     public_schema_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Create __init__.py files if not exist
     (db_package_dir / "__init__.py").touch()
     (public_schema_dir / "__init__.py").touch()
-    
+
     # Create mock model file
     model_file = public_schema_dir / "test_table_2.py"
     model_file.write_text('''"""Mock generated model for test_table_2."""
 
 class TestTable2:
     """Mock model class for test_table_2."""
-    
+
     def __init__(self):
         self.id = None
         self.description = None
@@ -235,7 +235,7 @@ class TestTable2:
     tests_dir = project_dir / "tests"
     tests_dir.mkdir(exist_ok=True)
     (tests_dir / "__init__.py").touch()
-    
+
     test_file = tests_dir / f"test_{patch_id.replace('-', '_')}.py"
     test_file.write_text(f'''"""Mock tests for patch {patch_id}."""
 

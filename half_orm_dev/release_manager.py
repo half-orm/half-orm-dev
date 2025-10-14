@@ -1269,3 +1269,426 @@ class ReleaseManager:
             raise ReleaseManagerError(
                 f"Failed to update stage file {stage_file}: {e}"
             )
+
+    def promote_to_rc(self) -> dict:
+        """
+        Promote stage release to release candidate with code merge and branch cleanup.
+
+        Promotes the smallest stage release to RC (rc1, rc2, etc.), merges all
+        archived patch code into ho-prod, and deletes patch branches. Enforces
+        single active RC rule (only one version level can be in RC at a time).
+
+        Complete workflow:
+        1. Pre-lock validations (on ho-prod, clean, stage exists)
+        2. Detect smallest stage release to promote
+        3. Validate single active RC rule (no other version in RC)
+        4. ACQUIRE DISTRIBUTED LOCK on ho-prod (atomic via Git tag)
+        5. Fetch from origin and sync (pull if behind)
+        6. Determine RC number (rc1, rc2, rc3, etc.)
+        7. Rename stage file to RC file (git mv)
+        8. Merge ALL archived patches code into ho-prod (ho-release/X.Y.Z/*)
+        9. Commit: "Promote X.Y.Z-stage to X.Y.Z-rcN"
+        10. Push ho-prod to origin
+        11. Send rebase notifications to active patch branches
+        12. Cleanup patch branches (delete local + remote)
+        13. Release lock (in finally block, always executed)
+
+        Single Active RC Rule:
+        - Only ONE version level can be in RC at a time
+        - RC must be deployed to production before promoting other versions
+        - Exception: Same version can have multiple RCs (rc1, rc2, rc3)
+
+        Examples:
+            Production: 1.3.4
+            Stages: 1.3.5-stage, 1.4.0-stage, 2.0.0-stage
+            
+            # Promote smallest stage
+            result = mgr.promote_to_rc()
+            # → Promotes 1.3.5-stage → 1.3.5-rc1
+            # → Merges code from ho-release/1.3.5/* into ho-prod
+            # → Deletes all ho-patch/* branches listed in 1.3.5-stage
+            # → 1.4.0 and 2.0.0 blocked until 1.3.5 in production
+
+            Production: 1.3.4
+            RC: 1.3.5-rc1 (in validation)
+            Stages: 1.3.5-stage (fixes), 1.4.0-stage
+            
+            # Promote same version stage (fixes for RC)
+            result = mgr.promote_to_rc()
+            # → Promotes 1.3.5-stage → 1.3.5-rc2
+            # → Same version as existing RC = allowed
+            
+            # Cannot promote different version
+            Production: 1.3.4
+            RC: 1.3.5-rc1
+            Stages: 1.4.0-stage (smallest stage)
+            
+            result = mgr.promote_to_rc()
+            # → Error: "Cannot promote 1.4.0, RC 1.3.5-rc1 must be deployed first"
+
+        Code Lifecycle:
+            Stage (mutable): ho-prod = metadata only (releases/*.txt)
+            
+            promote-to-rc: CODE MERGE HAPPENS HERE
+            - Merges ho-release/X.Y.Z/* → ho-prod
+            - All patches from stage now in ho-prod
+            - Branches deleted (ho-patch/*)
+            
+            RC/Production (immutable): ho-prod = metadata + code
+
+        Returns:
+            {
+                'status': 'success',
+                'version': str,              # "1.3.5"
+                'from_file': str,            # "1.3.5-stage.txt"
+                'to_file': str,              # "1.3.5-rc1.txt"
+                'rc_number': int,            # 1 (or 2, 3, etc.)
+                'patches_merged': List[str], # ["456-user-auth", "789-security"]
+                'branches_deleted': List[str], # ["ho-patch/456-user-auth", ...]
+                'commit_sha': str,           # SHA of promotion commit
+                'notifications_sent': List[str], # Active branches notified
+                'code_merged': bool,         # True (code now in ho-prod)
+                'lock_tag': str              # "lock-ho-prod-1704123456789"
+            }
+
+        Raises:
+            ReleaseManagerError: If validations fail:
+                - Not on ho-prod branch
+                - Repository not clean
+                - No stage releases found
+                - Different version RC exists (single active rule)
+                - Lock acquisition failed (another process holds lock)
+                - ho-prod diverged from origin
+                - Merge conflicts during code integration
+                - Branch deletion failed
+                - Push failed
+            
+            Note: Lock is ALWAYS released in finally block, even on error
+
+        Examples:
+            # Successful promotion
+            result = mgr.promote_to_rc()
+            print(f"Promoted {result['from_file']} → {result['to_file']}")
+            print(f"Merged {len(result['patches_merged'])} patches into ho-prod")
+            print(f"Deleted {len(result['branches_deleted'])} branches")
+            print(f"Lock: {result['lock_tag']}")
+
+            # Error handling
+            try:
+                result = mgr.promote_to_rc()
+            except ReleaseManagerError as e:
+                if "Lock held by another process" in str(e):
+                    print("Another operation in progress, retry later")
+                elif "RC" in str(e) and "must be deployed" in str(e):
+                    print("Another version in RC, deploy it first")
+                elif "No stage releases" in str(e):
+                    print("Create a stage release first")
+                elif "diverged" in str(e):
+                    print("Resolve ho-prod divergence manually")
+        
+        Distributed Lock:
+            - Lock tag format: lock-ho-prod-{timestamp_ms}
+            - Example: lock-ho-prod-1704123456789
+            - Timeout: 30 minutes (stale lock detection)
+            - Scope: Blocks ALL operations on ho-prod
+            - Released: Always in finally block (even on error)
+            
+            Concurrent operations blocked:
+            - add-to-release (requires ho-prod lock)
+            - promote-to-rc (requires ho-prod lock)
+            - Any direct commits to ho-prod
+            
+            Operations still allowed:
+            - Work on ho-patch/* branches
+            - Local commits on patch branches
+            - Push to ho-patch/* remotes
+        """
+        pass
+
+
+    def _detect_stage_to_promote(self) -> tuple[str, str]:
+        """
+        Detect smallest stage release to promote.
+
+        Finds all *-stage.txt files, parses versions, and returns the smallest
+        version. This ensures sequential promotion (cannot skip versions).
+
+        Algorithm:
+        1. List all releases/*-stage.txt files
+        2. Parse version from each filename (e.g., "1.3.5-stage.txt" → "1.3.5")
+        3. Sort versions in ascending order
+        4. Return smallest version and filename
+
+        Returns:
+            Tuple of (version, stage_filename)
+            Example: ("1.3.5", "1.3.5-stage.txt")
+
+        Raises:
+            ReleaseManagerError: If no stage releases found
+
+        Examples:
+            # Single stage
+            releases/1.3.5-stage.txt exists
+            version, filename = mgr._detect_stage_to_promote()
+            # → ("1.3.5", "1.3.5-stage.txt")
+
+            # Multiple stages (returns smallest)
+            releases/1.3.5-stage.txt, 1.4.0-stage.txt, 2.0.0-stage.txt exist
+            version, filename = mgr._detect_stage_to_promote()
+            # → ("1.3.5", "1.3.5-stage.txt")
+
+            # No stages
+            version, filename = mgr._detect_stage_to_promote()
+            # → Raises: "No stage releases found. Create one with prepare-release"
+        """
+        pass
+
+
+    def _validate_single_active_rc(self, stage_version: str) -> None:
+        """
+        Validate single active RC rule.
+
+        Ensures only one version level is in RC at a time. The rule allows:
+        - No RC exists → OK (promoting first RC)
+        - RC of SAME version exists → OK (rc1 → rc2 → rc3)
+        - RC of DIFFERENT version exists → ERROR (must deploy first)
+
+        Args:
+            stage_version: Version being promoted (e.g., "1.3.5")
+
+        Raises:
+            ReleaseManagerError: If different version RC exists
+
+        Examples:
+            # No RC exists - OK
+            stage_version = "1.3.5"
+            mgr._validate_single_active_rc(stage_version)
+            # → No error
+
+            # Same version RC exists - OK
+            releases/1.3.5-rc1.txt exists
+            stage_version = "1.3.5"
+            mgr._validate_single_active_rc(stage_version)
+            # → No error (promoting to rc2)
+
+            # Different version RC exists - ERROR
+            releases/1.3.5-rc1.txt exists
+            stage_version = "1.4.0"
+            mgr._validate_single_active_rc(stage_version)
+            # → Raises: "Cannot promote 1.4.0-stage, RC 1.3.5-rc1 must be deployed first"
+
+            # Multiple RCs of same version - OK
+            releases/1.3.5-rc1.txt, 1.3.5-rc2.txt exist
+            stage_version = "1.3.5"
+            mgr._validate_single_active_rc(stage_version)
+            # → No error (promoting to rc3)
+        """
+        pass
+
+
+    def _determine_rc_number(self, version: str) -> int:
+        """
+        Determine next RC number for version.
+
+        Finds all existing RC files for the version and returns next number.
+        If no RCs exist, returns 1. If rc1, rc2 exist, returns 3.
+
+        Args:
+            version: Version string (e.g., "1.3.5")
+
+        Returns:
+            Next RC number (1, 2, 3, etc.)
+
+        Examples:
+            # No existing RCs
+            version = "1.3.5"
+            rc_num = mgr._determine_rc_number(version)
+            # → 1
+
+            # rc1 exists
+            releases/1.3.5-rc1.txt exists
+            rc_num = mgr._determine_rc_number(version)
+            # → 2
+
+            # rc1, rc2, rc3 exist
+            releases/1.3.5-rc1.txt, 1.3.5-rc2.txt, 1.3.5-rc3.txt exist
+            rc_num = mgr._determine_rc_number(version)
+            # → 4
+
+        Note:
+            Uses get_rc_files() which returns sorted RC files for version.
+        """
+        pass
+
+
+    def _merge_archived_patches_to_ho_prod(self, version: str, stage_file: str) -> List[str]:
+        """
+        Merge all archived patch branches code into ho-prod.
+
+        THIS IS WHERE CODE ENTERS HO-PROD. During add-to-release, patches
+        are archived to ho-release/X.Y.Z/patch-id but code stays separate.
+        At promote-to-rc, all archived patches are merged into ho-prod.
+
+        Algorithm:
+        1. Read patch list from stage file (e.g., releases/1.3.5-stage.txt)
+        2. For each patch in list:
+           - Check if archived branch exists: ho-release/{version}/{patch_id}
+           - If exists: git merge ho-release/{version}/{patch_id}
+           - Handle merge conflicts (abort and raise error)
+        3. Return list of merged patches
+
+        Args:
+            version: Version string (e.g., "1.3.5")
+            stage_file: Stage filename (e.g., "1.3.5-stage.txt")
+
+        Returns:
+            List of merged patch IDs
+
+        Raises:
+            ReleaseManagerError: If merge conflicts occur or branch not found
+
+        Examples:
+            # Successful merge
+            releases/1.3.5-stage.txt contains: ["456-user-auth", "789-security"]
+            ho-release/1.3.5/456-user-auth exists
+            ho-release/1.3.5/789-security exists
+            
+            patches = mgr._merge_archived_patches_to_ho_prod("1.3.5", "1.3.5-stage.txt")
+            # → ["456-user-auth", "789-security"]
+            # → Both branches merged into ho-prod
+            # → Code now in ho-prod
+
+            # Merge conflict
+            Patch code conflicts with existing ho-prod code
+            patches = mgr._merge_archived_patches_to_ho_prod("1.3.5", "1.3.5-stage.txt")
+            # → Raises: "Merge conflict with patch 456-user-auth, resolve manually"
+
+            # Missing archived branch
+            releases/1.3.5-stage.txt contains: ["456-user-auth"]
+            ho-release/1.3.5/456-user-auth does NOT exist
+            
+            patches = mgr._merge_archived_patches_to_ho_prod("1.3.5", "1.3.5-stage.txt")
+            # → Raises: "Archived branch not found: ho-release/1.3.5/456-user-auth"
+
+        Note:
+            After this operation, ho-prod contains both metadata (releases/*.txt)
+            and code (merged from ho-release/X.Y.Z/*). This is the key difference
+            between stage (metadata only) and RC (metadata + code).
+        """
+        pass
+
+
+    def _cleanup_patch_branches(self, version: str, stage_file: str) -> List[str]:
+        """
+        Delete all patch branches listed in stage file.
+
+        Reads patch list from stage file and deletes both local and remote
+        branches. This is automatic cleanup at promote-to-rc to maintain
+        clean repository state. Branches are ho-patch/* format.
+
+        Algorithm:
+        1. Read patch list from stage file
+        2. For each patch:
+           - Check if ho-patch/{patch_id} exists locally
+           - If exists: git branch -D ho-patch/{patch_id}
+           - Check if exists on remote
+           - If exists: git push origin --delete ho-patch/{patch_id}
+        3. Return list of deleted branches
+
+        Args:
+            version: Version string (e.g., "1.3.5")
+            stage_file: Stage filename (e.g., "1.3.5-stage.txt")
+
+        Returns:
+            List of deleted branch names (e.g., ["ho-patch/456-user-auth", ...])
+
+        Raises:
+            ReleaseManagerError: If branch deletion fails (e.g., uncommitted changes)
+
+        Examples:
+            # Successful cleanup
+            releases/1.3.5-stage.txt contains: ["456-user-auth", "789-security"]
+            ho-patch/456-user-auth exists locally and remotely
+            ho-patch/789-security exists locally and remotely
+            
+            deleted = mgr._cleanup_patch_branches("1.3.5", "1.3.5-stage.txt")
+            # → ["ho-patch/456-user-auth", "ho-patch/789-security"]
+            # → Both branches deleted locally and remotely
+
+            # Branch already deleted
+            releases/1.3.5-stage.txt contains: ["456-user-auth"]
+            ho-patch/456-user-auth does NOT exist
+            
+            deleted = mgr._cleanup_patch_branches("1.3.5", "1.3.5-stage.txt")
+            # → [] (nothing to delete, no error)
+
+            # Branch with uncommitted changes (should not happen)
+            ho-patch/456-user-auth has uncommitted changes
+            
+            deleted = mgr._cleanup_patch_branches("1.3.5", "1.3.5-stage.txt")
+            # → Raises: "Cannot delete ho-patch/456-user-auth: uncommitted changes"
+
+        Note:
+            This is called AFTER merging archived branches to ho-prod, so the
+            code is preserved in ho-prod even though branches are deleted.
+        """
+        pass
+
+
+    def _send_rebase_notifications(self, version: str, rc_number: int) -> List[str]:
+        """
+        Send rebase notifications to all active patch branches.
+
+        After code is merged to ho-prod at promote-to-rc, active development
+        branches must rebase to include the changes. This sends notifications
+        (empty commits) to all ho-patch/* branches.
+
+        Different from add-to-release notifications:
+        - add-to-release: "Informational" (code not in ho-prod yet)
+        - promote-to-rc: "REBASE REQUIRED" (code now in ho-prod)
+
+        Algorithm:
+        1. List all active ho-patch/* branches (on remote)
+        2. For each active branch:
+           - Checkout branch
+           - Create empty commit with rebase notification message
+           - Push to remote
+        3. Return to ho-prod
+        4. Return list of notified branches
+
+        Args:
+            version: Version string (e.g., "1.3.5")
+            rc_number: RC number (e.g., 1, 2, 3)
+
+        Returns:
+            List of notified branch names
+
+        Examples:
+            # Notifications sent
+            Active branches: ho-patch/999-reports, ho-patch/888-api
+            
+            notified = mgr._send_rebase_notifications("1.3.5", 1)
+            # → ["ho-patch/999-reports", "ho-patch/888-api"]
+            # → Both branches receive rebase notification commit
+
+            # No active branches
+            No ho-patch/* branches exist
+            
+            notified = mgr._send_rebase_notifications("1.3.5", 1)
+            # → [] (no branches to notify)
+
+        Notification message format:
+            [ho] Resync notification: 1.3.5-rc1 promoted (REBASE REQUIRED)
+
+            Version 1.3.5-rc1 has been promoted and code merged to ho-prod.
+            Active patch branches MUST rebase to include these changes.
+
+            To rebase:
+              git checkout <your-patch-branch>
+              git rebase ho-prod
+              git push --force-with-lease
+
+            Patches merged: 456-user-auth, 789-security
+            Status: ACTION REQUIRED (code now in ho-prod)
+        """
+        pass

@@ -27,7 +27,7 @@ class TestAddToReleaseStageFileUpdate:
 
     def test_appends_patch_to_existing_stage(self, release_with_second_patch):
         """Test adding second patch preserves first patch."""
-        (project_dir, db_name, second_patch_id, version, 
+        (project_dir, db_name, second_patch_id, version,
          stage_file, _, first_patch_id) = release_with_second_patch
 
         # Read stage file content
@@ -43,7 +43,7 @@ class TestAddToReleaseStageFileUpdate:
 
     def test_preserves_patch_order(self, release_with_second_patch):
         """Test patches are in correct order (first added first)."""
-        (project_dir, db_name, second_patch_id, version, 
+        (project_dir, db_name, second_patch_id, version,
          stage_file, _, first_patch_id) = release_with_second_patch
 
         # Read stage file content
