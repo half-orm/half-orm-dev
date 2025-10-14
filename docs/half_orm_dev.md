@@ -2130,75 +2130,335 @@ half_orm dev test
 # → For specific test files, use pytest directly
 ```
 
-#### `add-to-release`
+#### `add-to-release` - Integrate Patch to Stage Release
 
-```sh
-half_orm dev add-to-release "456"
+Add a completed patch to a stage release file with distributed lock for safe concurrent operations.
 
-# 1. Validations pré-lock
+**Prerequisites:**
+- Must be run from `ho-prod` branch
+- Repository must be clean (no uncommitted changes)
+- Patch directory must exist in `Patches/`
+- Patch branch `ho-patch/{patch_id}` must exist
+
+**Basic Usage:**
+
+```bash
+# Auto-detect stage (if only one stage exists)
+git checkout ho-prod
+half_orm dev add-to-release "456-user-auth"
+
+# Explicit version (if multiple stages exist)
+half_orm dev add-to-release "456-user-auth" --to-version="1.3.6"
+
+# Short option
+half_orm dev add-to-release "456" -v "1.3.6"
+```
+
+**Complete Workflow (17 Steps):**
+
+```bash
+# Example: Adding patch 456-user-auth to release 1.3.6-stage
+
+$ half_orm dev add-to-release "456-user-auth"
+
+# 1. Pre-lock validations
 ✓ On ho-prod branch
 ✓ Repository clean
-✓ Patch exists, branch exists
+✓ Patch 456-user-auth exists
+✓ Branch ho-patch/456-user-auth exists
 
-# 2. Detect target stage
-✓ releases/1.3.6-stage.txt
+# 2. Detect target stage file
+✓ Target: releases/1.3.6-stage.txt
 
-# 3. ACQUIRE LOCK on ho-prod (ATOMIC)
+# 3. Check patch not already in release
+✓ Patch not in release
+
+# 4. ACQUIRE DISTRIBUTED LOCK (atomic via Git tag)
+✓ Lock acquired: lock-ho-prod-1704123456789
+  → Other add-to-release blocked until lock released
+  → Operations on ho-patch/* still possible
+
+# 5. Sync with origin
+✓ Fetched from origin
+✓ ho-prod synced with origin
+
+# 6. Create temporary validation branch
+✓ Created temp-valid-1.3.6 from ho-prod
+
+# 7-8. Merge patches for testing
+✓ Merged ho-release/1.3.6/123-initial
+✓ Merged ho-release/1.3.6/789-security  
+✓ Merged ho-patch/456-user-auth
+
+# 9. Add patch to stage file on temp branch
+✓ Updated releases/1.3.6-stage.txt
+✓ Committed: Add 456-user-auth to release 1.3.6-stage (validation)
+
+# 10. Run validation tests
+✓ Running pytest tests/...
+✓ All tests passed
+
+# 11-12. Return to ho-prod and cleanup
+✓ Checked out ho-prod
+✓ Deleted temp-valid-1.3.6
+
+# 13. Add patch to stage file on ho-prod (metadata only)
+✓ Updated releases/1.3.6-stage.txt
+✓ Committed: Add 456-user-auth to release 1.3.6-stage
+
+# 14. Push to origin
+✓ Pushed ho-prod to origin
+
+# 15. Send resync notifications
+✓ Notified ho-patch/789-other
+✓ Notified ho-patch/234-feature
+
+# 16. Archive patch branch
+✓ Renamed ho-patch/456-user-auth → ho-release/1.3.6/456-user-auth
+✓ Deleted remote ho-patch/456-user-auth
+
+# 17. Release lock
+✓ Lock released
+
+📦 Release 1.3.6-stage now contains:
+   123-initial
+   789-security
+ → 456-user-auth
+
+Next steps:
+  1. Review integration: git show abc123de
+  2. Test release: half_orm dev apply-release 1.3.6-stage
+  3. Promote to RC: half_orm dev promote-to-rc
+```
+
+**Key Features:**
+
+**1. Distributed Lock for Concurrency Safety**
+```bash
+# Lock mechanism via Git tag (atomic operation)
 LOCK_TAG="lock-ho-prod-$(date -u +%s%3N)"
-# Example: lock-ho-prod-1704123456789
+git tag $LOCK_TAG && git push origin $LOCK_TAG
 
-git tag $LOCK_TAG
-git push origin $LOCK_TAG
+# Lock timeout: 30 minutes
+# Stale lock detection: auto-cleanup if >30 min old
+# Lock always released (even on error via finally block)
+```
 
-# If push fails:
-# → Check if lock is stale (older than 30 min)
-# → If stale: delete and retry
-# → If recent: exit with error
+**2. Validation on Temporary Branch**
+```bash
+# Tests run with ALL patches integrated
+temp-valid-1.3.6:
+  ├── Patches from release (ho-release/1.3.6/*)
+  ├── New patch (ho-patch/456-user-auth)
+  └── pytest tests/
 
-# If push succeeds:
-# → Lock acquired on ho-prod ✅
-# → Other add-to-release blocked until lock released
-# → Operations on other branches (ho-patch/*) still possible
+# If tests fail:
+  → temp branch deleted
+  → ho-prod unchanged
+  → lock released
+  → error reported
 
-try:
-    # 4. Sync ho-prod with origin
-    git fetch origin
-    git pull origin ho-prod
+# If tests pass:
+  → temp branch deleted
+  → changes committed to ho-prod (metadata only)
+  → branch archived
+  → notifications sent
+```
 
-    # 5. Create temp validation branch
-    git checkout -b temp-valid-1.3.6
+**3. Code vs Metadata Separation**
+```bash
+# IMPORTANT: Stage releases are mutable, code stays in archived branches
 
-    # 6. Add patch + commit on temp
-    echo "456-user-auth" >> releases/1.3.6-stage.txt
-    git commit -am "Add 456-user-auth to release 1.3.6-stage (validation)"
+# After add-to-release:
+ho-prod:
+  releases/1.3.6-stage.txt  ← Contains "456-user-auth" (metadata)
+  
+ho-release/1.3.6/456-user-auth  ← Contains actual patch code
 
-    # 7. Run tests
-    half_orm dev apply-patch
-    pytest tests/
+# Code will be merged to ho-prod later at promote-to-rc
+# when 1.3.6-stage becomes 1.3.6-rc1 (immutable release)
+```
 
-    # 8. Return to ho-prod
-    git checkout ho-prod
+**4. Automatic Branch Archiving**
+```bash
+# Branch renamed to preserve code until promote-to-rc
+ho-patch/456-user-auth → ho-release/1.3.6/456-user-auth
 
-    # 9. Delete temp branch
-    git branch -D temp-valid-1.3.6
+# Benefits:
+# - Preserves patch code for validation and deployment
+# - Cleans up active development namespace
+# - Maintains clear separation by version
+# - Code merged to ho-prod only at promote-to-rc
+```
 
-    # 10. Apply change on ho-prod
-    echo "456-user-auth" >> releases/1.3.6-stage.txt
-    git commit -am "Add 456-user-auth to release 1.3.6-stage"
+**5. Resync Notifications**
+```bash
+# Notifications sent to ALL active patch branches (ho-patch/*)
+# Format: empty commit with structured message
 
-    # 11. Push ho-prod
-    git push origin ho-prod
+[ho] Resync notification: 456-user-auth added to release 1.3.6-stage
 
-    # 12. Notifications
-    # ...
+Patch 456-user-auth has been integrated into 1.3.6-stage.
+This is a stage release (mutable) - no immediate action required.
 
-    # 13. Rename branch
-    # ...
+The code will be merged to ho-prod when the stage is promoted to RC.
+At that point, active patch branches should rebase to include changes.
 
-finally:
-    # 14. ALWAYS release lock
-    git push origin --delete $LOCK_TAG
-    git tag -d $LOCK_TAG
+Status: Informational (action required later at promote-to-rc)
+```
+
+**Multiple Stages Handling:**
+
+```bash
+# When multiple stage releases exist:
+releases/
+├── 1.3.6-stage.txt
+├── 1.4.0-stage.txt
+└── 2.0.0-stage.txt
+
+# Version is required
+$ half_orm dev add-to-release "456"
+❌ Error: Multiple stage releases found: 1.3.6-stage, 1.4.0-stage, 2.0.0-stage
+   Please specify target version: --to-version='1.3.6'
+
+# Correct usage
+$ half_orm dev add-to-release "456" --to-version="1.3.6"
+✓ Patch 456 added to release 1.3.6-stage
+```
+
+**Error Handling:**
+
+```bash
+# Pre-lock errors (no lock acquired)
+❌ Must be on ho-prod branch
+❌ Repository has uncommitted changes
+❌ Patch 999-nonexistent not found
+❌ Branch ho-patch/456-user-auth does not exist
+❌ Patch 456-user-auth already in release
+
+# Post-lock errors (lock always released)
+❌ Tests failed on temporary validation branch
+   → temp branch cleaned up
+   → ho-prod unchanged
+   → lock released
+   
+❌ ho-prod has diverged from origin
+   → manual merge required
+   → lock released
+
+❌ Push failed (network error)
+   → lock released
+   → can retry safely
+```
+
+**Transaction Guarantees:**
+
+- ✅ **Atomicity**: Either full success or complete rollback
+- ✅ **Lock safety**: Lock always released (finally block)
+- ✅ **Concurrent safety**: Only one add-to-release at a time
+- ✅ **Test validation**: Changes committed only if tests pass
+- ✅ **Clean rollback**: Temp branch deleted on any error
+
+**Race Condition Prevention:**
+
+```bash
+# Developer A starts add-to-release
+$ half_orm dev add-to-release "456"
+✓ Lock acquired: lock-ho-prod-1704123456789
+
+# Developer B tries concurrent add-to-release (blocked)
+$ half_orm dev add-to-release "789"
+❌ Error: Lock held by another process (lock-ho-prod-1704123456789)
+   Acquired at: 2025-01-14 10:30:45 UTC
+   Please wait or check if lock is stale (>30 min)
+
+# Developer B can still work on patches (not blocked)
+$ git checkout ho-patch/789-security
+$ git commit -am "Fix security issue"
+$ git push  # ✓ Works fine
+```
+
+**Output Example:**
+
+```bash
+$ half_orm dev add-to-release "456-user-auth"
+
+✓ Patch 456-user-auth added to release 1.3.6-stage
+✓ Tests passed on temporary validation branch
+✓ Committed to ho-prod: abc123de
+✓ Branch archived: ho-release/1.3.6/456-user-auth
+✓ Notified 2 active patch branches
+
+📦 Release 1.3.6-stage now contains:
+   123-initial
+   789-security
+ → 456-user-auth
+   234-validation
+
+Next steps:
+  1. Review integration: git show abc123de
+  2. Test release: half_orm dev apply-release 1.3.6-stage
+  3. Promote to RC: half_orm dev promote-to-rc
+```
+
+**Workflow Integration:**
+
+```bash
+# Complete patch integration workflow:
+
+# 1. Develop patch
+git checkout ho-patch/456-user-auth
+# ... make changes ...
+half_orm dev apply-patch
+pytest tests/
+git commit -am "Implement user authentication"
+git push
+
+# 2. Integrate to release (from ho-prod)
+git checkout ho-prod
+half_orm dev add-to-release "456-user-auth"
+# → Patch added to stage
+# → Branch archived to ho-release/1.3.6/456-user-auth
+# → Notifications sent
+
+# 3. Other developers rebase after promote-to-rc
+# (no action needed now, stage is still mutable)
+
+# 4. When ready for testing, promote stage to RC
+half_orm dev promote-to-rc
+# → Code merged to ho-prod at this point
+# → All active patches rebase to include changes
+```
+
+**Troubleshooting:**
+
+```bash
+# Lock appears stuck (>30 min old)
+$ half_orm dev add-to-release "456"
+✓ Detected stale lock: lock-ho-prod-1704120000000
+✓ Deleted stale lock
+✓ Retrying lock acquisition...
+✓ Lock acquired
+
+# Tests fail on temp branch
+$ half_orm dev add-to-release "456"
+❌ Tests failed on temporary validation branch
+   FAILED tests/test_user.py::test_authentication
+   
+   → Review your patch code
+   → Or review interaction with other patches
+   → Fix and retry
+
+# Patch already in release
+$ half_orm dev add-to-release "456"
+❌ Error: Patch 456-user-auth already in release 1.3.6-stage
+   → Check releases/1.3.6-stage.txt
+   → Patch may have been added by another developer
+
+# Not on ho-prod branch
+$ half_orm dev add-to-release "456"
+❌ Error: Must be on ho-prod branch (currently on ho-patch/456)
+   → git checkout ho-prod
 ```
 
 #### `add-to-hotfix`
