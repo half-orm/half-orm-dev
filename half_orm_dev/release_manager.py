@@ -1403,7 +1403,27 @@ class ReleaseManager:
             - Local commits on patch branches
             - Push to ho-patch/* remotes
         """
-        pass
+        # 1. Pre-lock validations (fail fast without acquiring lock)
+        if self._repo.hgit.branch != "ho-prod":
+            raise ReleaseManagerError(
+                "Must be on ho-prod branch to promote release. "
+                f"Current branch: {self._repo.hgit.branch}"
+            )
+
+        if not self._repo.hgit.repos_is_clean():
+            raise ReleaseManagerError(
+                "Repository has uncommitted changes. "
+                "Commit or stash changes before promoting."
+            )
+
+        # 2. Detect smallest stage release to promote
+        version, stage_file = self._detect_stage_to_promote()
+
+        # 3. Validate single active RC rule
+        self._validate_single_active_rc(version)
+
+        # TODO: Implement lock acquisition and rest of workflow
+        raise NotImplementedError("promote_to_rc implementation in progress")
 
 
     def _detect_stage_to_promote(self) -> tuple[str, str]:
@@ -1441,7 +1461,29 @@ class ReleaseManager:
             version, filename = mgr._detect_stage_to_promote()
             # → Raises: "No stage releases found. Create one with prepare-release"
         """
-        pass
+        # List all stage files
+        stage_files = list(self._releases_dir.glob("*-stage.txt"))
+
+        if not stage_files:
+            raise ReleaseManagerError(
+                "No stage releases found. "
+                "Create a stage release first with: half_orm dev prepare-release"
+            )
+
+        # Parse versions and sort
+        stage_versions = []
+        for stage_file in stage_files:
+            # Extract version from filename (e.g., "1.3.5-stage.txt" → "1.3.5")
+            version_str = stage_file.name.replace("-stage.txt", "")
+            version = self.parse_version_from_filename(stage_file.name)
+            stage_versions.append((version, version_str, stage_file.name))
+
+        # Sort by version (ascending)
+        stage_versions.sort(key=lambda x: (x[0].major, x[0].minor, x[0].patch))
+
+        # Return smallest version
+        smallest = stage_versions[0]
+        return smallest[1], smallest[2]  # (version_str, filename)
 
 
     def _validate_single_active_rc(self, stage_version: str) -> None:
@@ -1483,6 +1525,7 @@ class ReleaseManager:
             mgr._validate_single_active_rc(stage_version)
             # → No error (promoting to rc3)
         """
+        # TODO: Implement single active RC validation
         pass
 
 
