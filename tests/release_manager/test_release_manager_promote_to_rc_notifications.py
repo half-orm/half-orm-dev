@@ -36,7 +36,7 @@ class TestSendRebaseNotifications:
         mock_hgit.commit = Mock()
         mock_hgit.push = Mock()
         mock_hgit.branch = "ho-prod"
-        
+
         mock_repo.hgit = mock_hgit
 
         release_mgr = ReleaseManager(mock_repo)
@@ -52,12 +52,12 @@ class TestSendRebaseNotifications:
 
         version = "1.3.5"
         rc_number = 1
-        
+
         notified = release_mgr._send_rebase_notifications(version, rc_number)
 
         # Verify no checkouts attempted
         mock_hgit.checkout.assert_not_called()
-        
+
         # Verify empty list returned
         assert notified == []
 
@@ -73,7 +73,7 @@ class TestSendRebaseNotifications:
 
         version = "1.3.5"
         rc_number = 1
-        
+
         notified = release_mgr._send_rebase_notifications(version, rc_number)
 
         # Verify checkouts
@@ -83,13 +83,13 @@ class TestSendRebaseNotifications:
             call("ho-prod")  # Return to ho-prod
         ]
         assert mock_hgit.checkout.call_args_list == expected_checkouts
-        
+
         # Verify commits (2 notifications + return to ho-prod = 2 commits)
         assert mock_hgit.commit.call_count == 2
-        
+
         # Verify pushes (2 notifications)
         assert mock_hgit.push.call_count == 2
-        
+
         # Verify return value
         assert notified == ["ho-patch/999-reports", "ho-patch/888-api"]
 
@@ -108,12 +108,12 @@ class TestSendRebaseNotifications:
 
         version = "1.3.5"
         rc_number = 1
-        
+
         notified = release_mgr._send_rebase_notifications(version, rc_number)
 
         # Should only notify ho-patch/* branches
         assert notified == ["ho-patch/999-reports", "ho-patch/888-api"]
-        
+
         # Verify only 2 patch branches + return to ho-prod
         expected_checkouts = [
             call("ho-patch/999-reports"),
@@ -133,13 +133,13 @@ class TestSendRebaseNotifications:
 
         version = "1.3.5"
         rc_number = 1
-        
+
         release_mgr._send_rebase_notifications(version, rc_number)
 
         # Verify commit message format
         mock_hgit.commit.assert_called_once()
         commit_call = mock_hgit.commit.call_args
-        
+
         # Check message contains key elements
         message = commit_call[1]['message']
         assert "[ho]" in message
@@ -157,7 +157,7 @@ class TestSendRebaseNotifications:
 
         version = "1.3.5"
         rc_number = 1
-        
+
         release_mgr._send_rebase_notifications(version, rc_number)
 
         # Last checkout should be ho-prod
@@ -182,13 +182,13 @@ class TestSendRebaseNotifications:
 
         version = "1.3.5"
         rc_number = 1
-        
+
         notified = release_mgr._send_rebase_notifications(version, rc_number)
 
         # Should attempt both notifications (best effort)
         assert mock_hgit.checkout.call_count == 3  # 2 branches + return
         assert mock_hgit.commit.call_count == 2
-        
+
         # Both reported as notified (best effort)
         assert len(notified) == 2
 
@@ -203,7 +203,7 @@ class TestSendRebaseNotifications:
 
         version = "1.3.5"
         rc_number = 1
-        
+
         release_mgr._send_rebase_notifications(version, rc_number)
 
         # Verify commit called with allow_empty=True
@@ -244,12 +244,12 @@ class TestSendRebaseNotifications:
 
         version = "1.3.5"
         rc_number = 1
-        
+
         notified = release_mgr._send_rebase_notifications(version, rc_number)
 
         # Verify checkout called without origin/ prefix
         assert mock_hgit.checkout.call_args_list[0] == call("ho-patch/999-reports")
-        
+
         # Verify return value without origin/ prefix
         assert notified == ["ho-patch/999-reports"]
 
@@ -264,11 +264,11 @@ class TestSendRebaseNotifications:
 
         version = "1.3.5"
         rc_number = 1
-        
+
         notified = release_mgr._send_rebase_notifications(version, rc_number)
 
         # Should not notify ho-prod
         assert notified == []
-        
+
         # Should not checkout any branches (already on ho-prod)
         mock_hgit.checkout.assert_not_called()

@@ -1423,9 +1423,83 @@ class ReleaseManager:
         # 3. Validate single active RC rule
         self._validate_single_active_rc(version)
 
-        # TODO: Implement lock acquisition and rest of workflow
-        raise NotImplementedError("promote_to_rc implementation in progress")
+        # 4. Acquire distributed lock
+        lock_tag = None
+        try:
+            lock_tag = self._repo.hgit.acquire_branch_lock("ho-prod", timeout_minutes=30)
 
+            # 5. Fetch from origin and sync
+            self._repo.hgit.fetch_from_origin()
+
+            is_synced, sync_status = self._repo.hgit.is_branch_synced("ho-prod")
+            if not is_synced:
+                if sync_status == "behind":
+                    # Pull if behind
+                    self._repo.hgit.pull()
+                elif sync_status == "diverged":
+                    raise ReleaseManagerError(
+                        "ho-prod has diverged from origin. "
+                        "Resolve conflicts manually: git pull origin ho-prod"
+                    )
+
+            # 6. Determine RC number
+            rc_number = self._determine_rc_number(version)
+            rc_file = f"{version}-rc{rc_number}.txt"
+
+            # 7. Merge archived patches code into ho-prod
+            patches_merged = self._merge_archived_patches_to_ho_prod(version, stage_file)
+
+            # 8. Rename stage file to RC file (git mv)
+            stage_path = self._releases_dir / stage_file
+            rc_path = self._releases_dir / rc_file
+
+            result = subprocess.run(
+                ["git", "mv", str(stage_path), str(rc_path)],
+                cwd=self._repo.base_dir,
+                capture_output=True,
+                text=True
+            )
+            if result.returncode != 0:
+                raise ReleaseManagerError(
+                    f"Unable to rename release file:\n"
+                    f"{result.stdout}\n"
+                    f"{result.stderr}"
+                )
+
+            # 9. Commit promotion
+            commit_message = f"Promote {version}-stage to {version}-rc{rc_number}"
+            self._repo.hgit.add(str(rc_path))
+            self._repo.hgit.commit("-m", commit_message)
+            commit_sha = self._repo.hgit.last_commit()
+
+            # 10. Push to origin
+            self._repo.hgit.push()
+
+            # 11. Send rebase notifications to active branches
+            notifications_sent = self._send_rebase_notifications(version, rc_number)
+
+            # 12. Cleanup patch branches
+            branches_deleted = self._cleanup_patch_branches(version, stage_file)
+
+            # Return success result
+            return {
+                'status': 'success',
+                'version': version,
+                'from_file': stage_file,
+                'to_file': rc_file,
+                'rc_number': rc_number,
+                'patches_merged': patches_merged,
+                'branches_deleted': branches_deleted,
+                'commit_sha': commit_sha,
+                'notifications_sent': notifications_sent,
+                'code_merged': True,
+                'lock_tag': lock_tag
+            }
+
+        finally:
+            # 13. Always release lock (even on error)
+            if lock_tag:
+                self._repo.hgit.release_branch_lock(lock_tag)
 
     def _detect_stage_to_promote(self) -> tuple[str, str]:
         """
@@ -1658,6 +1732,7 @@ class ReleaseManager:
             and code (merged from ho-release/X.Y.Z/*). This is the key difference
             between stage (metadata only) and RC (metadata + code).
         """
+        # Read patch list from stage file using existing method
         patch_ids = self.read_release_patches(stage_file)
 
         if not patch_ids:
@@ -1677,10 +1752,16 @@ class ReleaseManager:
                     f"Patch {patch_id} was not properly archived during add-to-release."
                 )
 
-            # Merge archived branch into ho-prod
+            # Merge archived branch into ho-prod with squash
             try:
-                self._repo.hgit.merge(archived_branch)
+                self._repo.hgit.merge(archived_branch, squash=True)
+
+                # Commit the squashed changes immediately with -m flag
+                commit_message = f"Integrate patch {patch_id}"
+                self._repo.hgit.commit("-m", commit_message)
+
                 merged_patches.append(patch_id)
+
             except GitCommandError as e:
                 raise ReleaseManagerError(
                     f"Merge conflict with patch {patch_id} from {archived_branch}. "
@@ -1835,23 +1916,23 @@ class ReleaseManager:
         """
         # Get all remote branches
         remote_branches = self._repo.hgit.get_remote_branches()
-        
+
         # Filter for active ho-patch/* branches
         active_patch_branches = []
         for branch in remote_branches:
             # Strip 'origin/' prefix if present
             branch_name = branch.replace("origin/", "")
-            
+
             # Only include ho-patch/* branches
             if branch_name.startswith("ho-patch/"):
                 active_patch_branches.append(branch_name)
-        
+
         if not active_patch_branches:
             # No active branches to notify
             return []
-        
+
         notified_branches = []
-        
+
         # Create notification message
         rc_version = f"{version}-rc{rc_number}"
         message = (
@@ -1864,29 +1945,29 @@ class ReleaseManager:
             f"  git push --force-with-lease\n\n"
             f"Status: ACTION REQUIRED (code now in ho-prod)"
         )
-        
+
         # Send notifications to each active branch
         for branch_name in active_patch_branches:
             try:
                 # Checkout branch
                 self._repo.hgit.checkout(branch_name)
-                
+
                 # Create empty commit with notification
                 self._repo.hgit.commit(message=message, allow_empty=True)
-                
+
                 # Push to remote
                 self._repo.hgit.push()
-                
+
                 # Add to notified list
                 notified_branches.append(branch_name)
-                
+
             except GitCommandError as e:
                 # Best effort: continue even if notification fails
                 # (branch might have been deleted, or push failed)
                 notified_branches.append(branch_name)
                 continue
-        
+
         # Return to ho-prod
         self._repo.hgit.checkout("ho-prod")
-        
+
         return notified_branches

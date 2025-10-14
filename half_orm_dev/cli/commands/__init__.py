@@ -13,7 +13,7 @@ from .apply_patch import apply_patch
 from .prepare_release import prepare_release
 from .add_to_release import add_to_release
 from .todo import apply_release
-from .todo import promote_to_rc
+from .promote_to_rc import promote_to_rc
 from .todo import promote_to_prod
 from .todo import deploy_to_prod
 from .todo import create_hotfix
@@ -32,12 +32,12 @@ ALL_COMMANDS = {
     'create-patch': create_patch,
     'apply-patch': apply_patch,
     'prepare-release': prepare_release,
-    # 🚧 (stubs)
     'add-to-release': add_to_release,
+    'promote-to-rc': promote_to_rc,
+    # 🚧 (stubs)
     'apply_release': apply_release,
 
     # 🚧 Release management (stubs)
-    'promote-to-rc': promote_to_rc,
     'promote-to-prod': promote_to_prod,
     'deploy-to-prod': deploy_to_prod,
 

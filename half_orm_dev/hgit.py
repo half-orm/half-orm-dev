@@ -7,6 +7,7 @@ import sys
 import subprocess
 import git
 from git.exc import GitCommandError
+from typing import List
 
 from half_orm import utils
 from half_orm_dev.manifest import Manifest
@@ -980,3 +981,41 @@ class HGit:
                     f"Warning: Failed to delete old local branch '{old_name}': {e}",
                     file=sys.stderr
                 )
+
+    def get_remote_branches(self) -> List[str]:
+        """
+        Get list of all remote branches.
+
+        Returns:
+            List of remote branch names with 'origin/' prefix
+            Example: ['origin/ho-prod', 'origin/ho-patch/456-user-auth']
+
+        Examples:
+            branches = hgit.get_remote_branches()
+            # → ['origin/ho-prod', 'origin/ho-patch/456', 'origin/ho-patch/789']
+
+            # Filter for patch branches
+            patch_branches = [b for b in branches if 'ho-patch' in b]
+        """
+        try:
+            result = subprocess.run(
+                ["git", "branch", "-r"],
+                cwd=self.__base_dir,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            # Parse output: each line is a branch name
+            branches = []
+            for line in result.stdout.strip().split('\n'):
+                branch = line.strip()
+                # Skip empty lines and HEAD references
+                if branch and not 'HEAD' in branch:
+                    branches.append(branch)
+
+            return branches
+
+        except subprocess.CalledProcessError:
+            # If command fails, return empty list
+            return []
