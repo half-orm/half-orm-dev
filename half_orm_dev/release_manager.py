@@ -1658,7 +1658,36 @@ class ReleaseManager:
             and code (merged from ho-release/X.Y.Z/*). This is the key difference
             between stage (metadata only) and RC (metadata + code).
         """
-        pass
+        patch_ids = self.read_release_patches(stage_file)
+
+        if not patch_ids:
+            # Empty stage file, no patches to merge
+            return []
+
+        merged_patches = []
+
+        for patch_id in patch_ids:
+            # Construct archived branch name
+            archived_branch = f"ho-release/{version}/{patch_id}"
+
+            # Check if archived branch exists
+            if not self._repo.hgit.branch_exists(archived_branch):
+                raise ReleaseManagerError(
+                    f"Archived branch not found: {archived_branch}. "
+                    f"Patch {patch_id} was not properly archived during add-to-release."
+                )
+
+            # Merge archived branch into ho-prod
+            try:
+                self._repo.hgit.merge(archived_branch)
+                merged_patches.append(patch_id)
+            except GitCommandError as e:
+                raise ReleaseManagerError(
+                    f"Merge conflict with patch {patch_id} from {archived_branch}. "
+                    f"Resolve conflicts manually and retry. Git error: {e}"
+                )
+
+        return merged_patches
 
 
     def _cleanup_patch_branches(self, version: str, stage_file: str) -> List[str]:
