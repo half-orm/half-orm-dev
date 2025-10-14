@@ -1582,7 +1582,25 @@ class ReleaseManager:
         Note:
             Uses get_rc_files() which returns sorted RC files for version.
         """
-        pass
+        # Use existing get_rc_files() method which returns sorted list
+        rc_files = self.get_rc_files(version)
+
+        if not rc_files:
+            # No RCs exist, this will be rc1
+            return 1
+
+        # get_rc_files() returns sorted list, so last file has highest number
+        # Extract RC number from last filename (e.g., "1.3.5-rc3.txt" → 3)
+        last_rc_file = rc_files[-1].name
+
+        # Extract number after "-rc" (e.g., "1.3.5-rc3.txt" → "3")
+        match = re.search(r'-rc(\d+)\.txt', last_rc_file)
+        if match:
+            last_rc_num = int(match.group(1))
+            return last_rc_num + 1
+
+        # Fallback (shouldn't happen with valid RC files)
+        return len(rc_files) + 1
 
 
     def _merge_archived_patches_to_ho_prod(self, version: str, stage_file: str) -> List[str]:
