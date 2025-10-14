@@ -1833,4 +1833,60 @@ class ReleaseManager:
             Patches merged: 456-user-auth, 789-security
             Status: ACTION REQUIRED (code now in ho-prod)
         """
-        pass
+        # Get all remote branches
+        remote_branches = self._repo.hgit.get_remote_branches()
+        
+        # Filter for active ho-patch/* branches
+        active_patch_branches = []
+        for branch in remote_branches:
+            # Strip 'origin/' prefix if present
+            branch_name = branch.replace("origin/", "")
+            
+            # Only include ho-patch/* branches
+            if branch_name.startswith("ho-patch/"):
+                active_patch_branches.append(branch_name)
+        
+        if not active_patch_branches:
+            # No active branches to notify
+            return []
+        
+        notified_branches = []
+        
+        # Create notification message
+        rc_version = f"{version}-rc{rc_number}"
+        message = (
+            f"[ho] Resync notification: {rc_version} promoted (REBASE REQUIRED)\n\n"
+            f"Version {rc_version} has been promoted and code merged to ho-prod.\n"
+            f"Active patch branches MUST rebase to include these changes.\n\n"
+            f"To rebase:\n"
+            f"  git checkout <your-patch-branch>\n"
+            f"  git rebase ho-prod\n"
+            f"  git push --force-with-lease\n\n"
+            f"Status: ACTION REQUIRED (code now in ho-prod)"
+        )
+        
+        # Send notifications to each active branch
+        for branch_name in active_patch_branches:
+            try:
+                # Checkout branch
+                self._repo.hgit.checkout(branch_name)
+                
+                # Create empty commit with notification
+                self._repo.hgit.commit(message=message, allow_empty=True)
+                
+                # Push to remote
+                self._repo.hgit.push()
+                
+                # Add to notified list
+                notified_branches.append(branch_name)
+                
+            except GitCommandError as e:
+                # Best effort: continue even if notification fails
+                # (branch might have been deleted, or push failed)
+                notified_branches.append(branch_name)
+                continue
+        
+        # Return to ho-prod
+        self._repo.hgit.checkout("ho-prod")
+        
+        return notified_branches
