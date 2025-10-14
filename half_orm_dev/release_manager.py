@@ -1301,7 +1301,7 @@ class ReleaseManager:
         Examples:
             Production: 1.3.4
             Stages: 1.3.5-stage, 1.4.0-stage, 2.0.0-stage
-            
+
             # Promote smallest stage
             result = mgr.promote_to_rc()
             # → Promotes 1.3.5-stage → 1.3.5-rc1
@@ -1312,28 +1312,28 @@ class ReleaseManager:
             Production: 1.3.4
             RC: 1.3.5-rc1 (in validation)
             Stages: 1.3.5-stage (fixes), 1.4.0-stage
-            
+
             # Promote same version stage (fixes for RC)
             result = mgr.promote_to_rc()
             # → Promotes 1.3.5-stage → 1.3.5-rc2
             # → Same version as existing RC = allowed
-            
+
             # Cannot promote different version
             Production: 1.3.4
             RC: 1.3.5-rc1
             Stages: 1.4.0-stage (smallest stage)
-            
+
             result = mgr.promote_to_rc()
             # → Error: "Cannot promote 1.4.0, RC 1.3.5-rc1 must be deployed first"
 
         Code Lifecycle:
             Stage (mutable): ho-prod = metadata only (releases/*.txt)
-            
+
             promote-to-rc: CODE MERGE HAPPENS HERE
             - Merges ho-release/X.Y.Z/* → ho-prod
             - All patches from stage now in ho-prod
             - Branches deleted (ho-patch/*)
-            
+
             RC/Production (immutable): ho-prod = metadata + code
 
         Returns:
@@ -1362,7 +1362,7 @@ class ReleaseManager:
                 - Merge conflicts during code integration
                 - Branch deletion failed
                 - Push failed
-            
+
             Note: Lock is ALWAYS released in finally block, even on error
 
         Examples:
@@ -1385,19 +1385,19 @@ class ReleaseManager:
                     print("Create a stage release first")
                 elif "diverged" in str(e):
                     print("Resolve ho-prod divergence manually")
-        
+
         Distributed Lock:
             - Lock tag format: lock-ho-prod-{timestamp_ms}
             - Example: lock-ho-prod-1704123456789
             - Timeout: 30 minutes (stale lock detection)
             - Scope: Blocks ALL operations on ho-prod
             - Released: Always in finally block (even on error)
-            
+
             Concurrent operations blocked:
             - add-to-release (requires ho-prod lock)
             - promote-to-rc (requires ho-prod lock)
             - Any direct commits to ho-prod
-            
+
             Operations still allowed:
             - Work on ho-patch/* branches
             - Local commits on patch branches
@@ -1525,8 +1525,29 @@ class ReleaseManager:
             mgr._validate_single_active_rc(stage_version)
             # → No error (promoting to rc3)
         """
-        # TODO: Implement single active RC validation
-        pass
+        # List all RC files
+        rc_files = list(self._releases_dir.glob("*-rc*.txt"))
+
+        if not rc_files:
+            # No RC exists, promotion allowed
+            return
+
+        # Check if any RC is of a different version
+        for rc_file in rc_files:
+            # Extract version from RC filename (e.g., "1.3.5-rc1.txt" → "1.3.5")
+            rc_filename = rc_file.name
+            # Remove "-rcN.txt" suffix to get version
+            rc_version = rc_filename.split("-rc")[0]
+
+            if rc_version != stage_version:
+                # Different version RC exists, block promotion
+                raise ReleaseManagerError(
+                    f"Cannot promote {stage_version}-stage to RC: "
+                    f"RC {rc_filename.replace('.txt', '')} must be deployed to production first. "
+                    f"Only one version can be in RC at a time."
+                )
+
+        # All RCs are same version as stage, promotion allowed
 
 
     def _determine_rc_number(self, version: str) -> int:
@@ -1595,7 +1616,7 @@ class ReleaseManager:
             releases/1.3.5-stage.txt contains: ["456-user-auth", "789-security"]
             ho-release/1.3.5/456-user-auth exists
             ho-release/1.3.5/789-security exists
-            
+
             patches = mgr._merge_archived_patches_to_ho_prod("1.3.5", "1.3.5-stage.txt")
             # → ["456-user-auth", "789-security"]
             # → Both branches merged into ho-prod
@@ -1609,7 +1630,7 @@ class ReleaseManager:
             # Missing archived branch
             releases/1.3.5-stage.txt contains: ["456-user-auth"]
             ho-release/1.3.5/456-user-auth does NOT exist
-            
+
             patches = mgr._merge_archived_patches_to_ho_prod("1.3.5", "1.3.5-stage.txt")
             # → Raises: "Archived branch not found: ho-release/1.3.5/456-user-auth"
 
@@ -1653,7 +1674,7 @@ class ReleaseManager:
             releases/1.3.5-stage.txt contains: ["456-user-auth", "789-security"]
             ho-patch/456-user-auth exists locally and remotely
             ho-patch/789-security exists locally and remotely
-            
+
             deleted = mgr._cleanup_patch_branches("1.3.5", "1.3.5-stage.txt")
             # → ["ho-patch/456-user-auth", "ho-patch/789-security"]
             # → Both branches deleted locally and remotely
@@ -1661,13 +1682,13 @@ class ReleaseManager:
             # Branch already deleted
             releases/1.3.5-stage.txt contains: ["456-user-auth"]
             ho-patch/456-user-auth does NOT exist
-            
+
             deleted = mgr._cleanup_patch_branches("1.3.5", "1.3.5-stage.txt")
             # → [] (nothing to delete, no error)
 
             # Branch with uncommitted changes (should not happen)
             ho-patch/456-user-auth has uncommitted changes
-            
+
             deleted = mgr._cleanup_patch_branches("1.3.5", "1.3.5-stage.txt")
             # → Raises: "Cannot delete ho-patch/456-user-auth: uncommitted changes"
 
@@ -1709,14 +1730,14 @@ class ReleaseManager:
         Examples:
             # Notifications sent
             Active branches: ho-patch/999-reports, ho-patch/888-api
-            
+
             notified = mgr._send_rebase_notifications("1.3.5", 1)
             # → ["ho-patch/999-reports", "ho-patch/888-api"]
             # → Both branches receive rebase notification commit
 
             # No active branches
             No ho-patch/* branches exist
-            
+
             notified = mgr._send_rebase_notifications("1.3.5", 1)
             # → [] (no branches to notify)
 
