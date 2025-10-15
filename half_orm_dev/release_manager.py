@@ -1752,11 +1752,11 @@ class ReleaseManager:
                     f"Patch {patch_id} was not properly archived during add-to-release."
                 )
 
-            # Merge archived branch into ho-prod with squash
+            # Merge archived branch into ho-prod with no-ff
             try:
-                self._repo.hgit.merge(archived_branch, squash=True)
+                self._repo.hgit.merge(archived_branch, no_ff=True)
 
-                # Commit the squashed changes immediately with -m flag
+                # Commit the changes immediately with -m flag
                 commit_message = f"Integrate patch {patch_id}"
                 self._repo.hgit.commit("-m", commit_message)
 

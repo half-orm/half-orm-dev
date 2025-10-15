@@ -54,7 +54,7 @@ class TestMergeArchivedPatchesToHoProd:
         patches = release_mgr._merge_archived_patches_to_ho_prod(version, "1.3.5-stage.txt")
 
         # Verify merge was called
-        mock_hgit.merge.assert_called_once_with("ho-release/1.3.5/456-user-auth", squash=True)
+        mock_hgit.merge.assert_called_once_with("ho-release/1.3.5/456-user-auth", no_ff=True)
 
         # Verify return value
         assert patches == ["456-user-auth"]
@@ -73,9 +73,9 @@ class TestMergeArchivedPatchesToHoProd:
 
         # Verify all merges were called in order
         expected_calls = [
-            call("ho-release/1.3.5/456-user-auth", squash=True),
-            call("ho-release/1.3.5/789-security", squash=True),
-            call("ho-release/1.3.5/234-reports", squash=True)
+            call("ho-release/1.3.5/456-user-auth", no_ff=True),
+            call("ho-release/1.3.5/789-security", no_ff=True),
+            call("ho-release/1.3.5/234-reports", no_ff=True)
         ]
         assert mock_hgit.merge.call_args_list == expected_calls
 
@@ -179,8 +179,8 @@ class TestMergeArchivedPatchesToHoProd:
 
         # Should only merge actual patches (not comments)
         expected_calls = [
-            call("ho-release/1.3.5/456-user-auth", squash=True),
-            call("ho-release/1.3.5/789-security", squash=True)
+            call("ho-release/1.3.5/456-user-auth", no_ff=True),
+            call("ho-release/1.3.5/789-security", no_ff=True)
         ]
         assert mock_hgit.merge.call_args_list == expected_calls
         assert patches == ["456-user-auth", "789-security"]
@@ -199,9 +199,9 @@ class TestMergeArchivedPatchesToHoProd:
 
         # Verify order preserved
         expected_calls = [
-            call("ho-release/1.3.5/789-security", squash=True),
-            call("ho-release/1.3.5/234-reports", squash=True),
-            call("ho-release/1.3.5/456-user-auth", squash=True)
+            call("ho-release/1.3.5/789-security", no_ff=True),
+            call("ho-release/1.3.5/234-reports", no_ff=True),
+            call("ho-release/1.3.5/456-user-auth", no_ff=True)
         ]
         assert mock_hgit.merge.call_args_list == expected_calls
         assert patches == ["789-security", "234-reports", "456-user-auth"]
