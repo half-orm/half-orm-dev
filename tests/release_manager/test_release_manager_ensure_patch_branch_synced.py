@@ -326,7 +326,7 @@ class TestEnsurePatchBranchSynced:
         mock_hgit.push.return_value = None  # Mock push success
 
         release_mgr._ensure_patch_branch_synced("456-user-auth")
-        
+
         # Should push without force
         mock_hgit.push.assert_called_once_with()
 
