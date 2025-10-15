@@ -832,6 +832,23 @@ class ReleaseManager:
         # 4. ACQUIRE LOCK on ho-prod (with 30 min timeout for stale locks)
         lock_tag = self._repo.hgit.acquire_branch_lock("ho-prod", timeout_minutes=30)
 
+        try:
+            sync_result = self._ensure_patch_branch_synced(patch_id)
+            
+            if sync_result['strategy'] != 'already-synced':
+                # Log successful auto-sync
+                import sys
+                print(
+                    f"✓ Auto-synced {sync_result['branch_name']} with ho-prod "
+                    f"({sync_result['strategy']})",
+                    file=sys.stderr
+                )
+        
+        except ReleaseManagerError as e:
+            # Manual resolution required - release lock and exit
+            # Lock will be released in finally block
+            raise
+
         temp_branch = f"temp-valid-{target_version}"
 
         try:
@@ -1971,3 +1988,132 @@ class ReleaseManager:
         self._repo.hgit.checkout("ho-prod")
 
         return notified_branches
+
+    def _ensure_patch_branch_synced(self, patch_id: str) -> dict:
+        """
+        Ensure patch branch is synced with ho-prod before integration.
+        
+        Automatically syncs patch branch by merging ho-prod INTO the patch branch.
+        This ensures the patch branch has all latest changes from ho-prod before
+        being integrated back into the release.
+        
+        Direction: ho-prod → ho-patch/{patch_id}
+                (update patch branch with latest production changes)
+        
+        Simple merge strategy: ho-prod is merged INTO the patch branch using
+        standard git merge. No fast-forward or rebase needed since full commit
+        history is preserved during promote-to-rc (no squash).
+        
+        Sync Strategy:
+            1. Check if already synced → return immediately
+            2. Merge ho-prod into patch branch (standard merge)
+            3. If merge conflicts, block for manual resolution
+        
+        This simple approach is appropriate because:
+        - Full history is preserved at promote-to-rc (no squash)
+        - Merge commits in patch branches are acceptable
+        - Individual commit history matters for traceability
+        
+        Args:
+            patch_id: Patch identifier (e.g., "456-user-auth")
+        
+        Returns:
+            dict: Sync result with keys:
+                - 'strategy': Strategy used for sync
+                    * "already-synced": No action needed
+                    * "fast-forward": Clean fast-forward merge
+                    * "rebase": Linear history via rebase
+                    * "merge": Safe merge with merge commit
+                - 'branch_name': Full branch name (e.g., "ho-patch/456-user-auth")
+        
+        Raises:
+            ReleaseManagerError: If automatic sync fails due to conflicts
+                requiring manual resolution. Error message includes specific
+                instructions for manual conflict resolution.
+        
+        Examples:
+            # Already synced
+            result = self._ensure_patch_branch_synced("456-user-auth")
+            # Returns: {'strategy': 'already-synced', 'branch_name': 'ho-patch/456-user-auth'}
+            
+            # Behind - fast-forward successful
+            result = self._ensure_patch_branch_synced("789-security")
+            # Returns: {'strategy': 'fast-forward', 'branch_name': 'ho-patch/789-security'}
+            
+            # Diverged - rebase successful
+            result = self._ensure_patch_branch_synced("234-reports")
+            # Returns: {'strategy': 'rebase', 'branch_name': 'ho-patch/234-reports'}
+            
+            # Conflicts require manual resolution
+            try:
+                result = self._ensure_patch_branch_synced("999-bugfix")
+            except ReleaseManagerError as e:
+                # Error with manual resolution instructions
+                pass
+        
+        Side Effects:
+            - Checks out patch branch temporarily
+            - May create commits (merge) or rewrite history (rebase)
+            - Pushes changes to remote (may require force push for rebase)
+            - Returns to original branch after sync
+        
+        Notes:
+            - Fast-forward is preferred (cleanest, no extra commits)
+            - Rebase is acceptable for ephemeral ho-patch/* branches
+            - Merge is fallback when rebase has conflicts
+            - Manual resolution required only for unresolvable conflicts
+            - Non-blocking: continues workflow after successful sync
+        """
+        branch_name = f"ho-patch/{patch_id}"
+    
+        # 1. Check if already synced
+        is_synced, status = self._repo.hgit.is_branch_synced(branch_name)
+        
+        if is_synced:
+            return {
+                'strategy': 'already-synced',
+                'branch_name': branch_name
+            }
+        
+        # 2. Save current branch to return to later
+        current_branch = self._repo.hgit.branch
+        
+        try:
+            # 3. Checkout patch branch
+            self._repo.hgit.checkout(branch_name)
+            
+            # 4. Merge ho-prod into patch branch (standard merge)
+            try:
+                self._repo.hgit.merge("ho-prod")
+                
+                # 5. Push changes to remote
+                self._repo.hgit.push()
+                
+                # Success - return merge strategy
+                return {
+                    'strategy': 'merge',
+                    'branch_name': branch_name
+                }
+            
+            except GitCommandError as e:
+                # Merge conflicts - manual resolution required
+                raise ReleaseManagerError(
+                    f"Branch {branch_name} has conflicts with ho-prod.\n"
+                    f"Manual resolution required:\n\n"
+                    f"  git checkout {branch_name}\n"
+                    f"  git merge ho-prod\n"
+                    f"  # Resolve conflicts in your editor\n"
+                    f"  git add .\n"
+                    f"  git commit\n"
+                    f"  git push\n\n"
+                    f"Then retry: half_orm dev add-to-release {patch_id}\n\n"
+                    f"Git error: {e}"
+                )
+        
+        finally:
+            # 6. Always return to original branch (best effort)
+            try:
+                self._repo.hgit.checkout(current_branch)
+            except Exception:
+                # Best effort - don't fail if checkout back fails
+                pass

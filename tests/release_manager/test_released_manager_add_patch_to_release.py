@@ -101,7 +101,9 @@ class TestAddPatchToReleaseWorkflow:
 
         # Verify sync operations
         mock_hgit.fetch_from_origin.assert_called_once()
-        mock_hgit.is_branch_synced.assert_called_once_with("ho-prod")
+        assert mock_hgit.is_branch_synced.call_count == 2
+        mock_hgit.is_branch_synced.assert_any_call("ho-patch/456-user-auth")
+        mock_hgit.is_branch_synced.assert_any_call("ho-prod")
 
         # Verify temp branch created
         assert any("temp-valid-1.3.6" in str(call) for call in mock_hgit.checkout.call_args_list)
