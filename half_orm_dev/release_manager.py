@@ -1518,7 +1518,7 @@ class ReleaseManager:
             if lock_tag:
                 self._repo.hgit.release_branch_lock(lock_tag)
 
-    def _detect_stage_to_promote(self) -> tuple[str, str]:
+    def _detect_stage_to_promote(self) -> Tuple[str, str]:
         """
         Detect smallest stage release to promote.
 
