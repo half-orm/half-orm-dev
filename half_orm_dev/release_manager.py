@@ -1445,17 +1445,7 @@ class ReleaseManager:
 
             if stage_file:
                 # Rename stage to target (git mv)
-                result = subprocess.run(
-                    ["git", "mv", str(stage_path), str(target_path)],
-                    cwd=self._repo.base_dir,
-                    capture_output=True,
-                    text=True
-                )
-                if result.returncode != 0:
-                    raise ReleaseManagerError(
-                        f"Unable to rename release file:\n"
-                        f"{result.stdout}\n{result.stderr}"
-                    )
+                self._repo.hgit.mv(str(stage_path), str(target_path))
             else:
                 # Create empty production file (prod only)
                 target_path.touch()
@@ -1496,7 +1486,7 @@ class ReleaseManager:
             self._repo.hgit.add(new_stage_path)
             
             commit_msg = f"Create new empty stage file for {version}"
-            new_stage_commit_sha = self._repo.hgit.commit(commit_msg)
+            new_stage_commit_sha = self._repo.hgit.commit('-m', commit_msg)
             
             self._repo.hgit.push()
 
@@ -1522,7 +1512,8 @@ class ReleaseManager:
                 'branches_deleted': branches_deleted,
                 'commit_sha': commit_sha,
                 'notifications_sent': notifications_sent,
-                'lock_tag': lock_tag
+                'lock_tag': lock_tag,
+                'new_stage_created': new_stage_filename
             }
 
             # Add target-specific fields
