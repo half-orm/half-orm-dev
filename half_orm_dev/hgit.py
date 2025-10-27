@@ -238,6 +238,10 @@ class HGit:
         "Proxy to git.merge method"
         return self.__git_repo.git.merge(*args, **kwargs)
 
+    def mv(self, *args, **kwargs):
+        "Proxy to git.mv method"
+        return self.__git_repo.git.mv(*args, **kwargs)
+
     def checkout_to_hop_main(self):
         "Checkout to hop_main branch"
         self.__git_repo.git.checkout('hop_main')
