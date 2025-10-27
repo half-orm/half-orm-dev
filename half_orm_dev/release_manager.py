@@ -1354,9 +1354,11 @@ class ReleaseManager:
             7. Create target release file (mv or create)
             8. [PROD ONLY] Generate schema + metadata + symlink
             9. Commit + push
-            10. Send rebase notifications
-            11. Cleanup patch branches
-            12. RELEASE LOCK (always, even on error)
+            10. Push to origin
+            10.5 Create new empty stage file
+            11. Send rebase notifications
+            12. Cleanup patch branches
+            13. RELEASE LOCK (always, even on error)
 
         Examples:
             # Promote to RC
@@ -1472,16 +1474,30 @@ class ReleaseManager:
             if target != 'prod':
                 commit_message = f"Promote {version}-stage to {version}-rc{rc_number}"
             else:  # prod
-                if source_type == 'stage':
-                    commit_message = f"Promote {version}-stage to production release {version}"
-                else:
-                    commit_message = f"Create production release {version} (empty)"
+                commit_message = f"Promote {version}-stage to production release {version}"
 
             self._repo.hgit.add(str(target_path))
             self._repo.hgit.commit("-m", commit_message)
             commit_sha = self._repo.hgit.last_commit()
 
             # 10. Push to origin
+            self._repo.hgit.push()
+
+            # 10.5 Create new empty stage file
+            
+            # Créer nouveau stage de même version (RC ou prod)
+            new_stage_filename = f"{version}-stage.txt"
+            new_stage_path = self._releases_dir / new_stage_filename
+            
+            # Créer fichier stage vide
+            new_stage_path.write_text("")  # Fichier vide (pas de patches)
+            
+            # Add + commit + push (commit séparé pour clarté historique)
+            self._repo.hgit.add(new_stage_path)
+            
+            commit_msg = f"Create new empty stage file for {version}"
+            new_stage_commit_sha = self._repo.hgit.commit(commit_msg)
+            
             self._repo.hgit.push()
 
             # 11. Send rebase notifications to active branches
