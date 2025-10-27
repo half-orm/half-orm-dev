@@ -115,22 +115,9 @@ def release_with_rc2(release_with_rc, second_patch):
         text=True
     )
 
-    # NOUVELLE ÉTAPE : Recréer le stage file (car il a été renommé en rc1)
-    # Use prepare-release to create new stage file
-    result = subprocess.run(
-        ["half_orm", "dev", "prepare-release", "patch"],
-        cwd=str(project_dir),
-        capture_output=True,
-        text=True
-    )
-
-    assert result.returncode == 0, (
-        f"prepare-release failed:\n{result.stderr}"
-    )
-
     # Verify stage file was created
     stage_file = project_dir / "releases" / f"{version}-stage.txt"
-    assert stage_file.exists(), "Stage file should be created by prepare-release"
+    assert stage_file.exists(), "Stage file should be created by promote-to"
 
     # Add second patch to stage release via add-to-release
     result = subprocess.run(
@@ -170,9 +157,9 @@ def release_with_rc2(release_with_rc, second_patch):
     if rc2_file.exists():
         rc2_file.unlink()
 
-    # Reset commits (prepare-release + add-to-release + promote-to-rc = 3 commits)
+    # Reset commits (prepare-release + add-to-release + promote-to-rc = 4 commits)
     subprocess.run(
-        ["git", "reset", "--hard", "HEAD~3"],
+        ["git", "reset", "--hard", "HEAD~4"],
         cwd=str(project_dir),
         capture_output=True,
         text=True

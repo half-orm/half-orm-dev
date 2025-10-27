@@ -17,17 +17,6 @@ from pathlib import Path
 class TestPromoteToRcBasicWorkflow:
     """Test basic promote-to-rc workflow."""
 
-    def test_promote_creates_rc1_file(self, release_with_rc):
-        """Test that promote-to-rc creates rc1 file from stage."""
-        project_dir, db_name, patch_id, version, rc_file, _ = release_with_rc
-
-        # RC file should exist
-        assert rc_file.exists(), f"RC file {rc_file.name} should be created"
-
-        # Stage file should NOT exist (renamed)
-        stage_file = project_dir / "releases" / f"{version}-stage.txt"
-        assert not stage_file.exists(), "Stage file should be renamed, not exist"
-
     def test_rc_file_contains_same_patches(self, release_with_rc):
         """Test that RC file contains same patches as stage."""
         project_dir, db_name, patch_id, version, rc_file, _ = release_with_rc
@@ -54,7 +43,7 @@ class TestPromoteToRcBasicWorkflow:
 
         # Verify commit exists
         result = subprocess.run(
-            ["git", "log", "--oneline", "-1"],
+            ["git", "log", "--oneline", "-2"],
             cwd=str(project_dir),
             capture_output=True,
             text=True
@@ -65,6 +54,18 @@ class TestPromoteToRcBasicWorkflow:
         # Commit should mention promotion
         assert "promote" in commit_message.lower() or "rc" in commit_message.lower()
         assert version in commit_message
+        result = subprocess.run(
+            ["git", "log", "--oneline", "-1"],
+            cwd=str(project_dir),
+            capture_output=True,
+            text=True
+        )
+        assert result.returncode == 0
+        commit_message = result.stdout.strip()
+
+        # Commit should mention promotion
+        assert "create new empty stage" in commit_message.lower()
+        assert version in commit_message
 
     def test_commit_includes_rc_file(self, release_with_rc):
         """Test that RC file is in the commit."""
@@ -72,7 +73,7 @@ class TestPromoteToRcBasicWorkflow:
 
         # Get files in last commit
         result = subprocess.run(
-            ["git", "show", "--name-only", "--format=", "HEAD"],
+            ["git", "show", "--name-only", "--format=", "HEAD", "-2"],
             cwd=str(project_dir),
             capture_output=True,
             text=True
