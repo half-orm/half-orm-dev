@@ -1,8 +1,8 @@
 """
-Promote-to-rc command implementation.
+Promote-to command implementation.
 
 Thin CLI layer that delegates to ReleaseManager for business logic.
-Promotes stage release to RC with code merge and branch cleanup.
+Promotes stage release to target ('rc' or 'prod') with code merge and branch cleanup.
 """
 
 import click
@@ -13,8 +13,9 @@ from half_orm_dev.release_manager import ReleaseManagerError
 from half_orm import utils
 
 
-@click.command('promote-to-rc')
-def promote_to_rc() -> None:
+@click.command('promote-to')
+@click.argument('target', type=click.Choice(['rc', 'prod'], case_sensitive=False))
+def promote_to(target: str) -> None:
     """
     Promote stage release to release candidate.
 
@@ -35,7 +36,7 @@ def promote_to_rc() -> None:
 
     Examples:
         # Promote smallest stage release
-        $ half_orm dev promote-to-rc
+        $ half_orm dev promote-to
 
         # Output:
         # ✓ Promoted 1.3.5-stage → 1.3.5-rc1
@@ -54,7 +55,7 @@ def promote_to_rc() -> None:
         click.echo("Promoting stage release to RC...")
         click.echo()
 
-        result = repo.release_manager.promote_to_rc()
+        result = repo.release_manager.promote_to(target)
 
         # Display success message
         click.echo(f"✓ {utils.Color.green('Success!')}")

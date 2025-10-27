@@ -1110,7 +1110,7 @@ class ReleaseManager:
         """
         Send merge notifications to all active patch branches.
 
-        After code is merged to ho-prod (promote-to-rc or promote-to-prod),
+        After code is merged to ho-prod (promote-to rc or promote-to prod),
         active development branches must merge changes from ho-prod.
         This sends notifications (empty commits) to all ho-patch/* branches.
 
@@ -1303,7 +1303,7 @@ class ReleaseManager:
                 f"Failed to update stage file {stage_file}: {e}"
             )
 
-    def _promote_release(self, target: str) -> dict:
+    def promote_to(self, target: str) -> dict:
         """
         Unified promotion workflow for RC and production releases.
 
@@ -1362,12 +1362,12 @@ class ReleaseManager:
 
         Examples:
             # Promote to RC
-            result = mgr._promote_release(target='rc')
+            result = mgr.promote_to(target='rc')
             # → Creates X.Y.Z-rc2.txt from X.Y.Z-stage.txt
             # → Merges code, cleans branches, sends notifications
 
             # Promote to production
-            result = mgr._promote_release(target='prod')
+            result = mgr.promote_to(target='prod')
             # → Creates X.Y.Z.txt from X.Y.Z-stage.txt (or empty)
             # → Applies all patches to DB
             # → Generates schema-X.Y.Z.sql + metadata-X.Y.Z.sql
@@ -1531,52 +1531,6 @@ class ReleaseManager:
             # 13. Always release lock (even on error)
             if lock_tag:
                 self._repo.hgit.release_branch_lock(lock_tag)
-
-    def promote_to_rc(self) -> dict:
-        """
-        Promote stage release to release candidate.
-
-        Wrapper around _promote_release() for backward compatibility.
-        Delegates to unified promotion logic with target='rc'.
-
-        See _promote_release() documentation for complete workflow details.
-
-        Returns:
-            dict: Promotion result (see _promote_release for structure)
-
-        Examples:
-            # Promote smallest stage to RC
-            result = mgr.promote_to_rc()
-            # → Delegates to _promote_release(target='rc')
-        """
-        return self._promote_release(target='rc')
-
-
-    def promote_to_prod(self) -> dict:
-        """
-        Promote stage or empty release to production.
-
-        Wrapper around _promote_release() for production deployments.
-        Delegates to unified promotion logic with target='prod'.
-
-        Unlike promote_to_rc, this method:
-        - Allows empty release (no stage file)
-        - Applies all patches to database
-        - Generates schema and metadata dumps
-        - Updates schema.sql symlink
-
-        See _promote_release() documentation for complete workflow details.
-
-        Returns:
-            dict: Promotion result (see _promote_release for structure)
-
-        Examples:
-            # Promote stage to production
-            result = mgr.promote_to_prod()
-            # → Delegates to _promote_release(target='prod')
-            # → Applies all patches, generates schema-X.Y.Z.sql
-        """
-        return self._promote_release(target='prod')
 
 
     def _get_next_production_version(self) -> str:
@@ -1866,7 +1820,7 @@ class ReleaseManager:
 
         THIS IS WHERE CODE ENTERS HO-PROD. During add-to-release, patches
         are archived to ho-release/X.Y.Z/patch-id but code stays separate.
-        At _promote_release, all archived patches are merged into ho-prod.
+        At promote_to, all archived patches are merged into ho-prod.
 
         Algorithm:
         1. Read patch list from stage file (e.g., releases/1.3.5-stage.txt)
@@ -1957,7 +1911,7 @@ class ReleaseManager:
         Delete all patch branches listed in stage file.
 
         Reads patch list from stage file and deletes both local and remote
-        branches. This is automatic cleanup at _promote_release to maintain
+        branches. This is automatic cleanup at promote_to to maintain
         clean repository state. Branches are ho-patch/* format.
 
         Algorithm:
@@ -2052,7 +2006,7 @@ class ReleaseManager:
 
         Simple merge strategy: ho-prod is merged INTO the patch branch using
         standard git merge. No fast-forward or rebase needed since full commit
-        history is preserved during _promote_release (no squash).
+        history is preserved during promote_to (no squash).
 
         Sync Strategy:
             1. Check if already synced → return immediately
@@ -2060,7 +2014,7 @@ class ReleaseManager:
             3. If merge conflicts, block for manual resolution
 
         This simple approach is appropriate because:
-        - Full history is preserved at _promote_release (no squash)
+        - Full history is preserved at promote_to (no squash)
         - Merge commits in patch branches are acceptable
         - Individual commit history matters for traceability
 

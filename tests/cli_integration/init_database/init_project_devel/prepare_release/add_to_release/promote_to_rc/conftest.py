@@ -1,5 +1,5 @@
 """
-Pytest fixtures for promote-to-rc CLI integration tests.
+Pytest fixtures for promote-to rc CLI integration tests.
 
 Provides:
 - release_with_rc: Stage release promoted to RC via CLI
@@ -20,7 +20,7 @@ def release_with_rc(release_with_first_patch):
 
     Executes:
         git checkout ho-prod
-        half_orm dev promote-to-rc
+        half_orm dev promote-to rc
 
     Yields:
         tuple: (project_dir: Path, database_name: str, patch_id: str,
@@ -49,16 +49,16 @@ def release_with_rc(release_with_first_patch):
         text=True
     )
 
-    # Execute promote-to-rc CLI command
+    # Execute promote-to rc CLI command
     result = subprocess.run(
-        ["half_orm", "dev", "promote-to-rc"],
+        ["half_orm", "dev", "promote-to", "rc"],
         cwd=str(project_dir),
         capture_output=True,
         text=True
     )
 
     assert result.returncode == 0, (
-        f"promote-to-rc command failed:\n"
+        f"promote-to rc command failed:\n"
         f"STDOUT: {result.stdout}\n"
         f"STDERR: {result.stderr}"
     )
@@ -85,7 +85,7 @@ def release_with_rc(release_with_first_patch):
         text=True
     )
 
-    # 3. Restore archived patch branch (was deleted by promote-to-rc)
+    # 3. Restore archived patch branch (was deleted by promote-to rc)
     _restore_archived_branch(project_dir, version, patch_id)
 
 
@@ -133,14 +133,14 @@ def release_with_rc2(release_with_rc, second_patch):
 
     # Promote stage to rc2
     result = subprocess.run(
-        ["half_orm", "dev", "promote-to-rc"],
+        ["half_orm", "dev", "promote-to", "rc"],
         cwd=str(project_dir),
         capture_output=True,
         text=True
     )
 
     assert result.returncode == 0, (
-        f"promote-to-rc for rc2 failed:\n{result.stderr}"
+        f"promote-to rc for rc2 failed:\n{result.stderr}"
     )
 
     # RC2 file should now exist
@@ -157,7 +157,7 @@ def release_with_rc2(release_with_rc, second_patch):
     if rc2_file.exists():
         rc2_file.unlink()
 
-    # Reset commits (prepare-release + add-to-release + promote-to-rc = 4 commits)
+    # Reset commits (prepare-release + add-to-release + promote-to rc = 4 commits)
     subprocess.run(
         ["git", "reset", "--hard", "HEAD~4"],
         cwd=str(project_dir),

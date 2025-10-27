@@ -568,8 +568,7 @@ half_orm dev add-to-release "456" --to-version="1.3.6"
 **Implémentation complète :**
 
 **Méthodes ReleaseManager :**
-1. ✅ `promote_to_rc()` - Point d'entrée, délègue à `_promote_release(target='rc')`
-2. ✅ `_promote_release(target)` - Workflow unifié pour RC et production
+2. ✅ `promote_to(target)` - Workflow unifié pour RC et production
 3. ✅ `_detect_stage_to_promote()` - Détection du plus petit stage à promouvoir
 4. ✅ `_validate_single_active_rc(version)` - Validation règle RC unique actif
 5. ✅ `_determine_rc_number(version)` - Calcul du prochain numéro RC
@@ -577,8 +576,8 @@ half_orm dev add-to-release "456" --to-version="1.3.6"
 7. ✅ `_cleanup_patch_branches()` - Suppression branches ho-patch/* après promotion
 8. ✅ `_send_rebase_notifications()` - Notifications merge aux branches actives (WIP multi-target)
 
-**CLI (half_orm_dev/cli/commands/promote_to_rc.py) :**
-- ✅ Commande `half_orm dev promote-to-rc`
+**CLI (half_orm_dev/cli/commands/promote_to.py) :**
+- ✅ Commande `half_orm dev promote-to`
 - ✅ Affichage détaillé : version, RC number, patches mergés, branches supprimées, notifications
 - ✅ Messages next steps
 - ✅ Gestion erreurs avec cleanup
@@ -693,7 +692,7 @@ Action required (branches are shared):
 Status: Action required (merge from ho-prod)
 
 # Note WIP : Actuellement supporte ['alpha', 'beta', 'rc', 'prod']
-# Mais validation _promote_release() limite à ['rc', 'prod']
+# Mais validation promote_to() limite à ['rc', 'prod']
 # Support alpha/beta complet à implémenter
 ```
 
@@ -840,7 +839,7 @@ half_orm dev promote-to-rc
 
 **Work In Progress (WIP) :**
 - ⏸️ Support alpha/beta dans `_send_rebase_notifications()` implémenté
-- ⏸️ Support alpha/beta dans `_promote_release()` validation pas encore implémenté
+- ⏸️ Support alpha/beta dans `promote_to()` validation pas encore implémenté
 - ⏸️ Pour activer alpha/beta : modifier ligne 1375 `if target not in ('rc', 'prod')`
 
 **Prochaines étapes :**
@@ -869,7 +868,7 @@ half_orm dev promote-to-rc
 - ✅ `promote-to-prod` gère : application patches + génération schema + symlink
 
 **3. Support multi-target complet** (WIP)
-- ⏸️ Finaliser support alpha/beta dans `_promote_release()`
+- ⏸️ Finaliser support alpha/beta dans `promote_to()`
 - ⏸️ Validation target parameter : ['alpha', 'beta', 'rc', 'prod']
 - ⏸️ Numérotation automatique pour alpha/beta
 - ⏸️ Documentation workflow alpha/beta
@@ -883,8 +882,8 @@ def _send_rebase_notifications(version, release_type, rc_number=None):
     # Génère messages appropriés pour chaque type
     pass
 
-# _promote_release() - ⏸️ À étendre pour multi-target
-def _promote_release(target):
+# promote_to() - ⏸️ À étendre pour multi-target
+def promote_to(target):
     if target not in ('rc', 'prod'):  # ← Ligne à modifier
         raise ValueError(...)
     # Ajouter logique pour 'alpha', 'beta'
@@ -1153,7 +1152,7 @@ tests/
 
 **Work In Progress noté :**
 - ⏸️ Support alpha/beta dans `_send_rebase_notifications()` : implémenté
-- ⏸️ Support alpha/beta dans `_promote_release()` validation : à implémenter
+- ⏸️ Support alpha/beta dans `promote_to()` validation : à implémenter
 - ⏸️ Documentation : ajout note WIP dans code
 
 **Prochaine session :** Implémentation `promote-to-prod`

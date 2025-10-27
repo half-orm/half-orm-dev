@@ -1,5 +1,5 @@
 """
-Tests for ReleaseManager.promote_to_rc() - Pre-lock validations.
+Tests for ReleaseManager.promote_to('rc') - Pre-lock validations.
 
 Focused on testing validations that occur BEFORE lock acquisition:
 - On ho-prod branch validation
@@ -17,7 +17,7 @@ from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 
 
 class TestPromoteToRcPreLockValidations:
-    """Test pre-lock validations for promote_to_rc()."""
+    """Test pre-lock validations for promote_to('rc')."""
 
     @pytest.fixture
     def release_manager_basic(self, tmp_path):
@@ -48,7 +48,7 @@ class TestPromoteToRcPreLockValidations:
 
         # Should raise error before lock
         with pytest.raises(ReleaseManagerError, match="Must be on ho-prod|ho-prod branch"):
-            release_mgr.promote_to_rc()
+            release_mgr.promote_to('rc')
 
         # Verify lock not attempted (no acquire_branch_lock call)
         assert not hasattr(mock_hgit, 'acquire_branch_lock') or \
@@ -63,7 +63,7 @@ class TestPromoteToRcPreLockValidations:
 
         # Should raise error before lock
         with pytest.raises(ReleaseManagerError, match="uncommitted changes|not clean"):
-            release_mgr.promote_to_rc()
+            release_mgr.promote_to('rc')
 
         # Verify lock not attempted
         assert not hasattr(mock_hgit, 'acquire_branch_lock') or \
@@ -78,7 +78,7 @@ class TestPromoteToRcPreLockValidations:
 
         # Should raise error before lock
         with pytest.raises(ReleaseManagerError, match="No stage releases|stage.*not found"):
-            release_mgr.promote_to_rc()
+            release_mgr.promote_to('rc')
 
         # Verify lock not attempted
         assert not hasattr(mock_hgit, 'acquire_branch_lock') or \
@@ -94,7 +94,7 @@ class TestPromoteToRcPreLockValidations:
 
         # Should fail on first validation (branch check)
         with pytest.raises(ReleaseManagerError, match="ho-prod"):
-            release_mgr.promote_to_rc()
+            release_mgr.promote_to('rc')
 
         # repos_is_clean should not be called (fail fast)
         # Note: In actual implementation, this depends on order
@@ -116,7 +116,7 @@ class TestPromoteToRcPreLockValidations:
 
         # Should pass validations and reach lock acquisition
         with pytest.raises(Exception, match="Stop here"):
-            release_mgr.promote_to_rc()
+            release_mgr.promote_to('rc')
 
         # Verify detection was called (validations passed)
         release_mgr._detect_stage_to_promote.assert_called_once()

@@ -950,7 +950,7 @@ Each file contains patch IDs, one per line:
 - Patches added to X.Y.Z-stage.txt
 
 2. **RC**: Release candidate
-- `half_orm dev promote-to-rc`
+- `half_orm dev promote-to rc`
 - Creates X.Y.Z-rc.txt
 - Deletes patch branches
 

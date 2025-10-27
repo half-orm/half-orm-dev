@@ -24,7 +24,7 @@ class Hop:
             return ['init-database', 'init-project']
         else:
             # Inside hop repository - development commands
-            return ['create-patch', 'apply-patch', 'prepare-release', 'add-to-release', 'promote-to-rc']
+            return ['create-patch', 'apply-patch', 'prepare-release', 'add-to-release', 'promote-to']
 
     @property
     def repo_checked(self):

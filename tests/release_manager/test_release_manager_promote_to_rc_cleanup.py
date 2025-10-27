@@ -18,7 +18,7 @@ from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 
 
 class TestCleanupPatchBranches:
-    """Test patch branch cleanup after promote-to-rc."""
+    """Test patch branch cleanup after promote-to rc."""
 
     @pytest.fixture
     def release_manager_with_git(self, tmp_path):

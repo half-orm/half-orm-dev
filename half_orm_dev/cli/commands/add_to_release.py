@@ -81,7 +81,7 @@ def add_to_release(patch_id: str, to_version: Optional[str] = None) -> None:
         click.echo("Next steps:")
         click.echo(f"  1. Review integration: git show {result['commit_sha'][:8]}")
         click.echo(f"  2. Test release: half_orm dev apply-release {result['target_version']}-stage")
-        click.echo(f"  3. Promote to RC: half_orm dev promote-to-rc")
+        click.echo(f"  3. Promote to RC: half_orm dev promote-to rc")
 
     except ReleaseManagerError as e:
         raise click.ClickException(str(e))

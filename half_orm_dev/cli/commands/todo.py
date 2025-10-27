@@ -35,8 +35,7 @@ def todo(ctx):
         'add-to-release': 'Add patch to releases/X.Y.Z-stage.txt and merge to ho-prod',
         'prepare-release': 'Create next releases/X.Y.Z-stage.txt file',
         'apply-release': 'Apply next release',
-        'promote-to-rc': 'Promote stage → rc with automatic branch cleanup',
-        'promote-to-prod': 'Promote rc → production release',
+        'promote-to': "Promote stage → target ('rc', 'prod') with automatic branch cleanup",
         'deploy-to-prod': 'Apply release patches to production database',
         'create-hotfix': 'Create emergency hotfix bypassing normal workflow',
         'rollback': 'Rollback database to previous version using backups/',
@@ -64,8 +63,6 @@ def todo(ctx):
 # 🚧 New Git-centric commands
 add_to_release = todo
 apply_release = todo
-promote_to_rc = todo
-promote_to_prod = todo
 deploy_to_prod = todo
 create_hotfix = todo
 rollback = todo

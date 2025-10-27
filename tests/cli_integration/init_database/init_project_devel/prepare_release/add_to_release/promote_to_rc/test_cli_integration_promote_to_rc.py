@@ -1,5 +1,5 @@
 """
-Integration tests for promote-to-rc CLI command.
+Integration tests for promote-to rc CLI command.
 
 Tests the complete workflow:
 - File rename: X.Y.Z-stage.txt → X.Y.Z-rc1.txt
@@ -15,7 +15,7 @@ from pathlib import Path
 
 @pytest.mark.integration
 class TestPromoteToRcBasicWorkflow:
-    """Test basic promote-to-rc workflow."""
+    """Test basic promote-to rc workflow."""
 
     def test_rc_file_contains_same_patches(self, release_with_rc):
         """Test that RC file contains same patches as stage."""
@@ -28,7 +28,7 @@ class TestPromoteToRcBasicWorkflow:
         assert patch_id in rc_content, f"RC file should contain patch {patch_id}"
 
     def test_creates_commit_on_ho_prod(self, release_with_rc):
-        """Test that promote-to-rc creates commit on ho-prod."""
+        """Test that promote-to rc creates commit on ho-prod."""
         project_dir, db_name, patch_id, version, rc_file, _ = release_with_rc
 
         # Verify still on ho-prod
@@ -268,9 +268,9 @@ class TestPromoteToRcErrorHandling:
         )
         assert result.returncode == 0
 
-        # Try promote-to-rc
+        # Try promote-to rc
         result = subprocess.run(
-            ["half_orm", "dev", "promote-to-rc"],
+            ["half_orm", "dev", "promote-to", "rc"],
             cwd=str(project_dir),
             capture_output=True,
             text=True
@@ -306,9 +306,9 @@ class TestPromoteToRcErrorHandling:
         for f in stage_files:
             f.unlink()
 
-        # Try promote-to-rc
+        # Try promote-to rc
         result = subprocess.run(
-            ["half_orm", "dev", "promote-to-rc"],
+            ["half_orm", "dev", "promote-to", "rc"],
             cwd=str(project_dir),
             capture_output=True,
             text=True
@@ -328,9 +328,9 @@ class TestPromoteToRcErrorHandling:
         test_file = project_dir / "test_uncommitted.txt"
         test_file.write_text("uncommitted change")
 
-        # Try promote-to-rc
+        # Try promote-to rc
         result = subprocess.run(
-            ["half_orm", "dev", "promote-to-rc"],
+            ["half_orm", "dev", "promote-to", "rc"],
             cwd=str(project_dir),
             capture_output=True,
             text=True

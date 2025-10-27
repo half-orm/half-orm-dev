@@ -1,7 +1,7 @@
 """
-Tests for automatic stage file creation after promote-to-rc/prod.
+Tests for automatic stage file creation after promote-to rc/prod.
 
-Tests the new step 10.5 in _promote_release() workflow that creates
+Tests the new step 10.5 in promote_to() workflow that creates
 an empty stage file after successful promotion. This ensures a resumption
 point is always available for add-to-release without manual prepare-release.
 """
@@ -56,7 +56,7 @@ def release_manager_basic(tmp_path):
 
 
 class TestPromoteCreateStageRC:
-    """Test automatic stage creation for promote-to-rc."""
+    """Test automatic stage creation for promote-to rc."""
     
     def test_creates_empty_stage_after_rc_promotion(self, release_manager_basic):
         """Test creates empty stage file after successful RC promotion."""
@@ -79,7 +79,7 @@ class TestPromoteCreateStageRC:
         mock_hgit.pull = Mock()
         
         # Execute promotion
-        result = release_mgr.promote_to_rc()
+        result = release_mgr.promote_to('rc')
         
         # Verify new stage file created
         new_stage_file = releases_dir / "1.3.5-stage.txt"
@@ -114,7 +114,7 @@ class TestPromoteCreateStageRC:
         mock_hgit.pull = Mock()
         
         # Execute promotion
-        release_mgr.promote_to_rc()
+        release_mgr.promote_to('rc')
         
         # Verify add called for new stage
         new_stage_path = releases_dir / "1.3.5-stage.txt"
@@ -158,7 +158,7 @@ class TestPromoteCreateStageRC:
         mock_hgit.pull = Mock()
         
         # Execute promotion
-        result = release_mgr.promote_to_rc()
+        result = release_mgr.promote_to('rc')
         
         # Verify new stage has SAME version (1.3.5, not 1.3.6)
         new_stage_file = releases_dir / "1.3.5-stage.txt"
@@ -202,7 +202,7 @@ class TestPromoteCreateStageProd:
         mock_hgit.pull = Mock()
         
         # Execute promotion
-        result = release_mgr.promote_to_prod()
+        result = release_mgr.promote_to('prod')
         
         # Verify new stage file created
         new_stage_file = releases_dir / "1.3.5-stage.txt"
@@ -242,7 +242,7 @@ class TestPromoteCreateStageProd:
         mock_hgit.pull = Mock()
         
         # Execute promotion
-        result = release_mgr.promote_to_prod()
+        result = release_mgr.promote_to('prod')
         
         # Verify stage has SAME version as prod (1.3.5, not 1.3.6)
         new_stage_file = releases_dir / "1.3.5-stage.txt"
@@ -302,7 +302,7 @@ class TestPromoteCreateStageWorkflow:
         mock_hgit.pull = Mock()
         
         # Execute promotion
-        release_mgr.promote_to_rc()
+        release_mgr.promote_to('rc')
         
         # Verify order: promote_commit → push → stage_commit → push → notifications
         assert 'promote_commit' in call_order
@@ -373,7 +373,7 @@ class TestPromoteCreateStageEdgeCases:
         mock_hgit.pull = Mock()
         
         # Execute promotion
-        result = release_mgr.promote_to_rc()
+        result = release_mgr.promote_to('rc')
         
         # Verify new stage created (even for empty RC)
         new_stage_file = releases_dir / "1.3.5-stage.txt"
@@ -406,7 +406,7 @@ class TestPromoteCreateStageEdgeCases:
         # Execute promotion
         # Note: This should work because stage is RENAMED to rc first,
         # then new empty stage is created
-        result = release_mgr.promote_to_rc()
+        result = release_mgr.promote_to('rc')
         
         # Verify new stage is empty (not old content)
         new_stage_file = releases_dir / "1.3.5-stage.txt"

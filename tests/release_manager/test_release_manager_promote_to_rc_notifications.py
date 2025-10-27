@@ -17,7 +17,7 @@ from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 
 
 class TestSendRebaseNotifications:
-    """Test rebase notifications after promote-to-rc."""
+    """Test rebase notifications after promote-to rc."""
 
     @pytest.fixture
     def release_manager_with_git(self, tmp_path):
