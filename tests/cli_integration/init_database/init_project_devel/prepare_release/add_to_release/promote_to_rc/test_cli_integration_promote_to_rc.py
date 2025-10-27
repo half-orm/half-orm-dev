@@ -216,7 +216,7 @@ class TestPromoteToRcNumbering:
 
     def test_second_promotion_creates_rc2(self, release_with_rc2):
         """Test that second promotion of same version creates rc2."""
-        (project_dir, db_name, first_patch, second_patch, 
+        (project_dir, db_name, first_patch, second_patch,
          version, rc2_file, rc1_file, _) = release_with_rc2
 
         # RC1 should still exist
@@ -228,7 +228,7 @@ class TestPromoteToRcNumbering:
 
     def test_rc2_contains_new_patch(self, release_with_rc2):
         """Test that rc2 contains the new patch."""
-        (project_dir, db_name, first_patch, second_patch, 
+        (project_dir, db_name, first_patch, second_patch,
          version, rc2_file, rc1_file, _) = release_with_rc2
 
         # RC2 should contain second patch
@@ -239,7 +239,7 @@ class TestPromoteToRcNumbering:
 
     def test_rc1_unchanged(self, release_with_rc2):
         """Test that rc1 remains unchanged when rc2 is created."""
-        (project_dir, db_name, first_patch, second_patch, 
+        (project_dir, db_name, first_patch, second_patch,
          version, rc2_file, rc1_file, _) = release_with_rc2
 
         # RC1 should only contain first patch

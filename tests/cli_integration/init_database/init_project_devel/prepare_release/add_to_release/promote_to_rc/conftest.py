@@ -123,7 +123,7 @@ def release_with_rc2(release_with_rc, second_patch):
         capture_output=True,
         text=True
     )
-    
+
     assert result.returncode == 0, (
         f"prepare-release failed:\n{result.stderr}"
     )
@@ -161,7 +161,7 @@ def release_with_rc2(release_with_rc, second_patch):
     assert rc2_file.exists(), f"RC2 file should exist"
 
     # Yield info to tests
-    yield (project_dir, db_name_rc, first_patch_id, second_patch_id, 
+    yield (project_dir, db_name_rc, first_patch_id, second_patch_id,
            version, rc2_file, rc1_file, remote_repo)
 
     # === Cleanup ===

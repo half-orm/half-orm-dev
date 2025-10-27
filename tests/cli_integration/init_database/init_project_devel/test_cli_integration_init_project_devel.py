@@ -130,7 +130,6 @@ class TestInitProjectConfiguration:
         # Parse configuration
         config = configparser.ConfigParser()
         config.read(str(config_file))
-        print('XXX', open(str(config_file)).read())
         # Verify [halfORM] section exists
         assert config.has_section('halfORM'), "[halfORM] section missing"
 

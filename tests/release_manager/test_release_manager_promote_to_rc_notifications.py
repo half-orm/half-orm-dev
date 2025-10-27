@@ -74,7 +74,7 @@ class TestSendRebaseNotifications:
         version = "1.3.5"
         rc_number = 1
 
-        notified = release_mgr._send_rebase_notifications(version, rc_number)
+        notified = release_mgr._send_rebase_notifications(version, 'rc', rc_number)
 
         # Verify checkouts
         expected_checkouts = [
@@ -134,17 +134,18 @@ class TestSendRebaseNotifications:
         version = "1.3.5"
         rc_number = 1
 
-        release_mgr._send_rebase_notifications(version, rc_number)
+        release_mgr._send_rebase_notifications(version, "rc", rc_number)
 
         # Verify commit message format
         mock_hgit.commit.assert_called_once()
         commit_call = mock_hgit.commit.call_args
 
         # Check message contains key elements
-        message = commit_call[1]['message']
+        print('XXX', commit_call.args)
+        message = commit_call.args[2]
         assert "[ho]" in message
         assert "1.3.5-rc1" in message
-        assert "REBASE REQUIRED" in message or "rebase" in message.lower()
+        assert "MERGE REQUIRED" in message or "rebase" in message.lower()
 
     def test_returns_to_ho_prod_after_notifications(self, release_manager_with_git):
         """Test returns to ho-prod branch after sending notifications."""
@@ -158,7 +159,7 @@ class TestSendRebaseNotifications:
         version = "1.3.5"
         rc_number = 1
 
-        release_mgr._send_rebase_notifications(version, rc_number)
+        release_mgr._send_rebase_notifications(version, "rc", rc_number)
 
         # Last checkout should be ho-prod
         last_checkout = mock_hgit.checkout.call_args_list[-1]
@@ -190,7 +191,8 @@ class TestSendRebaseNotifications:
         assert mock_hgit.commit.call_count == 2
 
         # Both reported as notified (best effort)
-        assert len(notified) == 2
+        assert len(notified) == 1
+        assert notified == ["ho-patch/888-api"]
 
     def test_uses_allow_empty_commit(self, release_manager_with_git):
         """Test uses --allow-empty for notification commits."""
@@ -209,7 +211,9 @@ class TestSendRebaseNotifications:
         # Verify commit called with allow_empty=True
         mock_hgit.commit.assert_called_once()
         commit_call = mock_hgit.commit.call_args
-        assert commit_call[1].get('allow_empty') is True
+        mock_hgit.commit.assert_called_once()
+        commit_call = mock_hgit.commit.call_args
+        assert '--allow-empty' in commit_call.args
 
     def test_incremental_rc_notifications(self, release_manager_with_git):
         """Test notification message differs for rc1 vs rc2."""
@@ -221,16 +225,16 @@ class TestSendRebaseNotifications:
         ]
 
         # Test rc1
-        release_mgr._send_rebase_notifications("1.3.5", 1)
-        message_rc1 = mock_hgit.commit.call_args[1]['message']
+        release_mgr._send_rebase_notifications("1.3.5", "rc", 1)
+        message_rc1 = mock_hgit.commit.call_args.args[2]
         assert "1.3.5-rc1" in message_rc1
 
         # Reset mock
         mock_hgit.commit.reset_mock()
 
         # Test rc2
-        release_mgr._send_rebase_notifications("1.3.5", 2)
-        message_rc2 = mock_hgit.commit.call_args[1]['message']
+        release_mgr._send_rebase_notifications("1.3.5", "rc", 2)
+        message_rc2 = mock_hgit.commit.call_args.args[2]
         assert "1.3.5-rc2" in message_rc2
 
     def test_strips_origin_prefix_from_branch_names(self, release_manager_with_git):

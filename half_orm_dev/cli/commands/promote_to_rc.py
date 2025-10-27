@@ -80,7 +80,7 @@ def promote_to_rc() -> None:
             click.echo()
 
         # Display notifications
-        if result['notifications_sent']:
+        if result.get('notifications_sent'):
             click.echo(f"✓ Notified {len(result['notifications_sent'])} active patch branches:")
             for branch in result['notifications_sent']:
                 click.echo(f"  • {branch}")

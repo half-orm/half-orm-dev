@@ -337,7 +337,7 @@ half_orm dev apply-patch
 3. ✅ `_apply_patch_change_to_stage_file()` - Ajout patch au fichier stage
 4. ✅ `_run_validation_tests()` - Exécution pytest tests/
 5. ✅ `_get_active_patch_branches()` - Liste branches patch actives
-6. ✅ `_send_resync_notifications()` - Notifications aux autres branches
+6. ✅ `_send_rebase_notifications()` - Notifications aux autres branches
 7. ✅ `_create_notification_commit()` - Commit vide avec message
 
 **CLI (half_orm_dev/cli/commands/add_to_release.py) :**

@@ -85,7 +85,6 @@ class TestAddPatchToReleaseWorkflow:
         # Mock helper methods
         release_mgr._detect_target_stage_file = Mock(return_value=("1.3.6", "1.3.6-stage.txt"))
         release_mgr._get_active_patch_branches = Mock(return_value=["ho-patch/789-security"])
-        release_mgr._send_resync_notifications = Mock(return_value=["ho-patch/789-security"])
         release_mgr._run_validation_tests = Mock()  # Tests pass
         # First call returns without patch (for duplication check), second with patch (for result)
         release_mgr.read_release_patches = Mock(side_effect=[
@@ -117,9 +116,6 @@ class TestAddPatchToReleaseWorkflow:
 
         # Verify push
         mock_hgit.push.assert_called()
-
-        # Verify notifications sent
-        release_mgr._send_resync_notifications.assert_called_once_with("456-user-auth", "1.3.6")
 
         # Verify branch renamed
         mock_hgit.rename_branch.assert_called_once_with(
@@ -269,7 +265,7 @@ class TestAddPatchToReleaseWorkflow:
         # Mock helpers
         release_mgr._detect_target_stage_file = Mock(return_value=("1.3.6", "1.3.6-stage.txt"))
         release_mgr._get_active_patch_branches = Mock(return_value=[])
-        release_mgr._send_resync_notifications = Mock(return_value=[])
+        release_mgr._send_rebase_notifications = Mock(return_value=[])
         release_mgr._run_validation_tests = Mock()
         release_mgr.read_release_patches = Mock(side_effect=[
             ["123-initial"],  # Before add

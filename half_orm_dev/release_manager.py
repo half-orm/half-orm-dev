@@ -717,7 +717,6 @@ class ReleaseManager:
         12. If tests pass: return to ho-prod, delete temp branch
         13. Add patch to stage file on ho-prod + commit (file change only)
         14. Push ho-prod to origin
-        15. Send resync notifications to other patch branches
         16. Archive patch branch to ho-release/{version}/{patch_id}
         17. Release lock (in finally block)
 
@@ -957,9 +956,6 @@ class ReleaseManager:
             # 16. Push ho-prod (no conflict possible - we have lock)
             self._repo.hgit.push("origin", "ho-prod")
 
-            # 17. Send resync notifications (non-blocking)
-            notified = self._send_resync_notifications(patch_id, target_version)
-
             # 18. Archive patch branch to ho-release namespace
             archived_branch = f"ho-release/{target_version}/{patch_id}"
             self._repo.hgit.rename_branch(
@@ -981,7 +977,6 @@ class ReleaseManager:
                 'archived_branch': archived_branch,
                 'commit_sha': commit_sha,
                 'patches_in_release': final_patches,
-                'notifications_sent': notified,
                 'lock_tag': lock_tag
             }
 
@@ -1107,83 +1102,103 @@ class ReleaseManager:
 
         return branches
 
-    def _send_resync_notifications(
+    def _send_rebase_notifications(
         self,
-        patch_id: str,
-        target_version: str
-    ) -> List[str]:
+        version: str,
+        release_type: str,
+        rc_number: int = None) -> List[str]:
         """
-        Send resync notifications to all active patch branches.
+        Send merge notifications to all active patch branches.
 
-        Creates empty commits on all ho-patch/* branches (except current)
-        to notify developers that they should resync with ho-prod.
+        After code is merged to ho-prod (promote-to-rc or promote-to-prod),
+        active development branches must merge changes from ho-prod.
+        This sends notifications (empty commits) to all ho-patch/* branches.
 
-        Notifications are NON-BLOCKING: if one fails, logs warning and
-        continues with others. Does not fail the entire workflow.
+        Note: We use "merge" not "rebase" because branches are shared between
+        developers. Rebase would rewrite history and cause conflicts.
 
         Args:
-            patch_id: Patch that was integrated (e.g., "456-user-auth")
-            target_version: Release version (e.g., "1.3.6")
+            version: Version string (e.g., "1.3.5")
+            release_type: one of ['alpha', 'beta', 'rc', 'prod']
+            rc_number: RC number (required if release_type != 'prod')
 
         Returns:
-            List of branch names that successfully received notification
-            Example: ["ho-patch/789-security", "ho-patch/234-reports"]
+            List[str]: Notified branch names (without origin/ prefix)
 
         Examples:
-            # Send notifications after successful integration
-            notified = self._send_resync_notifications("456-user-auth", "1.3.6")
-            print(f"Notified {len(notified)} branches")
+            # RC promotion
+            notified = mgr._send_rebase_notifications("1.3.5", 'rc', rc_number=1)
+            # → Message: "[ho] 1.3.5-rc1 promoted (MERGE REQUIRED)"
 
-            # Notification commit message format:
-            # "RESYNC REQUIRED: 456-user-auth integrated to release 1.3.6"
-
-            # Non-blocking: continues even if some notifications fail
-            # Logs warnings for failed notifications
+            # Production deployment
+            notified = mgr._send_rebase_notifications("1.3.5", 'prod')
+            # → Message: "[ho] Production 1.3.5 deployed (MERGE REQUIRED)"
         """
-        # Get current branch to return to later
+        # Get all active patch branches
+        remote_branches = self._repo.hgit.get_remote_branches()
+
+        # Filter for active ho-patch/* branches
+        active_branches = []
+        for branch in remote_branches:
+            # Strip 'origin/' prefix if present
+            branch_name = branch.replace("origin/", "")
+            
+            # Only include ho-patch/* branches
+            if branch_name.startswith("ho-patch/"):
+                active_branches.append(branch_name)
+
+        if not active_branches:
+            return []
+
+        notified_branches = []
         current_branch = self._repo.hgit.branch
 
-        # Get all active patch branches
-        all_branches = self._get_active_patch_branches()
+        # Build release identifier for message
+        if release_type and release_type != 'prod':
+            if rc_number is None:
+                rc_number = ''
+            release_id = f"{version}-{release_type}{rc_number}"
+            event = "promoted"
+        else:  # prod
+            release_id = f"production {version}"
+            event = "deployed"
 
-        # Filter out current patch branch
-        target_branches = [
-            branch for branch in all_branches
-            if branch != f"ho-patch/{patch_id}"
-        ]
-
-        notified = []
-
-        for branch in target_branches:
+        for branch in active_branches:
             try:
                 # Checkout branch
                 self._repo.hgit.checkout(branch)
 
-                # Create notification commit
-                message = f"RESYNC REQUIRED: {patch_id} integrated to release {target_version}"
+                # Create notification message
+                message = (
+                    f"[ho] {release_id.capitalize()} {event} (MERGE REQUIRED)\n\n"
+                    f"Version {release_id} has been {event} with code merged to ho-prod.\n"
+                    f"Active patch branches MUST merge these changes.\n\n"
+                    f"Action required (branches are shared):\n"
+                    f"  git checkout {branch}\n"
+                    f"  git pull  # Get this notification\n"
+                    f"  git merge ho-prod\n"
+                    f"  # Resolve conflicts if any\n"
+                    f"  git push\n\n"
+                    f"Status: Action required (merge from ho-prod)"
+                )
+
+                # Create empty commit with notification
                 self._repo.hgit.commit("--allow-empty", "-m", message)
 
                 # Push notification
                 self._repo.hgit.push()
 
-                notified.append(branch)
+                notified_branches.append(branch)
 
             except Exception as e:
-                # Non-blocking: log warning and continue
-                print(
-                    f"⚠️  Warning: Failed to notify {branch}: {e}",
-                    file=sys.stderr
-                )
+                # Non-blocking: continue with other branches
+                print(f"Warning: Failed to notify {branch}: {e}")
                 continue
 
         # Return to original branch
-        try:
-            self._repo.hgit.checkout(current_branch)
-        except Exception:
-            pass  # Best effort
+        self._repo.hgit.checkout(current_branch)
 
-        return notified
-
+        return notified_branches
 
     def _run_validation_tests(self) -> None:
         """
@@ -1288,140 +1303,79 @@ class ReleaseManager:
                 f"Failed to update stage file {stage_file}: {e}"
             )
 
-    def promote_to_rc(self) -> dict:
+    def _promote_release(self, target: str) -> dict:
         """
-        Promote stage release to release candidate with code merge and branch cleanup.
+        Unified promotion workflow for RC and production releases.
 
-        Promotes the smallest stage release to RC (rc1, rc2, etc.), merges all
-        archived patch code into ho-prod, and deletes patch branches. Enforces
-        single active RC rule (only one version level can be in RC at a time).
+        Handles promotion of stage releases to either RC or production with
+        shared logic for validations, lock management, code merging, branch
+        cleanup, and notifications. Target-specific operations (RC numbering,
+        schema generation) are conditionally executed.
 
-        Complete workflow:
-        1. Pre-lock validations (on ho-prod, clean, stage exists)
-        2. Detect smallest stage release to promote
-        3. Validate single active RC rule (no other version in RC)
-        4. ACQUIRE DISTRIBUTED LOCK on ho-prod (atomic via Git tag)
-        5. Fetch from origin and sync (pull if behind)
-        6. Determine RC number (rc1, rc2, rc3, etc.)
-        7. Rename stage file to RC file (git mv)
-        8. Merge ALL archived patches code into ho-prod (ho-release/X.Y.Z/*)
-        9. Commit: "Promote X.Y.Z-stage to X.Y.Z-rcN"
-        10. Push ho-prod to origin
-        11. Send rebase notifications to active patch branches
-        12. Cleanup patch branches (delete local + remote)
-        13. Release lock (in finally block, always executed)
-
-        Single Active RC Rule:
-        - Only ONE version level can be in RC at a time
-        - RC must be deployed to production before promoting other versions
-        - Exception: Same version can have multiple RCs (rc1, rc2, rc3)
-
-        Examples:
-            Production: 1.3.4
-            Stages: 1.3.5-stage, 1.4.0-stage, 2.0.0-stage
-
-            # Promote smallest stage
-            result = mgr.promote_to_rc()
-            # → Promotes 1.3.5-stage → 1.3.5-rc1
-            # → Merges code from ho-release/1.3.5/* into ho-prod
-            # → Deletes all ho-patch/* branches listed in 1.3.5-stage
-            # → 1.4.0 and 2.0.0 blocked until 1.3.5 in production
-
-            Production: 1.3.4
-            RC: 1.3.5-rc1 (in validation)
-            Stages: 1.3.5-stage (fixes), 1.4.0-stage
-
-            # Promote same version stage (fixes for RC)
-            result = mgr.promote_to_rc()
-            # → Promotes 1.3.5-stage → 1.3.5-rc2
-            # → Same version as existing RC = allowed
-
-            # Cannot promote different version
-            Production: 1.3.4
-            RC: 1.3.5-rc1
-            Stages: 1.4.0-stage (smallest stage)
-
-            result = mgr.promote_to_rc()
-            # → Error: "Cannot promote 1.4.0, RC 1.3.5-rc1 must be deployed first"
-
-        Code Lifecycle:
-            Stage (mutable): ho-prod = metadata only (releases/*.txt)
-
-            promote-to-rc: CODE MERGE HAPPENS HERE
-            - Merges ho-release/X.Y.Z/* → ho-prod
-            - All patches from stage now in ho-prod
-            - Branches deleted (ho-patch/*)
-
-            RC/Production (immutable): ho-prod = metadata + code
+        Args:
+            target: Either 'rc' or 'prod'
+                - 'rc': Promotes stage to RC (rc1, rc2, etc.)
+                - 'prod': Promotes stage (or empty) to production
 
         Returns:
-            {
-                'status': 'success',
-                'version': str,              # "1.3.5"
-                'from_file': str,            # "1.3.5-stage.txt"
-                'to_file': str,              # "1.3.5-rc1.txt"
-                'rc_number': int,            # 1 (or 2, 3, etc.)
-                'patches_merged': List[str], # ["456-user-auth", "789-security"]
-                'branches_deleted': List[str], # ["ho-patch/456-user-auth", ...]
-                'commit_sha': str,           # SHA of promotion commit
-                'notifications_sent': List[str], # Active branches notified
-                'code_merged': bool,         # True (code now in ho-prod)
-                'lock_tag': str              # "lock-ho-prod-1704123456789"
-            }
+            dict: Promotion result with target-specific fields
+
+            Common fields:
+                'status': 'success'
+                'version': str (e.g., "1.3.5")
+                'from_file': str or None (source filename)
+                'to_file': str (target filename)
+                'patches_merged': List[str] (merged patch IDs)
+                'branches_deleted': List[str] (deleted branch names)
+                'commit_sha': str
+                'notifications_sent': List[str] (notified branches)
+                'lock_tag': str
+
+            RC-specific fields (target='rc'):
+                'rc_number': int (e.g., 1, 2, 3)
+                'code_merged': bool (always True)
+
+            Production-specific fields (target='prod'):
+                'patches_applied': List[str] (all patches applied to DB)
+                'schema_file': Path (model/schema-X.Y.Z.sql)
+                'metadata_file': Path (model/metadata-X.Y.Z.sql)
 
         Raises:
-            ReleaseManagerError: If validations fail:
-                - Not on ho-prod branch
-                - Repository not clean
-                - No stage releases found
-                - Different version RC exists (single active rule)
-                - Lock acquisition failed (another process holds lock)
-                - ho-prod diverged from origin
-                - Merge conflicts during code integration
-                - Branch deletion failed
-                - Push failed
+            ReleaseManagerError: For validation failures, lock errors, etc.
+            ValueError: If target is not 'rc' or 'prod'
 
-            Note: Lock is ALWAYS released in finally block, even on error
+        Workflow:
+            1. Pre-lock validations (ho-prod branch, clean repo)
+            2. Detect source and target (version-specific logic)
+            3. ACQUIRE DISTRIBUTED LOCK (30min timeout)
+            4. Fetch + sync with origin
+            5. [PROD ONLY] Restore DB and apply all patches
+            6. Merge archived patch code to ho-prod
+            7. Create target release file (mv or create)
+            8. [PROD ONLY] Generate schema + metadata + symlink
+            9. Commit + push
+            10. Send rebase notifications
+            11. Cleanup patch branches
+            12. RELEASE LOCK (always, even on error)
 
         Examples:
-            # Successful promotion
-            result = mgr.promote_to_rc()
-            print(f"Promoted {result['from_file']} → {result['to_file']}")
-            print(f"Merged {len(result['patches_merged'])} patches into ho-prod")
-            print(f"Deleted {len(result['branches_deleted'])} branches")
-            print(f"Lock: {result['lock_tag']}")
+            # Promote to RC
+            result = mgr._promote_release(target='rc')
+            # → Creates X.Y.Z-rc2.txt from X.Y.Z-stage.txt
+            # → Merges code, cleans branches, sends notifications
 
-            # Error handling
-            try:
-                result = mgr.promote_to_rc()
-            except ReleaseManagerError as e:
-                if "Lock held by another process" in str(e):
-                    print("Another operation in progress, retry later")
-                elif "RC" in str(e) and "must be deployed" in str(e):
-                    print("Another version in RC, deploy it first")
-                elif "No stage releases" in str(e):
-                    print("Create a stage release first")
-                elif "diverged" in str(e):
-                    print("Resolve ho-prod divergence manually")
-
-        Distributed Lock:
-            - Lock tag format: lock-ho-prod-{timestamp_ms}
-            - Example: lock-ho-prod-1704123456789
-            - Timeout: 30 minutes (stale lock detection)
-            - Scope: Blocks ALL operations on ho-prod
-            - Released: Always in finally block (even on error)
-
-            Concurrent operations blocked:
-            - add-to-release (requires ho-prod lock)
-            - promote-to-rc (requires ho-prod lock)
-            - Any direct commits to ho-prod
-
-            Operations still allowed:
-            - Work on ho-patch/* branches
-            - Local commits on patch branches
-            - Push to ho-patch/* remotes
+            # Promote to production
+            result = mgr._promote_release(target='prod')
+            # → Creates X.Y.Z.txt from X.Y.Z-stage.txt (or empty)
+            # → Applies all patches to DB
+            # → Generates schema-X.Y.Z.sql + metadata-X.Y.Z.sql
+            # → Merges code, cleans branches, sends notifications
         """
-        # 1. Pre-lock validations (fail fast without acquiring lock)
+        # Validate target parameter
+        if target not in ('alpha', 'beta', 'rc', 'prod'):
+            raise ValueError(f"Invalid target: {target}. Must be in ['alpha', 'beta', 'rc', 'prod']")
+
+        # 1. Pre-lock validations (common)
         if self._repo.hgit.branch != "ho-prod":
             raise ReleaseManagerError(
                 "Must be on ho-prod branch to promote release. "
@@ -1434,24 +1388,37 @@ class ReleaseManager:
                 "Commit or stash changes before promoting."
             )
 
-        # 2. Detect smallest stage release to promote
-        version, stage_file = self._detect_stage_to_promote()
+        # 2. Detect source and target (target-specific)
+        if target != 'prod':
+            # RC: stage required, validate single active RC rule
+            version, stage_file = self._detect_stage_to_promote()
+            self._validate_single_active_rc(version)
+            rc_number = self._determine_rc_number(version)
+            target_file = f"{version}-{target}{rc_number}.txt"
+            source_type = 'stage'
+        else:  # target == 'prod'
+            # Production: stage optional, sequential version
+            version = self._get_next_production_version()
+            stage_path = self._releases_dir / f"{version}-stage.txt"
+            if stage_path.exists():
+                stage_file = f"{version}-stage.txt"
+                source_type = 'stage'
+            else:
+                stage_file = None
+                source_type = 'empty'
+            target_file = f"{version}.txt"
 
-        # 3. Validate single active RC rule
-        self._validate_single_active_rc(version)
-
-        # 4. Acquire distributed lock
+        # 3. Acquire distributed lock
         lock_tag = None
         try:
             lock_tag = self._repo.hgit.acquire_branch_lock("ho-prod", timeout_minutes=30)
 
-            # 5. Fetch from origin and sync
+            # 4. Fetch from origin and sync
             self._repo.hgit.fetch_from_origin()
 
             is_synced, sync_status = self._repo.hgit.is_branch_synced("ho-prod")
             if not is_synced:
                 if sync_status == "behind":
-                    # Pull if behind
                     self._repo.hgit.pull()
                 elif sync_status == "diverged":
                     raise ReleaseManagerError(
@@ -1459,33 +1426,58 @@ class ReleaseManager:
                         "Resolve conflicts manually: git pull origin ho-prod"
                     )
 
-            # 6. Determine RC number
-            rc_number = self._determine_rc_number(version)
-            rc_file = f"{version}-rc{rc_number}.txt"
+            # 5. Apply patches to database (prod only)
+            patches_applied = []
+            if target == 'prod':
+                patches_applied = self._restore_and_apply_all_patches(version)
 
-            # 7. Merge archived patches code into ho-prod
-            patches_merged = self._merge_archived_patches_to_ho_prod(version, stage_file)
+            # 6. Merge archived patches code into ho-prod (common)
+            if stage_file:
+                patches_merged = self._merge_archived_patches_to_ho_prod(version, stage_file)
+            else:
+                patches_merged = []
 
-            # 8. Rename stage file to RC file (git mv)
-            stage_path = self._releases_dir / stage_file
-            rc_path = self._releases_dir / rc_file
+            # 7. Create target release file
+            stage_path = self._releases_dir / stage_file if stage_file else None
+            target_path = self._releases_dir / target_file
 
-            result = subprocess.run(
-                ["git", "mv", str(stage_path), str(rc_path)],
-                cwd=self._repo.base_dir,
-                capture_output=True,
-                text=True
-            )
-            if result.returncode != 0:
-                raise ReleaseManagerError(
-                    f"Unable to rename release file:\n"
-                    f"{result.stdout}\n"
-                    f"{result.stderr}"
+            if stage_file:
+                # Rename stage to target (git mv)
+                result = subprocess.run(
+                    ["git", "mv", str(stage_path), str(target_path)],
+                    cwd=self._repo.base_dir,
+                    capture_output=True,
+                    text=True
                 )
+                if result.returncode != 0:
+                    raise ReleaseManagerError(
+                        f"Unable to rename release file:\n"
+                        f"{result.stdout}\n{result.stderr}"
+                    )
+            else:
+                # Create empty production file (prod only)
+                target_path.touch()
+                self._repo.hgit.add(str(target_path))
+
+            # 8. Generate schema and metadata (prod only)
+            schema_info = {}
+            if target == 'prod':
+                schema_info = self._generate_schema_and_metadata(version)
+                # Add generated files to commit
+                self._repo.hgit.add(str(schema_info['schema_file']))
+                self._repo.hgit.add(str(schema_info['metadata_file']))
+                self._repo.hgit.add(str(self._repo.base_dir / "model" / "schema.sql"))
 
             # 9. Commit promotion
-            commit_message = f"Promote {version}-stage to {version}-rc{rc_number}"
-            self._repo.hgit.add(str(rc_path))
+            if target != 'prod':
+                commit_message = f"Promote {version}-stage to {version}-rc{rc_number}"
+            else:  # prod
+                if source_type == 'stage':
+                    commit_message = f"Promote {version}-stage to production release {version}"
+                else:
+                    commit_message = f"Create production release {version} (empty)"
+
+            self._repo.hgit.add(str(target_path))
             self._repo.hgit.commit("-m", commit_message)
             commit_sha = self._repo.hgit.last_commit()
 
@@ -1493,30 +1485,196 @@ class ReleaseManager:
             self._repo.hgit.push()
 
             # 11. Send rebase notifications to active branches
-            notifications_sent = self._send_rebase_notifications(version, rc_number)
+            if target != 'prod':
+                notifications_sent = self._send_rebase_notifications(version, target, rc_number=rc_number)
+            else:  # prod
+                notifications_sent = self._send_rebase_notifications(version, target)
 
             # 12. Cleanup patch branches
-            branches_deleted = self._cleanup_patch_branches(version, stage_file)
+            if stage_file:
+                branches_deleted = self._cleanup_patch_branches(version, stage_file)
+            else:
+                branches_deleted = []
 
-            # Return success result
-            return {
+            # Build result dict (common fields)
+            result = {
                 'status': 'success',
                 'version': version,
                 'from_file': stage_file,
-                'to_file': rc_file,
-                'rc_number': rc_number,
+                'to_file': target_file,
                 'patches_merged': patches_merged,
                 'branches_deleted': branches_deleted,
                 'commit_sha': commit_sha,
                 'notifications_sent': notifications_sent,
-                'code_merged': True,
                 'lock_tag': lock_tag
             }
+
+            # Add target-specific fields
+            if target != 'prod':
+                result['rc_number'] = rc_number
+                result['code_merged'] = True
+            else:  # prod
+                result['source_type'] = source_type
+                result['patches_applied'] = patches_applied
+                result.update(schema_info)
+
+            return result
 
         finally:
             # 13. Always release lock (even on error)
             if lock_tag:
                 self._repo.hgit.release_branch_lock(lock_tag)
+
+    def promote_to_rc(self) -> dict:
+        """
+        Promote stage release to release candidate.
+
+        Wrapper around _promote_release() for backward compatibility.
+        Delegates to unified promotion logic with target='rc'.
+
+        See _promote_release() documentation for complete workflow details.
+
+        Returns:
+            dict: Promotion result (see _promote_release for structure)
+
+        Examples:
+            # Promote smallest stage to RC
+            result = mgr.promote_to_rc()
+            # → Delegates to _promote_release(target='rc')
+        """
+        return self._promote_release(target='rc')
+
+
+    def promote_to_prod(self) -> dict:
+        """
+        Promote stage or empty release to production.
+
+        Wrapper around _promote_release() for production deployments.
+        Delegates to unified promotion logic with target='prod'.
+
+        Unlike promote_to_rc, this method:
+        - Allows empty release (no stage file)
+        - Applies all patches to database
+        - Generates schema and metadata dumps
+        - Updates schema.sql symlink
+
+        See _promote_release() documentation for complete workflow details.
+
+        Returns:
+            dict: Promotion result (see _promote_release for structure)
+
+        Examples:
+            # Promote stage to production
+            result = mgr.promote_to_prod()
+            # → Delegates to _promote_release(target='prod')
+            # → Applies all patches, generates schema-X.Y.Z.sql
+        """
+        return self._promote_release(target='prod')
+
+
+    def _get_next_production_version(self) -> str:
+        """
+        Get next sequential production version.
+
+        Calculates the next patch version after current production.
+        Used by promote-to-prod to determine target version.
+
+        Returns:
+            str: Next version (e.g., "1.3.5" if current is "1.3.4")
+
+        Raises:
+            ReleaseManagerError: If cannot determine production version
+
+        Examples:
+            # Current production: 1.3.4
+            next_ver = mgr._get_next_production_version()
+            # → "1.3.5"
+        """
+        current_prod = self._get_production_version()
+
+        # Parse and increment patch version
+        current_version = self.parse_version_from_filename(f"{current_prod}.txt")
+        next_version = self.calculate_next_version(current_version, 'patch')
+
+        return next_version
+
+
+    def _restore_and_apply_all_patches(self, version: str) -> List[str]:
+        """
+        Restore database and apply all patches sequentially.
+
+        Used by promote-to-prod to prepare database before schema dump.
+        Restores DB from current schema.sql, then applies all patches
+        from RC files and stage file in order.
+
+        Args:
+            version: Target version (e.g., "1.3.5")
+
+        Returns:
+            List[str]: Patch IDs applied (in order)
+
+        Examples:
+            # Files: 1.3.5-rc1.txt [10], 1.3.5-rc2.txt [42, 12], 1.3.5-stage.txt [18]
+            patches = mgr._restore_and_apply_all_patches("1.3.5")
+            # → Returns ["10", "42", "12", "18"]
+            # → Database now at state with all patches applied
+        """
+        # 1. Restore database to current production state
+        self._repo.patch_manager.restore_database_from_schema()
+
+        # 2. Get all patches for this version (RC1 + RC2 + ... + stage)
+        all_patches = self.get_all_release_context_patches()
+
+        # 3. Apply each patch sequentially
+        for patch_id in all_patches:
+            self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
+
+        return all_patches
+
+
+    def _generate_schema_and_metadata(self, version: str) -> dict:
+        """
+        Generate schema and metadata dumps, update symlink.
+
+        Generates schema-X.Y.Z.sql and metadata-X.Y.Z.sql files via pg_dump,
+        then updates schema.sql symlink to point to new version.
+
+        Args:
+            version: Version string (e.g., "1.3.5")
+
+        Returns:
+            dict: Generated file paths
+                'schema_file': Path to schema-X.Y.Z.sql
+                'metadata_file': Path to metadata-X.Y.Z.sql
+
+        Raises:
+            Exception: If pg_dump fails or file operations fail
+
+        Examples:
+            info = mgr._generate_schema_and_metadata("1.3.5")
+            # → Creates model/schema-1.3.5.sql
+            # → Creates model/metadata-1.3.5.sql
+            # → Updates model/schema.sql → schema-1.3.5.sql
+            # → Returns {'schema_file': Path(...), 'metadata_file': Path(...)}
+        """
+        from half_orm_dev.database import Database
+
+        model_dir = Path(self._repo.base_dir) / "model"
+
+        # Database._generate_schema_sql() creates both schema and metadata
+        schema_file = Database._generate_schema_sql(
+            self._repo.database,
+            version,
+            model_dir
+        )
+
+        metadata_file = model_dir / f"metadata-{version}.sql"
+
+        return {
+            'schema_file': schema_file,
+            'metadata_file': metadata_file
+        }
+
 
     def _detect_stage_to_promote(self) -> Tuple[str, str]:
         """
@@ -1701,7 +1859,7 @@ class ReleaseManager:
 
         THIS IS WHERE CODE ENTERS HO-PROD. During add-to-release, patches
         are archived to ho-release/X.Y.Z/patch-id but code stays separate.
-        At promote-to-rc, all archived patches are merged into ho-prod.
+        At _promote_release, all archived patches are merged into ho-prod.
 
         Algorithm:
         1. Read patch list from stage file (e.g., releases/1.3.5-stage.txt)
@@ -1792,7 +1950,7 @@ class ReleaseManager:
         Delete all patch branches listed in stage file.
 
         Reads patch list from stage file and deletes both local and remote
-        branches. This is automatic cleanup at promote-to-rc to maintain
+        branches. This is automatic cleanup at _promote_release to maintain
         clean repository state. Branches are ho-patch/* format.
 
         Algorithm:
@@ -1874,120 +2032,6 @@ class ReleaseManager:
 
         return deleted_branches
 
-    def _send_rebase_notifications(self, version: str, rc_number: int) -> List[str]:
-        """
-        Send rebase notifications to all active patch branches.
-
-        After code is merged to ho-prod at promote-to-rc, active development
-        branches must rebase to include the changes. This sends notifications
-        (empty commits) to all ho-patch/* branches.
-
-        Different from add-to-release notifications:
-        - add-to-release: "Informational" (code not in ho-prod yet)
-        - promote-to-rc: "REBASE REQUIRED" (code now in ho-prod)
-
-        Algorithm:
-        1. List all active ho-patch/* branches (on remote)
-        2. For each active branch:
-           - Checkout branch
-           - Create empty commit with rebase notification message
-           - Push to remote
-        3. Return to ho-prod
-        4. Return list of notified branches
-
-        Args:
-            version: Version string (e.g., "1.3.5")
-            rc_number: RC number (e.g., 1, 2, 3)
-
-        Returns:
-            List of notified branch names
-
-        Examples:
-            # Notifications sent
-            Active branches: ho-patch/999-reports, ho-patch/888-api
-
-            notified = mgr._send_rebase_notifications("1.3.5", 1)
-            # → ["ho-patch/999-reports", "ho-patch/888-api"]
-            # → Both branches receive rebase notification commit
-
-            # No active branches
-            No ho-patch/* branches exist
-
-            notified = mgr._send_rebase_notifications("1.3.5", 1)
-            # → [] (no branches to notify)
-
-        Notification message format:
-            [ho] Resync notification: 1.3.5-rc1 promoted (REBASE REQUIRED)
-
-            Version 1.3.5-rc1 has been promoted and code merged to ho-prod.
-            Active patch branches MUST rebase to include these changes.
-
-            To rebase:
-              git checkout <your-patch-branch>
-              git rebase ho-prod
-              git push --force-with-lease
-
-            Patches merged: 456-user-auth, 789-security
-            Status: ACTION REQUIRED (code now in ho-prod)
-        """
-        # Get all remote branches
-        remote_branches = self._repo.hgit.get_remote_branches()
-
-        # Filter for active ho-patch/* branches
-        active_patch_branches = []
-        for branch in remote_branches:
-            # Strip 'origin/' prefix if present
-            branch_name = branch.replace("origin/", "")
-
-            # Only include ho-patch/* branches
-            if branch_name.startswith("ho-patch/"):
-                active_patch_branches.append(branch_name)
-
-        if not active_patch_branches:
-            # No active branches to notify
-            return []
-
-        notified_branches = []
-
-        # Create notification message
-        rc_version = f"{version}-rc{rc_number}"
-        message = (
-            f"[ho] Resync notification: {rc_version} promoted (REBASE REQUIRED)\n\n"
-            f"Version {rc_version} has been promoted and code merged to ho-prod.\n"
-            f"Active patch branches MUST rebase to include these changes.\n\n"
-            f"To rebase:\n"
-            f"  git checkout <your-patch-branch>\n"
-            f"  git rebase ho-prod\n"
-            f"  git push --force-with-lease\n\n"
-            f"Status: ACTION REQUIRED (code now in ho-prod)"
-        )
-
-        # Send notifications to each active branch
-        for branch_name in active_patch_branches:
-            try:
-                # Checkout branch
-                self._repo.hgit.checkout(branch_name)
-
-                # Create empty commit with notification
-                self._repo.hgit.commit(message=message, allow_empty=True)
-
-                # Push to remote
-                self._repo.hgit.push()
-
-                # Add to notified list
-                notified_branches.append(branch_name)
-
-            except GitCommandError as e:
-                # Best effort: continue even if notification fails
-                # (branch might have been deleted, or push failed)
-                notified_branches.append(branch_name)
-                continue
-
-        # Return to ho-prod
-        self._repo.hgit.checkout("ho-prod")
-
-        return notified_branches
-
     def _ensure_patch_branch_synced(self, patch_id: str) -> dict:
         """
         Ensure patch branch is synced with ho-prod before integration.
@@ -2001,7 +2045,7 @@ class ReleaseManager:
 
         Simple merge strategy: ho-prod is merged INTO the patch branch using
         standard git merge. No fast-forward or rebase needed since full commit
-        history is preserved during promote-to-rc (no squash).
+        history is preserved during _promote_release (no squash).
 
         Sync Strategy:
             1. Check if already synced → return immediately
@@ -2009,7 +2053,7 @@ class ReleaseManager:
             3. If merge conflicts, block for manual resolution
 
         This simple approach is appropriate because:
-        - Full history is preserved at promote-to-rc (no squash)
+        - Full history is preserved at _promote_release (no squash)
         - Merge commits in patch branches are acceptable
         - Individual commit history matters for traceability
 

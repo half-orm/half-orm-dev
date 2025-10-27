@@ -71,9 +71,6 @@ def add_to_release(patch_id: str, to_version: Optional[str] = None) -> None:
         click.echo(f"✓ Committed to ho-prod: {result['commit_sha'][:8]}")
         click.echo(f"✓ Branch archived: {result['archived_branch']}")
 
-        if result['notifications_sent']:
-            click.echo(f"✓ Notified {len(result['notifications_sent'])} active patch branches")
-
         click.echo()
         click.echo(f"📦 Release {result['target_version']}-stage now contains:")
         for patch in result['patches_in_release']:
