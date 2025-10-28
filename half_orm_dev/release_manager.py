@@ -1401,7 +1401,7 @@ class ReleaseManager:
         else:  # target == 'prod'
             # Production: stage optional, sequential version
             version = self._get_next_production_version()
-            stage_path = self._releases_dir / f"{version}-stage.txt"
+            stage_path = Path(self._releases_dir) / f"{version}-stage.txt"
             if stage_path.exists():
                 stage_file = f"{version}-stage.txt"
                 source_type = 'stage'
@@ -1458,7 +1458,7 @@ class ReleaseManager:
                 # Add generated files to commit
                 self._repo.hgit.add(str(schema_info['schema_file']))
                 self._repo.hgit.add(str(schema_info['metadata_file']))
-                self._repo.hgit.add(str(self._repo.base_dir / "model" / "schema.sql"))
+                self._repo.hgit.add(str(self._repo.base_dir / Path("model") / "schema.sql"))
 
             # 9. Commit promotion
             if target != 'prod':

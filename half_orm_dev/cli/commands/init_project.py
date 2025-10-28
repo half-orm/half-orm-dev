@@ -106,10 +106,6 @@ def init_project(package_name, git_origin):
     except FileExistsError as e:
         # Directory already exists (should be caught above, but defensive)
         raise click.ClickException(str(e))
-    except Exception as e:
-        # Unexpected errors
-        click.echo(f"\n❌ Error during project initialization: {e}", err=True)
-        raise
 
 
 def _prompt_for_git_origin():

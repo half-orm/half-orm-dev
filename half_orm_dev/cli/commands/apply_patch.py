@@ -146,5 +146,3 @@ def apply_patch() -> None:
 
     except PatchManagerError as e:
         raise click.ClickException(str(e))
-    except Exception as e:
-        raise click.ClickException(f"Unexpected error: {e}")

@@ -63,5 +63,3 @@ def create_patch(patch_id: str, description: Optional[str] = None) -> None:
 
     except PatchManagerError as e:
         raise click.ClickException(str(e))
-    except Exception as e:
-        raise click.ClickException(f"Unexpected error: {e}")

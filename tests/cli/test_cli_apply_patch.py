@@ -171,19 +171,6 @@ class TestApplyPatchCLI:
             assert result.exit_code != 0
             assert 'Database restoration failed' in result.output or 'schema.sql' in result.output
 
-    def test_apply_patch_unexpected_error(self, cli_runner, mock_repo_on_patch_branch):
-        """Test error handling for unexpected exceptions."""
-        with mock_repo_on_patch_branch() as (mock_repo, mock_hgit, mock_patch_mgr):
-            # Mock workflow to raise unexpected error
-            mock_patch_mgr.apply_patch_complete_workflow.side_effect = Exception(
-                "Unexpected database error"
-            )
-
-            result = cli_runner.invoke(apply_patch, [])
-
-            assert result.exit_code != 0
-            assert 'Unexpected' in result.output or 'error' in result.output.lower()
-
     def test_apply_patch_empty_patch(self, cli_runner, mock_repo_on_patch_branch):
         """Test successful run with empty patch (no files applied)."""
         with mock_repo_on_patch_branch() as (mock_repo, mock_hgit, mock_patch_mgr):

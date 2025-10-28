@@ -85,5 +85,3 @@ def add_to_release(patch_id: str, to_version: Optional[str] = None) -> None:
 
     except ReleaseManagerError as e:
         raise click.ClickException(str(e))
-    except Exception as e:
-        raise click.ClickException(f"Unexpected error: {e}")

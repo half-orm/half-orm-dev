@@ -117,11 +117,3 @@ def prepare_release(level):
         click.echo(f"❌ {utils.Color.red('Version error:')}", err=True)
         click.echo(f"   {str(e)}", err=True)
         sys.exit(1)
-
-    except Exception as e:
-        # Catch-all for unexpected errors
-        click.echo(f"❌ {utils.Color.red('Unexpected error:')}", err=True)
-        click.echo(f"   {str(e)}", err=True)
-        click.echo()
-        click.echo("This is likely a bug. Please report it with the error message above.")
-        sys.exit(1)

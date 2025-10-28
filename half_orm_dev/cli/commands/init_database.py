@@ -66,5 +66,3 @@ def init_database(database_name, host, port, user, password, create_db, add_meta
 
     except DatabaseSetupError as e:
         utils.error(f"Database setup failed: {e}", exit_code=1)
-    except Exception as e:
-        utils.error(f"Unexpected error: {e}", exit_code=1)

@@ -52,17 +52,18 @@ def promote_to(target: str) -> None:
         repo = Repo()
 
         # Delegate to ReleaseManager
-        click.echo("Promoting stage release to RC...")
+        click.echo(f"Promoting stage release to {target.upper()}...")
         click.echo()
 
-        result = repo.release_manager.promote_to(target)
+        result = repo.release_manager.promote_to(target.lower())
 
         # Display success message
         click.echo(f"✓ {utils.Color.green('Success!')}")
         click.echo()
         click.echo(f"Promoted: {utils.Color.bold(result['from_file'])} → {utils.Color.bold(result['to_file'])}")
         click.echo(f"Version: {utils.Color.bold(result['version'])}")
-        click.echo(f"RC number: {utils.Color.bold(str(result['rc_number']))}")
+        if result.get('rc_number'):
+            click.echo(f"RC number: {utils.Color.bold(str(result['rc_number']))}")
         click.echo()
 
         # Display merged patches
@@ -123,12 +124,4 @@ def promote_to(target: str) -> None:
         elif "diverged" in error_msg:
             click.echo("💡 Resolve ho-prod divergence: git pull origin ho-prod", err=True)
 
-        sys.exit(1)
-
-    except Exception as e:
-        # Catch-all for unexpected errors
-        click.echo(f"❌ {utils.Color.red('Unexpected error:')}", err=True)
-        click.echo(f"   {str(e)}", err=True)
-        click.echo()
-        click.echo("This is likely a bug. Please report it with the error message above.", err=True)
         sys.exit(1)

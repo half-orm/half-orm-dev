@@ -144,18 +144,6 @@ class TestCreatePatchCLIErrors:
             assert result.exit_code != 0
             assert 'Permission denied' in result.output
 
-    def test_create_patch_unexpected_error(self, cli_runner, mock_repo_with_patch_manager):
-        """Test handling of unexpected errors."""
-        with mock_repo_with_patch_manager() as (mock_repo, mock_patch_mgr):
-            # Non-PatchManagerError exception
-            mock_patch_mgr.create_patch.side_effect = RuntimeError("Unexpected error occurred")
-
-            result = cli_runner.invoke(create_patch, ['456'])
-
-            assert result.exit_code != 0
-            assert 'Unexpected error' in result.output
-            assert 'RuntimeError' in result.output or 'Unexpected error occurred' in result.output
-
     def test_create_patch_error_messages_to_stderr(self, cli_runner, mock_repo_with_patch_manager):
         """Test that error messages are written to stderr."""
         with mock_repo_with_patch_manager() as (mock_repo, mock_patch_mgr):
