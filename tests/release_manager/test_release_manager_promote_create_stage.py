@@ -206,15 +206,11 @@ class TestPromoteCreateStageProd:
         
         # Verify new stage file created
         new_stage_file = releases_dir / "1.3.5-stage.txt"
-        assert new_stage_file.exists(), "New stage file should be created after prod"
-        
-        # Verify stage file is EMPTY
-        content = new_stage_file.read_text()
-        assert content == "", "New stage file must be empty"
+        assert new_stage_file.exists() is False, "New stage file should not be created after prod"
         
         # Verify result includes new_stage_created field
         assert 'new_stage_created' in result
-        assert result['new_stage_created'] == "1.3.5-stage.txt"
+        assert result['new_stage_created'] == None
     
     def test_stage_uses_same_version_as_prod(self, release_manager_basic):
         """Test stage uses same version as production (not next version)."""
@@ -244,17 +240,12 @@ class TestPromoteCreateStageProd:
         # Execute promotion
         result = release_mgr.promote_to('prod')
         
-        # Verify stage has SAME version as prod (1.3.5, not 1.3.6)
-        new_stage_file = releases_dir / "1.3.5-stage.txt"
-        assert new_stage_file.exists(), "Stage should use same version as prod"
-        
         # Verify production file created
         prod_file = releases_dir / "1.3.5.txt"
         assert prod_file.exists(), "Production file should be created"
         
         # Verify result shows same version
         assert result['version'] == "1.3.5"
-        assert result['new_stage_created'] == "1.3.5-stage.txt"
 
 
 class TestPromoteCreateStageWorkflow:

@@ -1472,7 +1472,7 @@ class ReleaseManager:
             # 9. Commit promotion
             if target != 'prod':
                 commit_message = f"Promote {version}-stage to {version}-rc{rc_number}"
-            else:  # prod
+            else:
                 commit_message = f"Promote {version}-stage to production release {version}"
 
             self._repo.hgit.add(str(target_path))
@@ -1482,27 +1482,26 @@ class ReleaseManager:
             # 10. Push to origin
             self._repo.hgit.push()
 
-            # 10.5 Create new empty stage file
-            
-            # Créer nouveau stage de même version (RC ou prod)
-            new_stage_filename = f"{version}-stage.txt"
-            new_stage_path = self._releases_dir / new_stage_filename
-            
-            # Créer fichier stage vide
-            new_stage_path.write_text("")  # Fichier vide (pas de patches)
-            
-            # Add + commit + push (commit séparé pour clarté historique)
-            self._repo.hgit.add(new_stage_path)
-            
-            commit_msg = f"Create new empty stage file for {version}"
-            new_stage_commit_sha = self._repo.hgit.commit('-m', commit_msg)
-            
-            self._repo.hgit.push()
+            # 10.5 Create new empty stage file ONLY for RC promotion
+            new_stage_filename = None
+            new_stage_commit_sha = None
+
+            if target != 'prod':
+                # Pour RC : on peut continuer à travailler sur la même version (rc2, rc3...)
+                new_stage_filename = f"{version}-stage.txt"
+                new_stage_path = self._releases_dir / new_stage_filename
+                new_stage_path.write_text("")
+
+                # Add + commit + push
+                self._repo.hgit.add(new_stage_path)
+                commit_msg = f"Create new empty stage file for {version}"
+                new_stage_commit_sha = self._repo.hgit.commit('-m', commit_msg)
+                self._repo.hgit.push()
 
             # 11. Send rebase notifications to active branches
             if target != 'prod':
                 notifications_sent = self._send_rebase_notifications(version, target, rc_number=rc_number)
-            else:  # prod
+            else:
                 notifications_sent = self._send_rebase_notifications(version, target)
 
             # 12. Cleanup patch branches
@@ -1529,7 +1528,7 @@ class ReleaseManager:
             if target != 'prod':
                 result['rc_number'] = rc_number
                 result['code_merged'] = True
-            else:  # prod
+            else:
                 result['source_type'] = source_type
                 result['patches_applied'] = patches_applied
                 result.update(schema_info)
