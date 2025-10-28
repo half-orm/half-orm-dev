@@ -1023,6 +1023,15 @@ class ReleaseManager:
         # Find all stage files
         stage_files = list(self._releases_dir.glob("*-stage.txt"))
 
+        # Multiple stages: require explicit version
+        if len(stage_files) > 1 and not to_version:
+            versions = sorted([str(self.parse_version_from_filename(f.name)).replace('-stage', '') for f in stage_files])
+            err_msg = "\n".join([f"Multiple stage releases found: {', '.join(versions)}",
+                f"Specify target version:",
+                f"  half_orm dev promote-to rc --to-version=<version>"])
+            raise ReleaseManagerError(err_msg)
+
+
         # If explicit version provided
         if to_version:
             stage_file = self._releases_dir / f"{to_version}-stage.txt"
