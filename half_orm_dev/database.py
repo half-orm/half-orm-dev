@@ -13,6 +13,8 @@ from half_orm.model_errors import UnknownRelation
 from half_orm import utils
 from .utils import HOP_PATH
 
+class DatabaseError(Exception):
+    pass
 
 class Database:
     """Reads and writes the halfORM connection file
@@ -122,7 +124,7 @@ class Database:
             *command_args
         )
 
-    def register_release(self, major, minor, patch, changelog):
+    def register_release(self, major, minor, patch, changelog=None):
         "Register the release into half_orm_meta.hop_release"
         return self.__model.get_relation_class('half_orm_meta.hop_release')(
             major=major, minor=minor, patch=patch, changelog=changelog
@@ -856,3 +858,44 @@ class Database:
         # Cache the result for subsequent calls
         self.__connection_params_cache = config
         return config
+
+    def get_postgres_version(self) -> tuple:
+        """
+        Get PostgreSQL server version.
+        
+        Returns:
+            tuple: (major, minor) version numbers
+                Examples: (13, 4), (16, 1), (17, 0)
+                
+        Raises:
+            DatabaseError: If version cannot be determined
+            
+        Examples:
+            version = db.get_postgres_version()
+            if version >= (13, 0):
+                # Use --force flag for dropdb
+                pass
+        """
+        try:
+            result = self._execute_pg_command(
+                self.__name,
+                self._get_connection_params(),
+                *['psql', '-d', 'postgres', '-t', '-A', '-c', 'SHOW server_version;'],
+            )
+            
+            # Output format: "16.1 (Ubuntu 16.1-1.pgdg22.04+1)"
+            # Extract version: "16.1"
+            version_str = result.stdout.strip().split()[0]
+            
+            # Parse major.minor
+            parts = version_str.split('.')
+            major = int(parts[0])
+            minor = int(parts[1]) if len(parts) > 1 else 0
+            
+            return (major, minor)
+            
+        except Exception as e:
+            raise DatabaseError(
+                f"Failed to get PostgreSQL version: {e}\n"
+                f"Ensure PostgreSQL is installed and accessible."
+            )

@@ -296,13 +296,7 @@ class ReleaseManager:
         try:
             version_from_db = self._repo.database.last_release_s
             if version_from_file != version_from_db:
-                # Warning but not error (file is source of truth)
-                sys.stderr.write(
-                    f"Warning: Version mismatch detected:\n"
-                    f"  model/schema.sql: {version_from_file}\n"
-                    f"  Database metadata: {version_from_db}\n"
-                    f"Using file version as source of truth.\n"
-                )
+                self._repo.restore_database_from_schema()
         except Exception:
             # Database not accessible or no metadata: OK, continue
             pass
@@ -1354,6 +1348,7 @@ class ReleaseManager:
             ValueError: If target is not 'rc' or 'prod'
 
         Workflow:
+            0. restore prod database (schema & metadata)
             1. Pre-lock validations (ho-prod branch, clean repo)
             2. Detect source and target (version-specific logic)
             3. ACQUIRE DISTRIBUTED LOCK (30min timeout)
@@ -1386,6 +1381,9 @@ class ReleaseManager:
         if target not in ('alpha', 'beta', 'rc', 'prod'):
             raise ValueError(f"Invalid target: {target}. Must be in ['alpha', 'beta', 'rc', 'prod']")
 
+        # 0. restore database to prod
+        self._repo.restore_database_from_schema()
+
         # 1. Pre-lock validations (common)
         if self._repo.hgit.branch != "ho-prod":
             raise ReleaseManagerError(
@@ -1400,16 +1398,15 @@ class ReleaseManager:
             )
 
         # 2. Detect source and target (target-specific)
+        version, stage_file = self._detect_stage_to_promote()
         if target != 'prod':
             # RC: stage required, validate single active RC rule
-            version, stage_file = self._detect_stage_to_promote()
             self._validate_single_active_rc(version)
             rc_number = self._determine_rc_number(version)
             target_file = f"{version}-{target}{rc_number}.txt"
             source_type = 'stage'
         else:  # target == 'prod'
             # Production: stage optional, sequential version
-            version = self._get_next_production_version()
             stage_path = Path(self._releases_dir) / f"{version}-stage.txt"
             if stage_path.exists():
                 stage_file = f"{version}-stage.txt"
@@ -1559,13 +1556,20 @@ class ReleaseManager:
             next_ver = mgr._get_next_production_version()
             # → "1.3.5"
         """
+        rc_files = list(self._releases_dir.glob("*-rc*.txt"))
+        
+        if rc_files:
+            # Use version from RC (without -rcN suffix)
+            # There should be only one due to single active RC rule
+            rc_file = rc_files[0]
+            version = self.parse_version_from_filename(rc_file.name)
+            return re.sub('-.*', '', str(version))
+        
+        # No RC exists: increment from current production
+        # This handles edge case of direct prod promotion without RC
         current_prod = self._get_production_version()
-
-        # Parse and increment patch version
         current_version = self.parse_version_from_filename(f"{current_prod}.txt")
-        next_version = self.calculate_next_version(current_version, 'patch')
-
-        return next_version
+        return self.calculate_next_version(current_version, 'patch')
 
 
     def _restore_and_apply_all_patches(self, version: str) -> List[str]:
@@ -1589,7 +1593,7 @@ class ReleaseManager:
             # → Database now at state with all patches applied
         """
         # 1. Restore database to current production state
-        self._repo.patch_manager.restore_database_from_schema()
+        self._repo.restore_database_from_schema()
 
         # 2. Get all patches for this version (RC1 + RC2 + ... + stage)
         all_patches = self.get_all_release_context_patches()
@@ -1597,6 +1601,11 @@ class ReleaseManager:
         # 3. Apply each patch sequentially
         for patch_id in all_patches:
             self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
+
+        # 4. Update database version to target production version
+        # CRITICAL: Must be done before generating schema dumps
+        print('XXX ###', version)
+        self._repo.database.register_release(*version.split('.'))
 
         return all_patches
 
@@ -1636,7 +1645,6 @@ class ReleaseManager:
             version,
             model_dir
         )
-
         metadata_file = model_dir / f"metadata-{version}.sql"
 
         return {

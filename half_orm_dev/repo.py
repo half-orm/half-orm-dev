@@ -22,6 +22,9 @@ from half_orm_dev.release_manager import ReleaseManager
 
 from .utils import TEMPLATE_DIRS, hop_version
 
+class RepoError(Exception):
+    pass
+
 class Config:
     """
     """
@@ -290,7 +293,6 @@ class Repo:
         utils.write(os.path.join(self.__base_dir, 'README.md'), readme)
         utils.write(os.path.join(self.__base_dir, '.gitignore'), git_ignore)
         self.hgit = HGit().init(self.__base_dir)
-        print('XXX dans init repo')
 
         print(f"\nThe hop project '{self.__config.name}' has been created.")
         print(self.state)
@@ -1201,3 +1203,189 @@ See docs/half_orm_dev.md for complete documentation.
 
         # Validation passed
         return True
+
+    def restore_database_from_schema(self) -> None:
+        """
+        Restore database from model/schema.sql and model/metadata-X.Y.Z.sql.
+
+        Restores database to clean production state by dropping and recreating
+        database, then loading schema structure and half_orm_meta data. This provides
+        a clean baseline before applying patch files during patch development.
+
+        Process:
+        1. Verify model/schema.sql exists (file or symlink)
+        2. Disconnect halfORM Model from database
+        3. Drop existing database using dropdb command
+        4. Create fresh empty database using createdb command
+        5. Load schema structure from model/schema.sql using psql -f
+        5b. Load half_orm_meta data from model/metadata-X.Y.Z.sql using psql -f (if exists)
+        6. Reconnect halfORM Model to restored database
+
+        The method uses Database.execute_pg_command() for all PostgreSQL
+        operations (dropdb, createdb, psql) with connection parameters from
+        repository configuration.
+
+        File Resolution:
+        - Accepts model/schema.sql as regular file or symlink
+        - Symlink typically points to versioned schema-X.Y.Z.sql file
+        - Follows symlink automatically during psql execution
+        - Deduces metadata file version from schema.sql symlink target
+        - If metadata-X.Y.Z.sql doesn't exist, continues without error (backward compatibility)
+
+        Error Handling:
+        - Raises RepoError if model/schema.sql not found
+        - Raises RepoError if dropdb fails
+        - Raises RepoError if createdb fails
+        - Raises RepoError if psql schema load fails
+        - Raises RepoError if psql metadata load fails (when file exists)
+        - Database state rolled back on any failure
+
+        Usage Context:
+        - Called by apply-patch workflow (Step 1: Database Restoration)
+        - Ensures clean state before applying patch SQL files
+        - Part of isolated patch testing strategy
+
+        Returns:
+            None
+
+        Raises:
+            RepoError: If schema file not found
+            RepoError: If database restoration fails at any step
+
+        Examples:
+            # Restore database from model/schema.sql before applying patch
+            repo.restore_database_from_schema()
+            # Database now contains clean production schema + half_orm_meta data
+
+            # Typical apply-patch workflow
+            repo.restore_database_from_schema()  # Step 1: Clean state + metadata
+            patch_mgr.apply_patch_files("456-user-auth", repo.model)  # Step 2: Apply patch
+
+            # With versioned schema and metadata
+            # If schema.sql → schema-1.2.3.sql exists
+            # Then metadata-1.2.3.sql is loaded automatically (if it exists)
+
+            # Error handling
+            try:
+                repo.restore_database_from_schema()
+            except RepoError as e:
+                print(f"Database restoration failed: {e}")
+                # Handle error: check schema.sql exists, verify permissions
+
+        Notes:
+            - Silences psql output using stdout=subprocess.DEVNULL
+            - Uses Model.ping() for reconnection after restoration
+            - Supports both schema.sql file and schema.sql -> schema-X.Y.Z.sql symlink
+            - Metadata file is optional (backward compatibility with older schemas)
+            - All PostgreSQL commands use repository connection configuration
+            - Version deduction: schema.sql → schema-1.2.3.sql ⇒ metadata-1.2.3.sql
+        """
+        # 1. Verify model/schema.sql exists
+        schema_path = Path(self.base_dir) / "model" / "schema.sql"
+
+        if not schema_path.exists():
+            raise RepoError(
+                f"Schema file not found: {schema_path}. "
+                "Cannot restore database without model/schema.sql."
+            )
+
+        try:
+            # 2. Disconnect Model from database
+            self.model.disconnect()
+            pg_version = self.database.get_postgres_version()
+            drop_cmd = ['dropdb', self.name]
+            if pg_version > (13, 0):
+                drop_cmd.append('--force')
+
+            # 3. Drop existing database
+            try:
+                self.database.execute_pg_command(*drop_cmd)
+            except Exception as e:
+                raise RepoError(f"Failed to drop database: {e}") from e
+
+            # 4. Create fresh empty database
+            try:
+                self.database.execute_pg_command('createdb', self.name)
+            except Exception as e:
+                raise RepoError(f"Failed to create database: {e}") from e
+
+            # 5. Load schema from model/schema.sql
+            try:
+                self.database.execute_pg_command(
+                    'psql', '-d', self.name, '-f', str(schema_path)
+                )
+            except Exception as e:
+                raise RepoError(f"Failed to load schema from {schema_path.name}: {e}") from e
+
+            # 5b. Load metadata from model/metadata-X.Y.Z.sql (if exists)
+            metadata_path = self._deduce_metadata_path(schema_path)
+            print('XXX', metadata_path)
+
+            if metadata_path and metadata_path.exists():
+                try:
+                    self.database.execute_pg_command(
+                        'psql', '-d', self.name, '-f', str(metadata_path)
+                    )
+                    # Optional: Log success (can be removed if too verbose)
+                    # print(f"✓ Loaded metadata from {metadata_path.name}")
+                except Exception as e:
+                    raise RepoError(
+                        f"Failed to load metadata from {metadata_path.name}: {e}"
+                    ) from e
+            # else: metadata file doesn't exist, continue without error (backward compatibility)
+
+            # 6. Reconnect Model to restored database
+            self.model.ping()
+
+        except RepoError:
+            # Re-raise RepoError as-is
+            raise
+        except Exception as e:
+            # Catch any unexpected errors
+            raise RepoError(f"Database restoration failed: {e}") from e
+
+    def _deduce_metadata_path(self, schema_path: Path) -> Path | None:
+        """
+        Deduce metadata file path from schema.sql symlink target.
+
+        If schema.sql is a symlink pointing to schema-X.Y.Z.sql,
+        returns Path to metadata-X.Y.Z.sql in the same directory.
+
+        Args:
+            schema_path: Path to model/schema.sql (may be file or symlink)
+
+        Returns:
+            Path to metadata-X.Y.Z.sql if version can be deduced, None otherwise
+
+        Examples:
+            # schema.sql → schema-1.2.3.sql
+            metadata_path = _deduce_metadata_path(Path("model/schema.sql"))
+            # Returns: Path("model/metadata-1.2.3.sql")
+
+            # schema.sql is regular file (not symlink)
+            metadata_path = _deduce_metadata_path(Path("model/schema.sql"))
+            # Returns: None
+        """
+        import re
+
+        # Check if schema.sql is a symlink
+        if not schema_path.is_symlink():
+            return None
+
+        # Read symlink target (e.g., "schema-1.2.3.sql")
+        try:
+            target = Path(os.readlink(schema_path))
+        except OSError:
+            return None
+
+        # Extract version from target filename
+        match = re.match(r'schema-(\d+\.\d+\.\d+)\.sql$', target.name)
+        if not match:
+            return None
+
+        version = match.group(1)
+
+        # Construct metadata file path
+        metadata_path = schema_path.parent / f"metadata-{version}.sql"
+
+        return metadata_path

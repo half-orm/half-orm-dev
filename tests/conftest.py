@@ -6,8 +6,9 @@ import pytest
 import tempfile
 import shutil
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from half_orm_dev.database import Database
+from half_orm_dev.repo import Repo
 
 
 @pytest.fixture
@@ -49,6 +50,9 @@ def patch_manager(temp_repo):
     from half_orm_dev.patch_manager import PatchManager
 
     repo, temp_dir, patches_dir = temp_repo
+    repo.restore_database_from_schema = Repo.restore_database_from_schema.__get__(repo, type(repo))
+    mock_get_version = Mock(return_value=(16, 1))
+    repo.database.get_postgres_version = mock_get_version
     patch_mgr = PatchManager(repo)
     return patch_mgr, repo, temp_dir, patches_dir
 

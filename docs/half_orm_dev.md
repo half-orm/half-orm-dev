@@ -524,7 +524,7 @@ half_orm dev apply-patch
 5. Create new stage file
 ```
 
-#### On deploy-to-prod
+#### On promote-to prod
 ```bash
 # Updates both sources of truth:
 1. Generate model/schema-X.Y.Z.sql from final database state
