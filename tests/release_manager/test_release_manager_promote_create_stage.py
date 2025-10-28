@@ -174,7 +174,7 @@ class TestPromoteCreateStageRC:
 
 
 class TestPromoteCreateStageProd:
-    """Test automatic stage creation for promote-to-prod."""
+    """Test automatic stage creation for promote-to prod."""
     
     def test_creates_empty_stage_after_prod_promotion(self, release_manager_basic):
         """Test creates empty stage file after successful production promotion."""

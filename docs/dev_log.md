@@ -380,15 +380,15 @@ git tag $LOCK_TAG && git push origin $LOCK_TAG
 17. Release lock (finally)
 
 Note: Le code du patch n'est PAS mergé dans ho-prod à cette étape.
-Le merge du code sera effectué lors du promote-to-rc (release immuable).
+Le merge du code sera effectué lors du promote-to rc (release immuable).
 ```
 
 **3. Gestion du code vs metadata**
 - ✅ **Stage (mutable)** : ho-prod contient SEULEMENT `releases/*.txt` (metadata)
 - ✅ **RC/Production (immuable)** : ho-prod contient code + metadata (merge effectué)
 - ✅ Branche temp-valid = test intégration de TOUS les patches
-- ✅ Code reste dans `ho-release/X.Y.Z/*` jusqu'au promote-to-rc
-- ✅ promote-to-rc déclenche : merge code → ho-prod + notifications rebase
+- ✅ Code reste dans `ho-release/X.Y.Z/*` jusqu'au promote-to rc
+- ✅ promote-to rc déclenche : merge code → ho-prod + notifications rebase
 
 **Cycle de vie du code dans ho-prod :**
 ```bash
@@ -396,7 +396,7 @@ Le merge du code sera effectué lors du promote-to-rc (release immuable).
 releases/1.3.6-stage.txt: "456-user-auth"  # Metadata seulement
 ho-release/1.3.6/456-user-auth             # Code archivé ici
 
-# Phase 2: promote-to-rc (release immuable)
+# Phase 2: promote-to rc (release immuable)
 git mv releases/1.3.6-stage.txt releases/1.3.6-rc1.txt
 git merge ho-release/1.3.6/456-user-auth   # CODE arrive dans ho-prod
 git branch -D ho-patch/*                    # Cleanup branches dev
@@ -558,11 +558,11 @@ half_orm dev add-to-release "456" --to-version="1.3.6"
 - Opérations sur ho-patch/* toujours possibles
 
 **Prochaines étapes :**
-- [ ] Implémentation `promote-to-rc` (promotion stage → rc)
+- [ ] Implémentation `promote-to rc` (promotion stage → rc)
 - [ ] Tests avec vraies bases de données (intégration)
 - [ ] Documentation workflow complet release
 
-### Commande `promote-to-rc`
+### Commande `promote-to rc`
 **Status :** ✅ Fonctionnelle et testée (tests complets)
 
 **Implémentation complète :**
@@ -611,7 +611,7 @@ Les développeurs doivent merger ho-prod dans leurs branches actives.
 
 # Exemple de blocage :
 releases/1.3.5-rc1.txt existe
-$ half_orm dev promote-to-rc  # Voulant promouvoir 1.4.0-stage
+$ half_orm dev promote-to rc  # Voulant promouvoir 1.4.0-stage
 ❌ Error: Active RC exists: 1.3.5-rc1
    Must deploy 1.3.5-rc1 to production before promoting other versions.
 
@@ -637,12 +637,12 @@ releases/1.3.5-stage.txt  → promote → 1.3.5-rc3.txt
 ```bash
 # DIFFÉRENCE CRITIQUE avec add-to-release :
 # add-to-release : metadata seulement (releases/*.txt)
-# promote-to-rc  : metadata + CODE
+# promote-to rc  : metadata + CODE
 
 # Exemple :
 releases/1.3.5-stage.txt contient : 456-user-auth, 789-security
 
-$ half_orm dev promote-to-rc
+$ half_orm dev promote-to rc
 
 # Actions Git effectuées :
 git merge ho-release/1.3.5/456-user-auth  # CODE mergé
@@ -659,11 +659,11 @@ git push
 # Après promotion, branches patch supprimées automatiquement
 # (le code est maintenant dans ho-prod)
 
-# Avant promote-to-rc :
+# Avant promote-to rc :
 ho-patch/456-user-auth ✅ existe
 ho-patch/789-security  ✅ existe
 
-# Après promote-to-rc :
+# Après promote-to rc :
 ho-patch/456-user-auth ❌ supprimée (locale + remote)
 ho-patch/789-security  ❌ supprimée (locale + remote)
 
@@ -793,7 +793,7 @@ Status: Action required (merge from ho-prod)
 **Usage :**
 ```bash
 # Promouvoir le plus petit stage
-half_orm dev promote-to-rc
+half_orm dev promote-to rc
 
 # Output:
 # ✓ Success!
@@ -815,7 +815,7 @@ half_orm dev promote-to-rc
 #
 # 📝 Next steps:
 #   1. Test RC: half_orm dev apply-release 1.3.5-rc1
-#   2. If tests pass: half_orm dev promote-to-prod
+#   2. If tests pass: half_orm dev promote-to prod
 #   3. If issues: Fix patches and create 1.3.5-rc2
 ```
 
@@ -832,7 +832,7 @@ half_orm dev promote-to-rc
 
 **Breaking Changes par rapport à add-to-release :**
 - ✅ `add-to-release` : pas de notifications (test sur branche temp)
-- ✅ `promote-to-rc` : notifications envoyées (code mergé dans ho-prod)
+- ✅ `promote-to rc` : notifications envoyées (code mergé dans ho-prod)
 - ✅ Méthode `_send_resync_notifications()` supprimée
 - ✅ Méthode `_send_rebase_notifications()` avec signature généralisée
 - ✅ Support multi-target WIP : ['alpha', 'beta', 'rc', 'prod']
@@ -844,7 +844,7 @@ half_orm dev promote-to-rc
 
 **Prochaines étapes :**
 - [ ] Finaliser support multi-target (alpha/beta)
-- [ ] Implémentation `promote-to-prod` 
+- [ ] Implémentation `promote-to prod` 
 - [ ] Tests avec vraies bases de données (intégration)
 - [ ] Documentation workflow complet release
 
@@ -854,7 +854,7 @@ half_orm dev promote-to-rc
 
 ### Commandes à implémenter (v0.16.0)
 
-**1. `promote-to-prod`**
+**1. `promote-to prod`**
 - ⏸️ Promotion rc → production
 - ⏸️ Restauration DB et application tous patches
 - ⏸️ Génération schema-X.Y.Z.sql + metadata-X.Y.Z.sql
@@ -862,10 +862,10 @@ half_orm dev promote-to-rc
 - ⏸️ Tests unitaires
 - ⏸️ Support stage vide (production sans patches)
 
-**2. `deploy-to-prod`** (OBSOLÈTE - fonctionnalité intégrée dans promote-to-prod)
+**2. `deploy-to-prod`** (OBSOLÈTE - fonctionnalité intégrée dans promote-to prod)
 - ❌ Cette commande séparée n'est plus nécessaire
-- ✅ Fonctionnalité intégrée directement dans `promote-to-prod`
-- ✅ `promote-to-prod` gère : application patches + génération schema + symlink
+- ✅ Fonctionnalité intégrée directement dans `promote-to prod`
+- ✅ `promote-to prod` gère : application patches + génération schema + symlink
 
 **3. Support multi-target complet** (WIP)
 - ⏸️ Finaliser support alpha/beta dans `promote_to()`
@@ -1118,7 +1118,7 @@ tests/
 
 ---
 
-**Dernière session (2025-10-27) :** Finalisation commande `promote-to-rc` + refactoring notifications
+**Dernière session (2025-10-27) :** Finalisation commande `promote-to rc` + refactoring notifications
 
 **Travaux effectués :**
 
@@ -1129,7 +1129,7 @@ tests/
    - ✅ Simplification implémentation : utilisation directe de `get_remote_branches()`
    - ✅ Amélioration messages notifications avec instructions merge claires
 
-2. **Correction tests promote-to-rc**
+2. **Correction tests promote-to rc**
    - ✅ Adaptation tests aux nouveaux mocks `get_remote_branches()`
    - ✅ Correction assertions sur format de messages (rc1, rc2, etc.)
    - ✅ Gestion erreurs notifications (best effort, continue on failure)
@@ -1142,11 +1142,11 @@ tests/
 
 4. **Architecture améliorée**
    - ✅ Séparation claire : stage mutable (metadata) vs RC immuable (code+metadata)
-   - ✅ Notifications uniquement quand code mergé dans ho-prod (promote-to-rc/prod)
+   - ✅ Notifications uniquement quand code mergé dans ho-prod (promote-to rc/prod)
    - ✅ Code plus simple et maintenable (KISS!)
 
 **État des tests :**
-- ✅ 823 tests passent (release_manager + promote-to-rc)
+- ✅ 823 tests passent (release_manager + promote-to rc)
 - ✅ 0 échecs
 - ✅ 1 skip (attendu)
 
@@ -1155,7 +1155,7 @@ tests/
 - ⏸️ Support alpha/beta dans `promote_to()` validation : à implémenter
 - ⏸️ Documentation : ajout note WIP dans code
 
-**Prochaine session :** Implémentation `promote-to-prod`
+**Prochaine session :** Implémentation `promote-to prod`
 - Restauration DB et application tous patches (rc1 + rc2 + stage)
 - Génération schema-X.Y.Z.sql + metadata-X.Y.Z.sql
 - Mise à jour symlink schema.sql → schema-X.Y.Z.sql

@@ -64,7 +64,7 @@ def prepare_release(level):
     Next steps after prepare-release:
         • Create patches: half_orm dev create-patch <patch_id>
         • Add to release: half_orm dev add-to-release <patch_id>
-        • Promote to RC: half_orm dev promote-to --target=rc
+        • Promote to RC: half_orm dev promote-to rc
     """
     # Normalize level to lowercase
     level = level.lower()
@@ -97,7 +97,7 @@ def prepare_release(level):
         click.echo(f"📝 Next steps:")
         click.echo(f"  1. Create patches: {utils.Color.bold(f'half_orm dev create-patch <patch_id>')}")
         click.echo(f"  2. Add to release: {utils.Color.bold(f'half_orm dev add-to-release <patch_id>')}")
-        click.echo(f"  3. Promote to RC:  {utils.Color.bold('half_orm dev promote-to --target=rc')}")
+        click.echo(f"  3. Promote to RC:  {utils.Color.bold('half_orm dev promote-to rc')}")
         click.echo()
 
     except ReleaseManagerError as e:

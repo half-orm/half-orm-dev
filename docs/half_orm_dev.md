@@ -87,7 +87,7 @@ Legend:
 ● = Applied release in production
 ─ = Patch development from ho-prod base
 ┘ = Patch integration into release and merge to ho-prod
-┘ = Branch deletion point (promote-to-rc)
+┘ = Branch deletion point (promote-to rc)
 ```
 
 ### Branch States and Lifecycle
@@ -100,10 +100,10 @@ Branch States:
 - DEPLOYED: Release applied to production database
 
 Patch Lifecycle:
-ho-patch/patch-name (DEVELOPMENT) → add-to-release → ho-patch/patch-name (INTEGRATED) → promote-to-rc → (BRANCHES DELETED) → deploy-to-prod → (DEPLOYED)
+ho-patch/patch-name (DEVELOPMENT) → add-to-release → ho-patch/patch-name (INTEGRATED) → promote-to rc → (BRANCHES DELETED) → deploy-to-prod → (DEPLOYED)
 
 Release Lifecycle:
-X.Y.Z-stage (DEVELOPMENT) → promote-to-rc → X.Y.Z-rc1 (VALIDATION) → promote-to-prod → X.Y.Z (PRODUCTION)
+X.Y.Z-stage (DEVELOPMENT) → promote-to rc → X.Y.Z-rc1 (VALIDATION) → promote-to prod → X.Y.Z (PRODUCTION)
 
 Single Active Development Rule:
 ONLY ONE RC can exist at any time
@@ -185,7 +185,7 @@ releases/1.3.5-stage.txt:   # Normal development (includes hotfixes automaticall
 - **Base**: Always created from current ho-prod state
 - **Visibility**: Remote branch visible to all developers
 - **Conflict Detection**: Git native error if branch already exists
-- **Lifecycle**: Preserved until promote-to-rc, then automatically deleted
+- **Lifecycle**: Preserved until promote-to rc, then automatically deleted
 
 ### Release Files Structure with Stage Evolution
 
@@ -212,7 +212,7 @@ releases/1.3.5-stage.txt:
 789-security-fix            # ho-patch/789-security-fix exists
 
 # Promotion to RC (branches deleted)
-half_orm dev promote-to-rc
+half_orm dev promote-to rc
 # → git mv releases/1.3.5-stage.txt releases/1.3.5-rc1.txt
 # → Automatic cleanup:
 #   git branch -d ho-patch/456-user-authentication
@@ -434,12 +434,12 @@ half_orm dev add-to-release "456" --to-version="1.3.6"
 #### 5. Promote Through Stages
 ```bash
 # Stage → RC
-half_orm dev promote-to-rc
+half_orm dev promote-to rc
 # Renames: 1.3.6-stage.txt → 1.3.6-rc1.txt
 # Still based on production 1.3.5
 
 # RC → Production file
-half_orm dev promote-to-prod
+half_orm dev promote-to prod
 # Renames: 1.3.6-rc1.txt → 1.3.6.txt
 # File ready for deployment
 ```
@@ -489,12 +489,12 @@ releases/2.0.0-stage.txt  # ✓ Major release
 releases/1.3.6-stage.txt
 releases/1.4.0-stage.txt
 
-promote-to-rc  # ✓ Promotes 1.3.6-stage → 1.3.6-rc1.txt
-promote-to-rc  # ✗ BLOCKED: 1.3.6-rc1 must deploy first
+promote-to rc  # ✓ Promotes 1.3.6-stage → 1.3.6-rc1.txt
+promote-to rc  # ✗ BLOCKED: 1.3.6-rc1 must deploy first
 
 # After 1.3.6 deployed to production:
 # Production: 1.3.6
-promote-to-rc  # ✓ Now can promote 1.4.0-stage → 1.4.0-rc1.txt
+promote-to rc  # ✓ Now can promote 1.4.0-stage → 1.4.0-rc1.txt
 ```
 
 #### Rule 4: apply-patch Always Restores Production Baseline
@@ -763,7 +763,7 @@ Existing projects must complete all pending releases in old system before migrat
 
 10. **Promote to release candidate**
     ```bash
-    half_orm dev promote-to-rc
+    half_orm dev promote-to rc
     # → Automatically promotes the next sequential release from stage to rc1
     # → git mv releases/1.3.4-stage.txt releases/1.3.4-rc1.txt
     # → Preserves complete Git history with --follow
@@ -804,7 +804,7 @@ Existing projects must complete all pending releases in old system before migrat
 
 13. **Deploy to production**
     ```bash
-    half_orm dev promote-to-prod
+    half_orm dev promote-to prod
     # → Automatically promotes the validated RC to production
     # → git mv releases/1.3.4-rc2.txt releases/1.3.4.txt
     # → Preserves complete Git history
@@ -961,7 +961,7 @@ git rebase -i HEAD~3  # Remove notification commits from history
 
 ```bash
 # CORRECT sequence:
-1.3.4-stage.txt → promote-to-rc → 1.3.4-rc1.txt → promote-to-prod → 1.3.4.txt
+1.3.4-stage.txt → promote-to rc → 1.3.4-rc1.txt → promote-to prod → 1.3.4.txt
 # Only then can 1.3.5-stage.txt be promoted to RC
 
 # INVALID attempts:
@@ -1008,7 +1008,7 @@ def calculate_next_version(increment_type):
 ### Sequential Promotion Rules
 
 ```bash
-def can_promote_to_rc():
+def can_promote_to():
     """
     Only the next sequential version after production can be promoted to RC
     AND no other RC can exist simultaneously
@@ -1078,7 +1078,7 @@ Current production: 1.3.4.txt
 Available stages: 1.3.5-stage.txt, 1.4.0-stage.txt, 2.0.0-stage.txt
 
 # ALLOWED: Only 1.3.5-stage can be promoted to RC
-half_orm dev promote-to-rc  # Promotes 1.3.5-stage → 1.3.5-rc1
+half_orm dev promote-to rc  # Promotes 1.3.5-stage → 1.3.5-rc1
 
 # BLOCKED: Cannot promote 1.4.0 or 2.0.0 until 1.3.5 is in production
 # This maintains sequential version progression
@@ -1106,7 +1106,7 @@ half_orm dev create-patch "234-database-indexes"
 # Bug fix
 half_orm dev create-patch "567-calculation-error"
 
-# Normal patches follow: develop → add-to-release → promote-to-rc → promote-to-prod
+# Normal patches follow: develop → add-to-release → promote-to rc → promote-to prod
 # Hotfixes follow: develop → add-to-hotfix → deploy-to-prod
 ```
 
@@ -1928,7 +1928,7 @@ The CLI automatically adapts based on environment:
 
 | Branch Type | Available Commands | Behavior |
 |-------------|-------------------|-----------|
-| **ho-prod** | `create-patch`, `create-hotfix`, `prepare-release`, `promote-to-rc`, `promote-to-prod`, `apply-release`, `deploy-to-prod`, `remove-from-release`, `rollback` | Main development and production operations |
+| **ho-prod** | `create-patch`, `create-hotfix`, `prepare-release`, `promote-to rc`, `promote-to prod`, `apply-release`, `deploy-to-prod`, `remove-from-release`, `rollback` | Main development and production operations |
 | **ho-patch/***| `apply-patch`, `test`, `add-to-release`, `add-to-release-rc`, `add-to-hotfix`, `mark-resync-complete`, standard git commands | Patch development and integration |
 
 ### Development Commands
@@ -1941,7 +1941,7 @@ half_orm dev create-patch "456"
 # → Checkout to patch branch
 # → Global patch ID reservation via remote branch
 # → Creates Patches/456-user-authentication/ directory
-# → Branch preserved until promote-to-rc
+# → Branch preserved until promote-to rc
 ```
 
 #### `create-hotfix`
@@ -2228,7 +2228,7 @@ $ half_orm dev add-to-release "456-user-auth"
 Next steps:
   1. Review integration: git show abc123de
   2. Test release: half_orm dev apply-release 1.3.6-stage
-  3. Promote to RC: half_orm dev promote-to-rc
+  3. Promote to RC: half_orm dev promote-to rc
 ```
 
 **Key Features:**
@@ -2275,20 +2275,20 @@ ho-prod:
 
 ho-release/1.3.6/456-user-auth  ← Contains actual patch code
 
-# Code will be merged to ho-prod later at promote-to-rc
+# Code will be merged to ho-prod later at promote-to rc
 # when 1.3.6-stage becomes 1.3.6-rc1 (immutable release)
 ```
 
 **4. Automatic Branch Archiving**
 ```bash
-# Branch renamed to preserve code until promote-to-rc
+# Branch renamed to preserve code until promote-to rc
 ho-patch/456-user-auth → ho-release/1.3.6/456-user-auth
 
 # Benefits:
 # - Preserves patch code for validation and deployment
 # - Cleans up active development namespace
 # - Maintains clear separation by version
-# - Code merged to ho-prod only at promote-to-rc
+# - Code merged to ho-prod only at promote-to rc
 ```
 
 **5. Resync Notifications**
@@ -2304,7 +2304,7 @@ This is a stage release (mutable) - no immediate action required.
 The code will be merged to ho-prod when the stage is promoted to RC.
 At that point, active patch branches should rebase to include changes.
 
-Status: Informational (action required later at promote-to-rc)
+Status: Informational (action required later at promote-to rc)
 ```
 
 **Multiple Stages Handling:**
@@ -2398,7 +2398,7 @@ $ half_orm dev add-to-release "456-user-auth"
 Next steps:
   1. Review integration: git show abc123de
   2. Test release: half_orm dev apply-release 1.3.6-stage
-  3. Promote to RC: half_orm dev promote-to-rc
+  3. Promote to RC: half_orm dev promote-to rc
 ```
 
 **Workflow Integration:**
@@ -2421,11 +2421,11 @@ half_orm dev add-to-release "456-user-auth"
 # → Branch archived to ho-release/1.3.6/456-user-auth
 # → Notifications sent
 
-# 3. Other developers rebase after promote-to-rc
+# 3. Other developers rebase after promote-to rc
 # (no action needed now, stage is still mutable)
 
 # 4. When ready for testing, promote stage to RC
-half_orm dev promote-to-rc
+half_orm dev promote-to rc
 # → Code merged to ho-prod at this point
 # → All active patches rebase to include changes
 ```
@@ -2526,10 +2526,10 @@ half_orm dev prepare-release minor
 # Latest is 1.3.4-hotfix2 → prepare-release patch → creates 1.3.5-stage.txt
 ```
 
-#### `promote-to-rc`
+#### `promote-to rc`
 ```bash
 # Promote current stage release to release candidate
-half_orm dev promote-to-rc
+half_orm dev promote-to rc
 # → No arguments needed - automatically finds current stage file
 # → Validates single active development rule (no existing RC allowed)
 # → Current stage: releases/1.3.5-stage.txt
@@ -2552,10 +2552,10 @@ half_orm dev promote-to-rc
 # Automatic increment ensures no conflicts
 ```
 
-#### `promote-to-prod`
+#### `promote-to prod`
 ```bash
 # Promote current release candidate to production
-half_orm dev promote-to-prod
+half_orm dev promote-to prod
 # → No arguments needed - automatically finds latest RC
 # → Current RC: releases/1.3.5-rc2.txt
 # → git mv releases/1.3.5-rc2.txt releases/1.3.5.txt
@@ -2884,7 +2884,7 @@ half_orm dev deploy-to-prod "1.3.4"
 # Manual resolution:
 # → Fix failing patch on new branch: half_orm dev create-patch "789-security-fix-v2"
 # → Re-integrate with add-to-release
-# → Create new RC: promote-to-rc
+# → Create new RC: promote-to rc
 # → Re-test: apply-release "1.3.5-rc1"
 # → Re-deploy when ready: deploy-to-prod "1.3.5"
 ```
@@ -2892,7 +2892,7 @@ half_orm dev deploy-to-prod "1.3.4"
 #### 4. Invalid Promotion Attempts
 ```bash
 # Scenario: Attempt to promote out-of-sequence release
-half_orm dev promote-to-rc
+half_orm dev promote-to rc
 # → Current prod: 1.3.3
 # → Only 1.3.5-stage.txt exists (missing 1.3.4)
 # → Error: Cannot promote 1.3.5-stage, missing sequential version 1.3.4
@@ -2901,23 +2901,23 @@ half_orm dev promote-to-rc
 # → Prepare missing version: half_orm dev prepare-release patch
 # → Creates 1.3.4-stage.txt
 # → Add patches to 1.3.4-stage or promote empty release
-# → Then promote: half_orm dev promote-to-rc
+# → Then promote: half_orm dev promote-to rc
 
 # Scenario: Multiple RC attempt (violates single active rule)
-half_orm dev promote-to-rc
+half_orm dev promote-to rc
 # → Existing RC: 1.3.4-rc1.txt
 # → Attempted promotion: 1.3.5-stage.txt
 # → Error: Cannot promote 1.3.5-stage, 1.3.4-rc1 must be promoted to production first
 
 # Resolution:
-# → Complete current RC: half_orm dev promote-to-prod (1.3.4-rc1 → 1.3.4.txt)
-# → Then promote next: half_orm dev promote-to-rc (1.3.5-stage → 1.3.5-rc1)
+# → Complete current RC: half_orm dev promote-to prod (1.3.4-rc1 → 1.3.4.txt)
+# → Then promote next: half_orm dev promote-to rc (1.3.5-stage → 1.3.5-rc1)
 ```
 
 #### 5. Branch Cleanup Failure
 ```bash
-# Scenario: Automatic branch cleanup fails during promote-to-rc
-half_orm dev promote-to-rc
+# Scenario: Automatic branch cleanup fails during promote-to rc
+half_orm dev promote-to rc
 # → git mv successful: 1.3.4-stage.txt → 1.3.4-rc1.txt
 # → Error: Cannot delete ho-patch/456-user-auth (has uncommitted changes)
 
@@ -3207,11 +3207,11 @@ half_orm dev security-report
 ```bash
 # Role-based command access (future enhancement)
 # - Developers: create-patch, add-to-release
-# - Release managers: promote-to-rc, promote-to-prod
+# - Release managers: promote-to rc, promote-to prod
 # - Operations: deploy-to-prod, rollback
 
 # Approval workflow integration
-half_orm dev require-approval --for="promote-to-prod"
+half_orm dev require-approval --for="promote-to prod"
 # → Require explicit approval before production promotion
 # → Integration with pull request workflows
 # → Audit approval chain
@@ -3328,7 +3328,7 @@ Single active development rule
 - **Stage mutability**: Only stage releases are mutable; RC and production are immutable via git mv
 - **Version calculation**: Automatic determination of next version based on latest existing release across all stages
 - **Git mv workflow**: Single file evolution preserves complete history while eliminating duplication
-- **Branch lifecycle management**: Automatic deletion of branches at promote-to-rc to maintain clean repository state
+- **Branch lifecycle management**: Automatic deletion of branches at promote-to rc to maintain clean repository state
 - **Emergency hotfix**: Critical patches that bypass normal release sequence for immediate deployment
 - **Apply-patch**: Command to apply current patch files to database and generate code using modules.py integration
 - **Automatic integration**: Hotfix changes automatically included in future normal releases via ho-prod history

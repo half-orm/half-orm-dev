@@ -955,7 +955,7 @@ Each file contains patch IDs, one per line:
 - Deletes patch branches
 
 3. **Production**: Final release
-- `half_orm dev promote-to-prod`
+- `half_orm dev promote-to prod`
 - Creates X.Y.Z-production.txt
 - Apply to production: `half_orm dev deploy-to-prod`
 

@@ -1538,7 +1538,7 @@ class ReleaseManager:
         Get next sequential production version.
 
         Calculates the next patch version after current production.
-        Used by promote-to-prod to determine target version.
+        Used by promote-to prod to determine target version.
 
         Returns:
             str: Next version (e.g., "1.3.5" if current is "1.3.4")
@@ -1564,7 +1564,7 @@ class ReleaseManager:
         """
         Restore database and apply all patches sequentially.
 
-        Used by promote-to-prod to prepare database before schema dump.
+        Used by promote-to prod to prepare database before schema dump.
         Restores DB from current schema.sql, then applies all patches
         from RC files and stage file in order.
 

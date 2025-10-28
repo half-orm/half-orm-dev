@@ -95,7 +95,7 @@ def promote_to(target: str) -> None:
         # Next steps
         click.echo(f"{utils.Color.bold('📝 Next steps:')}")
         click.echo(f"""  1. Test RC: {utils.Color.bold(f'half_orm dev apply-release {result["to_file"].replace(".txt", "")}')}""")
-        click.echo(f"  2. If tests pass: {utils.Color.bold('half_orm dev promote-to-prod')}")
+        click.echo(f"  2. If tests pass: {utils.Color.bold('half_orm dev promote-to prod')}")
         click.echo(f"  3. If issues found: Create fix patch and add to new RC")
         click.echo()
 
