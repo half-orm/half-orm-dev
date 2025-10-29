@@ -97,7 +97,7 @@ class TestRestoreDatabaseFromSchema:
         print(f"\nDEBUG temp_dir: {temp_dir}")
         print(f"DEBUG repo.base_dir: {repo.base_dir}")
         print(f"DEBUG model exists: {(Path(temp_dir) / 'model').exists()}")
-        
+
         schema_path = Path(temp_dir) / "model" / "schema.sql"
         print(f"DEBUG schema_path: {schema_path}")
         print(f"DEBUG schema exists: {schema_path.exists()}")

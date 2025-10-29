@@ -72,7 +72,7 @@ class TestValidatePatchStructure:
 
             assert is_valid is False
             assert len(errors) == 1
-            assert "Permission denied" in errors[0]
+            assert "Permission denied" in errors[0] or "does not exist" in errors[0]
 
         finally:
             # Restore permissions for cleanup

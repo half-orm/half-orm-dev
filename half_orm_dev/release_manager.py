@@ -1145,7 +1145,7 @@ class ReleaseManager:
         for branch in remote_branches:
             # Strip 'origin/' prefix if present
             branch_name = branch.replace("origin/", "")
-            
+
             # Only include ho-patch/* branches
             if branch_name.startswith("ho-patch/"):
                 active_branches.append(branch_name)
@@ -1557,14 +1557,14 @@ class ReleaseManager:
             # → "1.3.5"
         """
         rc_files = list(self._releases_dir.glob("*-rc*.txt"))
-        
+
         if rc_files:
             # Use version from RC (without -rcN suffix)
             # There should be only one due to single active RC rule
             rc_file = rc_files[0]
             version = self.parse_version_from_filename(rc_file.name)
             return re.sub('-.*', '', str(version))
-        
+
         # No RC exists: increment from current production
         # This handles edge case of direct prod promotion without RC
         current_prod = self._get_production_version()

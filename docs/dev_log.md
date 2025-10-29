@@ -844,7 +844,7 @@ half_orm dev promote-to rc
 
 **Prochaines étapes :**
 - [ ] Finaliser support multi-target (alpha/beta)
-- [ ] Implémentation `promote-to prod` 
+- [ ] Implémentation `promote-to prod`
 - [ ] Tests avec vraies bases de données (intégration)
 - [ ] Documentation workflow complet release
 
@@ -1195,7 +1195,7 @@ tests/
    # Ancienne syntaxe
    half_orm dev promote-to-rc
    half_orm dev promote-to-prod
-   
+
    # Nouvelle syntaxe
    half_orm dev promote-to rc
    half_orm dev promote-to prod
@@ -1260,7 +1260,7 @@ tests/
    @click.argument('target', type=click.Choice(['alpha', 'beta', 'rc', 'prod']))
    def promote_to(target: str):
        result = repo.release_manager.promote_to(target)
-   
+
    # Dans release_manager.py, juste étendre la validation
    def promote_to(self, target: str):
        if target not in ('alpha', 'beta', 'rc', 'prod'):
