@@ -18,8 +18,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.13"]
-        postgresql-version: ["9.6", "10", "11", "12", "13", "14", "15", "16", "17"]
+        python-version: ["3.14"]
+        postgresql-version: ["13", "14", "15", "16", "17"]
 
     steps:
     - uses: actions/checkout@v4
