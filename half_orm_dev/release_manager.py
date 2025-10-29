@@ -1467,8 +1467,10 @@ class ReleaseManager:
                 self._repo.hgit.add(str(self._repo.base_dir / Path("model") / "schema.sql"))
 
             # 9. Commit promotion
+            full_version = version
             if target != 'prod':
-                commit_message = f"Promote {version}-stage to {version}-rc{rc_number}"
+                full_version = f"{version}-rc{rc_number}"
+                commit_message = f"Promote {version}-stage to {full_version}"
             else:
                 commit_message = f"Promote {version}-stage to production release {version}"
 
@@ -1478,6 +1480,10 @@ class ReleaseManager:
 
             # 10. Push to origin
             self._repo.hgit.push()
+            #     Create and push Git tag for new release
+            tag_name = f"v{full_version}"
+            self._repo.hgit.create_tag(tag_name, f"Release {full_version}")
+            self._repo.hgit.push_tag(tag_name)
 
             # 10.5 Create new empty stage file ONLY for RC promotion
             new_stage_filename = None
@@ -1518,7 +1524,8 @@ class ReleaseManager:
                 'commit_sha': commit_sha,
                 'notifications_sent': notifications_sent,
                 'lock_tag': lock_tag,
-                'new_stage_created': new_stage_filename
+                'new_stage_created': new_stage_filename,
+                'tag_name': tag_name
             }
 
             # Add target-specific fields
@@ -1604,7 +1611,6 @@ class ReleaseManager:
 
         # 4. Update database version to target production version
         # CRITICAL: Must be done before generating schema dumps
-        print('XXX ###', version)
         self._repo.database.register_release(*version.split('.'))
 
         return all_patches

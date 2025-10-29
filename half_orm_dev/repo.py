@@ -1319,7 +1319,6 @@ See docs/half_orm_dev.md for complete documentation.
 
             # 5b. Load metadata from model/metadata-X.Y.Z.sql (if exists)
             metadata_path = self._deduce_metadata_path(schema_path)
-            print('XXX', metadata_path)
 
             if metadata_path and metadata_path.exists():
                 try:
