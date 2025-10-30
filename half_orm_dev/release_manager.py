@@ -2368,7 +2368,50 @@ class ReleaseManager:
             path = mgr._calculate_upgrade_path("1.4.0", "1.4.0")
             # → []
         """
-        pass
+        # Parse versions
+        current_version = self.parse_version_from_filename(f"{current}.txt")
+        target_version = self.parse_version_from_filename(f"{target}.txt")
+
+        # If same version, no upgrade needed
+        if current == target:
+            return []
+
+        # Get all available release tags (production only)
+        available_tags = self._get_available_release_tags(allow_rc=False)
+
+        # Extract versions from tags and parse them
+        available_versions = []
+        for tag in available_tags:
+            # Remove 'v' prefix: v1.3.6 → 1.3.6
+            version_str = tag[1:] if tag.startswith('v') else tag
+
+            # Skip if not a valid production version format
+            if not re.match(r'^\d+\.\d+\.\d+$', version_str):
+                continue
+
+            try:
+                version = self.parse_version_from_filename(f"{version_str}.txt")
+                available_versions.append((version_str, version))
+            except Exception:
+                continue
+
+        # Sort versions
+        available_versions.sort(key=lambda x: (x[1].major, x[1].minor, x[1].patch))
+
+        # Build sequential path from current to target
+        path = []
+        for version_str, version in available_versions:
+            # Skip versions <= current
+            if (version.major, version.minor, version.patch) <= \
+               (current_version.major, current_version.minor, current_version.patch):
+                continue
+
+            # Add versions <= target
+            if (version.major, version.minor, version.patch) <= \
+               (target_version.major, target_version.minor, target_version.patch):
+                path.append(version_str)
+
+        return path
 
     def _version_is_newer(self, version1: str, version2: str) -> bool:
         """
