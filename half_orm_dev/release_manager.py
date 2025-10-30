@@ -2438,3 +2438,405 @@ class ReleaseManager:
         parts2 = tuple(map(int, base2.split('.')))
 
         return parts1 > parts2
+
+    def upgrade_production(
+        self,
+        to_version: Optional[str] = None,
+        dry_run: bool = False,
+        force_backup: bool = False,
+        skip_backup: bool = False
+    ) -> dict:
+        """
+        Upgrade production database to target version.
+
+        Applies releases sequentially to production database. This is the
+        production-safe upgrade workflow that NEVER destroys the database,
+        working incrementally on existing data.
+
+        CRITICAL: This method works on EXISTING production database.
+        It does NOT use restore_database_from_schema() which would destroy data.
+
+        Workflow:
+            1. CREATE BACKUP (first action, before any validation)
+            2. Validate production environment (ho-prod branch, clean repo)
+            3. Fetch available releases via update_production()
+            4. Calculate upgrade path (all or to specific version)
+            5. Apply each release sequentially on existing database
+            6. Update database version after each release
+
+        Args:
+            to_version: Stop at specific version (e.g., "1.3.6")
+                    If None, apply all available releases
+            dry_run: Simulate without modifying database or creating backup
+            force_backup: Overwrite existing backup file without confirmation
+            skip_backup: Skip backup creation (DANGEROUS - for testing only)
+
+        Returns:
+            dict: Upgrade result with detailed information
+
+            Structure:
+                'status': 'success' or 'dry_run'
+                'dry_run': bool
+                'backup_created': Path or None (if dry_run or skip_backup)
+                'current_version': str (version before upgrade)
+                'target_version': str or None (explicit target or None for "all")
+                'releases_applied': List[str] (versions applied)
+                'patches_applied': Dict[str, List[str]] (patches per release)
+                'final_version': str (version after upgrade)
+
+        Raises:
+            ReleaseManagerError: For validation failures or application errors
+
+        Examples:
+            # Upgrade to latest (all available releases)
+            result = mgr.upgrade_production()
+            # Current: 1.3.5
+            # Applies: 1.3.6 → 1.3.7 → 1.4.0
+            # Result: {
+            #   'status': 'success',
+            #   'backup_created': Path('backups/1.3.5.sql'),
+            #   'current_version': '1.3.5',
+            #   'target_version': None,
+            #   'releases_applied': ['1.3.6', '1.3.7', '1.4.0'],
+            #   'patches_applied': {
+            #       '1.3.6': ['456-auth', '789-security'],
+            #       '1.3.7': ['999-bugfix'],
+            #       '1.4.0': ['111-feature']
+            #   },
+            #   'final_version': '1.4.0'
+            # }
+
+            # Upgrade to specific version
+            result = mgr.upgrade_production(to_version="1.3.7")
+            # Current: 1.3.5
+            # Applies: 1.3.6 → 1.3.7 (stops here)
+            # Result: {
+            #   'status': 'success',
+            #   'target_version': '1.3.7',
+            #   'releases_applied': ['1.3.6', '1.3.7'],
+            #   'final_version': '1.3.7'
+            # }
+
+            # Dry run (no changes)
+            result = mgr.upgrade_production(dry_run=True)
+            # Result: {
+            #   'status': 'dry_run',
+            #   'dry_run': True,
+            #   'backup_would_be_created': 'backups/1.3.5.sql',
+            #   'releases_would_apply': ['1.3.6', '1.3.7'],
+            #   'patches_would_apply': {...}
+            # }
+
+            # Already up to date
+            result = mgr.upgrade_production()
+            # Result: {
+            #   'status': 'success',
+            #   'current_version': '1.4.0',
+            #   'releases_applied': [],
+            #   'message': 'Production already at latest version'
+            # }
+        """
+        from half_orm_dev.release_manager import ReleaseManagerError
+
+        # Get current version
+        current_version = self._repo.database.last_release_s
+
+        # === 1. BACKUP FIRST (unless dry_run or skip_backup) ===
+        backup_path = None
+        if not dry_run and not skip_backup:
+            backup_path = self._create_production_backup(
+                current_version,
+                force=force_backup
+            )
+
+        # === 2. Validate environment ===
+        self._validate_production_upgrade()
+
+        # === 3. Get available releases ===
+        update_info = self.update_production()
+
+        # Check if already up to date
+        if not update_info['has_updates']:
+            return {
+                'status': 'success',
+                'dry_run': False,
+                'backup_created': backup_path,
+                'current_version': current_version,
+                'target_version': to_version,
+                'releases_applied': [],
+                'patches_applied': {},
+                'final_version': current_version,
+                'message': 'Production already at latest version'
+            }
+
+        # === 4. Calculate upgrade path ===
+        if to_version:
+            # Upgrade to specific version
+            full_path = update_info['upgrade_path']
+
+            # Validate target version exists
+            if to_version not in full_path:
+                raise ReleaseManagerError(
+                    f"Target version {to_version} not in upgrade path. "
+                    f"Available versions: {', '.join(full_path)}"
+                )
+
+            # Truncate path to target
+            upgrade_path = []
+            for version in full_path:
+                upgrade_path.append(version)
+                if version == to_version:
+                    break
+        else:
+            # Upgrade to latest (all releases)
+            upgrade_path = update_info['upgrade_path']
+
+        # === DRY RUN - Stop here and return simulation ===
+        if dry_run:
+            # Build patches_would_apply dict
+            patches_would_apply = {}
+            for version in upgrade_path:
+                patches = self.read_release_patches(f"{version}.txt")
+                patches_would_apply[version] = patches
+
+            return {
+                'status': 'dry_run',
+                'dry_run': True,
+                'backup_would_be_created': f'backups/{current_version}.sql',
+                'current_version': current_version,
+                'target_version': to_version,
+                'releases_would_apply': upgrade_path,
+                'patches_would_apply': patches_would_apply,
+                'final_version': upgrade_path[-1] if upgrade_path else current_version
+            }
+
+        # === 5. Apply releases sequentially ===
+        patches_applied = {}
+
+        try:
+            for version in upgrade_path:
+                # Apply release and collect patches
+                applied_patches = self._apply_release_to_production(version)
+                patches_applied[version] = applied_patches
+
+        except Exception as e:
+            # On error, provide rollback instructions
+            raise ReleaseManagerError(
+                f"Failed to apply release {version}: {e}\n\n"
+                f"ROLLBACK INSTRUCTIONS:\n"
+                f"1. Restore database: psql -d {self._repo.database.name} -f {backup_path}\n"
+                f"2. Verify restoration: SELECT * FROM half_orm_meta.hop_release ORDER BY id DESC LIMIT 1;\n"
+                f"3. Fix the failing patch and retry upgrade"
+            ) from e
+
+        # === 6. Build success result ===
+        final_version = upgrade_path[-1] if upgrade_path else current_version
+
+        return {
+            'status': 'success',
+            'dry_run': False,
+            'backup_created': backup_path,
+            'current_version': current_version,
+            'target_version': to_version,
+            'releases_applied': upgrade_path,
+            'patches_applied': patches_applied,
+            'final_version': final_version
+        }
+
+
+    def _create_production_backup(
+        self,
+        current_version: str,
+        force: bool = False
+    ) -> Path:
+        """
+        Create production database backup before upgrade.
+
+        Creates backups/{version}.sql using pg_dump with full database dump
+        (schema + data + metadata). This is the rollback point if upgrade fails.
+
+        Args:
+            current_version: Current database version (e.g., "1.3.5")
+            force: Overwrite existing backup without confirmation
+
+        Returns:
+            Path: Backup file path (e.g., Path("backups/1.3.5.sql"))
+
+        Raises:
+            ReleaseManagerError: If backup creation fails or user declines overwrite
+
+        Examples:
+            # Create new backup
+            path = mgr._create_production_backup("1.3.5")
+            # → Creates backups/1.3.5.sql
+            # → Returns Path('backups/1.3.5.sql')
+
+            # Backup exists, user confirms overwrite
+            path = mgr._create_production_backup("1.3.5", force=False)
+            # → Prompt: "Backup exists. Overwrite? [y/N]"
+            # → User enters 'y'
+            # → Overwrites backups/1.3.5.sql
+
+            # Backup exists, force=True
+            path = mgr._create_production_backup("1.3.5", force=True)
+            # → Overwrites without prompt
+
+            # Backup exists, user declines
+            path = mgr._create_production_backup("1.3.5", force=False)
+            # → User enters 'n'
+            # → Raises: "Backup exists and user declined overwrite"
+        """
+        from half_orm_dev.release_manager import ReleaseManagerError
+
+        # Create backups directory if doesn't exist
+        backups_dir = Path(self._repo.base_dir) / "backups"
+        backups_dir.mkdir(exist_ok=True)
+
+        # Build backup filename
+        backup_file = backups_dir / f"{current_version}.sql"
+
+        # Check if backup already exists
+        if backup_file.exists() and not force:
+            # Prompt user for confirmation
+            response = input(
+                f"Backup {backup_file} already exists. "
+                f"Overwrite? [y/N]: "
+            ).strip().lower()
+
+            if response != 'y':
+                raise ReleaseManagerError(
+                    f"Backup {backup_file} already exists. "
+                    f"Use --force to overwrite or remove the file manually."
+                )
+
+        # Create backup using pg_dump
+        try:
+            self._repo.database.execute_pg_command(
+                'pg_dump',
+                '-f', str(backup_file),
+                stderr=subprocess.PIPE
+            )
+        except Exception as e:
+            raise ReleaseManagerError(
+                f"Failed to create backup {backup_file}: {e}"
+            ) from e
+
+        return backup_file
+
+
+    def _validate_production_upgrade(self) -> None:
+        """
+        Validate production environment before upgrade.
+
+        Checks:
+        1. Current branch is ho-prod (production branch)
+        2. Repository is clean (no uncommitted changes)
+
+        Raises:
+            ReleaseManagerError: If validation fails
+
+        Examples:
+            # Valid state
+            # Branch: ho-prod
+            # Status: clean
+            mgr._validate_production_upgrade()
+            # → Returns without error
+
+            # Wrong branch
+            # Branch: ho-patch/456-test
+            mgr._validate_production_upgrade()
+            # → Raises: "Must be on ho-prod branch"
+
+            # Uncommitted changes
+            # Branch: ho-prod
+            # Status: modified files
+            mgr._validate_production_upgrade()
+            # → Raises: "Repository has uncommitted changes"
+        """
+        from half_orm_dev.release_manager import ReleaseManagerError
+
+        # Check branch
+        if self._repo.hgit.branch != "ho-prod":
+            raise ReleaseManagerError(
+                f"Must be on ho-prod branch for production upgrade. "
+                f"Current branch: {self._repo.hgit.branch}"
+            )
+
+        # Check repo is clean
+        if not self._repo.hgit.repos_is_clean():
+            raise ReleaseManagerError(
+                "Repository has uncommitted changes. "
+                "Commit or stash changes before upgrading production."
+            )
+
+
+    def _apply_release_to_production(self, version: str) -> List[str]:
+        """
+        Apply single release to existing production database.
+
+        Reads patches from releases/{version}.txt and applies them sequentially
+        to the existing database using PatchManager.apply_patch_files().
+        Updates database version after successful application.
+
+        CRITICAL: Works on EXISTING database. Does NOT restore/recreate.
+
+        Args:
+            version: Release version (e.g., "1.3.6")
+
+        Returns:
+            List[str]: Patch IDs applied (e.g., ["456-auth", "789-security"])
+
+        Raises:
+            ReleaseManagerError: If patch application fails
+
+        Examples:
+            # Apply release with multiple patches
+            # releases/1.3.6.txt contains: 456-auth, 789-security
+            patches = mgr._apply_release_to_production("1.3.6")
+            # → Applies 456-auth to existing DB
+            # → Applies 789-security to existing DB
+            # → Updates DB version to 1.3.6
+            # → Returns ["456-auth", "789-security"]
+
+            # Apply release with no patches (empty release)
+            # releases/1.3.6.txt is empty
+            patches = mgr._apply_release_to_production("1.3.6")
+            # → Updates DB version to 1.3.6
+            # → Returns []
+
+            # Patch application fails
+            # 789-security has SQL error
+            patches = mgr._apply_release_to_production("1.3.6")
+            # → Applies 456-auth successfully
+            # → 789-security fails
+            # → Raises exception with error details
+        """
+        from half_orm_dev.release_manager import ReleaseManagerError
+
+        # Read patches from release file
+        release_file = f"{version}.txt"
+        patches = self.read_release_patches(release_file)
+
+        # Apply each patch sequentially
+        for patch_id in patches:
+            try:
+                self._repo.patch_manager.apply_patch_files(
+                    patch_id,
+                    self._repo.model
+                )
+            except Exception as e:
+                raise ReleaseManagerError(
+                    f"Failed to apply patch {patch_id} from release {version}: {e}"
+                ) from e
+
+        # Update database version
+        version_parts = version.split('.')
+        if len(version_parts) != 3:
+            raise ReleaseManagerError(
+                f"Invalid version format: {version}. Expected X.Y.Z"
+            )
+
+        major, minor, patch = map(int, version_parts)
+        self._repo.database.register_release(major, minor, patch)
+
+        return patches
