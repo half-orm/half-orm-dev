@@ -48,6 +48,7 @@ class Config:
         self.__hop_version = config['halfORM'].get('hop_version', '')
         self.__git_origin = config['halfORM'].get('git_origin', '')
         self.__devel = config['halfORM'].getboolean('devel', False)
+        self.__allow_rc = config['halfORM'].getboolean('allow_rc', False)
 
     def write(self):
         "Helper: write file in utf8"
@@ -94,6 +95,15 @@ class Config:
     @devel.setter
     def devel(self, devel):
         self.__devel = devel
+
+    @property
+    def allow_rc(self):
+        return self.__allow_rc
+
+    @allow_rc.setter
+    def allow_rc(self, value):
+        self.__allow_rc = value
+        self.write()
 
 class Repo:
     """Reads and writes the hop repo conf file.
@@ -223,6 +233,11 @@ class Repo:
     @git_origin.setter
     def git_origin(self, origin):
         self.__config.git_origin = origin
+
+    @property
+    def allow_rc(self):
+        """Returns whether RC releases are allowed in production."""
+        return self.__config.allow_rc
 
     def __hop_version_mismatch(self):
         """Returns a boolean indicating if current hop version is different from

@@ -2144,10 +2144,7 @@ class ReleaseManager:
                 # Best effort - don't fail if checkout back fails
                 pass
 
-    def update_production(
-        self,
-        allow_rc: bool = False
-    ) -> dict:
+    def update_production(self) -> dict:
         """
         Fetch tags and list available releases for production upgrade (read-only).
 
@@ -2160,10 +2157,6 @@ class ReleaseManager:
             3. List available release tags (v1.3.6, v1.3.6-rc1, v1.4.0)
             4. Calculate sequential upgrade path
             5. Return structured results for CLI display
-
-        Args:
-            allow_rc: If True, include RC tags in available releases.
-                      Default False (production-only).
 
         Returns:
             dict: Update information with structure:
@@ -2193,10 +2186,79 @@ class ReleaseManager:
                 print(f"  → {rel['version']} ({len(rel['patches'])} patches)")
 
             # Include RC releases
-            result = mgr.update_production(allow_rc=True)
+            result = mgr.update_production()
             # → Shows v1.3.6-rc1, v1.3.6, v1.4.0
         """
-        pass
+        allow_rc = self._repo.allow_rc
+
+        # 1. Get available release tags from origin
+        available_tags = self._get_available_release_tags(allow_rc=allow_rc)
+
+        # 2. Read current production version from database
+        try:
+            current_version = self._repo.database.last_release_s
+        except Exception as e:
+            raise ReleaseManagerError(
+                f"Cannot read current production version from database: {e}"
+            )
+
+        # 3. Build list of available releases with details
+        available_releases = []
+
+        for tag in available_tags:
+            # Extract version from tag (remove 'v' prefix)
+            version = tag[1:]
+
+            # Determine release type
+            if '-rc' in version:
+                release_type = 'rc'
+            elif '-hotfix' in version:
+                release_type = 'hotfix'
+            else:
+                release_type = 'production'
+
+            # Extract base version for file lookup (remove suffix)
+            base_version = version.split('-')[0]
+
+            # Read patches from release file
+            release_file = self._releases_dir / f"{version}.txt"
+            patches = []
+
+            if release_file.exists():
+                content = release_file.read_text().strip()
+                if content:
+                    patches = [line.strip() for line in content.split('\n') if line.strip()]
+
+            # Only include releases newer than current version
+            if self._version_is_newer(version, current_version):
+                available_releases.append({
+                    'tag': tag,
+                    'version': version,
+                    'type': release_type,
+                    'patches': patches
+                })
+
+        # 4. Calculate upgrade path (implemented in Artefact 3B)
+        upgrade_path = []
+        if available_releases:
+            # Extract production versions only for upgrade path
+            production_versions = [
+                rel['version'] for rel in available_releases
+                if rel['type'] == 'production'
+            ]
+
+            if production_versions:
+                # Use last production version as target
+                target_version = production_versions[-1]
+                upgrade_path = self._calculate_upgrade_path(current_version, target_version)
+
+        # 5. Return results
+        return {
+            'current_version': current_version,
+            'available_releases': available_releases,
+            'upgrade_path': upgrade_path,
+            'has_updates': len(available_releases) > 0
+        }
 
     def _get_available_release_tags(self, allow_rc: bool = False) -> List[str]:
         """
@@ -2223,7 +2285,57 @@ class ReleaseManager:
             tags = mgr._get_available_release_tags(allow_rc=True)
             # → ["v1.3.6-rc1", "v1.3.6", "v1.4.0"]
         """
-        pass
+        try:
+            # Fetch tags from origin
+            self._repo.hgit.fetch_tags()
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to fetch tags from origin: {e}")
+
+        # Get all tags from repository
+        try:
+            all_tags = self._repo.hgit._HGit__git_repo.tags
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to read tags from repository: {e}")
+
+        # Filter for release tags (v*.*.*) with optional -rc or -hotfix suffix
+        release_pattern = re.compile(r'^v\d+\.\d+\.\d+(-rc\d+|-hotfix\d+)?$')
+        release_tags = []
+
+        for tag in all_tags:
+            tag_name = tag.name
+            if release_pattern.match(tag_name):
+                # Filter RC tags unless explicitly allowed
+                if '-rc' in tag_name and not allow_rc:
+                    continue
+                release_tags.append(tag_name)
+
+        # Sort tags by version (semantic versioning)
+        def version_key(tag_name):
+            """Extract sortable version tuple from tag name."""
+            # Remove 'v' prefix
+            version_str = tag_name[1:]
+
+            # Split version and suffix
+            if '-rc' in version_str:
+                base_ver, rc_suffix = version_str.split('-rc')
+                rc_num = int(rc_suffix)
+                suffix_weight = (1, rc_num)  # RC comes before production
+            elif '-hotfix' in version_str:
+                base_ver, hotfix_suffix = version_str.split('-hotfix')
+                hotfix_num = int(hotfix_suffix)
+                suffix_weight = (2, hotfix_num)  # Hotfix comes after production
+            else:
+                base_ver = version_str
+                suffix_weight = (1.5, 0)  # Production between RC and hotfix
+
+            # Parse base version
+            major, minor, patch = map(int, base_ver.split('.'))
+
+            return (major, minor, patch, suffix_weight)
+
+        release_tags.sort(key=version_key)
+
+        return release_tags
 
     def _calculate_upgrade_path(
         self,
@@ -2257,3 +2369,29 @@ class ReleaseManager:
             # → []
         """
         pass
+
+    def _version_is_newer(self, version1: str, version2: str) -> bool:
+        """
+        Compare two version strings to check if version1 is newer than version2.
+
+        Args:
+            version1: First version (e.g., "1.3.6", "1.3.6-rc1")
+            version2: Second version (e.g., "1.3.5")
+
+        Returns:
+            bool: True if version1 > version2
+
+        Examples:
+            _version_is_newer("1.3.6", "1.3.5")  # → True
+            _version_is_newer("1.3.5", "1.3.6")  # → False
+            _version_is_newer("1.3.6-rc1", "1.3.5")  # → True
+        """
+        # Extract base versions (remove suffix)
+        base1 = version1.split('-')[0]
+        base2 = version2.split('-')[0]
+
+        # Parse versions
+        parts1 = tuple(map(int, base1.split('.')))
+        parts2 = tuple(map(int, base2.split('.')))
+
+        return parts1 > parts2
