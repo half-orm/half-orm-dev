@@ -12,7 +12,7 @@ import sys
 import subprocess
 
 from pathlib import Path
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict
 from dataclasses import dataclass
 
 from git.exc import GitCommandError
@@ -2143,3 +2143,117 @@ class ReleaseManager:
             except Exception:
                 # Best effort - don't fail if checkout back fails
                 pass
+
+    def update_production(
+        self,
+        allow_rc: bool = False
+    ) -> dict:
+        """
+        Fetch tags and list available releases for production upgrade (read-only).
+
+        Equivalent to 'apt update' - synchronizes with origin and shows available
+        releases but makes NO modifications to database or repository.
+
+        Workflow:
+            1. Fetch tags from origin (git fetch --tags)
+            2. Read current production version from database (hop_last_release)
+            3. List available release tags (v1.3.6, v1.3.6-rc1, v1.4.0)
+            4. Calculate sequential upgrade path
+            5. Return structured results for CLI display
+
+        Args:
+            allow_rc: If True, include RC tags in available releases.
+                      Default False (production-only).
+
+        Returns:
+            dict: Update information with structure:
+                {
+                    'current_version': str,  # e.g., "1.3.5"
+                    'available_releases': List[dict],  # List of available tags
+                    'upgrade_path': List[str],  # Sequential path
+                    'has_updates': bool  # True if updates available
+                }
+
+                Each item in 'available_releases':
+                {
+                    'tag': str,  # e.g., "v1.3.6"
+                    'version': str,  # e.g., "1.3.6"
+                    'type': str,  # 'production', 'rc', or 'hotfix'
+                    'patches': List[str]  # Patch IDs in release
+                }
+
+        Raises:
+            ReleaseManagerError: If cannot fetch tags or read database version
+
+        Examples:
+            # List available production releases
+            result = mgr.update_production()
+            print(f"Current: {result['current_version']}")
+            for rel in result['available_releases']:
+                print(f"  → {rel['version']} ({len(rel['patches'])} patches)")
+
+            # Include RC releases
+            result = mgr.update_production(allow_rc=True)
+            # → Shows v1.3.6-rc1, v1.3.6, v1.4.0
+        """
+        pass
+
+    def _get_available_release_tags(self, allow_rc: bool = False) -> List[str]:
+        """
+        Get available release tags from Git repository.
+
+        Fetches tags from origin and filters for release tags (v*.*.*).
+        Excludes RC tags unless allow_rc=True.
+
+        Args:
+            allow_rc: If True, include RC tags (v1.3.6-rc1)
+
+        Returns:
+            List[str]: Sorted list of tag names (e.g., ["v1.3.6", "v1.4.0"])
+
+        Raises:
+            ReleaseManagerError: If fetch fails
+
+        Examples:
+            # Production only
+            tags = mgr._get_available_release_tags()
+            # → ["v1.3.6", "v1.4.0"]
+
+            # Include RC
+            tags = mgr._get_available_release_tags(allow_rc=True)
+            # → ["v1.3.6-rc1", "v1.3.6", "v1.4.0"]
+        """
+        pass
+
+    def _calculate_upgrade_path(
+        self,
+        current: str,
+        target: str
+    ) -> List[str]:
+        """
+        Calculate sequential upgrade path between two versions.
+
+        Determines all intermediate versions needed to upgrade from
+        current to target version. Versions must be applied sequentially.
+
+        Args:
+            current: Current production version (e.g., "1.3.5")
+            target: Target version (e.g., "1.4.0")
+
+        Returns:
+            List[str]: Ordered list of versions to apply
+
+        Examples:
+            # Direct upgrade
+            path = mgr._calculate_upgrade_path("1.3.5", "1.3.6")
+            # → ["1.3.6"]
+
+            # Multi-step upgrade
+            path = mgr._calculate_upgrade_path("1.3.5", "1.4.0")
+            # → ["1.3.6", "1.4.0"]
+
+            # No upgrades needed
+            path = mgr._calculate_upgrade_path("1.4.0", "1.4.0")
+            # → []
+        """
+        pass

@@ -18,13 +18,29 @@ class Hop:
     def _determine_available_commands(self):
         """
         Determine which commands are available based on context.
+        
+        Returns different command sets based on:
+        - Repository status (checked/unchecked)
+        - Development mode (devel flag - metadata presence)
+        - Environment (production flag)
         """
         if not self.repo_checked:
             # Outside hop repository - commands for project initialization
             return ['init-database', 'init-project']
+        
+        # Inside hop repository
+        if not self.__repo.devel:
+            # Sync-only mode (no metadata)
+            return ['sync-package']
+        
+        # Development mode (metadata present)
+        if self.__repo.database.production:
+            # PRODUCTION ENVIRONMENT - Release deployment only
+            return ['update', 'upgrade']
         else:
-            # Inside hop repository - development commands
-            return ['create-patch', 'apply-patch', 'prepare-release', 'add-to-release', 'promote-to']
+            # DEVELOPMENT ENVIRONMENT - Patch development
+            return ['create-patch', 'apply-patch', 'prepare-release', 
+                    'add-to-release', 'promote-to']
 
     @property
     def repo_checked(self):
@@ -60,10 +76,20 @@ def create_cli_group():
             if hop.repo_checked:
                 click.echo(hop.state)
                 click.echo(f"\n{utils.Color.bold('Available commands:')}")
-                click.echo(f"  • {utils.Color.bold('create-patch <patch_id>')} - Create new patch branch and directory")
-                click.echo(f"  • {utils.Color.bold('apply-patch')} - Apply current patch files to database")
-                click.echo(f"  • {utils.Color.bold('prepare-release <level>')} - Prepare next release stage file (patch/minor/major)")
-                click.echo(f"  • {utils.Color.bold('add-to-release <patch_id>')} - Add patch to stage release with validation")
+                
+                # Adapt displayed commands based on environment
+                if hop.__repo.database.production:
+                    # Production commands
+                    click.echo(f"  • {utils.Color.bold('update')} - Fetch and list available releases")
+                    click.echo(f"  • {utils.Color.bold('upgrade [--to-release=X.Y.Z]')} - Apply releases to production")
+                else:
+                    # Development commands
+                    click.echo(f"  • {utils.Color.bold('create-patch <patch_id>')} - Create new patch branch and directory")
+                    click.echo(f"  • {utils.Color.bold('apply-patch')} - Apply current patch files to database")
+                    click.echo(f"  • {utils.Color.bold('prepare-release <level>')} - Prepare next release stage file (patch/minor/major)")
+                    click.echo(f"  • {utils.Color.bold('add-to-release <patch_id>')} - Add patch to stage release with validation")
+                    click.echo(f"  • {utils.Color.bold('promote-to <target>')} - Promote stage to rc or prod")
+                
                 click.echo(f"\nTry {utils.Color.bold('half_orm dev <command> --help')} for more information.\n")
             else:
                 click.echo(hop.state)
