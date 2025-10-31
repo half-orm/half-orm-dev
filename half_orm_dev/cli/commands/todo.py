@@ -34,18 +34,18 @@ def todo(ctx):
         'apply-patch': 'Apply current patch files using PatchManager.apply_patch_files()',
         'add-to-release': 'Add patch to releases/X.Y.Z-stage.txt and merge to ho-prod',
         'prepare-release': 'Create next releases/X.Y.Z-stage.txt file',
-        'apply-release': 'Apply next release',
         'promote-to': "Promote stage → target ('rc', 'prod') with automatic branch cleanup",
-        'deploy-to-prod': 'Apply release patches to production database',
+        'update': 'Apply patches in production (adapt for Git-centric)',
+        'upgrade': 'Apply patches in production (adapt for Git-centric)',
+
+        # ♻️ Commands to implement
         'create-hotfix': 'Create emergency hotfix bypassing normal workflow',
         'rollback': 'Rollback database to previous version using backups/',
+        'sync-package': 'Synchronize Python package with database model',
+        'restore': 'Restore database to specific version (adapt for new backups)',
         'list-patches': 'List all patches in Patches/ directory',
         'status': 'Show development status with patch/release information',
-
-        # ♻️ Commands to adapt
-        'sync-package': 'Synchronize Python package with database model',
-        'upgrade': 'Apply patches in production (adapt for Git-centric)',
-        'restore': 'Restore database to specific version (adapt for new backups)',
+        'apply-release': 'Apply next release',
     }
 
     description = command_descriptions.get(command_name, 'Git-centric command')
@@ -63,7 +63,6 @@ def todo(ctx):
 # 🚧 New Git-centric commands
 add_to_release = todo
 apply_release = todo
-deploy_to_prod = todo
 create_hotfix = todo
 rollback = todo
 list_patches = todo
@@ -71,5 +70,4 @@ status = todo
 
 # ♻️ Commands to adapt (also in todo for now)
 sync_package = todo   # Keep functionality, adapt to new architecture
-upgrade = todo        # Adapt for production Git-centric workflow
 restore = todo        # Adapt for new backup/restore logic

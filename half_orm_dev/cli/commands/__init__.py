@@ -14,14 +14,13 @@ from .prepare_release import prepare_release
 from .add_to_release import add_to_release
 from .promote_to import promote_to
 from .update import update
+from .upgrade import upgrade
 from .todo import apply_release
-from .todo import deploy_to_prod
 from .todo import create_hotfix
 from .todo import rollback
 
 # ♻️ Adapted existing commands
 from .todo import sync_package    # Unchanged
-from .todo import upgrade      # Adapted for production workflow
 from .todo import restore      # Adapted for new architecture
 
 # Registry of all available commands - Git-centric architecture
@@ -35,11 +34,9 @@ ALL_COMMANDS = {
     'add-to-release': add_to_release,
     'promote-to': promote_to,
     'update': update,          # Adapted for production
+    'upgrade': upgrade,          # Adapted for production
     # 🚧 (stubs)
     'apply_release': apply_release,
-
-    # 🚧 Release management (stubs)
-    'deploy-to-prod': deploy_to_prod,
 
     # 🚧 Emergency workflow (stubs)
     'create-hotfix': create_hotfix,
@@ -47,7 +44,6 @@ ALL_COMMANDS = {
 
     # ♻️ Adapted commands
     'sync-package': sync_package, # Unchanged
-    'upgrade': upgrade,          # Adapted for production
     'restore': restore,          # Adapted
 }
 
@@ -62,12 +58,10 @@ __all__ = [
     'apply_release',
     'promote_to',
     'promote_to_prod',
-    'deploy_to_prod',
+    'upgrade',
     'create_hotfix',
     'rollback',
     # Adapted commands
     'sync_package',
-    'upgrade',
-    'restore',
     'ALL_COMMANDS'
 ]
