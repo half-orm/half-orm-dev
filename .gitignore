@@ -15,3 +15,4 @@ packager/test/hop_test
 .hop_venv
 site
 tests/cli_integration/.config/hop_test_devel_*
+.coverage*
