@@ -104,8 +104,7 @@ class TestUpgradeProductionBackup:
         # But pg_dump should be called with correct path
         mock_repo.database.execute_pg_command.assert_any_call(
             'pg_dump',
-            '-f', str(backups_dir / "1.3.5.sql"),
-            stderr=ANY
+            '-f', str(backups_dir / "1.3.5.sql")
         )
 
     def test_backup_created_before_validation(self, release_manager_for_upgrade):

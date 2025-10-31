@@ -2714,7 +2714,6 @@ class ReleaseManager:
             self._repo.database.execute_pg_command(
                 'pg_dump',
                 '-f', str(backup_file),
-                stderr=subprocess.PIPE
             )
         except Exception as e:
             raise ReleaseManagerError(
