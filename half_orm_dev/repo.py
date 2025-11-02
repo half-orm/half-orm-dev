@@ -54,8 +54,6 @@ class Config:
         config = ConfigParser()
         self.__hop_version = hop_version()
         data = {
-            'config_file': self.__name,
-            'package_name': self.__name,
             'hop_version': self.__hop_version,
             'git_origin': self.__git_origin,
             'devel': self.__devel

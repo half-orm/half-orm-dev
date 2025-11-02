@@ -74,7 +74,6 @@ class TestConfigurationInitialization:
 
         # Should contain all required fields
         assert '[halfORM]' in written_content
-        assert 'package_name = my_blog' in written_content
         assert 'hop_version =' in written_content  # Version is set by Config.write()
         assert 'git_origin =' in written_content  # Empty initially
         assert 'devel = True' in written_content
@@ -98,7 +97,6 @@ class TestConfigurationInitialization:
 
         # Should have devel = False
         assert 'devel = False' in written_content or 'devel = false' in written_content
-        assert 'package_name = legacy_app' in written_content
 
     @patch('half_orm_dev.utils.hop_version')
     @patch('os.makedirs')
