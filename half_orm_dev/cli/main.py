@@ -26,7 +26,7 @@ class Hop:
         """
         if not self.repo_checked:
             # Outside hop repository - commands for project initialization
-            return ['init-database', 'init-project']
+            return ['init']
 
         # Inside hop repository
         if not self.__repo.devel:

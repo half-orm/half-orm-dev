@@ -6,8 +6,7 @@ REFACTORED in v0.16.0 - Git-centric patch workflow
 """
 
 # ✅ New Git-centric commands (stubs for now)
-from .init_database import init_database
-from .init_project import init_project
+from .init import init
 from .create_patch import create_patch
 from .apply_patch import apply_patch
 from .prepare_release import prepare_release
@@ -26,8 +25,7 @@ from .todo import restore      # Adapted for new architecture
 # Registry of all available commands - Git-centric architecture
 ALL_COMMANDS = {
     # Core workflow
-    'init-database': init_database,
-    'init-project': init_project,
+    'init': init,
     'create-patch': create_patch,
     'apply-patch': apply_patch,
     'prepare-release': prepare_release,
@@ -49,8 +47,7 @@ ALL_COMMANDS = {
 
 __all__ = [
     # New commands
-    'init_database',
-    'init_project',
+    'init',
     'create_patch',
     'apply_patch',
     'prepare_release',
