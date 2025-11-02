@@ -35,28 +35,30 @@ class TestRepoInitialization:
         """Create temporary directory with .hop/config file."""
         from half_orm_dev.utils import hop_version
 
-        temp_dir = tempfile.mkdtemp()
+        # ✅ NOUVEAU : Créer avec le nom attendu
+        parent_temp = tempfile.mkdtemp()
+        temp_dir = os.path.join(parent_temp, "test_db")
+        os.makedirs(temp_dir)
 
         try:
             # Create .hop directory
             hop_dir = Path(temp_dir) / ".hop"
             hop_dir.mkdir()
 
-            # Create config file with current hop version (no mocking)
+            # Create config file (NO package_name - new format)
             current_hop_version = hop_version()
             config_file = hop_dir / "config"
             config_content = f"""[halfORM]
-package_name = test_db
-hop_version = {current_hop_version}
-git_origin = https://github.com/user/test.git
-devel = True
-"""
+    hop_version = {current_hop_version}
+    git_origin = https://github.com/user/test.git
+    devel = True
+    """
             config_file.write_text(config_content)
 
             yield temp_dir
 
         finally:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            shutil.rmtree(parent_temp, ignore_errors=True)
 
     @pytest.fixture
     def temp_non_hop_repo(self):

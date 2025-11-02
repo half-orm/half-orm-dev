@@ -20,7 +20,7 @@ from half_orm_dev.patch import Patch
 from half_orm_dev.patch_manager import PatchManager, PatchManagerError
 from half_orm_dev.release_manager import ReleaseManager
 
-from .utils import TEMPLATE_DIRS, hop_version
+from .utils import TEMPLATE_DIRS, hop_version, resolve_database_config_name
 
 class RepoError(Exception):
     pass
@@ -34,7 +34,7 @@ class Config:
     __hop_version: Optional[str] = None
     def __init__(self, base_dir, **kwargs):
         Config.__file = os.path.join(base_dir, '.hop', 'config')
-        self.__name = kwargs.get('name')
+        self.__name = kwargs.get('name') or resolve_database_config_name(base_dir)
         self.__devel = kwargs.get('devel', False)
         if os.path.exists(self.__file):
             sys.path.insert(0, base_dir)
@@ -44,7 +44,6 @@ class Config:
         "Sets __name and __hop_version"
         config = ConfigParser()
         config.read(self.__file)
-        self.__name = config['halfORM']['package_name']
         self.__hop_version = config['halfORM'].get('hop_version', '')
         self.__git_origin = config['halfORM'].get('git_origin', '')
         self.__devel = config['halfORM'].getboolean('devel', False)
