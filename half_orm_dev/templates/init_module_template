@@ -1,6 +1,17 @@
 """This module provides the model of the database for the package {package_name}.
 """
-
 from half_orm.model import Model
+import os
+from pathlib import Path
 
-MODEL = Model('{package_name}', scope=__name__)
+_package_dir = Path(__file__).parent
+_package_name = _package_dir.name
+
+_alt_config_path = _package_dir / '.hop' / 'alt_config'
+if _alt_config_path.exists():
+    # Lire le nom de config alternatif
+    _config_name = _alt_config_path.read_text().strip()
+else:
+    _config_name = _package_name
+
+MODEL = Model(_config_name, scope=__name__)
