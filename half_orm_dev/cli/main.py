@@ -26,7 +26,7 @@ class Hop:
         """
         if not self.repo_checked:
             # Outside hop repository - commands for project initialization
-            return ['init']
+            return ['init', 'clone']
 
         # Inside hop repository
         if not self.__repo.devel:
@@ -95,9 +95,8 @@ def create_cli_group():
                 click.echo(hop.state)
                 click.echo("\nNot in a hop repository.")
                 click.echo(f"\n{utils.Color.bold('Available commands:')}")
-                click.echo(f"  • {utils.Color.bold('init-database <database_name>')} - Configure database connection")
-                click.echo(f"  • {utils.Color.bold('init-project <package_name>')} - Create new halfORM project (use 'init-database' first if needed)")
-                click.echo(f"\nTry {utils.Color.bold('half_orm dev init-database --help')} for more information.\n")
+                click.echo(f"\n  • {utils.Color.bold('init <package_name>')} - Create new halfORM project.")
+                click.echo(f"\n  • {utils.Color.bold('clone <git origin>')} - Clone an existing halfORM project.\n")
 
     # Add only available commands to the group
     for cmd_name in hop.available_commands:
