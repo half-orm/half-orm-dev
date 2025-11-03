@@ -9,8 +9,7 @@ REFACTORED in v0.16.0 - Git-centric patch workflow
 from .init import init
 from .clone import clone
 from .patch import patch
-from .prepare_release import prepare_release
-from .promote_to import promote_to
+from .release import release
 from .update import update
 from .upgrade import upgrade
 from .todo import apply_release
@@ -27,8 +26,7 @@ ALL_COMMANDS = {
     'init': init,
     'clone': clone,
     'patch': patch,
-    'prepare-release': prepare_release,
-    'promote-to': promote_to,
+    'release': release,
     'update': update,          # Adapted for production
     'upgrade': upgrade,          # Adapted for production
     # 🚧 (stubs)
@@ -48,10 +46,7 @@ __all__ = [
     'init',
     'clone',
     'patch',
-    'prepare_release',
-    'apply_release',
-    'promote_to',
-    'promote_to_prod',
+    'release',
     'upgrade',
     'create_hotfix',
     'rollback',

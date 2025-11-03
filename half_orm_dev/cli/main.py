@@ -39,8 +39,7 @@ class Hop:
             return ['update', 'upgrade']
         else:
             # DEVELOPMENT ENVIRONMENT - Patch development
-            return ['patch', 'prepare-release',
-                    'promote-to']
+            return ['patch', 'release']
 
     @property
     def repo_checked(self):
