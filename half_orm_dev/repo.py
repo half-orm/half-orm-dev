@@ -1467,7 +1467,7 @@ See docs/half_orm_dev.md for complete documentation.
             dest_name = git_origin.rstrip('/').split('/')[-1]
             if dest_name.endswith('.git'):
                 dest_name = dest_name[:-4]
-        
+
         dest_path = Path.cwd() / dest_name
 
         # Step 2: Verify destination doesn't exist
@@ -1528,9 +1528,9 @@ See docs/half_orm_dev.md for complete documentation.
         # Step 7: Load config and setup database
         from half_orm_dev.repo import Config  # Import here to avoid circular imports
         from half_orm_dev.database import Database
-        
+
         config = Config(dest_path)
-        
+
         connection_options = {
             'host': None,
             'port': None,
@@ -1553,7 +1553,7 @@ See docs/half_orm_dev.md for complete documentation.
 
         # Step 8: Create Repo instance and restore production schema
         repo = cls()
-        
+
         try:
             repo.restore_database_from_schema()
         except RepoError as e:

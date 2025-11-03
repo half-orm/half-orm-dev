@@ -39,8 +39,8 @@ class Hop:
             return ['update', 'upgrade']
         else:
             # DEVELOPMENT ENVIRONMENT - Patch development
-            return ['create-patch', 'apply-patch', 'prepare-release',
-                    'add-to-release', 'promote-to']
+            return ['patch', 'prepare-release',
+                    'promote-to']
 
     @property
     def repo_checked(self):
@@ -84,10 +84,8 @@ def create_cli_group():
                     click.echo(f"  • {utils.Color.bold('upgrade [--to-release=X.Y.Z]')} - Apply releases to production")
                 else:
                     # Development commands
-                    click.echo(f"  • {utils.Color.bold('create-patch <patch_id>')} - Create new patch branch and directory")
-                    click.echo(f"  • {utils.Color.bold('apply-patch')} - Apply current patch files to database")
+                    click.echo(f"  • {utils.Color.bold('patch')}")
                     click.echo(f"  • {utils.Color.bold('prepare-release <level>')} - Prepare next release stage file (patch/minor/major)")
-                    click.echo(f"  • {utils.Color.bold('add-to-release <patch_id>')} - Add patch to stage release with validation")
                     click.echo(f"  • {utils.Color.bold('promote-to <target>')} - Promote stage to rc or prod")
 
                 click.echo(f"\nTry {utils.Color.bold('half_orm dev <command> --help')} for more information.\n")

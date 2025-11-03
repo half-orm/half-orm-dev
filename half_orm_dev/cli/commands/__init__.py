@@ -8,10 +8,8 @@ REFACTORED in v0.16.0 - Git-centric patch workflow
 # ✅ New Git-centric commands (stubs for now)
 from .init import init
 from .clone import clone
-from .create_patch import create_patch
-from .apply_patch import apply_patch
+from .patch import patch
 from .prepare_release import prepare_release
-from .add_to_release import add_to_release
 from .promote_to import promote_to
 from .update import update
 from .upgrade import upgrade
@@ -28,10 +26,8 @@ ALL_COMMANDS = {
     # Core workflow
     'init': init,
     'clone': clone,
-    'create-patch': create_patch,
-    'apply-patch': apply_patch,
+    'patch': patch,
     'prepare-release': prepare_release,
-    'add-to-release': add_to_release,
     'promote-to': promote_to,
     'update': update,          # Adapted for production
     'upgrade': upgrade,          # Adapted for production
@@ -51,10 +47,8 @@ __all__ = [
     # New commands
     'init',
     'clone',
-    'create_patch',
-    'apply_patch',
+    'patch',
     'prepare_release',
-    'add_to_release',
     'apply_release',
     'promote_to',
     'promote_to_prod',

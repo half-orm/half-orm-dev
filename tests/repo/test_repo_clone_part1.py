@@ -38,7 +38,7 @@ class TestCloneRepoSuccess:
     @patch('half_orm_dev.repo.Config')
     @patch('half_orm_dev.database.Database.setup_database')
     def test_clone_repo_basic_success(
-        self, mock_setup_db, mock_config, mock_exists, mock_cwd, 
+        self, mock_setup_db, mock_config, mock_exists, mock_cwd,
         mock_chdir, mock_subprocess
     ):
         """Test basic successful clone workflow."""
@@ -46,7 +46,7 @@ class TestCloneRepoSuccess:
         mock_cwd.return_value = Path('/current/dir')
         mock_exists.return_value = False  # Destination doesn't exist
         mock_subprocess.return_value = Mock(returncode=0, stderr='', stdout='')
-        
+
         mock_config_instance = Mock()
         mock_config_instance.name = 'test_project'
         mock_config.return_value = mock_config_instance
@@ -66,7 +66,7 @@ class TestCloneRepoSuccess:
         clone_call = mock_subprocess.call_args_list[0]
         # First positional argument is the command list
         clone_cmd = clone_call[0][0]
-        
+
         assert clone_cmd[0] == "git"
         assert clone_cmd[1] == "clone"
         assert clone_cmd[2] == "https://github.com/user/project.git"
@@ -75,7 +75,7 @@ class TestCloneRepoSuccess:
         # Verify git checkout called
         checkout_call = mock_subprocess.call_args_list[1]
         checkout_cmd = checkout_call[0][0]
-        
+
         assert checkout_cmd == ["git", "checkout", "ho-prod"]
 
         # Verify chdir to cloned directory
@@ -94,14 +94,14 @@ class TestCloneRepoSuccess:
     @patch('half_orm_dev.repo.Config')
     @patch('half_orm_dev.database.Database.setup_database')
     def test_clone_repo_removes_git_extension(
-        self, mock_setup_db, mock_config, mock_exists, mock_cwd, 
+        self, mock_setup_db, mock_config, mock_exists, mock_cwd,
         mock_chdir, mock_subprocess
     ):
         """Test .git extension is removed from destination directory name."""
         mock_cwd.return_value = Path('/current/dir')
         mock_exists.return_value = False
         mock_subprocess.return_value = Mock(returncode=0, stderr='', stdout='')
-        
+
         mock_config_instance = Mock()
         mock_config_instance.name = 'project'
         mock_config.return_value = mock_config_instance
@@ -116,7 +116,7 @@ class TestCloneRepoSuccess:
         # First call is git clone, first positional arg is the command list
         clone_call = mock_subprocess.call_args_list[0]
         clone_cmd = clone_call[0][0]
-        
+
         # clone_cmd = ["git", "clone", "https://...", "/dest/path"]
         # Index 3 is the destination path
         dest_path = clone_cmd[3]
@@ -131,14 +131,14 @@ class TestCloneRepoSuccess:
     @patch('half_orm_dev.repo.Config')
     @patch('half_orm_dev.database.Database.setup_database')
     def test_clone_repo_creates_alt_config(
-        self, mock_setup_db, mock_config, mock_file, mock_exists, 
+        self, mock_setup_db, mock_config, mock_file, mock_exists,
         mock_cwd, mock_chdir, mock_subprocess
     ):
         """Test .hop/alt_config is created when custom database_name provided."""
         mock_cwd.return_value = Path('/current/dir')
         mock_exists.return_value = False
         mock_subprocess.return_value = Mock(returncode=0, stderr='', stdout='')
-        
+
         mock_config_instance = Mock()
         mock_config_instance.name = 'custom_db_name'
         mock_config.return_value = mock_config_instance
@@ -155,20 +155,20 @@ class TestCloneRepoSuccess:
         # Verify alt_config file created with correct path (accepts Path or str)
         assert mock_file.call_count == 1
         call_args = mock_file.call_args
-        
+
         # Check path (can be Path or str)
         actual_path = call_args[0][0]
         expected_path = Path('/current/dir') / 'project' / '.hop' / 'alt_config'
-        
+
         if isinstance(actual_path, Path):
             assert actual_path == expected_path
         else:
             assert actual_path == str(expected_path)
-        
+
         # Check mode and encoding
         assert call_args[0][1] == 'w'
         assert call_args[1]['encoding'] == 'utf-8'
-        
+
         # Verify database name written to file
         handle = mock_file()
         handle.write.assert_called_once_with("custom_db_name")
@@ -180,14 +180,14 @@ class TestCloneRepoSuccess:
     @patch('half_orm_dev.repo.Config')
     @patch('half_orm_dev.database.Database.setup_database')
     def test_clone_repo_uses_production_parameter(
-        self, mock_setup_db, mock_config, mock_exists, mock_cwd, 
+        self, mock_setup_db, mock_config, mock_exists, mock_cwd,
         mock_chdir, mock_subprocess
     ):
         """Test production parameter is passed to Database.setup_database."""
         mock_cwd.return_value = Path('/current/dir')
         mock_exists.return_value = False
         mock_subprocess.return_value = Mock(returncode=0, stderr='', stdout='')
-        
+
         mock_config_instance = Mock()
         mock_config_instance.name = 'prod_project'
         mock_config.return_value = mock_config_instance

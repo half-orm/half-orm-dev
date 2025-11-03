@@ -48,7 +48,7 @@ class TestCloneRepoErrors:
         """Test error handling when git clone fails."""
         mock_cwd.return_value = Path('/current/dir')
         mock_exists.return_value = False
-        
+
         # Simulate git clone failure
         mock_subprocess.side_effect = subprocess.CalledProcessError(
             returncode=128,
@@ -66,7 +66,7 @@ class TestCloneRepoErrors:
         """Test error handling when git clone times out."""
         mock_cwd.return_value = Path('/current/dir')
         mock_exists.return_value = False
-        
+
         # Simulate timeout
         mock_subprocess.side_effect = subprocess.TimeoutExpired(
             cmd=["git", "clone"],
@@ -86,7 +86,7 @@ class TestCloneRepoErrors:
         """Test error when git checkout ho-prod fails."""
         mock_cwd.return_value = Path('/current/dir')
         mock_exists.return_value = False
-        
+
         # First call (clone) succeeds, second call (checkout) fails
         mock_subprocess.side_effect = [
             Mock(returncode=0, stderr='', stdout=''),  # git clone succeeds
@@ -115,7 +115,7 @@ class TestCloneRepoErrors:
         mock_cwd.return_value = Path('/current/dir')
         mock_exists.return_value = False
         mock_subprocess.return_value = Mock(returncode=0, stderr='', stdout='')
-        
+
         # Simulate file write error
         mock_file.side_effect = PermissionError("Permission denied")
 
@@ -132,14 +132,14 @@ class TestCloneRepoErrors:
     @patch('half_orm_dev.repo.Config')
     @patch('half_orm_dev.database.Database.setup_database')
     def test_clone_repo_database_setup_fails(
-        self, mock_setup_db, mock_config, mock_exists, mock_cwd, 
+        self, mock_setup_db, mock_config, mock_exists, mock_cwd,
         mock_chdir, mock_subprocess
     ):
         """Test error when Database.setup_database fails."""
         mock_cwd.return_value = Path('/current/dir')
         mock_exists.return_value = False
         mock_subprocess.return_value = Mock(returncode=0, stderr='', stdout='')
-        
+
         mock_config_instance = Mock()
         mock_config_instance.name = 'test_project'
         mock_config.return_value = mock_config_instance
@@ -157,14 +157,14 @@ class TestCloneRepoErrors:
     @patch('half_orm_dev.repo.Config')
     @patch('half_orm_dev.database.Database.setup_database')
     def test_clone_repo_schema_restoration_fails(
-        self, mock_setup_db, mock_config, mock_exists, mock_cwd, 
+        self, mock_setup_db, mock_config, mock_exists, mock_cwd,
         mock_chdir, mock_subprocess
     ):
         """Test error when restore_database_from_schema fails."""
         mock_cwd.return_value = Path('/current/dir')
         mock_exists.return_value = False
         mock_subprocess.return_value = Mock(returncode=0, stderr='', stdout='')
-        
+
         mock_config_instance = Mock()
         mock_config_instance.name = 'test_project'
         mock_config.return_value = mock_config_instance
@@ -191,7 +191,7 @@ class TestCloneRepoErrors:
         with patch('os.chdir'), \
              patch('half_orm_dev.repo.Config') as mock_config, \
              patch('half_orm_dev.database.Database.setup_database'):
-            
+
             mock_config_instance = Mock()
             mock_config_instance.name = 'test_project'
             mock_config.return_value = mock_config_instance
@@ -208,7 +208,7 @@ class TestCloneRepoErrors:
         # Verify custom destination used
         clone_call = mock_subprocess.call_args_list[0]
         clone_cmd = clone_call[0][0]  # First positional arg is the command list
-        
+
         # clone_cmd = ["git", "clone", "https://...", "/dest/path"]
         # Index 3 is the destination path
         dest_path = clone_cmd[3]
