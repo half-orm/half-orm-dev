@@ -7,6 +7,7 @@ import os
 import sys
 from configparser import ConfigParser
 from pathlib import Path
+import subprocess
 from typing import Optional
 from psycopg2 import OperationalError
 
@@ -1400,3 +1401,162 @@ See docs/half_orm_dev.md for complete documentation.
         metadata_path = schema_path.parent / f"metadata-{version}.sql"
 
         return metadata_path
+
+    @classmethod
+    def clone_repo(cls,
+                git_origin: str,
+                database_name: Optional[str] = None,
+                dest_dir: Optional[str] = None,
+                production: bool = False,
+                create_db: bool = True) -> None:
+        """
+        Clone existing half_orm_dev project and setup local database.
+
+        This method clones a Git repository, checks out the ho-prod branch,
+        creates/configures the local database, and restores the schema to
+        the production version.
+
+        Args:
+            git_origin: Git repository URL (HTTPS, SSH, file://)
+            database_name: Local database name (default: prompt or package_name)
+            dest_dir: Clone destination (default: infer from git_origin)
+            production: Production mode flag (passed to Database.setup_database)
+            create_db: Create database if missing (default: True)
+
+        Raises:
+            RepoError: If clone fails, checkout fails, or database setup fails
+            FileExistsError: If destination directory already exists
+
+        Workflow:
+            1. Determine destination directory from git_origin or dest_dir
+            2. Verify destination directory doesn't exist
+            3. Clone repository using git clone
+            4. Checkout ho-prod branch
+            5. Create .hop/alt_config if custom database_name provided
+            6. Setup database (create + metadata if create_db=True)
+            7. Restore database from model/schema.sql to production version
+
+        Examples:
+            # Interactive with prompts for connection params
+            Repo.clone_repo("https://github.com/user/project.git")
+
+            # With custom database name (creates .hop/alt_config)
+            Repo.clone_repo(
+                "https://github.com/user/project.git",
+                database_name="my_local_dev_db"
+            )
+
+            # Production mode
+            Repo.clone_repo(
+                "https://github.com/user/project.git",
+                production=True,
+                create_db=False  # DB must already exist
+            )
+
+        Notes:
+            - Changes current working directory to cloned project
+            - Empty connection_options {} triggers interactive prompts
+            - restore_database_from_schema() loads production schema version
+            - Returns None (command completes, no return value needed)
+        """
+        # Step 1: Determine destination directory
+        if dest_dir:
+            dest_name = dest_dir
+        else:
+            # Extract project name from git_origin, remove .git extension
+            dest_name = git_origin.rstrip('/').split('/')[-1]
+            if dest_name.endswith('.git'):
+                dest_name = dest_name[:-4]
+        
+        dest_path = Path.cwd() / dest_name
+
+        # Step 2: Verify destination doesn't exist
+        if dest_path.exists():
+            raise FileExistsError(
+                f"Directory '{dest_name}' already exists in current directory. "
+                f"Choose a different destination or remove the existing directory."
+            )
+
+        # Step 3: Clone repository
+        try:
+            result = subprocess.run(
+                ["git", "clone", git_origin, str(dest_path)],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=300  # 5 minutes timeout for clone
+            )
+        except subprocess.CalledProcessError as e:
+            raise RepoError(
+                f"Git clone failed: {e.stderr.strip()}"
+            ) from e
+        except subprocess.TimeoutExpired:
+            raise RepoError(
+                f"Git clone timed out after 5 minutes. "
+                f"Check network connection or repository size."
+            )
+
+        # Step 4: Change to cloned directory (required for Repo() singleton)
+        os.chdir(dest_path)
+
+        # Step 5: Checkout ho-prod branch
+        try:
+            result = subprocess.run(
+                ["git", "checkout", "ho-prod"],
+                capture_output=True,
+                text=True,
+                check=True,
+                cwd=dest_path
+            )
+        except subprocess.CalledProcessError as e:
+            raise RepoError(
+                f"Git checkout ho-prod failed: {e.stderr.strip()}. "
+                f"Ensure 'ho-prod' branch exists in the repository."
+            ) from e
+
+        # Step 6: Create .hop/alt_config if custom database name provided
+        if database_name:
+            alt_config_path = dest_path / '.hop' / 'alt_config'
+            try:
+                with open(alt_config_path, 'w', encoding='utf-8') as f:
+                    f.write(database_name)
+            except (OSError, IOError) as e:
+                raise RepoError(
+                    f"Failed to create .hop/alt_config: {e}"
+                ) from e
+
+        # Step 7: Load config and setup database
+        from half_orm_dev.repo import Config  # Import here to avoid circular imports
+        from half_orm_dev.database import Database
+        
+        config = Config(dest_path)
+        
+        connection_options = {
+            'host': None,
+            'port': None,
+            'user': None,
+            'password': None,
+            'production': production
+        }
+
+        try:
+            Database.setup_database(
+                database_name=config.name,
+                connection_options=connection_options,
+                create_db=create_db,
+                add_metadata=create_db  # Auto-install metadata for new DB
+            )
+        except Exception as e:
+            raise RepoError(
+                f"Database setup failed: {e}"
+            ) from e
+
+        # Step 8: Create Repo instance and restore production schema
+        repo = cls()
+        
+        try:
+            repo.restore_database_from_schema()
+        except RepoError as e:
+            raise RepoError(
+                f"Failed to restore database from schema: {e}"
+            ) from e

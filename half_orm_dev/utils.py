@@ -14,7 +14,7 @@ def hop_version():
 def resolve_database_config_name(base_dir):
     """
     Resolve database configuration name with backward compatibility.
-    
+
     Priority:
     1. .hop/alt_config if exists → use content
     2. .hop/config[halfORM][package_name] if exists → use it (backward compat)
@@ -22,16 +22,16 @@ def resolve_database_config_name(base_dir):
     """
     from pathlib import Path
     from configparser import ConfigParser
-    
+
     base_path = Path(base_dir)
-    
+
     # Priority 1: alt_config
     alt_config_path = base_path / '.hop' / 'alt_config'
     if alt_config_path.exists():
         content = alt_config_path.read_text().strip()
         if content:
             return content
-    
+
     # Priority 2: package_name in .hop/config (backward compat)
     config_path = base_path / '.hop' / 'config'
     if config_path.exists():
@@ -44,6 +44,6 @@ def resolve_database_config_name(base_dir):
                     return package_name
         except Exception:
             pass
-    
+
     # Priority 3: directory name
     return base_path.name

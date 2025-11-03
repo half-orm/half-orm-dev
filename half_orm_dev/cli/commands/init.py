@@ -75,15 +75,15 @@ def init(project_name, host, port, user, password, git_origin, production, force
     MODES:
         - Full development mode (default): Database with half_orm_dev metadata
           → Enables: create-patch, apply-patch, prepare-release, etc.
-        
+
         - Sync-only mode (--force-sync-only or user declines metadata):
           → Only enables: sync-package (code generation from schema)
           → Limited functionality, no patch management
 
     ERROR CASES:
-        - Database exists with metadata: 
+        - Database exists with metadata:
           → Error: "Use 'half_orm dev clone <git-url>' to work on existing project"
-        
+
         - Project directory already exists:
           → Error: "Directory already exists, choose a different name"
     """
@@ -139,7 +139,7 @@ def init(project_name, host, port, user, password, git_origin, production, force
         if db_exists:
             # Database exists without metadata
             click.echo(f"ℹ️  Database '{database_name}' exists without half_orm_dev metadata.")
-            
+
             if force_sync_only:
                 install_metadata = False
                 click.echo("⚠️  Sync-only mode forced: metadata installation skipped.")
@@ -151,7 +151,7 @@ def init(project_name, host, port, user, password, git_origin, production, force
                 )
                 if not install_metadata:
                     click.echo("⚠️  Continuing in sync-only mode (limited functionality).")
-            
+
             click.echo()
 
         # Execute database setup (reuses existing Database.setup_database)
@@ -202,7 +202,7 @@ def init(project_name, host, port, user, password, git_origin, production, force
         click.echo()
         click.echo("🚀 Next steps:")
         click.echo(f"   cd {project_name}/")
-        
+
         if install_metadata:
             click.echo("   half_orm dev create-patch <patch-name>  # Start developing")
         else:
@@ -216,11 +216,11 @@ def init(project_name, host, port, user, password, git_origin, production, force
     except DatabaseExistsWithMetadataError as e:
         click.echo()
         utils.error(str(e), exit_code=1)
-    
+
     except ProjectDirectoryExistsError as e:
         click.echo()
         utils.error(str(e), exit_code=1)
-    
+
     except Exception as e:
         click.echo()
         utils.error(f"Project initialization failed: {e}", exit_code=1)
@@ -255,15 +255,15 @@ def _check_database_status(database_name, connection_options):
         # Model will attempt to read from ~/.half_orm/<database_name> config
         # If config doesn't exist yet, connection will fail and we return (False, False)
         model = Model(database_name)
-        
+
         # Database exists and is accessible, check for metadata
         has_metadata = model.has_relation('half_orm_meta.hop_release')
-        
+
         # Clean up
         model.disconnect()
-        
+
         return (True, has_metadata)
-        
+
     except Exception as e:
         # Database doesn't exist or not accessible yet
         # This is expected for new databases before setup_database runs
@@ -295,21 +295,21 @@ def _prompt_for_git_origin(project_name):
     click.echo("🔗 Git repository configuration:")
     click.echo(f"   Example: https://github.com/<user>/{project_name}.git")
     click.echo()
-    
+
     while True:
         git_origin = click.prompt(
             "Git remote origin URL",
             type=str,
             default=""
         )
-        
+
         # Validation
         if not git_origin or git_origin.strip() == "":
             click.echo("❌ Git origin URL cannot be empty. Please provide a valid URL.")
             continue
-        
+
         git_origin = git_origin.strip()
-        
+
         # Basic format validation
         valid_prefixes = ('http://', 'https://', 'git://', 'git@', 'ssh://')
         if not any(git_origin.startswith(prefix) for prefix in valid_prefixes):
@@ -319,5 +319,5 @@ def _prompt_for_git_origin(project_name):
             )
             if not click.confirm("Use this URL anyway?", default=False):
                 continue
-        
+
         return git_origin

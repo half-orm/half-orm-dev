@@ -227,7 +227,7 @@ devel = True
             # Create config with EMPTY package_name
             config_file = hop_dir / 'config'
             config_content = """[halfORM]
-package_name = 
+package_name =
 hop_version = 0.16.0
 """
             config_file.write_text(config_content)
