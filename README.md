@@ -5,9 +5,65 @@
 **Git-centric patch management and database versioning for halfORM projects**
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![halfORM](https://img.shields.io/badge/halfORM-compatible-green.svg)](https://github.com/halfORM/halfORM)
 
 Modern development workflow for PostgreSQL databases with automatic code generation, semantic versioning, and production-ready deployment system.
+
+---
+
+## ⚠️ Breaking Changes (v0.16.0)
+
+**This version introduces major architectural changes that completely transform how you use half_orm_dev.**
+
+### What Changed
+
+**1. Complete Command Reorganization**
+- **OLD**: `half_orm patch new`, `half_orm patch apply`, `half_orm release new`
+- **NEW**: `half_orm dev patch new`, `half_orm dev patch apply`, `half_orm dev release new`
+- All commands now under `half_orm dev` namespace for better organization
+
+**2. New Branch Strategy**
+- **OLD**: Various branch naming conventions
+- **NEW**: Strict `ho-prod`, `ho-patch/*`, `ho-release/*` hierarchy
+- Previous branch structures are not compatible
+
+**3. Unified Promotion Command**
+- **OLD**: `half_orm release promote-to-rc`, `half_orm release promote-to-prod`
+- **NEW**: `half_orm dev release promote rc`, `half_orm dev release promote prod`
+- Single `promote` command with explicit target argument
+
+**4. Different Release File Organization**
+- **OLD**: CHANGELOG.py-based versioning
+- **NEW**: `releases/*.txt` files with explicit patch lists
+- **Structure**: `X.Y.Z-stage.txt` → `X.Y.Z-rc1.txt` → `X.Y.Z.txt`
+
+**5. Test Organization and Validation**
+- **NEW**: Systematic test validation before ANY integration
+- **NEW**: Temporary validation branches (`temp-valid-X.Y.Z`) for safe testing
+- Tests must pass before patches are added to releases
+
+### What Stayed the Same
+
+✅ **Business Logic Code**: Your database schemas, models, and application code remain unchanged
+✅ **Database Structure**: PostgreSQL schemas and data are not affected
+✅ **halfORM Integration**: Code generation and ORM features work identically
+✅ **Semantic Versioning**: MAJOR.MINOR.PATCH logic is preserved
+✅ **SQL Patch Files**: Format and execution order unchanged
+
+### Migration Guide
+
+**If migrating from previous versions:**
+
+1. **Backup your repository** before upgrading
+2. **Update all scripts** to use `half_orm dev` prefix
+3. **Reorganize branches** to match new `ho-prod`/`ho-patch/*` structure
+4. **Convert release files** from CHANGELOG.py to releases/*.txt format
+5. **Update CI/CD pipelines** with new command syntax
+
+**For new projects:** Just follow the Quick Start guide below!
+
+---
 
 ## 📖 Description
 
@@ -17,6 +73,7 @@ Modern development workflow for PostgreSQL databases with automatic code generat
 - **Code generation**: Python classes auto-generated from schema changes
 - **Safe deployments**: Automatic backups, rollback support, validation
 - **Team collaboration**: Distributed locks, branch notifications, conflict prevention
+- **Test-driven development**: Systematic validation before any integration
 
 Perfect for teams managing evolving PostgreSQL schemas with Python applications.
 
@@ -28,17 +85,104 @@ Perfect for teams managing evolving PostgreSQL schemas with Python applications.
 - **Complete testing**: Apply patches with full release context
 - **Conflict detection**: Distributed locks prevent concurrent modifications
 
+### 🧪 Test-Driven Development & Validation
+
+**Systematic Testing Before Integration**
+
+`half_orm_dev` enforces a **test-first approach** that guarantees code quality:
+
+**1. Validation on Temporary Branches**
+```bash
+# When adding a patch to a release, tests run FIRST
+half_orm dev patch add 456-user-auth
+
+# What happens behind the scenes:
+# 1. Creates temp-valid-1.3.6 branch
+# 2. Merges ALL release patches + new patch
+# 3. Runs pytest tests/
+# 4. If tests PASS → commits to ho-prod
+# 5. If tests FAIL → rollback, nothing committed
+```
+
+**2. No Integration Without Tests**
+- ❌ **BLOCKED**: Patches cannot be added to releases if tests fail
+- ✅ **SAFE**: Only validated code reaches stage/rc/production
+- 🔒 **GUARANTEED**: Every release is testable before deployment
+
+**3. Business Logic Testing (TDD Best Practice)**
+```python
+# Your business logic is fully testable
+# Example: tests/test_user_authentication.py
+
+def test_user_creation():
+    """Test user creation through halfORM models."""
+    user = User(
+        username='john',
+        email='john@example.com'
+    ).insert()
+
+    assert user.id is not None
+    assert user.username == 'john'
+
+def test_invalid_email_rejected():
+    """Test validation prevents invalid emails."""
+    with pytest.raises(ValidationError):
+        User(username='john', email='invalid').insert()
+```
+
+**4. Full Release Context Testing**
+```bash
+# Test your patch with ALL previous patches
+half_orm dev patch apply
+
+# What happens:
+# 1. Restores DB to production state
+# 2. Applies all RC patches (if any)
+# 3. Applies all stage patches
+# 4. Applies YOUR patch in correct order
+# 5. Generates code
+# → Your tests run in realistic production-like environment
+```
+
+**5. Workflow Integration**
+```
+┌───────────────────────────────────────────────────────┐
+│ Development Cycle with Test Validation                │
+├───────────────────────────────────────────────────────┤
+│ 1. Create patch                                       │
+│ 2. Write tests FIRST (TDD)                            │
+│ 3. Implement feature                                  │
+│ 4. Run tests locally: pytest                          │
+│ 5. Add to release → AUTOMATIC VALIDATION              │
+│    ├─ temp-valid branch created                       │
+│    ├─ All patches merged                              │
+│    ├─ pytest runs automatically                       │
+│    └─ Only commits if tests PASS                      │
+│ 6. Promote to RC → Tests validated again              │
+│ 7. Deploy to prod → Tested code only                  │
+└───────────────────────────────────────────────────────┘
+```
+
+**Benefits:**
+- ✅ **Catch Integration Issues Early**: Test interactions between patches
+- ✅ **Prevent Regressions**: Existing tests protect against breaking changes
+- ✅ **Document Behavior**: Tests serve as executable specifications
+- ✅ **Safe Refactoring**: Change implementation with confidence
+- ✅ **Team Collaboration**: Clear expectations for code quality
+
 ### 📦 Release Management
 - **Semantic versioning**: patch/minor/major increments
 - **Release candidates**: RC validation before production
 - **Sequential promotion**: stage → rc → production workflow
 - **Branch cleanup**: Automatic deletion after RC promotion
+- **Test validation**: Automated testing at every promotion step
 
 ### 🚀 Production
 - **Safe upgrades**: Automatic database backups before changes
 - **Incremental deployment**: Apply releases sequentially
 - **Dry-run mode**: Preview changes before applying
 - **Version tracking**: Complete release history in database
+- **Rollback support**: Automatic rollback on failures
 
 ### 👥 Team Collaboration
 - **Distributed locks**: Prevent concurrent ho-prod modifications
@@ -89,14 +233,20 @@ half_orm dev clone https://github.com/user/project.git
 cd project
 ```
 
-### First Patch
+### First Patch (Exploratory Development with TDD)
 
 ```bash
-# Prepare release (FIRST - create the container)
-half_orm dev release new minor
-
-# Create patch (THEN - create the feature)
+# Create patch FIRST (exploratory work)
 half_orm dev patch new 001-users
+
+# Write tests FIRST (TDD approach)
+cat > tests/test_users.py << 'EOF'
+def test_user_creation():
+    """Test user creation."""
+    user = User(username='alice').insert()
+    assert user.id is not None
+    assert user.username == 'alice'
+EOF
 
 # Add schema changes
 echo "CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT);" > Patches/001-users/01_users.sql
@@ -104,17 +254,24 @@ echo "CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT);" > Patches/001-
 # Apply and generate code
 half_orm dev patch apply
 
-# Test
+# Run tests
 pytest
 
-# Add to release
+# Commit your work
+git add .
+git commit -m "Add users table with tests"
+
+# THEN prepare release when ready
 git checkout ho-prod
+half_orm dev release new minor
+
+# Add to release (automatic validation runs here!)
 half_orm dev patch add 001-users
 ```
 
 ## 💻 Development Workflow
 
-### Complete Cycle: Release → Patch → Deploy
+### Complete Cycle: Patch → Release → Deploy
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -125,29 +282,19 @@ half_orm dev patch add 001-users
 │                                                                 │
 │ RELEASE PREPARATION                                             │
 │ 3. release new <level>     Prepare release container            │
-│ 4. patch add <id>          Add to prepared release              │
+│ 4. patch add <id>          Add to release (TESTS RUN HERE!)     │
 │ 5. release promote rc      Create release candidate             │
 │                                                                 │
 │ PRODUCTION DEPLOYMENT                                           │
 │ 6. release promote prod    Deploy to production                 │
-│ 7. db upgrade              Apply on production servers          │
+│ 7. update                  Check available releases             │
+│ 8. upgrade                 Apply on production servers          │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Workflow Details
 
-#### Step 1: Prepare Release Container
-
-```bash
-# FIRST: Create the release file that will contain patches
-half_orm dev release new patch   # Bug fixes (1.3.5 → 1.3.6)
-half_orm dev release new minor   # New features (1.3.5 → 1.4.0)
-half_orm dev release new major   # Breaking changes (1.3.5 → 2.0.0)
-
-# This creates releases/X.Y.Z-stage.txt (empty, ready for patches)
-```
-
-#### Step 2: Create Patches
+#### Step 1: Create Patches (Exploratory Development)
 
 ```bash
 # Create patch branch and directory
@@ -157,10 +304,17 @@ half_orm dev patch new 123-feature-name
 # Add SQL/Python files to Patches/123-feature-name/
 ```
 
-#### Step 3: Develop and Test
+#### Step 2: Develop and Test (TDD Approach)
 
 ```bash
-# Apply patch (on ho-patch/* branch)
+# FIRST: Write tests
+cat > tests/test_feature.py << 'EOF'
+def test_feature():
+    # Your test here
+    assert True
+EOF
+
+# THEN: Apply patch (on ho-patch/* branch)
 half_orm dev patch apply
 # → Restores database from production state
 # → Applies all release patches + current patch
@@ -172,10 +326,21 @@ pytest
 
 # Commit your work
 git add .
-git commit -m "Implement feature"
+git commit -m "Implement feature with tests"
 ```
 
-#### Step 4: Add to Release
+#### Step 3: Prepare Release Container (When Ready)
+
+```bash
+# When ready to integrate: Create the release file that will contain patches
+half_orm dev release new patch   # Bug fixes (1.3.5 → 1.3.6)
+half_orm dev release new minor   # New features (1.3.5 → 1.4.0)
+half_orm dev release new major   # Breaking changes (1.3.5 → 2.0.0)
+
+# This creates releases/X.Y.Z-stage.txt (empty, ready for patches)
+```
+
+#### Step 4: Add to Release (⚠️ AUTOMATIC VALIDATION HAPPENS HERE)
 
 ```bash
 # Switch to ho-prod
@@ -184,8 +349,18 @@ git checkout ho-prod
 # Add patch to prepared release
 half_orm dev patch add 123-feature-name
 
-# Patch is now in releases/X.Y.Z-stage.txt
-# Branch archived to ho-release/X.Y.Z/123-feature-name
+# What happens automatically:
+# 1. Creates temp-valid-1.3.6 branch
+# 2. Merges ALL release patches
+# 3. Merges YOUR patch
+# 4. Runs pytest tests/
+# 5. If PASS → commits to ho-prod, archives branch
+# 6. If FAIL → cleanup, nothing committed, error reported
+
+# Result:
+# ✓ Patch validated with full integration
+# ✓ Branch archived to ho-release/X.Y.Z/123-feature-name
+# ✓ Only TESTED code in releases/X.Y.Z-stage.txt
 ```
 
 #### Step 5: Promote to RC
@@ -198,6 +373,7 @@ half_orm dev release promote rc
 # → Merges all patch code into ho-prod
 # → Deletes patch branches (cleanup)
 # → Notifies active branches to rebase
+# → Automatically pushes to origin
 ```
 
 #### Step 6: Deploy to Production
@@ -209,21 +385,18 @@ half_orm dev release promote prod
 # → Renames X.Y.Z-rc1.txt → X.Y.Z.txt
 # → Generates schema-X.Y.Z.sql and metadata-X.Y.Z.sql
 # → Updates schema.sql symlink
-# → Commits to ho-prod
+# → Commits and pushes to ho-prod automatically
 ```
 
-#### Step 7: Production Upgrade
+#### Step 7/8: Production Upgrade
 
 ```bash
-# On production server
-git checkout ho-prod
-git pull
-
+# On production server (automatically pulls from origin)
 # Check available releases
-half_orm dev db update
+half_orm dev update
 
-# Apply upgrade (with automatic backup)
-half_orm dev db upgrade
+# Apply upgrade (with automatic backup and git pull)
+half_orm dev upgrade
 ```
 
 ## 📖 Command Reference
@@ -234,7 +407,7 @@ half_orm dev db upgrade
 # Create new project
 half_orm dev init <package_name> --database <db_name>
 
-# Clone existing project
+# Clone existing project (automatically pulls from origin)
 half_orm dev clone <git_origin>
 ```
 
@@ -247,7 +420,7 @@ half_orm dev patch new <patch_id> [-d "description"]
 # Apply current patch (from ho-patch/* branch)
 half_orm dev patch apply
 
-# Add patch to stage release
+# Add patch to stage release (AUTOMATIC VALIDATION!)
 half_orm dev patch add <patch_id> [--to-version X.Y.Z]
 ```
 
@@ -259,139 +432,156 @@ half_orm dev release new patch
 half_orm dev release new minor
 half_orm dev release new major
 
-# Promote stage to RC
+# Promote stage to RC (automatically pushes)
 half_orm dev release promote rc
 
-# Promote RC to production
+# Promote RC to production (automatically pushes)
 half_orm dev release promote prod
 ```
 
-### Database Commands (Production)
+### Production Commands
 
 ```bash
-# Fetch available releases
-half_orm dev db update
+# Fetch available releases (automatically pulls from origin)
+half_orm dev update
 
-# Apply releases to production
-half_orm dev db upgrade [--to-release X.Y.Z]
+# Apply releases to production (automatically pulls from origin)
+half_orm dev upgrade [--to-release X.Y.Z]
 
 # Dry run (simulate upgrade)
-half_orm dev db upgrade --dry-run
+half_orm dev upgrade --dry-run
 ```
 
 ## 🎯 Common Patterns
 
-### Pattern 1: Single Patch Development
+### Pattern 1: Exploratory Development with TDD
 
 ```bash
-# Prepare release FIRST
-half_orm dev release new minor
-
-# Create patch
+# Start exploring (no release needed yet)
 half_orm dev patch new 123-add-users
 
+# Write tests FIRST
+cat > tests/test_users.py << 'EOF'
+def test_user_creation():
+    user = User(username='alice').insert()
+    assert user.username == 'alice'
+EOF
+
 # Add SQL/Python files
-echo "CREATE TABLE users (id SERIAL PRIMARY KEY);" > Patches/123-add-users/01_users.sql
+echo "CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT);" > Patches/123-add-users/01_users.sql
 
 # Apply and test
 half_orm dev patch apply
-pytest
+pytest  # Tests should pass
 
-# Commit
+# Commit your exploration
 git add .
-git commit -m "Implement users table"
+git commit -m "Explore users table design with tests"
 
-# Add to release
+# When satisfied, prepare release
 git checkout ho-prod
+half_orm dev release new minor
+
+# Add to release (tests validated automatically!)
 half_orm dev patch add 123-add-users
 ```
 
-### Pattern 2: Multiple Patches in Parallel
+### Pattern 2: Planned Development
 
 ```bash
-# Prepare release ONCE
+# Know what you want - prepare release first
 half_orm dev release new minor
 
-# Developer A creates patch 001
-half_orm dev patch new 001-auth
-# ... develop and test ...
-git checkout ho-prod
-half_orm dev patch add 001-auth
+# Create patch
+half_orm dev patch new 456-user-auth
 
-# Developer B creates patch 002 (parallel development)
-half_orm dev patch new 002-reporting
-# ... develop and test ...
-git checkout ho-prod
-half_orm dev patch add 002-reporting
+# Develop with tests
+# ... add files, write tests ...
 
-# Both patches in same release
-half_orm dev release promote rc
+# Apply and test locally
+half_orm dev patch apply
+pytest
+
+# Add to release (automatic validation!)
+git checkout ho-prod
+half_orm dev patch add 456-user-auth
 ```
 
-### Pattern 3: Complete Release Cycle
+### Pattern 3: Team Collaboration
 
 ```bash
-# 1. Prepare release
-half_orm dev release new minor
+# Developer A: Working on feature
+half_orm dev patch new 456-dashboard
+# ... develop and test ...
 
-# 2. Add multiple patches
-half_orm dev patch add 123-users
-half_orm dev patch add 124-posts
-half_orm dev patch add 125-comments
+# Developer B: Working on another feature
+half_orm dev patch new 789-reports
+# ... develop and test ...
 
-# 3. Promote to RC
-half_orm dev release promote rc
+# Integration Manager: Add both to release
+git checkout ho-prod
+half_orm dev patch add 456-dashboard  # Validates with tests
+half_orm dev patch add 789-reports    # Validates 456 + 789 together!
 
-# 4. Test RC thoroughly
-# ... integration tests ...
-
-# 5. Deploy to production
-half_orm dev release promote prod
-
-# 6. Tag release
-git tag v1.4.0
-git push --tags
+# All patches validated together before RC
 ```
 
-### Pattern 4: Incremental RC (Fix Issues)
+### Pattern 4: Multiple Stages
 
 ```bash
-# RC1 has issues
+# Parallel development of different versions
+# 1. Prepare multiple stages
+half_orm dev release new minor  # Creates 1.4.0-stage
+half_orm dev release new patch  # Creates 1.3.6-stage
+
+# 2. Add patches to specific versions
+half_orm dev patch add 123-hotfix --to-version="1.3.6"
+half_orm dev patch add 456-feature --to-version="1.4.0"
+
+# 3. Sequential promotion (must promote 1.3.6 before 1.4.0)
+half_orm dev release promote rc  # Promotes 1.3.6-stage → 1.3.6-rc1
+# ... validate ...
+half_orm dev release promote prod  # 1.3.6-rc1 → 1.3.6.txt
+# Now can promote 1.4.0
+```
+
+### Pattern 5: Incremental RC (Fix Issues)
+
+```bash
+# RC1 has issues discovered in testing
 half_orm dev release promote rc  # Creates 1.3.5-rc1
 
-# Found bug, create fix patch
+# Found bug in testing, create fix patch
 half_orm dev patch new 999-rc1-fix
 half_orm dev patch apply
 # ... fix and test ...
 
 # Add to NEW stage (same version)
 git checkout ho-prod
-half_orm dev patch add 999-rc1-fix
+half_orm dev patch add 999-rc1-fix  # Validated automatically
 
-# Promote again (creates rc2)
+# Promote again (creates rc2, automatically pushes)
 half_orm dev release promote rc  # Creates 1.3.5-rc2
 
-# Repeat until RC passes
+# Repeat until RC passes all validation
 ```
 
-### Pattern 5: Production Deployment
+### Pattern 6: Production Deployment
 
 ```bash
-# On production server
-git checkout ho-prod
-git pull
+# On production server (commands automatically pull from origin)
 
 # Check available releases
-half_orm dev db update
+half_orm dev update
 
 # Simulate upgrade
-half_orm dev db upgrade --dry-run
+half_orm dev upgrade --dry-run
 
-# Apply upgrade (creates backup automatically)
-half_orm dev db upgrade
+# Apply upgrade (creates backup automatically, pulls from origin)
+half_orm dev upgrade
 
 # Or apply specific version
-half_orm dev db upgrade --to-release 1.4.0
+half_orm dev upgrade --to-release 1.4.0
 ```
 
 ## 🏗️ Architecture
@@ -417,7 +607,7 @@ ho-prod (main)
 
 ```
 releases/
-├── 1.3.5-stage.txt    (development, mutable)
+├── 1.3.5-stage.txt    (development, mutable, not present if production ready)
 ├── 1.3.5-rc1.txt      (validation, immutable)
 ├── 1.3.5-rc2.txt      (fixes from rc1, immutable)
 ├── 1.3.5.txt          (production, immutable)
@@ -461,6 +651,8 @@ MAJOR.MINOR.PATCH
 3. **Branch cleanup**: Patch branches deleted when promoted to RC
 4. **Database restore**: `patch apply` always restores from production state
 5. **Immutable releases**: RC and production files never modified
+6. **Automatic Git operations**: Push/pull handled by commands automatically
+7. **⚠️ SYSTEMATIC TEST VALIDATION**: Tests run before ANY integration to stage
 
 ## 🔧 Troubleshooting
 
@@ -494,7 +686,8 @@ git stash
 ### Error: "Repository not synced with origin"
 
 ```bash
-# Solution: Pull latest changes
+# This should not happen - commands handle git operations automatically
+# If it does occur:
 git pull origin ho-prod
 ```
 
@@ -514,6 +707,23 @@ half_orm dev release promote prod
 
 # Then promote your stage
 half_orm dev release promote rc
+```
+
+### Error: "Tests failed for patch integration"
+
+```bash
+# Tests ran on temp-valid branch and failed
+# Solution: Fix your tests or code
+half_orm dev patch apply  # Test locally first
+pytest  # Verify tests pass
+
+# Fix issues in your patch
+vim Patches/123-feature/01_schema.sql
+vim tests/test_feature.py
+
+# Try again
+git checkout ho-prod
+half_orm dev patch add 123-feature  # Tests will run again
 ```
 
 ### Patch apply failed (SQL error)
@@ -540,7 +750,7 @@ git branch -r
 
 # Return to safe state
 git checkout ho-prod
-git pull
+# Commands handle git pull automatically
 ```
 
 ## 🎓 Best Practices
@@ -548,42 +758,52 @@ git pull
 ### Patch Development
 
 ✅ **DO:**
-- Prepare release BEFORE creating patches
+- **Write tests FIRST** (TDD approach)
+- Start with exploratory patches (no release needed initially)
 - Use descriptive patch IDs: `123-add-user-authentication`
 - Test patches thoroughly before adding to release
 - Keep patches focused (one feature per patch)
 - Commit generated code with meaningful messages
+- Create release when patches are ready to integrate
+- Run `pytest` locally before `patch add`
 
 ❌ **DON'T:**
-- Create patches without prepared release
 - Mix multiple features in one patch
 - Skip `patch apply` validation
 - Add untested patches to release
 - Modify files outside your patch directory
+- Worry about git push/pull (commands handle it automatically)
+- Skip writing tests (validation will fail anyway)
 
 ### Release Management
 
 ✅ **DO:**
-- Prepare releases at the START of development cycle
+- Prepare releases when patches are ready to integrate
+- Trust the automatic test validation system
 - Test RC thoroughly before promoting to production
 - Use semantic versioning consistently
-- Tag production releases: `git tag v1.4.0`
 - Document breaking changes in commit messages
+- Let commands handle git operations automatically
+- Review test failures carefully before retrying
 
 ❌ **DON'T:**
 - Skip RC validation (always test before prod)
 - Promote multiple RCs simultaneously
 - Skip backup creation in production
 - Force promote without fixing issues
+- Manually push/pull (let commands handle it)
+- Bypass test validation (it's there for your safety)
 
 ### Production Deployment
 
 ✅ **DO:**
-- Always run `db update` first to check available releases
+- Always run `update` first to check available releases
 - Use `--dry-run` to preview changes
 - Verify backups exist before upgrade
 - Monitor application after deployment
 - Schedule deployments during low-traffic periods
+- Trust commands to handle git operations
+- Verify all tests passed in RC before promoting
 
 ❌ **DON'T:**
 - Deploy without testing in RC first
@@ -591,6 +811,26 @@ git pull
 - Deploy during peak usage hours
 - Ignore upgrade warnings
 - Apply patches directly without releases
+- Manually git pull (commands do it automatically)
+- Promote to production if RC tests failed
+
+### Testing Best Practices
+
+✅ **DO:**
+- Write tests for all business logic
+- Test database constraints and validations
+- Use fixtures for common test scenarios
+- Test edge cases and error handling
+- Keep tests fast and isolated
+- Document test intentions clearly
+- Run tests locally before pushing
+
+❌ **DON'T:**
+- Skip tests for "simple" changes
+- Write tests that depend on execution order
+- Ignore test failures
+- Write tests without assertions
+- Test implementation details instead of behavior
 
 ## 📚 Documentation
 
@@ -625,11 +865,12 @@ pytest
 half_orm dev --help
 half_orm dev patch --help
 half_orm dev release --help
-half_orm dev db --help
 
 # Specific command help
 half_orm dev patch new --help
 half_orm dev release promote --help
+half_orm dev update --help
+half_orm dev upgrade --help
 ```
 
 ### Support
@@ -640,13 +881,13 @@ half_orm dev release promote --help
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-**Version**: 0.16.0  
-**halfORM**: Compatible with halfORM 0.16.x 
+**Version**: 0.16.0
+**halfORM**: Compatible with halfORM 0.16.x
 **Python**: 3.8+
-**PostgreSQL**: tested with 13+ (might work with earlier versions)
+**PostgreSQL**: Tested with 13+ (might work with earlier versions)
 
 Made with ❤️ by the halfORM team
