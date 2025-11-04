@@ -207,7 +207,7 @@ def patch_apply() -> None:
         click.echo("  1. Review generated code")
         click.echo("  2. Implement business logic stubs")
         click.echo(f"  3. Run: {utils.Color.bold('half_orm dev test')}")
-        click.echo(f"  4. Commit: {utils.Color.bold('git add . && git commit -m \"Implement business logic\"')}")
+        click.echo(f"""  4. Commit: {utils.Color.bold('git add . && git commit -m "Implement business logic"')}""")
         click.echo()
 
     except PatchManagerError as e:
