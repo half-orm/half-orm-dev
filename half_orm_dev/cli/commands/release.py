@@ -239,7 +239,7 @@ def release_promote(target: str) -> None:
             click.echo(f"  Promoted:        {utils.Color.bold(result['from_file'])} → {utils.Color.bold(result['to_file'])}")
             patches = result.get('patches_merged')
             if patches:
-                click.echo(f"  Patches merged:  {utils.Color.bold(str(len(result['patches'])))} patch(es)")
+                click.echo(f"  Patches merged:  {utils.Color.bold(str(len(patches)))} patch(es)")
             click.echo(f"  Branches cleaned: {utils.Color.bold(str(len(result['branches_deleted'])))} branch(es)")
 
             if result.get('notified_branches'):
