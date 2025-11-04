@@ -353,7 +353,7 @@ class Database:
         return result
 
     @classmethod
-    def setup_database(cls, database_name, connection_options, create_db=False, add_metadata=False):
+    def setup_database(cls, database_name, connection_options, create_db=True, add_metadata=False):
         """
         Configure database connection and install half-orm metadata schemas.
 
