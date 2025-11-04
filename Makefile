@@ -1,5 +1,3 @@
-test: ./test/dummy_test.py
-
 clean_build:
 	rm -rf dist
 
