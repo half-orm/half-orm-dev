@@ -100,12 +100,12 @@ half_orm dev patch add 456-user-auth
 # 1. Creates temp-valid-1.3.6 branch
 # 2. Merges ALL release patches + new patch
 # 3. Runs pytest tests/
-# 4. If tests PASS → commits to ho-prod
-# 5. If tests FAIL → rollback, nothing committed
+# 4. If merge and tests PASS → adds patch id to 1.3.6-stage.txt and commits to ho-prod
+# 5. If anything FAILS → nothing committed (temp branch is deleted)
 ```
 
 **2. No Integration Without Tests**
-- ❌ **BLOCKED**: Patches cannot be added to releases if tests fail
+- ❌ **BLOCKED**: Patches cannot be added to releases if anything fails
 - ✅ **SAFE**: Only validated code reaches stage/rc/production
 - 🔒 **GUARANTEED**: Every release is testable before deployment
 
@@ -119,7 +119,7 @@ def test_user_creation():
     user = User(
         username='john',
         email='john@example.com'
-    ).insert()
+    ).ho_insert()
 
     assert user.id is not None
     assert user.username == 'john'
@@ -127,7 +127,7 @@ def test_user_creation():
 def test_invalid_email_rejected():
     """Test validation prevents invalid emails."""
     with pytest.raises(ValidationError):
-        User(username='john', email='invalid').insert()
+        User(username='john', email='invalid').ho_insert()
 ```
 
 **4. Full Release Context Testing**
@@ -146,21 +146,21 @@ half_orm dev patch apply
 
 **5. Workflow Integration**
 ```
-┌───────────────────────────────────────────────────────┐
-│ Development Cycle with Test Validation                │
-├───────────────────────────────────────────────────────┤
-│ 1. Create patch                                       │
-│ 2. Write tests FIRST (TDD)                            │
-│ 3. Implement feature                                  │
-│ 4. Run tests locally: pytest                          │
-│ 5. Add to release → AUTOMATIC VALIDATION              │
-│    ├─ temp-valid branch created                       │
-│    ├─ All patches merged                              │
-│    ├─ pytest runs automatically                       │
-│    └─ Only commits if tests PASS                      │
-│ 6. Promote to RC → Tests validated again              │
-│ 7. Deploy to prod → Tested code only                  │
-└───────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│ Development Cycle with Test Validation                            │
+├───────────────────────────────────────────────────────────────────┤
+│ 1. Create patch                                                   │
+│ 2. Write tests FIRST (TDD)                                        │
+│ 3. Implement feature                                              │
+│ 4. Run tests locally: pytest                                      │
+│ 5. Add to release → AUTOMATIC VALIDATION                          │
+│    ├─ temp-valid branch created                                   │
+│    | ├─ All patches merged                                        │
+│    | └─ pytest runs automatically                                 │
+│    └─ Only commits if everything is OK                            │
+│ 6. Promote to RC → Tests validated again, code merged on ho-prod  │
+│ 7. Deploy to prod → Tested code only                              │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 **Benefits:**
@@ -236,20 +236,20 @@ cd project
 ### First Patch (Exploratory Development with TDD)
 
 ```bash
-# Create patch FIRST (exploratory work)
+# Create patch
 half_orm dev patch new 001-users
-
-# Write tests FIRST (TDD approach)
-cat > tests/test_users.py << 'EOF'
-def test_user_creation():
-    """Test user creation."""
-    user = User(username='alice').insert()
-    assert user.id is not None
-    assert user.username == 'alice'
-EOF
 
 # Add schema changes
 echo "CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT);" > Patches/001-users/01_users.sql
+
+# Write tests (TDD approach)
+cat > tests/public/users/test_users_creation.py << 'EOF'
+def test_user_creation():
+    """Test user creation."""
+    user = User(username='alice').ho_insert()
+    assert user['id'] is not None
+    assert user['username'] == 'alice'
+EOF
 
 # Apply and generate code
 half_orm dev patch apply
@@ -294,7 +294,7 @@ half_orm dev patch add 001-users
 
 ### Workflow Details
 
-#### Step 1: Create Patches (Exploratory Development)
+#### Step 1: Create Patches
 
 ```bash
 # Create patch branch and directory
@@ -306,20 +306,20 @@ half_orm dev patch new 123-feature-name
 
 #### Step 2: Develop and Test (TDD Approach)
 
-```bash
-# FIRST: Write tests
-cat > tests/test_feature.py << 'EOF'
-def test_feature():
-    # Your test here
-    assert True
-EOF
-
-# THEN: Apply patch (on ho-patch/* branch)
+# Apply patch (on ho-patch/* branch)
 half_orm dev patch apply
 # → Restores database from production state
 # → Applies all release patches + current patch
 # → Generates Python code
 # → Ready for testing
+
+```bash
+# FIRST: Write tests
+cat > tests/public/users/test_users_feature.py << 'EOF'
+def test_feature():
+    # Your test here
+    assert True
+EOF
 
 # Run tests
 pytest
@@ -460,15 +460,15 @@ half_orm dev upgrade --dry-run
 # Start exploring (no release needed yet)
 half_orm dev patch new 123-add-users
 
-# Write tests FIRST
-cat > tests/test_users.py << 'EOF'
-def test_user_creation():
-    user = User(username='alice').insert()
-    assert user.username == 'alice'
-EOF
-
 # Add SQL/Python files
 echo "CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT);" > Patches/123-add-users/01_users.sql
+
+# Write tests
+cat > tests/test_users.py << 'EOF'
+def test_user_creation():
+    user = User(username='alice').ho_insert()
+    assert user['username'] == 'alice'
+EOF
 
 # Apply and test
 half_orm dev patch apply
