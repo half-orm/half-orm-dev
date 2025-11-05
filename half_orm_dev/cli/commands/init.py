@@ -33,7 +33,8 @@ class ProjectDirectoryExistsError(Exception):
 @click.option('--production', is_flag=True, help='Mark as production environment (default: False)')
 @click.option('--force-sync-only', is_flag=True, help='Skip metadata installation, force sync-only mode')
 @click.option('--create-db', is_flag=False, default=True)
-def init(project_name, host, port, user, password, git_origin, production, force_sync_only, create_db):
+@click.option('--docker', default=None, help='Docker container name for PostgreSQL')
+def init(project_name, host, port, user, password, git_origin, production, force_sync_only, create_db, docker):
     """
     Initialize a new half_orm_dev project with database and code structure.
 
@@ -113,7 +114,8 @@ def init(project_name, host, port, user, password, git_origin, production, force
             'port': port,
             'user': user,
             'password': password,
-            'production': production
+            'production': production,
+            'docker_container': docker
         }
 
         # Check 2: Database status (exists? has metadata?)

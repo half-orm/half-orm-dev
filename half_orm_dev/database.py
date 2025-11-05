@@ -308,6 +308,7 @@ class Database:
         config.set('database', 'host', connection_params['host'])
         config.set('database', 'port', str(connection_params['port']))
         config.set('database', 'production', str(connection_params['production']))
+        config.set('database', 'docker_container', connection_params.get('docker_container', ''))
 
         # Write configuration file
         with open(config_file, 'w') as f:
@@ -522,7 +523,7 @@ class Database:
             raise TypeError(f"Connection options must be a dictionary, got {type(connection_options).__name__}")
 
         # Expected option keys (some may be None/missing for interactive prompts)
-        expected_keys = {'host', 'port', 'user', 'password', 'production'}
+        expected_keys = {'host', 'port', 'user', 'password', 'production', 'docker_container'}
         provided_keys = set(connection_options.keys())
 
         # Check for unexpected keys
@@ -761,6 +762,7 @@ class Database:
             host = config.get('database', 'host', fallback='')
             port_str = config.get('database', 'port', fallback='')
             production_str = config.get('database', 'production', fallback='False')
+            docker_container = config.get('database', 'docker_container', fallback='')
 
             # Convert port to int (default 5432 if empty)
             if port_str == '':
@@ -777,7 +779,8 @@ class Database:
                 'password': password,
                 'host': host,
                 'port': port,
-                'production': production
+                'production': production,
+                'docker_container': docker_container
             }
 
         except (ValueError, TypeError) as e:
