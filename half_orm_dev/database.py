@@ -16,6 +16,57 @@ from .utils import HOP_PATH
 class DatabaseError(Exception):
     pass
 
+class DockerNotAvailableError(Exception):
+    """
+    Raised when Docker is not installed or not running.
+
+    This exception is raised when attempting to use Docker for PostgreSQL
+    operations but Docker is not available on the system.
+
+    Examples:
+        Docker not installed:
+            DockerNotAvailableError("Docker is not installed on this system")
+
+        Docker daemon not running:
+            DockerNotAvailableError("Docker daemon is not running")
+    """
+    pass
+
+
+class DockerContainerNotFoundError(Exception):
+    """
+    Raised when specified Docker container does not exist.
+
+    This exception is raised when a database configuration references a
+    Docker container that does not exist on the system.
+
+    Examples:
+        Container not found:
+            DockerContainerNotFoundError(
+                "Docker container 'my_postgres' not found. "
+                "Run: docker ps -a to list containers"
+            )
+    """
+    pass
+
+
+class DockerContainerNotRunningError(Exception):
+    """
+    Raised when Docker container exists but is not running.
+
+    This exception is raised when a Docker container exists but is in a
+    stopped state and cannot execute PostgreSQL commands.
+
+    Examples:
+        Container stopped:
+            DockerContainerNotRunningError(
+                "Docker container 'my_postgres' exists but is not running. "
+                "Run: docker start my_postgres"
+            )
+    """
+    pass
+
+
 class Database:
     """Reads and writes the halfORM connection file
     """
@@ -317,20 +368,199 @@ class Database:
         return config_file
 
     @classmethod
-    def _execute_pg_command(cls, database_name, connection_params, *command_args):
+    def _check_docker_available(cls) -> bool:
         """
-        Execute PostgreSQL command with connection parameters.
+        Check if Docker is available on the system.
+
+        Verifies that Docker is installed and the Docker daemon is running
+        by executing 'docker --version'.
+
+        Returns:
+            bool: True if Docker is available, False otherwise
+
+        Examples:
+            >>> Database._check_docker_available()
+            True  # Docker is installed and running
+
+            >>> Database._check_docker_available()
+            False  # Docker not installed or daemon not running
+        """
+        try:
+            result = subprocess.run(
+                ['docker', '--version'],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5
+            )
+            return result.returncode == 0
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            return False
+
+    @classmethod
+    def _check_docker_container_exists(cls, container_name: str) -> bool:
+        """
+        Check if a Docker container exists (running or stopped).
+
+        Uses 'docker inspect' to verify container existence. This checks
+        for containers in any state (running, stopped, paused, etc.).
+
+        Args:
+            container_name (str): Name or ID of the Docker container
+
+        Returns:
+            bool: True if container exists, False otherwise
+
+        Examples:
+            >>> Database._check_docker_container_exists('my_postgres')
+            True  # Container exists
+
+            >>> Database._check_docker_container_exists('nonexistent')
+            False  # Container does not exist
+        """
+        try:
+            result = subprocess.run(
+                ['docker', 'inspect', container_name],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5
+            )
+            return result.returncode == 0
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return False
+
+    @classmethod
+    def _check_docker_container_running(cls, container_name: str) -> bool:
+        """
+        Check if a Docker container is currently running.
+
+        Uses 'docker inspect' to check the container's running state.
+        Returns False if container doesn't exist or is stopped.
+
+        Args:
+            container_name (str): Name or ID of the Docker container
+
+        Returns:
+            bool: True if container is running, False otherwise
+
+        Examples:
+            >>> Database._check_docker_container_running('my_postgres')
+            True  # Container is running
+
+            >>> Database._check_docker_container_running('stopped_container')
+            False  # Container exists but is stopped
+        """
+        try:
+            result = subprocess.run(
+                ['docker', 'inspect', '-f', '{{.State.Running}}', container_name],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5
+            )
+            # Docker inspect returns "true" or "false" as string
+            return result.stdout.strip().lower() == 'true'
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return False
+
+    @classmethod
+    def _get_docker_container_info(cls, container_name: str) -> dict:
+        """
+        Get detailed information about a Docker container.
+
+        Retrieves container status, ID, and other relevant information
+        using 'docker inspect'. Useful for debugging and error messages.
+
+        Args:
+            container_name (str): Name or ID of the Docker container
+
+        Returns:
+            dict: Container information with keys:
+                - exists (bool): Whether container exists
+                - running (bool): Whether container is running
+                - status (str): Container status (running, exited, etc.)
+                - id (str): Container ID (first 12 chars)
+                - name (str): Container name
+
+        Examples:
+            >>> info = Database._get_docker_container_info('my_postgres')
+            >>> print(info)
+            {
+                'exists': True,
+                'running': True,
+                'status': 'running',
+                'id': '3f8d9a2b1c4e',
+                'name': 'my_postgres'
+            }
+        """
+        info = {
+            'exists': False,
+            'running': False,
+            'status': 'unknown',
+            'id': '',
+            'name': container_name
+        }
+
+        # Check if container exists
+        if not cls._check_docker_container_exists(container_name):
+            return info
+
+        info['exists'] = True
+
+        try:
+            # Get container status
+            result = subprocess.run(
+                ['docker', 'inspect', '-f', '{{.State.Status}}', container_name],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5
+            )
+            info['status'] = result.stdout.strip()
+            info['running'] = info['status'] == 'running'
+
+            # Get container ID
+            result = subprocess.run(
+                ['docker', 'inspect', '-f', '{{.Id}}', container_name],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5
+            )
+            info['id'] = result.stdout.strip()[:12]  # First 12 chars
+
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            pass
+
+        return info
+
+    @classmethod
+    def _execute_native_pg_command(cls, database_name, connection_params, *command_args):
+        """
+        Execute PostgreSQL command on native PostgreSQL installation.
+
+        This is the original implementation extracted from _execute_pg_command().
+        Executes PostgreSQL commands (psql, createdb, pg_dump, etc.) on a
+        native PostgreSQL installation using environment variables.
 
         Args:
             database_name (str): PostgreSQL database name
-            connection_params (dict): Connection parameters
-            *command_args: PostgreSQL command arguments
+            connection_params (dict): Connection parameters (host, port, user, password)
+            *command_args: PostgreSQL command and arguments
 
         Returns:
             subprocess.CompletedProcess: Command execution result
 
         Raises:
             subprocess.CalledProcessError: If PostgreSQL command fails
+
+        Examples:
+            >>> Database._execute_native_pg_command(
+            ...     'my_db',
+            ...     {'host': 'localhost', 'port': 5432, 'user': 'dev', 'password': 'secret'},
+            ...     'createdb', 'my_db'
+            ... )
         """
         # Prepare environment variables for PostgreSQL commands
         env = os.environ.copy()
@@ -352,6 +582,261 @@ class Database:
         )
 
         return result
+
+
+    @classmethod
+    def _execute_docker_pg_command(cls, container_name, database_name, connection_params, *command_args):
+        """
+        Execute PostgreSQL command inside a Docker container.
+
+        Handles Docker-specific challenges:
+        - Adds -U option to avoid "role 'root' does not exist" errors
+        - Manages psql -f by reading files on host and passing via stdin
+        - Manages pg_dump -f by capturing stdout and writing to host
+
+        Args:
+            container_name (str): Docker container name
+            database_name (str): PostgreSQL database name
+            connection_params (dict): Connection parameters (user, password)
+            *command_args: PostgreSQL command and arguments
+
+        Returns:
+            subprocess.CompletedProcess: Command execution result
+
+        Raises:
+            DockerNotAvailableError: If Docker is not installed or not running
+            DockerContainerNotFoundError: If container does not exist
+            DockerContainerNotRunningError: If container exists but is stopped
+            subprocess.CalledProcessError: If PostgreSQL command fails
+
+        Examples:
+            # psql -f (reads file on host, passes via stdin)
+            >>> Database._execute_docker_pg_command(
+            ...     'my_postgres', 'my_db',
+            ...     {'user': 'postgres', 'password': 'secret'},
+            ...     'psql', '-d', 'my_db', '-f', '/path/to/schema.sql'
+            ... )
+
+            # pg_dump -f (captures stdout, writes to host)
+            >>> Database._execute_docker_pg_command(
+            ...     'my_postgres', 'my_db',
+            ...     {'user': 'postgres', 'password': 'secret'},
+            ...     'pg_dump', 'my_db', '--schema-only', '-f', '/path/to/dump.sql'
+            ... )
+        """
+        # ═══════════════════════════════════════════════════════════════════
+        # STEP 1: Check Docker availability
+        # ═══════════════════════════════════════════════════════════════════
+        if not cls._check_docker_available():
+            raise DockerNotAvailableError(
+                "Docker is not installed or not running.\n"
+                "Install Docker: https://docs.docker.com/get-docker/"
+            )
+
+        # ═══════════════════════════════════════════════════════════════════
+        # STEP 2: Check container exists
+        # ═══════════════════════════════════════════════════════════════════
+        if not cls._check_docker_container_exists(container_name):
+            raise DockerContainerNotFoundError(
+                f"Docker container '{container_name}' not found.\n"
+                f"Run: docker ps -a  # to list all containers\n"
+                f"Or create a new PostgreSQL container:\n"
+                f"  docker run -d --name {container_name} -e POSTGRES_PASSWORD=postgres postgres:17"
+            )
+
+        # ═══════════════════════════════════════════════════════════════════
+        # STEP 3: Check container is running
+        # ═══════════════════════════════════════════════════════════════════
+        if not cls._check_docker_container_running(container_name):
+            container_info = cls._get_docker_container_info(container_name)
+            raise DockerContainerNotRunningError(
+                f"Docker container '{container_name}' exists but is not running.\n"
+                f"Status: {container_info['status']}\n"
+                f"Run: docker start {container_name}"
+            )
+
+        # ═══════════════════════════════════════════════════════════════════
+        # STEP 4: Handle file operations (psql -f, pg_dump -f)
+        # ═══════════════════════════════════════════════════════════════════
+        command_list = list(command_args)
+        modified_command = command_list.copy()
+        sql_input = None      # For psql -f (stdin)
+        output_file = None    # For pg_dump -f (stdout redirect)
+
+        command_name = command_list[0] if len(command_list) > 0 else ''
+
+        # ────────────────────────────────────────────────────────────────────
+        # Case 1: psql -f <file> → Read file and pass via stdin
+        # ────────────────────────────────────────────────────────────────────
+        if command_name == 'psql':
+            try:
+                f_index = command_list.index('-f')
+                if f_index + 1 < len(command_list):
+                    host_file_path = command_list[f_index + 1]
+
+                    # Read SQL file content on host
+                    with open(host_file_path, 'r', encoding='utf-8') as f:
+                        sql_input = f.read()
+
+                    # Remove -f option from command (will use stdin)
+                    modified_command = command_list[:f_index] + command_list[f_index+2:]
+            except (ValueError, FileNotFoundError, OSError):
+                # -f not found or file read failed, use original command
+                pass
+
+        # ────────────────────────────────────────────────────────────────────
+        # Case 2: pg_dump -f <file> → Remove -f and capture stdout
+        # ────────────────────────────────────────────────────────────────────
+        elif command_name == 'pg_dump':
+            try:
+                f_index = command_list.index('-f')
+                if f_index + 1 < len(command_list):
+                    output_file = command_list[f_index + 1]
+
+                    # Remove -f option (will capture stdout)
+                    modified_command = command_list[:f_index] + command_list[f_index+2:]
+            except ValueError:
+                # -f not found, use original command
+                pass
+
+        # ═══════════════════════════════════════════════════════════════════
+        # STEP 5: Prepare PostgreSQL command with -U option
+        # ═══════════════════════════════════════════════════════════════════
+        # CRITICAL: Add -U <user> to avoid "role 'root' does not exist" error
+        # docker exec runs as root, but we need PostgreSQL user
+
+        pg_user = connection_params['user']
+
+        if len(modified_command) > 0:
+            pg_command = modified_command[0]  # e.g., 'createdb', 'psql', 'pg_dump'
+            command_args_rest = modified_command[1:]
+
+            # Insert -U <user> after command name
+            final_command = [pg_command, '-U', pg_user] + command_args_rest
+        else:
+            final_command = modified_command
+
+        # ═══════════════════════════════════════════════════════════════════
+        # STEP 6: Prepare Docker exec command
+        # ═══════════════════════════════════════════════════════════════════
+        docker_cmd = ['docker', 'exec', '-i', container_name] + final_command
+
+        # ═══════════════════════════════════════════════════════════════════
+        # STEP 7: Prepare environment variables
+        # ═══════════════════════════════════════════════════════════════════
+        env = os.environ.copy()
+
+        # Set password if provided (PGPASSWORD for authentication)
+        if connection_params.get('password'):
+            env['PGPASSWORD'] = connection_params['password']
+
+        # ═══════════════════════════════════════════════════════════════════
+        # STEP 8: Execute command with appropriate I/O handling
+        # ═══════════════════════════════════════════════════════════════════
+
+        if sql_input:
+            # ──────────────────────────────────────────────────────────────
+            # psql -f: Pass SQL content via stdin
+            # ──────────────────────────────────────────────────────────────
+            result = subprocess.run(
+                docker_cmd,
+                env=env,
+                input=sql_input,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+        elif output_file:
+            # ──────────────────────────────────────────────────────────────
+            # pg_dump -f: Capture stdout and write to host file
+            # ──────────────────────────────────────────────────────────────
+            result = subprocess.run(
+                docker_cmd,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            # Write stdout to output file on host
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(result.stdout)
+
+        else:
+            # ──────────────────────────────────────────────────────────────
+            # Standard execution (no file operations)
+            # ──────────────────────────────────────────────────────────────
+            result = subprocess.run(
+                docker_cmd,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+        return result
+
+
+    @classmethod
+    def _execute_pg_command(cls, database_name, connection_params, *command_args):
+        """
+        Execute PostgreSQL command with connection parameters (native or Docker).
+
+        Routes command execution to either native PostgreSQL or Docker container
+        based on the presence of 'docker_container' in connection_params.
+
+        **Mode Detection**:
+        - If docker_container is present and non-empty → Docker mode
+        - Otherwise → Native PostgreSQL mode
+
+        Args:
+            database_name (str): PostgreSQL database name
+            connection_params (dict): Connection parameters including optional docker_container
+            *command_args: PostgreSQL command arguments
+
+        Returns:
+            subprocess.CompletedProcess: Command execution result
+
+        Raises:
+            DockerNotAvailableError: If Docker mode but Docker not available
+            DockerContainerNotFoundError: If Docker mode but container not found
+            DockerContainerNotRunningError: If Docker mode but container stopped
+            subprocess.CalledProcessError: If PostgreSQL command fails
+
+        Examples:
+            # Native PostgreSQL (existing behavior)
+            >>> Database._execute_pg_command(
+            ...     'my_db',
+            ...     {'host': 'localhost', 'port': 5432, 'user': 'dev', 'password': 'secret'},
+            ...     'createdb', 'my_db'
+            ... )
+
+            # Docker PostgreSQL (new behavior)
+            >>> Database._execute_pg_command(
+            ...     'my_db',
+            ...     {'user': 'postgres', 'password': 'secret', 'docker_container': 'my_postgres'},
+            ...     'createdb', 'my_db'
+            ... )
+        """
+        # Detect execution mode based on docker_container presence
+        docker_container = connection_params.get('docker_container', '')
+
+        if docker_container:
+            # Docker mode: Execute command inside Docker container
+            return cls._execute_docker_pg_command(
+                docker_container,
+                database_name,
+                connection_params,
+                *command_args
+            )
+        else:
+            # Native mode: Execute command on native PostgreSQL
+            return cls._execute_native_pg_command(
+                database_name,
+                connection_params,
+                *command_args
+            )
 
     @classmethod
     def setup_database(cls, database_name, connection_options, create_db=True, add_metadata=False):

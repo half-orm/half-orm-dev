@@ -308,10 +308,10 @@ half_orm dev patch new 123-feature-name
 
 # Apply patch (on ho-patch/* branch)
 half_orm dev patch apply
-# → Restores database from production state
-# → Applies all release patches + current patch
-# → Generates Python code
-# → Ready for testing
+* → Restores database from production state
+* → Applies all release patches + current patch
+* → Generates Python code
+* → Ready for testing
 
 ```bash
 # FIRST: Write tests
@@ -401,6 +401,8 @@ half_orm dev upgrade
 
 ## 📖 Command Reference
 
+**NOTE**: use `half_orm dev command --help` for detailed help on each command
+
 ### Init & Clone
 
 ```bash
@@ -464,7 +466,7 @@ half_orm dev patch new 123-add-users
 echo "CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT);" > Patches/123-add-users/01_users.sql
 
 # Write tests
-cat > tests/test_users.py << 'EOF'
+cat > tests/public/test_public_users.py << 'EOF'
 def test_user_creation():
     user = User(username='alice').ho_insert()
     assert user['username'] == 'alice'

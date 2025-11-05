@@ -39,17 +39,19 @@ def init(project_name, host, port, user, password, git_origin, production, force
     Initialize a new half_orm_dev project with database and code structure.
 
     Creates both database (with metadata) and project structure in a single command.
-    This is a convenience wrapper that orchestrates init-database + init-project.
 
+    \b
     ARGUMENTS:
         project_name: Name of the project (= database name = Python package name)
 
+    \b
     WORKFLOW:
         1. Check if database exists and has metadata
         2. Create/configure database with half_orm_dev metadata
         3. Create project directory structure with Git repository
         4. Generate Python package from database schema
 
+    \b
     EXAMPLES:
         # Create new project with new database (interactive)
         half_orm dev init my_blog
@@ -60,6 +62,7 @@ def init(project_name, host, port, user, password, git_origin, production, force
         # Force sync-only mode (no metadata, limited functionality)
         half_orm dev init legacy_project --force-sync-only
 
+    \b
     PROJECT STRUCTURE CREATED:
         my_blog/
         ├── .git/              (ho-prod branch)
@@ -74,6 +77,7 @@ def init(project_name, host, port, user, password, git_origin, production, force
         ├── .gitignore
         └── pyproject.toml
 
+    \b
     MODES:
         - Full development mode (default): Database with half_orm_dev metadata
           → Enables: create-patch, apply-patch, prepare-release, etc.
@@ -82,6 +86,7 @@ def init(project_name, host, port, user, password, git_origin, production, force
           → Only enables: sync-package (code generation from schema)
           → Limited functionality, no patch management
 
+    \b
     ERROR CASES:
         - Database exists with metadata:
           → Error: "Use 'half_orm dev clone <git-url>' to work on existing project"

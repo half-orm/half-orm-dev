@@ -606,7 +606,7 @@ class TestDatabaseSetup:
     def test_save_configuration_writes_docker_container(self, mock_conf_dir):
         """Test _save_configuration writes docker_container to config file."""
         from configparser import ConfigParser
-        
+
         database_name = "docker_test"
         connection_params = {
             'user': 'docker_user',
@@ -632,7 +632,7 @@ class TestDatabaseSetup:
     def test_save_configuration_writes_empty_docker_container(self, mock_conf_dir):
         """Test _save_configuration writes empty string when docker_container is None."""
         from configparser import ConfigParser
-        
+
         database_name = "native_test"
         connection_params = {
             'user': 'native_user',

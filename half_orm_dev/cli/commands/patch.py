@@ -128,23 +128,25 @@ def patch_apply() -> None:
         On branch ho-patch/456-user-auth:
         $ half_orm dev patch apply
 
-        Output:
+    \b
+    Output:
         ✓ Current branch: ho-patch/456-user-auth
         ✓ Detected patch: 456-user-auth
         ✓ Database restored from model/schema.sql
         ✓ Applied 2 patch file(s):
-          • 01_create_users.sql
-          • 02_add_indexes.sql
+            • 01_create_users.sql
+            • 02_add_indexes.sql
         ✓ Generated 3 Python file(s):
-          • mydb/mydb/public/user.py
-          • mydb/mydb/public/user_session.py
-          • tests/mydb/public/test_user.py
+            • mydb/mydb/public/user.py
+            • mydb/mydb/public/user_session.py
+            • tests/mydb/public/test_user.py
 
-        📝 Next steps:
-          1. Review generated code in mydb/mydb/
-          2. Implement business logic stubs
-          3. Run: half_orm dev test
-          4. Commit: git add . && git commit -m 'Implement business logic'
+    \b
+    📝 Next steps:
+        1. Review generated code in mydb/mydb/
+        2. Implement business logic stubs
+        3. Run: half_orm dev test
+        4. Commit: git add . && git commit -m 'Implement business logic'
 
     \b
     Raises:
