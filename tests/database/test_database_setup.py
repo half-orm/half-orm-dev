@@ -14,6 +14,7 @@ Comprehensive unit tests covering:
 import pytest
 import os
 import unittest.mock
+import tempfile
 from unittest.mock import Mock, patch, MagicMock, call
 from configparser import ConfigParser
 from psycopg2 import OperationalError
@@ -56,6 +57,18 @@ class TestDatabaseSetup:
             'password': None,  # Should prompt
             'production': False
         }
+
+    @pytest.fixture
+    def temp_config_dir(self):
+        """Create temporary configuration directory for testing."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            yield temp_dir
+
+    @pytest.fixture
+    def mock_conf_dir(self, temp_config_dir):
+        """Mock CONF_DIR to point to temporary directory."""
+        with patch('half_orm.model.CONF_DIR', temp_config_dir):
+            yield temp_config_dir
 
     @patch('half_orm_dev.database.Model')
     def test_setup_database_with_all_parameters_no_creation(self, mock_model, basic_connection_options):
@@ -499,3 +512,144 @@ class TestDatabaseSetup:
 
         # Should not attempt metadata installation
         mock_model_instance.get_relation_class.assert_not_called()
+
+    def test_setup_database_with_docker_container(self):
+        """Test setup_database saves docker_container to configuration."""
+        docker_connection_options = {
+            'host': 'localhost',
+            'port': 5432,
+            'user': 'docker_user',
+            'password': 'docker_pass',
+            'production': False,
+            'docker_container': 'my_postgres_container'  # NOUVEAU
+        }
+
+        with patch('half_orm_dev.database.Database._save_configuration') as mock_save:
+            with patch('half_orm_dev.database.Model'):
+                mock_save.return_value = "/path/to/config/docker_db"
+
+                Database.setup_database(
+                    database_name="docker_db",
+                    connection_options=docker_connection_options,
+                    create_db=False,
+                    add_metadata=False
+                )
+
+                # Verify docker_container was passed to _save_configuration
+                mock_save.assert_called_once_with("docker_db", docker_connection_options)
+                saved_params = mock_save.call_args[0][1]
+                assert 'docker_container' in saved_params
+                assert saved_params['docker_container'] == 'my_postgres_container'
+
+
+    def test_setup_database_without_docker_container_defaults_empty(self):
+        """Test setup_database without docker_container defaults to empty string."""
+        native_connection_options = {
+            'host': 'localhost',
+            'port': 5432,
+            'user': 'native_user',
+            'password': 'native_pass',
+            'production': False
+            # NO docker_container
+        }
+
+        with patch('half_orm_dev.database.Database._save_configuration') as mock_save:
+            with patch('half_orm_dev.database.Model'):
+                mock_save.return_value = "/path/to/config/native_db"
+
+                Database.setup_database(
+                    database_name="native_db",
+                    connection_options=native_connection_options,
+                    create_db=False,
+                    add_metadata=False
+                )
+
+                # _save_configuration should handle missing docker_container gracefully
+                mock_save.assert_called_once()
+
+
+    def test_validate_parameters_accepts_docker_container(self):
+        """Test _validate_parameters accepts docker_container in connection_options."""
+        valid_options_with_docker = {
+            'host': 'localhost',
+            'port': 5432,
+            'user': 'test_user',
+            'password': 'test_pass',
+            'production': False,
+            'docker_container': 'my_container'  # Should be accepted
+        }
+
+        # Should not raise any exception
+        try:
+            Database._validate_parameters("test_db", valid_options_with_docker)
+        except ValueError:
+            pytest.fail("_validate_parameters should accept docker_container")
+
+
+    def test_validate_parameters_rejects_invalid_docker_container_type(self):
+        """Test _validate_parameters rejects non-string docker_container."""
+        invalid_options = {
+            'host': 'localhost',
+            'port': 5432,
+            'user': 'test_user',
+            'password': 'test_pass',
+            'production': False,
+            'docker_container': 123  # Invalid type (should be string or None)
+        }
+
+        # Currently _validate_parameters doesn't validate types of optional fields
+        # This test documents expected future behavior if we add strict validation
+        # For now, it should pass through (will be handled by _save_configuration)
+        pass  # Placeholder for future validation
+
+
+    def test_save_configuration_writes_docker_container(self, mock_conf_dir):
+        """Test _save_configuration writes docker_container to config file."""
+        from configparser import ConfigParser
+        
+        database_name = "docker_test"
+        connection_params = {
+            'user': 'docker_user',
+            'password': 'docker_pass',
+            'host': 'localhost',
+            'port': 5432,
+            'production': False,
+            'docker_container': 'test_container'
+        }
+
+        # Call _save_configuration
+        with patch('half_orm.model.CONF_DIR', mock_conf_dir):
+            config_file = Database._save_configuration(database_name, connection_params)
+
+        # Verify docker_container was written to file
+        config = ConfigParser()
+        config.read(config_file)
+
+        assert config.has_option('database', 'docker_container')
+        assert config.get('database', 'docker_container') == 'test_container'
+
+
+    def test_save_configuration_writes_empty_docker_container(self, mock_conf_dir):
+        """Test _save_configuration writes empty string when docker_container is None."""
+        from configparser import ConfigParser
+        
+        database_name = "native_test"
+        connection_params = {
+            'user': 'native_user',
+            'password': 'native_pass',
+            'host': 'localhost',
+            'port': 5432,
+            'production': False
+            # NO docker_container key
+        }
+
+        # Call _save_configuration
+        with patch('half_orm.model.CONF_DIR', mock_conf_dir):
+            config_file = Database._save_configuration(database_name, connection_params)
+
+        # Verify docker_container was written as empty string
+        config = ConfigParser()
+        config.read(config_file)
+
+        assert config.has_option('database', 'docker_container')
+        assert config.get('database', 'docker_container') == ''

@@ -51,7 +51,8 @@ class TestLoadConfiguration:
                 'password': 'secret123',
                 'host': 'db.company.com',
                 'port': '5432',
-                'production': 'True'
+                'production': 'True',
+                'docker_container': 'my_dock'
             }
         }
 
@@ -65,7 +66,8 @@ class TestLoadConfiguration:
             'password': 'secret123',
             'host': 'db.company.com',
             'port': 5432,
-            'production': True
+            'production': True,
+            'docker_container': 'my_dock'
         }
         assert result == expected
 
@@ -89,7 +91,8 @@ class TestLoadConfiguration:
             'password': '',
             'host': '',
             'port': 5432,
-            'production': False
+            'production': False,
+            'docker_container': ''
         }
         assert result == expected
 
@@ -115,7 +118,8 @@ class TestLoadConfiguration:
             'password': '',
             'host': 'localhost',
             'port': 5432,
-            'production': False
+            'production': False,
+            'docker_container': ''
         }
         assert result == expected
 
@@ -147,7 +151,8 @@ class TestLoadConfiguration:
             'password': '',
             'host': '',
             'port': 5432,  # Should convert empty string to default int
-            'production': False
+            'production': False,
+            'docker_container': ''
         }
         assert result == expected
 
@@ -280,6 +285,7 @@ class TestLoadConfiguration:
         config.set('database', 'host', 'dbconn_host')
         config.set('database', 'port', '5433')
         config.set('database', 'production', 'False')
+        config.set('database', 'docker_container', 'my_dock')
 
         config_file = os.path.join(mock_conf_dir, database_name)
         with open(config_file, 'w') as f:
@@ -294,7 +300,8 @@ class TestLoadConfiguration:
             'password': 'dbconn_pass',
             'host': 'dbconn_host',
             'port': 5433,
-            'production': False
+            'production': False,
+            'docker_container': 'my_dock'
         }
         assert result == expected
 
@@ -321,3 +328,88 @@ class TestLoadConfiguration:
         assert isinstance(result['host'], str)
         assert isinstance(result['port'], int)
         assert isinstance(result['production'], bool)
+
+
+    def test_load_configuration_with_docker_container(self, mock_conf_dir):
+        """Test loading configuration with docker_container field present."""
+        database_name = "docker_db"
+        config_data = {
+            'database': {
+                'name': database_name,
+                'user': 'docker_user',
+                'password': 'docker_pass',
+                'host': 'localhost',
+                'port': '5432',
+                'production': 'False',
+                'docker_container': 'my_postgres_container'  # NOUVEAU
+            }
+        }
+
+        self.create_config_file(mock_conf_dir, database_name, config_data)
+
+        result = Database._load_configuration(database_name)
+
+        expected = {
+            'name': database_name,
+            'user': 'docker_user',
+            'password': 'docker_pass',
+            'host': 'localhost',
+            'port': 5432,
+            'production': False,
+            'docker_container': 'my_postgres_container'  # NOUVEAU
+        }
+        assert result == expected
+        assert isinstance(result['docker_container'], str)
+
+
+    def test_load_configuration_without_docker_container_backward_compat(self, mock_conf_dir):
+        """Test backward compatibility: loading config without docker_container field."""
+        database_name = "legacy_db"
+        config_data = {
+            'database': {
+                'name': database_name,
+                'user': 'legacy_user',
+                'password': 'legacy_pass',
+                'host': 'localhost',
+                'port': '5432',
+                'production': 'False'
+                # NO docker_container field (old config file)
+            }
+        }
+
+        self.create_config_file(mock_conf_dir, database_name, config_data)
+
+        result = Database._load_configuration(database_name)
+
+        expected = {
+            'name': database_name,
+            'user': 'legacy_user',
+            'password': 'legacy_pass',
+            'host': 'localhost',
+            'port': 5432,
+            'production': False,
+            'docker_container': ''  # Should default to empty string
+        }
+        assert result == expected
+        assert result['docker_container'] == ''
+
+
+    def test_load_configuration_docker_container_empty_string(self, mock_conf_dir):
+        """Test docker_container explicitly set to empty string (native PostgreSQL)."""
+        database_name = "native_db"
+        config_data = {
+            'database': {
+                'name': database_name,
+                'user': 'native_user',
+                'docker_container': ''  # Explicitly empty = native PostgreSQL
+            }
+        }
+
+        self.create_config_file(mock_conf_dir, database_name, config_data)
+
+        with patch.dict(os.environ, {'USER': 'test_user'}):
+            result = Database._load_configuration(database_name)
+
+        # Should keep empty string (not None)
+        assert result['docker_container'] == ''
+        assert isinstance(result['docker_container'], str)
