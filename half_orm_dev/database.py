@@ -820,7 +820,7 @@ class Database:
             ... )
         """
         # Detect execution mode based on docker_container presence
-        docker_container = connection_params.get('docker_container', '')
+        docker_container = connection_params.get('docker_container')
 
         if docker_container:
             # Docker mode: Execute command inside Docker container
