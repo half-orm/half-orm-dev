@@ -7,6 +7,7 @@ import os
 import sys
 from configparser import ConfigParser
 from pathlib import Path
+import shutil
 import subprocess
 from typing import Optional
 from psycopg2 import OperationalError
@@ -594,6 +595,13 @@ class Repo:
 
         # Step 11: Initialize Git repository with ho-prod branch
         self._initialize_git_repository()
+
+        # step 12: Protect ho-prod from direct commits
+        hook_source = os.path.join(TEMPLATE_DIRS, 'pre-commit')
+        hook_dest = os.path.join(self.__base_dir, '.git', 'hooks', 'pre-commit')
+        shutil.copy(hook_source, hook_dest)
+        # Make hook executable
+        os.chmod(hook_dest, 0o755)
 
 
     def _validate_package_name(self, package_name):

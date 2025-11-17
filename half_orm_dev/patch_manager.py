@@ -1235,16 +1235,18 @@ class PatchManager:
         2. Validates repository is clean
         3. Validates git remote is configured
         4. Validates and normalizes patch ID format
-        5. Fetches all references from remote (branches + tags)
-        5.5 Validates ho-prod is synced with origin/ho-prod (NEW)
-        6. Checks patch number available via tag lookup
-        7. Creates Patches/PATCH_ID/ directory (on ho-prod)
-        8. Commits directory on ho-prod "Add Patches/{patch_id} directory"
-        9. Creates local tag ho-patch/{number} (points to commit on ho-prod)
-        10. **Pushes tag to reserve number globally** ← POINT OF NO RETURN
-        11. Creates ho-patch/PATCH_ID branch from current commit
-        12. Pushes branch to remote (with retry)
-        13. Checkouts to new patch branch
+        5. **ACQUIRES DISTRIBUTED LOCK on ho-prod** (30min timeout)
+        6. Fetches all references from remote (branches + tags) - with lock
+        6.5 Validates ho-prod is synced with origin/ho-prod
+        7. Checks patch number available via tag lookup (with up-to-date state)
+        8. Creates Patches/PATCH_ID/ directory (on ho-prod)
+        9. Commits directory on ho-prod "Add Patches/{patch_id} directory"
+        10. Creates local tag ho-patch/{number} (points to commit on ho-prod)
+        11. **Pushes tag to reserve number globally** ← POINT OF NO RETURN
+        12. Creates ho-patch/PATCH_ID branch from current commit
+        13. Pushes branch to remote (with retry)
+        14. **RELEASES LOCK** (always, even on error)
+        15. Checkouts to new patch branch
 
         Transactional guarantees:
         - Failure before step 10 (tag push): Complete rollback to initial state
@@ -1291,13 +1293,16 @@ class PatchManager:
         except Exception as e:
             raise PatchManagerError(f"Invalid patch ID: {e}")
 
-        # Step 5: Fetch all references from remote (branches + tags)
+        # Step 5: ACQUIRE LOCK on ho-prod (with 30 min timeout for stale locks)
+        lock_tag = self._repo.hgit.acquire_branch_lock("ho-prod", timeout_minutes=30)
+
+        # Step 6: Fetch all references from remote (branches + tags) - with lock held
         self._fetch_from_remote()
 
-        # Step 5.5: Validate ho-prod is synced with origin (NEW)
+        # Step 6.5: Validate ho-prod is synced with origin
         self._validate_ho_prod_synced_with_origin()
 
-        # Step 6: Check patch number available (via tag)
+        # Step 7: Check patch number available (via tag, with up-to-date state)
         branch_name = f"ho-patch/{normalized_id}"
         self._check_patch_id_available(normalized_id)
 
@@ -1359,6 +1364,10 @@ class PatchManager:
                     commit_created=commit_created  # Pass commit status
                 )
             raise PatchManagerError(f"Patch creation failed: {e}")
+
+        finally:
+            # ALWAYS release lock (even on error)
+            self._repo.hgit.release_branch_lock(lock_tag)
 
         # Step 13: Checkout to new branch (non-critical, warn if fails)
         try:

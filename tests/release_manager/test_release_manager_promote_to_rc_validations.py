@@ -33,6 +33,8 @@ class TestPromoteToRcPreLockValidations:
         mock_hgit = Mock()
         mock_hgit.branch = "ho-prod"
         mock_hgit.repos_is_clean.return_value = True
+        # Mock is_branch_synced to return synced state (needed after lock acquisition)
+        mock_hgit.is_branch_synced.return_value = (True, "synced")
         mock_repo.hgit = mock_hgit
 
         release_mgr = ReleaseManager(mock_repo)

@@ -86,10 +86,12 @@ class TestAddPatchToReleaseWorkflow:
         release_mgr._detect_target_stage_file = Mock(return_value=("1.3.6", "1.3.6-stage.txt"))
         release_mgr._get_active_patch_branches = Mock(return_value=["ho-patch/789-security"])
         release_mgr._run_validation_tests = Mock()  # Tests pass
-        # First call returns without patch (for duplication check), second with patch (for result)
+        # read_release_patches is called 4 times now (pre-lock check, post-sync check, merge loop, final result)
         release_mgr.read_release_patches = Mock(side_effect=[
-            ["123-initial"],  # Before add (duplication check)
-            ["123-initial", "456-user-auth"]  # After add (result)
+            ["123-initial"],  # Pre-lock check (local state)
+            ["123-initial"],  # Post-sync re-check
+            ["123-initial"],  # For merge loop (existing patches)
+            ["123-initial", "456-user-auth"]  # After add (final result)
         ])
 
         # Execute
@@ -267,9 +269,12 @@ class TestAddPatchToReleaseWorkflow:
         release_mgr._get_active_patch_branches = Mock(return_value=[])
         release_mgr._send_rebase_notifications = Mock(return_value=[])
         release_mgr._run_validation_tests = Mock()
+        # read_release_patches is called 4 times (pre-lock, post-sync, merge loop, final)
         release_mgr.read_release_patches = Mock(side_effect=[
-            ["123-initial"],  # Before add
-            ["123-initial", "456-user-auth"]  # After add
+            ["123-initial"],  # Pre-lock check
+            ["123-initial"],  # Post-sync re-check
+            ["123-initial"],  # For merge loop
+            ["123-initial", "456-user-auth"]  # After add (final result)
         ])
 
         # Execute

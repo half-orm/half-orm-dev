@@ -36,6 +36,8 @@ class TestInitGitCentricProjectWithGitOrigin:
              patch('os.makedirs') as mock_makedirs, \
              patch('os.path.exists') as mock_exists, \
              patch('os.path.abspath') as mock_abspath, \
+             patch('os.chmod') as mock_chmod, \
+             patch('shutil.copy') as mock_shutil_copy, \
              patch('builtins.open', new_callable=mock_open) as mock_file, \
              patch.object(Repo, '_verify_database_configured') as mock_verify_db:
 
@@ -61,6 +63,8 @@ class TestInitGitCentricProjectWithGitOrigin:
                 'makedirs': mock_makedirs,
                 'exists': mock_exists,
                 'abspath': mock_abspath,
+                'chmod': mock_chmod,
+                'shutil_copy': mock_shutil_copy,
                 'file': mock_file,
                 'verify_db': mock_verify_db
             }

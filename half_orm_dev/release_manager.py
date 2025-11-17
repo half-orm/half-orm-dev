@@ -143,6 +143,7 @@ class ReleaseManager:
         origin, and pushes to reserve version globally.
 
         Workflow:
+        0. Acquire lock tag
         1. Validate on ho-prod branch
         2. Validate repository is clean
         3. Fetch from origin
@@ -153,6 +154,7 @@ class ReleaseManager:
         8. Create empty stage file
         9. Commit with message "Prepare release X.Y.Z-stage"
         10. Push to origin (global reservation)
+        11. Release lock tag
 
         Branch requirements:
         - Must be on ho-prod branch
@@ -197,76 +199,84 @@ class ReleaseManager:
             except ReleaseManagerError as e:
                 print(f"Failed: {e}")
         """
-        # 1. Validate on ho-prod branch
-        if self._repo.hgit.branch != 'ho-prod':
-            raise ReleaseManagerError(
-                f"Must be on ho-prod branch to prepare release.\n"
-                f"Current branch: {self._repo.hgit.branch}\n"
-                f"Switch to ho-prod: git checkout ho-prod"
-            )
+        try:
+            # 0. ACQUIRE LOCK on ho-prod (with 30 min timeout for stale locks)
+            lock_tag = self._repo.hgit.acquire_branch_lock("ho-prod", timeout_minutes=30)
 
-        # 2. Validate repository is clean
-        if not self._repo.hgit.repos_is_clean():
-            raise ReleaseManagerError(
-                "Repository has uncommitted changes.\n"
-                "Commit or stash changes before preparing release:\n"
-                "  git status\n"
-                "  git add . && git commit"
-            )
+            # 1. Validate on ho-prod branch
+            if self._repo.hgit.branch != 'ho-prod':
+                raise ReleaseManagerError(
+                    f"Must be on ho-prod branch to prepare release.\n"
+                    f"Current branch: {self._repo.hgit.branch}\n"
+                    f"Switch to ho-prod: git checkout ho-prod"
+                )
 
-        # 3. Fetch from origin
-        self._repo.hgit.fetch_from_origin()
+            # 2. Validate repository is clean
+            if not self._repo.hgit.repos_is_clean():
+                raise ReleaseManagerError(
+                    "Repository has uncommitted changes.\n"
+                    "Commit or stash changes before preparing release:\n"
+                    "  git status\n"
+                    "  git add . && git commit"
+                )
 
-        # 4. Synchronize with origin
-        is_synced, status = self._repo.hgit.is_branch_synced("ho-prod")
+            # 3. Fetch from origin
+            self._repo.hgit.fetch_from_origin()
 
-        if status == "behind":
-            # Pull automatically
-            self._repo.hgit.pull()
-        elif status == "diverged":
-            raise ReleaseManagerError(
-                "ho-prod has diverged from origin/ho-prod.\n"
-                "Manual resolution required:\n"
-                "  git pull --rebase origin ho-prod\n"
-                "  or\n"
-                "  git merge origin/ho-prod"
-            )
-        # If "synced" or "ahead", continue
+            # 4. Synchronize with origin
+            is_synced, status = self._repo.hgit.is_branch_synced("ho-prod")
 
-        # 5. Read production version from model/schema.sql
-        prod_version_str = self._get_production_version()
+            if status == "behind":
+                # Pull automatically
+                self._repo.hgit.pull()
+            elif status == "diverged":
+                raise ReleaseManagerError(
+                    "ho-prod has diverged from origin/ho-prod.\n"
+                    "Manual resolution required:\n"
+                    "  git pull --rebase origin ho-prod\n"
+                    "  or\n"
+                    "  git merge origin/ho-prod"
+                )
+            # If "synced" or "ahead", continue
 
-        # Parse into Version object for calculation
-        prod_version = self.parse_version_from_filename(f"{prod_version_str}.txt")
+            # 5. Read production version from model/schema.sql
+            prod_version_str = self._get_production_version()
 
-        # 6. Calculate next version
-        next_version = self.calculate_next_version(prod_version, increment_type)
+            # Parse into Version object for calculation
+            prod_version = self.parse_version_from_filename(f"{prod_version_str}.txt")
 
-        # 7. Verify stage file doesn't exist
-        stage_file = self._releases_dir / f"{next_version}-stage.txt"
-        if stage_file.exists():
-            raise ReleaseFileError(
-                f"Stage file already exists: {stage_file}\n"
-                f"Version {next_version} is already in development.\n"
-                f"To continue with this version, use existing stage file."
-            )
+            # 6. Calculate next version
+            next_version = self.calculate_next_version(prod_version, increment_type)
 
-        # 8. Create empty stage file
-        stage_file.touch()
+            # 7. Verify stage file doesn't exist
+            stage_file = self._releases_dir / f"{next_version}-stage.txt"
+            if stage_file.exists():
+                raise ReleaseFileError(
+                    f"Stage file already exists: {stage_file}\n"
+                    f"Version {next_version} is already in development.\n"
+                    f"To continue with this version, use existing stage file."
+                )
 
-        # 9. Commit
-        self._repo.hgit.add(str(stage_file))
-        self._repo.hgit.commit("-m", f"Prepare release {next_version}-stage")
+            # 8. Create empty stage file
+            stage_file.touch()
 
-        # 10. Push to origin (global reservation)
-        self._repo.hgit.push()
+            # 9. Commit
+            self._repo.hgit.add(str(stage_file))
+            self._repo.hgit.commit("-m", f"Prepare release {next_version}-stage")
 
-        # Return result
-        return {
-            'version': next_version,
-            'file': str(stage_file),
-            'previous_version': prod_version_str
-        }
+            # 10. Push to origin (global reservation)
+            self._repo.hgit.push()
+            # Return result
+            return {
+                'version': next_version,
+                'file': str(stage_file),
+                'previous_version': prod_version_str
+            }
+
+        finally:
+            # 11. ALWAYS release lock (even on error)
+            self._repo.hgit.release_branch_lock(lock_tag)
+
 
     def _get_production_version(self) -> str:
         """
@@ -698,21 +708,24 @@ class ReleaseManager:
 
         Complete workflow with distributed lock to prevent race conditions:
         1. Pre-lock validations (branch, clean, patch exists)
-        2. Detect target stage file (auto or explicit)
-        3. Check patch not already in release
-        4. Acquire exclusive lock on ho-prod (atomic via Git tag)
-        5. Sync with origin (fetch + pull if needed)
-        6. Create temporary validation branch FROM ho-prod
-        7. Merge ALL patches already in release (from ho-release/X.Y.Z/* branches)
-        8. Merge new patch branch (from ho-patch/{patch_id})
-        9. Add patch to stage file on temp branch + commit
-        10. Run validation tests (with ALL patches integrated)
-        11. If tests fail: cleanup temp branch, release lock, exit with error
-        12. If tests pass: return to ho-prod, delete temp branch
-        13. Add patch to stage file on ho-prod + commit (file change only)
-        14. Push ho-prod to origin
-        16. Archive patch branch to ho-release/{version}/{patch_id}
-        17. Release lock (in finally block)
+        2. Pre-lock check: detect stage file and verify patch not already in release (local state, fail-fast)
+        3. **ACQUIRE LOCK on ho-prod** (prevents concurrent modifications)
+        4. Fetch from origin (get latest state)
+        5. Sync with origin/ho-prod (pull if behind)
+        6. Re-detect target stage file (may have changed after sync)
+        7. Re-check patch not already in release (may have changed after sync)
+        8. Ensure patch branch synced with ho-prod
+        9. Create temporary validation branch FROM ho-prod
+        10. Merge ALL patches already in release (from ho-release/X.Y.Z/* branches)
+        11. Merge new patch branch (from ho-patch/{patch_id})
+        12. Add patch to stage file on temp branch + commit
+        13. Run validation tests (with ALL patches integrated)
+        14. If tests fail: cleanup temp branch, release lock, exit with error
+        15. If tests pass: return to ho-prod, delete temp branch
+        16. Add patch to stage file on ho-prod + commit (file change only)
+        17. Push ho-prod to origin
+        18. Archive patch branch to ho-release/{version}/{patch_id}
+        19. **RELEASE LOCK** (in finally block, always executed)
 
         CRITICAL: ho-prod NEVER contains patch code directly. It only contains
         the releases/*.txt files that list which patches are in each release.
@@ -811,10 +824,8 @@ class ReleaseManager:
                 f"Checkout branch first: git checkout ho-patch/{patch_id}"
             )
 
-        # 2. Detect target stage file
+        # 2. Pre-lock validations on local state (fail-fast before acquiring lock)
         target_version, stage_file = self._detect_target_stage_file(to_version)
-
-        # 3. Check patch not already in release
         existing_patches = self.read_release_patches(stage_file)
         if patch_id in existing_patches:
             raise ReleaseManagerError(
@@ -822,10 +833,39 @@ class ReleaseManager:
                 f"Nothing to do."
             )
 
-        # 4. ACQUIRE LOCK on ho-prod (with 30 min timeout for stale locks)
+        # 3. ACQUIRE LOCK on ho-prod (with 30 min timeout for stale locks)
         lock_tag = self._repo.hgit.acquire_branch_lock("ho-prod", timeout_minutes=30)
 
         try:
+            # 4. Fetch from origin to get latest state
+            self._repo.hgit.fetch_from_origin()
+
+            # 5. Sync with origin/ho-prod
+            is_synced, sync_status = self._repo.hgit.is_branch_synced("ho-prod")
+            if not is_synced:
+                if sync_status == "behind":
+                    self._repo.hgit.pull()
+                elif sync_status == "diverged":
+                    raise ReleaseManagerError(
+                        "ho-prod has diverged from origin/ho-prod.\n"
+                        "Manual resolution required:\n"
+                        "  git pull --rebase origin ho-prod\n"
+                        "  or\n"
+                        "  git merge origin/ho-prod"
+                    )
+
+            # 6. Re-detect target stage file (may have changed after sync)
+            target_version, stage_file = self._detect_target_stage_file(to_version)
+
+            # 7. Re-check patch not already in release (may have changed after sync)
+            existing_patches = self.read_release_patches(stage_file)
+            if patch_id in existing_patches:
+                raise ReleaseManagerError(
+                    f"Patch {patch_id} already in release {target_version}-stage.\n"
+                    f"Nothing to do."
+                )
+
+            # 8. Ensure patch branch is synced with ho-prod
             sync_result = self._ensure_patch_branch_synced(patch_id)
 
             if sync_result['strategy'] != 'already-synced':
@@ -837,30 +877,12 @@ class ReleaseManager:
                     file=sys.stderr
                 )
 
-        except ReleaseManagerError as e:
-            # Manual resolution required - release lock and exit
-            # Lock will be released in finally block
-            raise
+            temp_branch = f"temp-valid-{target_version}"
 
-        temp_branch = f"temp-valid-{target_version}"
-
-        try:
-            # 5. Sync with origin (now that we have lock)
-            self._repo.hgit.fetch_from_origin()
-            is_synced, status = self._repo.hgit.is_branch_synced("ho-prod")
-
-            if status == "behind":
-                self._repo.hgit.pull()
-            elif status == "diverged":
-                raise ReleaseManagerError(
-                    "Branch ho-prod has diverged from origin.\n"
-                    "Manual merge or rebase required."
-                )
-
-            # 6. Create temporary validation branch FROM ho-prod
+            # 9. Create temporary validation branch FROM ho-prod
             self._repo.hgit.checkout("-b", temp_branch)
 
-            # 7. Merge ALL existing patches in the release (already validated)
+            # 10. Merge ALL existing patches in the release (already validated)
             for existing_patch_id in existing_patches:
                 archived_branch = f"ho-release/{target_version}/{existing_patch_id}"
                 if self._repo.hgit.branch_exists(archived_branch):
@@ -1397,24 +1419,13 @@ class ReleaseManager:
                 "Commit or stash changes before promoting."
             )
 
-        # 2. Detect source and target (target-specific)
-        version, stage_file = self._detect_stage_to_promote()
-        if target != 'prod':
-            # RC: stage required, validate single active RC rule
-            self._validate_single_active_rc(version)
-            rc_number = self._determine_rc_number(version)
-            target_file = f"{version}-{target}{rc_number}.txt"
-            source_type = 'stage'
-        else:  # target == 'prod'
-            # Production: stage optional, sequential version
-            stage_path = Path(self._releases_dir) / f"{version}-stage.txt"
-            if stage_path.exists():
-                stage_file = f"{version}-stage.txt"
-                source_type = 'stage'
-            else:
-                stage_file = None
-                source_type = 'empty'
-            target_file = f"{version}.txt"
+        # 2. Pre-lock validation: check stage exists (preliminary check on local state)
+        # This allows fast failure before acquiring lock
+        try:
+            version, stage_file = self._detect_stage_to_promote()
+        except ReleaseManagerError:
+            # No stage found locally - fail fast before lock
+            raise
 
         # 3. Acquire distributed lock
         lock_tag = None
@@ -1433,6 +1444,25 @@ class ReleaseManager:
                         "ho-prod has diverged from origin. "
                         "Resolve conflicts manually: git pull origin ho-prod"
                     )
+
+            # 5. Re-detect source and target (with up-to-date state after sync)
+            version, stage_file = self._detect_stage_to_promote()
+            if target != 'prod':
+                # RC: stage required, validate single active RC rule
+                self._validate_single_active_rc(version)
+                rc_number = self._determine_rc_number(version)
+                target_file = f"{version}-{target}{rc_number}.txt"
+                source_type = 'stage'
+            else:  # target == 'prod'
+                # Production: stage optional, sequential version
+                stage_path = Path(self._releases_dir) / f"{version}-stage.txt"
+                if stage_path.exists():
+                    stage_file = f"{version}-stage.txt"
+                    source_type = 'stage'
+                else:
+                    stage_file = None
+                    source_type = 'empty'
+                target_file = f"{version}.txt"
 
             # 5. Apply patches to database (prod only)
             patches_applied = []
