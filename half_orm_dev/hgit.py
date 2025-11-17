@@ -453,6 +453,54 @@ class HGit:
                 raise
             raise GitCommandError(f"git tag -d {tag_name}", 1, stderr=str(e))
 
+    def delete_branch(self, branch_name: str, force: bool = False) -> None:
+        """
+        Delete local branch with optional force flag.
+
+        Args:
+            branch_name: Branch name to delete (e.g., "ho-release/1.3.5/456-user-auth")
+            force: If True, use -D (force delete), otherwise use -d
+
+        Raises:
+            GitCommandError: If deletion fails
+
+        Examples:
+            hgit.delete_branch("ho-release/1.3.5/456-user-auth", force=True)
+            # Branch deleted locally with force
+        """
+        try:
+            flag = '-D' if force else '-d'
+            self.__git_repo.git.branch(flag, branch_name)
+        except Exception as e:
+            from git.exc import GitCommandError
+            if isinstance(e, GitCommandError):
+                raise
+            raise GitCommandError(f"git branch {flag} {branch_name}", 1, stderr=str(e))
+
+    def delete_remote_branch(self, branch_name: str, remote: str = 'origin') -> None:
+        """
+        Delete branch from remote repository.
+
+        Args:
+            branch_name: Branch name to delete (e.g., "ho-release/1.3.5/456-user-auth")
+            remote: Remote name (default: 'origin')
+
+        Raises:
+            GitCommandError: If deletion fails
+
+        Examples:
+            hgit.delete_remote_branch("ho-release/1.3.5/456-user-auth")
+            # Branch deleted from origin
+        """
+        try:
+            origin = self.__git_repo.remote(remote)
+            origin.push(refspec=f":{branch_name}")
+        except Exception as e:
+            from git.exc import GitCommandError
+            if isinstance(e, GitCommandError):
+                raise
+            raise GitCommandError(f"git push {remote} --delete {branch_name}", 1, stderr=str(e))
+
     def get_local_commit_hash(self, branch_name: str) -> str:
         """
         Get the commit hash of a local branch.

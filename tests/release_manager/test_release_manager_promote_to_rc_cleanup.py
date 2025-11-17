@@ -55,13 +55,13 @@ class TestCleanupPatchBranches:
         deleted = release_mgr._cleanup_patch_branches(version, "1.3.5-stage.txt")
 
         # Verify local branch deleted
-        mock_hgit.delete_branch.assert_called_once_with("ho-patch/456-user-auth", force=True)
+        mock_hgit.delete_branch.assert_called_once_with("ho-release/1.3.5/456-user-auth", force=True)
 
         # Verify remote branch deleted
-        mock_hgit.delete_remote_branch.assert_called_once_with("ho-patch/456-user-auth")
+        mock_hgit.delete_remote_branch.assert_called_once_with("ho-release/1.3.5/456-user-auth")
 
         # Verify return value
-        assert deleted == ["ho-patch/456-user-auth"]
+        assert deleted == ["ho-release/1.3.5/456-user-auth"]
 
     def test_successful_cleanup_multiple_branches(self, release_manager_with_git):
         """Test successful cleanup of multiple branches."""
@@ -77,22 +77,22 @@ class TestCleanupPatchBranches:
 
         # Verify all local branches deleted
         expected_local_calls = [
-            call("ho-patch/456-user-auth", force=True),
-            call("ho-patch/789-security", force=True),
-            call("ho-patch/234-reports", force=True)
+            call("ho-release/1.3.5/456-user-auth", force=True),
+            call("ho-release/1.3.5/789-security", force=True),
+            call("ho-release/1.3.5/234-reports", force=True)
         ]
         assert mock_hgit.delete_branch.call_args_list == expected_local_calls
 
         # Verify all remote branches deleted
         expected_remote_calls = [
-            call("ho-patch/456-user-auth"),
-            call("ho-patch/789-security"),
-            call("ho-patch/234-reports")
+            call("ho-release/1.3.5/456-user-auth"),
+            call("ho-release/1.3.5/789-security"),
+            call("ho-release/1.3.5/234-reports")
         ]
         assert mock_hgit.delete_remote_branch.call_args_list == expected_remote_calls
 
         # Verify return value
-        assert deleted == ["ho-patch/456-user-auth", "ho-patch/789-security", "ho-patch/234-reports"]
+        assert deleted == ["ho-release/1.3.5/456-user-auth", "ho-release/1.3.5/789-security", "ho-release/1.3.5/234-reports"]
 
     def test_empty_stage_file_no_cleanup(self, release_manager_with_git):
         """Test empty stage file (no branches to cleanup)."""
@@ -125,7 +125,7 @@ class TestCleanupPatchBranches:
         mock_hgit.delete_branch.side_effect = GitCommandError(
             "git branch -D",
             1,
-            stderr="branch 'ho-patch/456-user-auth' not found"
+            stderr="branch 'ho-release/1.3.5/456-user-auth' not found"
         )
 
         version = "1.3.5"
@@ -138,8 +138,8 @@ class TestCleanupPatchBranches:
         # Remote deletion should still be attempted
         mock_hgit.delete_remote_branch.assert_called_once()
 
-        # Still in deleted list (best effort)
-        assert deleted == ["ho-patch/456-user-auth"]
+        # Branch not in deleted list since deletion failed
+        assert deleted == []
 
     def test_branch_already_deleted_remotely_skips_silently(self, release_manager_with_git):
         """Test skips remote branch if already deleted."""
@@ -166,8 +166,8 @@ class TestCleanupPatchBranches:
         # Remote deletion attempted but fails silently
         mock_hgit.delete_remote_branch.assert_called_once()
 
-        # Still in deleted list (best effort)
-        assert deleted == ["ho-patch/456-user-auth"]
+        # Still in deleted list (local deletion succeeded)
+        assert deleted == ["ho-release/1.3.5/456-user-auth"]
 
     def test_partial_cleanup_continues_on_error(self, release_manager_with_git):
         """Test continues cleanup even if one branch fails."""
@@ -192,8 +192,9 @@ class TestCleanupPatchBranches:
         assert mock_hgit.delete_branch.call_count == 3
         assert mock_hgit.delete_remote_branch.call_count == 3
 
-        # All branches still reported as deleted (best effort)
-        assert len(deleted) == 3
+        # Only successful deletions reported
+        assert len(deleted) == 2
+        assert deleted == ["ho-release/1.3.5/789-security", "ho-release/1.3.5/234-reports"]
 
     def test_ignores_comments_and_empty_lines(self, release_manager_with_git):
         """Test ignores comments and empty lines in stage file."""
@@ -214,11 +215,11 @@ class TestCleanupPatchBranches:
 
         # Should only delete actual patches
         expected_local_calls = [
-            call("ho-patch/456-user-auth", force=True),
-            call("ho-patch/789-security", force=True)
+            call("ho-release/1.3.5/456-user-auth", force=True),
+            call("ho-release/1.3.5/789-security", force=True)
         ]
         assert mock_hgit.delete_branch.call_args_list == expected_local_calls
-        assert deleted == ["ho-patch/456-user-auth", "ho-patch/789-security"]
+        assert deleted == ["ho-release/1.3.5/456-user-auth", "ho-release/1.3.5/789-security"]
 
     def test_cleanup_order_matches_file_order(self, release_manager_with_git):
         """Test branches deleted in same order as stage file."""
@@ -234,12 +235,12 @@ class TestCleanupPatchBranches:
 
         # Verify order preserved
         expected_calls = [
-            call("ho-patch/789-security", force=True),
-            call("ho-patch/234-reports", force=True),
-            call("ho-patch/456-user-auth", force=True)
+            call("ho-release/1.3.5/789-security", force=True),
+            call("ho-release/1.3.5/234-reports", force=True),
+            call("ho-release/1.3.5/456-user-auth", force=True)
         ]
         assert mock_hgit.delete_branch.call_args_list == expected_calls
-        assert deleted == ["ho-patch/789-security", "ho-patch/234-reports", "ho-patch/456-user-auth"]
+        assert deleted == ["ho-release/1.3.5/789-security", "ho-release/1.3.5/234-reports", "ho-release/1.3.5/456-user-auth"]
 
     def test_uses_force_delete_for_local_branches(self, release_manager_with_git):
         """Test uses -D (force delete) for local branches."""
@@ -254,7 +255,7 @@ class TestCleanupPatchBranches:
         release_mgr._cleanup_patch_branches(version, "1.3.5-stage.txt")
 
         # Verify force=True used
-        mock_hgit.delete_branch.assert_called_once_with("ho-patch/456-user-auth", force=True)
+        mock_hgit.delete_branch.assert_called_once_with("ho-release/1.3.5/456-user-auth", force=True)
 
     def test_uses_read_release_patches_method(self, release_manager_with_git):
         """Test uses existing read_release_patches() method."""
@@ -276,7 +277,7 @@ class TestCleanupPatchBranches:
         assert len(deleted) == len(patches_from_method)
 
     def test_constructs_correct_branch_names(self, release_manager_with_git):
-        """Test constructs ho-patch/* branch names correctly."""
+        """Test constructs ho-release/<version>/* branch names correctly."""
         release_mgr, releases_dir, mock_hgit = release_manager_with_git
 
         # Create stage file with patch ID
@@ -288,5 +289,5 @@ class TestCleanupPatchBranches:
         release_mgr._cleanup_patch_branches(version, "1.3.5-stage.txt")
 
         # Verify correct branch name format
-        mock_hgit.delete_branch.assert_called_with("ho-patch/456-user-auth", force=True)
-        mock_hgit.delete_remote_branch.assert_called_with("ho-patch/456-user-auth")
+        mock_hgit.delete_branch.assert_called_with("ho-release/1.3.5/456-user-auth", force=True)
+        mock_hgit.delete_remote_branch.assert_called_with("ho-release/1.3.5/456-user-auth")

@@ -1539,7 +1539,8 @@ class ReleaseManager:
 
             # 12. Cleanup patch branches
             if stage_file:
-                branches_deleted = self._cleanup_patch_branches(version, stage_file)
+                # Use target_file because stage_file was renamed to target_file at line 1484
+                branches_deleted = self._cleanup_patch_branches(version, target_file)
             else:
                 branches_deleted = []
 
@@ -1964,15 +1965,13 @@ class ReleaseManager:
 
         Reads patch list from stage file and deletes both local and remote
         branches. This is automatic cleanup at promote_to to maintain
-        clean repository state. Branches are ho-patch/* format.
+        clean repository state. Deletes both ho-patch/* and ho-release/<version>/* branches.
 
         Algorithm:
         1. Read patch list from stage file
         2. For each patch:
-           - Check if ho-patch/{patch_id} exists locally
-           - If exists: git branch -D ho-patch/{patch_id}
-           - Check if exists on remote
-           - If exists: git push origin --delete ho-patch/{patch_id}
+           - Delete ho-patch/{patch_id} (if exists locally and remotely)
+           - Delete ho-release/{version}/{patch_id} (if exists locally and remotely)
         3. Return list of deleted branches
 
         Args:
@@ -1980,37 +1979,37 @@ class ReleaseManager:
             stage_file: Stage filename (e.g., "1.3.5-stage.txt")
 
         Returns:
-            List of deleted branch names (e.g., ["ho-patch/456-user-auth", ...])
+            List of deleted branch names (e.g., ["ho-release/1.3.5/456-user-auth", ...])
 
         Raises:
-            ReleaseManagerError: If branch deletion fails (e.g., uncommitted changes)
+            None - Uses best effort deletion (continues if branch doesn't exist)
 
         Examples:
-            # Successful cleanup
+            # Successful cleanup after promote
             releases/1.3.5-stage.txt contains: ["456-user-auth", "789-security"]
-            ho-patch/456-user-auth exists locally and remotely
-            ho-patch/789-security exists locally and remotely
+            ho-release/1.3.5/456-user-auth exists locally and remotely
+            ho-release/1.3.5/789-security exists locally and remotely
 
             deleted = mgr._cleanup_patch_branches("1.3.5", "1.3.5-stage.txt")
-            # → ["ho-patch/456-user-auth", "ho-patch/789-security"]
-            # → Both branches deleted locally and remotely
+            # → ["ho-release/1.3.5/456-user-auth", "ho-release/1.3.5/789-security"]
+            # → Both archived branches deleted locally and remotely
 
-            # Branch already deleted
+            # Branch already deleted (edge case)
             releases/1.3.5-stage.txt contains: ["456-user-auth"]
-            ho-patch/456-user-auth does NOT exist
+            ho-release/1.3.5/456-user-auth does NOT exist
 
             deleted = mgr._cleanup_patch_branches("1.3.5", "1.3.5-stage.txt")
             # → [] (nothing to delete, no error)
 
-            # Branch with uncommitted changes (should not happen)
-            ho-patch/456-user-auth has uncommitted changes
-
-            deleted = mgr._cleanup_patch_branches("1.3.5", "1.3.5-stage.txt")
-            # → Raises: "Cannot delete ho-patch/456-user-auth: uncommitted changes"
-
         Note:
-            This is called AFTER merging archived branches to ho-prod, so the
-            code is preserved in ho-prod even though branches are deleted.
+            This is called AFTER merging archived branches (ho-release/<version>/*)
+            to ho-prod during promote_to. The code is preserved in ho-prod,
+            so the archived branches are no longer needed.
+
+            Timeline:
+            - add_patch_to_release: ho-patch/* → ho-release/<version>/*
+            - promote_to: merge ho-release/<version>/* to ho-prod
+            - _cleanup_patch_branches: delete ho-release/<version>/*
         """
         patch_ids = self.read_release_patches(stage_file)
 
@@ -2021,27 +2020,27 @@ class ReleaseManager:
         deleted_branches = []
 
         for patch_id in patch_ids:
-            # Construct branch name
-            branch_name = f"ho-patch/{patch_id}"
+            # At promote time, patches are in ho-release/{version}/{patch_id} format
+            # (ho-patch/* was renamed to ho-release/* during add_patch_to_release)
+            # After merging to ho-prod, these archived branches can be deleted
+            archived_branch = f"ho-release/{version}/{patch_id}"
 
-            # Delete local branch (force delete with -D)
+            # Delete local archived branch (force delete with -D)
             try:
-                self._repo.hgit.delete_branch(branch_name, force=True)
+                self._repo.hgit.delete_branch(archived_branch, force=True)
+                deleted_branches.append(archived_branch)
             except GitCommandError as e:
                 # Best effort: continue even if deletion fails
                 # (branch might already be deleted)
                 pass
 
-            # Delete remote branch
+            # Delete remote archived branch
             try:
-                self._repo.hgit.delete_remote_branch(branch_name)
+                self._repo.hgit.delete_remote_branch(archived_branch)
             except GitCommandError as e:
                 # Best effort: continue even if deletion fails
                 # (branch might already be deleted from remote)
                 pass
-
-            # Add to deleted list (best effort reporting)
-            deleted_branches.append(branch_name)
 
         return deleted_branches
 
