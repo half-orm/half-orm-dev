@@ -1901,7 +1901,7 @@ production = False
 ```ini
 [halfORM]
 package_name = my_project
-hop_version = 0.16.0
+hop_version = 0.17.0
 database_name = my_blog_db
 git_origin =
 # Mode (full/sync-only) auto-detected at runtime based on metadata presence

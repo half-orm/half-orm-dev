@@ -80,7 +80,7 @@ class TestRepoSingleton:
             config_file = hop_dir / "config"
             config_content = """[halfORM]
 package_name = nested_db
-hop_version = 0.16.0
+hop_version = 0.17.0
 git_origin =
 devel = True
 """
@@ -126,7 +126,7 @@ devel = True
             config_file2 = hop_dir2 / "config"
             config_file2.write_text("""[halfORM]
 package_name = test_db2
-hop_version = 0.16.0
+hop_version = 0.17.0
 git_origin =
 devel = True
 """)

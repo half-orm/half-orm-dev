@@ -838,7 +838,7 @@ class Repo:
             # Creates .hop/config:
             # [halfORM]
             # package_name = my_blog
-            # hop_version = 0.16.0
+            # hop_version = 0.17.0
             # devel = True
             # git_origin = https://github.com/user/my_blog.git
         """

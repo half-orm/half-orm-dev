@@ -46,7 +46,7 @@ class TestConfigurationInitialization:
     @patch('builtins.open', new_callable=mock_open)
     def test_initialize_configuration_creates_config_file(self, mock_file, mock_makedirs, mock_hop_version):
         """Test that config file is created with correct content."""
-        mock_hop_version.return_value = "0.16.0"
+        mock_hop_version.return_value = "0.17.0"
 
         repo = Repo.__new__(Repo)
         repo._Repo__checked = False
@@ -83,7 +83,7 @@ class TestConfigurationInitialization:
     @patch('builtins.open', new_callable=mock_open)
     def test_initialize_configuration_writes_correct_content_devel_false(self, mock_file, mock_makedirs, mock_hop_version):
         """Test config content for sync-only mode."""
-        mock_hop_version.return_value = "0.16.0"
+        mock_hop_version.return_value = "0.17.0"
 
         repo = Repo.__new__(Repo)
         repo._Repo__checked = False
@@ -103,7 +103,7 @@ class TestConfigurationInitialization:
     @patch('builtins.open', new_callable=mock_open)
     def test_initialize_configuration_creates_config_object(self, mock_file, mock_makedirs, mock_hop_version):
         """Test that Config object is created and stored."""
-        mock_hop_version.return_value = "0.16.0"
+        mock_hop_version.return_value = "0.17.0"
 
         repo = Repo.__new__(Repo)
         repo._Repo__checked = False

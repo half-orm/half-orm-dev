@@ -40,7 +40,7 @@ class TestResolveDatabaseConfigName:
             config_file = hop_dir / 'config'
             config_content = """[halfORM]
 package_name = config_package_name
-hop_version = 0.16.0
+hop_version = 0.17.0
 git_origin = https://github.com/user/test.git
 devel = True
 """
@@ -71,7 +71,7 @@ devel = True
             config_file = hop_dir / 'config'
             config_content = """[halfORM]
 package_name = config_package_name
-hop_version = 0.16.0
+hop_version = 0.17.0
 git_origin = https://github.com/user/test.git
 devel = True
 """
@@ -124,7 +124,7 @@ devel = True
             config_file = hop_dir / 'config'
             config_content = """[halfORM]
 package_name = config_name
-hop_version = 0.16.0
+hop_version = 0.17.0
 """
             config_file.write_text(config_content)
 
@@ -201,7 +201,7 @@ package_name = config_name
             # Create config WITHOUT package_name (new format)
             config_file = hop_dir / 'config'
             config_content = """[halfORM]
-hop_version = 0.16.0
+hop_version = 0.17.0
 git_origin = https://github.com/user/test.git
 devel = True
 """
@@ -228,7 +228,7 @@ devel = True
             config_file = hop_dir / 'config'
             config_content = """[halfORM]
 package_name =
-hop_version = 0.16.0
+hop_version = 0.17.0
 """
             config_file.write_text(config_content)
 
@@ -256,7 +256,7 @@ hop_version = 0.16.0
             config_file = hop_dir / 'config'
             config_content = """[halfORM]
 package_name = package_name_value
-hop_version = 0.16.0
+hop_version = 0.17.0
 """
             config_file.write_text(config_content)
 
@@ -389,7 +389,7 @@ hop_version = 0.16.0
             # Original config (for production)
             config_file = hop_dir / 'config'
             config_content = """[halfORM]
-hop_version = 0.16.0
+hop_version = 0.17.0
 git_origin = https://github.com/company/my_blog.git
 devel = True
 """
@@ -438,7 +438,7 @@ devel = False
 
             # Simulate migration: remove package_name from config
             new_config_content = """[halfORM]
-hop_version = 0.16.0
+hop_version = 0.17.0
 git_origin = https://github.com/company/legacy.git
 devel = False
 """
