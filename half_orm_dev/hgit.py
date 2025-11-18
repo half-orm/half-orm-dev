@@ -501,6 +501,114 @@ class HGit:
                 raise
             raise GitCommandError(f"git push {remote} --delete {branch_name}", 1, stderr=str(e))
 
+    def create_branch(self, branch_name: str, from_branch: str = None) -> None:
+        """
+        Create a new branch from specified branch or current HEAD.
+
+        Args:
+            branch_name: Name of the new branch to create
+            from_branch: Branch to create from (default: current HEAD)
+
+        Raises:
+            GitCommandError: If branch creation fails
+
+        Examples:
+            hgit.create_branch("ho-release/0.1.0", from_branch="ho-prod")
+            # Creates ho-release/0.1.0 from ho-prod
+        """
+        try:
+            if from_branch:
+                self.__git_repo.git.branch(branch_name, from_branch)
+            else:
+                self.__git_repo.git.branch(branch_name)
+        except Exception as e:
+            from git.exc import GitCommandError
+            if isinstance(e, GitCommandError):
+                raise
+            raise GitCommandError(f"git branch {branch_name}", 1, stderr=str(e))
+
+    def rename_branch(self, old_name: str, new_name: str) -> None:
+        """
+        Rename a branch (move).
+
+        Args:
+            old_name: Current branch name
+            new_name: New branch name
+
+        Raises:
+            GitCommandError: If rename fails
+
+        Examples:
+            hgit.rename_branch("ho-patch/001-first", "ho-release/0.1.0/001-first")
+            # Renames the branch
+        """
+        try:
+            self.__git_repo.git.branch('-m', old_name, new_name)
+        except Exception as e:
+            from git.exc import GitCommandError
+            if isinstance(e, GitCommandError):
+                raise
+            raise GitCommandError(f"git branch -m {old_name} {new_name}", 1, stderr=str(e))
+
+    def merge(self, branch_name: str, no_ff: bool = False, ff_only: bool = False,
+              message: str = None) -> None:
+        """
+        Merge a branch into current branch.
+
+        Args:
+            branch_name: Branch to merge into current
+            no_ff: Force merge commit even if fast-forward (--no-ff)
+            ff_only: Only fast-forward merge (--ff-only)
+            message: Custom merge commit message (-m)
+
+        Raises:
+            GitCommandError: If merge fails (including conflicts)
+
+        Examples:
+            hgit.merge("ho-release/0.1.0/001-first", no_ff=True,
+                      message="Merge patch 001-first")
+            # Merges with merge commit
+
+            hgit.merge("ho-release/0.1.0", ff_only=True)
+            # Fast-forward only merge
+        """
+        try:
+            args = []
+            if no_ff:
+                args.append('--no-ff')
+            if ff_only:
+                args.append('--ff-only')
+            if message:
+                args.extend(['-m', message])
+            args.append(branch_name)
+
+            self.__git_repo.git.merge(*args)
+        except Exception as e:
+            from git.exc import GitCommandError
+            if isinstance(e, GitCommandError):
+                raise
+            raise GitCommandError(f"git merge {branch_name}", 1, stderr=str(e))
+
+    def branch_exists(self, branch_name: str) -> bool:
+        """
+        Check if a local branch exists.
+
+        Args:
+            branch_name: Branch name to check
+
+        Returns:
+            True if branch exists locally, False otherwise
+
+        Examples:
+            if hgit.branch_exists("ho-patch/001-first"):
+                print("Branch exists")
+        """
+        try:
+            branches = [b.name for b in self.__git_repo.branches]
+            return branch_name in branches
+        except Exception:
+            return False
+
     def get_local_commit_hash(self, branch_name: str) -> str:
         """
         Get the commit hash of a local branch.

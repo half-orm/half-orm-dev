@@ -2868,3 +2868,441 @@ class ReleaseManager:
         self._repo.database.register_release(major, minor, patch)
 
         return patches
+
+    # ========================================================================
+    # NEW INTEGRATION WORKFLOW WITH RELEASE BRANCHES
+    # ========================================================================
+
+    def _calculate_next_version(self, level: str) -> str:
+        """
+        Calculate the next version number based on increment level.
+
+        Args:
+            level: Version increment level ('major', 'minor', or 'patch')
+
+        Returns:
+            Next version number (e.g., "0.1.0")
+
+        Raises:
+            ReleaseManagerError: If level is invalid
+
+        Examples:
+            # Current prod: 0.0.5
+            _calculate_next_version("patch")  # → "0.0.6"
+            _calculate_next_version("minor")  # → "0.1.0"
+            _calculate_next_version("major")  # → "1.0.0"
+        """
+        # Get current production version
+        try:
+            current_version = self._get_current_production_version()
+        except Exception:
+            # No production version yet, start at 0.0.0
+            current_version = "0.0.0"
+
+        # Parse version
+        parts = current_version.split('.')
+        if len(parts) != 3:
+            raise ReleaseManagerError(f"Invalid version format: {current_version}")
+
+        major, minor, patch = map(int, parts)
+
+        # Increment based on level
+        if level == 'major':
+            major += 1
+            minor = 0
+            patch = 0
+        elif level == 'minor':
+            minor += 1
+            patch = 0
+        elif level == 'patch':
+            patch += 1
+        else:
+            raise ReleaseManagerError(
+                f"Invalid version level: {level}. Must be 'major', 'minor', or 'patch'"
+            )
+
+        return f"{major}.{minor}.{patch}"
+
+    def _get_current_production_version(self) -> str:
+        """
+        Get the current production version from tags.
+
+        Returns:
+            Current production version (e.g., "0.0.5")
+
+        Raises:
+            ReleaseManagerError: If no production version found
+        """
+        # Get all production tags (X.Y.Z format, no -rc suffix)
+        tags = self._repo.hgit.get_tags()
+        version_tags = []
+
+        for tag in tags:
+            # Match X.Y.Z pattern (no -rc)
+            if tag.count('.') == 2 and not tag.endswith('-rc'):
+                try:
+                    parts = tag.split('.')
+                    # Validate it's numeric
+                    int(parts[0])
+                    int(parts[1])
+                    int(parts[2])
+                    version_tags.append(tag)
+                except (ValueError, IndexError):
+                    continue
+
+        if not version_tags:
+            raise ReleaseManagerError("No production version found")
+
+        # Sort versions and return the latest
+        def version_key(v):
+            parts = v.split('.')
+            return (int(parts[0]), int(parts[1]), int(parts[2]))
+
+        version_tags.sort(key=version_key, reverse=True)
+        return version_tags[0]
+
+    def new_release(self, level: str) -> dict:
+        """
+        Create a new release with integration branch.
+
+        Creates a release branch (ho-release/{version}) where patches will be
+        merged. This allows patches to see each other's changes and supports
+        dependencies between patches.
+
+        Workflow:
+        1. Calculate next version based on level (major/minor/patch)
+        2. Create release branch ho-release/{version} from ho-prod
+        3. Push release branch to remote
+        4. Create empty {version}-stage.txt file
+        5. Commit and push stage file
+
+        Args:
+            level: Version increment level ('major', 'minor', or 'patch')
+
+        Returns:
+            dict with keys:
+                - version: The new version number
+                - branch: The release branch name
+                - stage_file: Path to stage file
+
+        Raises:
+            ReleaseManagerError: If release creation fails
+
+        Examples:
+            result = rel_mgr.new_release("minor")
+            # → version: "0.1.0"
+            # → branch: "ho-release/0.1.0"
+            # → Creates empty 0.1.0-stage.txt
+        """
+        # Calculate next version
+        version = self._calculate_next_version(level)
+        release_branch = f"ho-release/{version}"
+
+        # Create release branch from ho-prod
+        try:
+            self._repo.hgit.create_branch(release_branch, from_branch="ho-prod")
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to create release branch: {e}")
+
+        # Push release branch
+        try:
+            self._repo.hgit.push_branch(release_branch)
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to push release branch: {e}")
+
+        # Create empty stage file
+        stage_file = self._releases_dir / f"{version}-stage.txt"
+        try:
+            stage_file.write_text("", encoding='utf-8')
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to create stage file: {e}")
+
+        # Commit stage file on ho-prod
+        try:
+            self._repo.hgit.add(str(stage_file))
+            self._repo.hgit.commit(f"Create release {version} branch and stage file")
+            self._repo.hgit.push_branch("ho-prod")
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to commit stage file: {e}")
+
+        return {
+            'version': version,
+            'branch': release_branch,
+            'stage_file': str(stage_file)
+        }
+
+    def add_patch_to_release(self, patch_id: str, version: str) -> dict:
+        """
+        Add a patch to a release by merging into the release branch.
+
+        This is the key method of the new workflow. It:
+        1. Renames ho-patch/{patch_id} → ho-release/{version}/{patch_id}
+        2. Merges the patch into ho-release/{version} branch
+        3. Updates {version}-stage.txt with the patch
+
+        This ensures patches in the same release can see each other's changes.
+
+        Args:
+            patch_id: Patch identifier (e.g., "001-first")
+            version: Target release version (e.g., "0.1.0")
+
+        Returns:
+            dict with keys:
+                - patch_id: The patch identifier
+                - archived_branch: The archived branch name
+                - merged: Whether merge succeeded
+
+        Raises:
+            ReleaseManagerError: If release doesn't exist or patch merge fails
+            GitCommandError: If merge has conflicts (stays on release branch)
+
+        Examples:
+            # After creating release 0.1.0
+            rel_mgr.add_patch_to_release("001-first", "0.1.0")
+            # → Renames ho-patch/001-first to ho-release/0.1.0/001-first
+            # → Merges into ho-release/0.1.0
+            # → Adds "001-first" to 0.1.0-stage.txt
+        """
+        # Validate release exists
+        stage_file = self._releases_dir / f"{version}-stage.txt"
+        if not stage_file.exists():
+            raise ReleaseManagerError(f"Release {version} not found (no stage file)")
+
+        # Validate patch branch exists
+        patch_branch = f"ho-patch/{patch_id}"
+        if not self._repo.hgit.branch_exists(patch_branch):
+            raise ReleaseManagerError(f"Patch branch {patch_branch} not found")
+
+        # Save current branch to return to it later
+        original_branch = self._repo.hgit.branch
+
+        release_branch = f"ho-release/{version}"
+        archived_branch = f"{release_branch}/{patch_id}"
+
+        try:
+            # 1. Rename patch branch to archived name
+            self._repo.hgit.rename_branch(patch_branch, archived_branch)
+
+            # 2. Push archived branch
+            self._repo.hgit.push_branch(archived_branch)
+
+            # 3. Checkout release branch
+            self._repo.hgit.checkout(release_branch)
+
+            # 4. Merge archived patch branch (--no-ff for merge commit)
+            try:
+                self._repo.hgit.merge(
+                    archived_branch,
+                    no_ff=True,
+                    message=f"Merge patch {patch_id} into release {version}"
+                )
+            except Exception as e:
+                # Merge conflict - stay on release branch for resolution
+                raise ReleaseManagerError(
+                    f"Merge conflict when integrating {patch_id} into {version}.\n"
+                    f"Please resolve conflicts on branch {release_branch}, then:\n"
+                    f"  git add <resolved files>\n"
+                    f"  git commit\n"
+                    f"  git push origin {release_branch}\n"
+                    f"  # Then re-run this command or manually update stage file"
+                )
+
+            # 5. Push release branch with merge
+            self._repo.hgit.push_branch(release_branch)
+
+            # 6. Add patch to stage file
+            current_content = stage_file.read_text(encoding='utf-8')
+            if patch_id not in current_content.split('\n'):
+                with stage_file.open('a', encoding='utf-8') as f:
+                    f.write(f"{patch_id}\n")
+
+            # 7. Commit stage file update (on ho-prod)
+            self._repo.hgit.checkout("ho-prod")
+            self._repo.hgit.add(str(stage_file))
+            self._repo.hgit.commit(f"Add patch {patch_id} to release {version} stage")
+            self._repo.hgit.push_branch("ho-prod")
+
+            # 8. Return to original branch
+            self._repo.hgit.checkout(original_branch)
+
+            return {
+                'patch_id': patch_id,
+                'archived_branch': archived_branch,
+                'merged': True
+            }
+
+        except ReleaseManagerError:
+            # Re-raise our own errors as-is
+            raise
+        except Exception as e:
+            # Try to return to original branch on error
+            try:
+                self._repo.hgit.checkout(original_branch)
+            except Exception:
+                pass
+            raise ReleaseManagerError(f"Failed to add patch to release: {e}")
+
+    def promote_to_rc(self, version: str) -> dict:
+        """
+        Promote a stage release to RC by tagging the release branch.
+
+        Creates an RC tag on the release branch (ho-release/{version}).
+        The release branch contains all merged patches.
+
+        Args:
+            version: Version to promote (e.g., "0.1.0")
+
+        Returns:
+            dict with keys:
+                - version: The version
+                - tag: The RC tag name
+                - branch: The release branch
+
+        Raises:
+            ReleaseManagerError: If promotion fails
+
+        Examples:
+            rel_mgr.promote_to_rc("0.1.0")
+            # → Creates tag "0.1.0-rc" on ho-release/0.1.0
+            # → Renames 0.1.0-stage.txt to 0.1.0-rc.txt
+        """
+        stage_file = self._releases_dir / f"{version}-stage.txt"
+        if not stage_file.exists():
+            raise ReleaseManagerError(f"Release {version} not found (no stage file)")
+
+        release_branch = f"ho-release/{version}"
+        rc_tag = f"{version}-rc"
+
+        try:
+            # Checkout release branch
+            self._repo.hgit.checkout(release_branch)
+
+            # Create RC tag on release branch
+            self._repo.hgit.create_tag(rc_tag)
+
+            # Push tag
+            self._repo.hgit.push_tag(rc_tag)
+
+            # Return to ho-prod
+            self._repo.hgit.checkout("ho-prod")
+
+            # Rename stage file to rc file
+            rc_file = self._releases_dir / f"{version}-rc.txt"
+            stage_file.rename(rc_file)
+
+            # Commit rename
+            self._repo.hgit.add(str(stage_file))  # Old path (deleted)
+            self._repo.hgit.add(str(rc_file))     # New path
+            self._repo.hgit.commit(f"Promote release {version} to RC")
+            self._repo.hgit.push_branch("ho-prod")
+
+            return {
+                'version': version,
+                'tag': rc_tag,
+                'branch': release_branch
+            }
+
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to promote to RC: {e}")
+
+    def promote_to_prod(self, version: str) -> dict:
+        """
+        Promote an RC release to production.
+
+        Merges the release branch into ho-prod and cleans up:
+        1. Merge ho-release/{version} into ho-prod (fast-forward)
+        2. Create production tag on ho-prod
+        3. Delete patch branches (ho-release/{version}/{patch_id})
+        4. Delete release branch (ho-release/{version})
+
+        Args:
+            version: Version to promote (e.g., "0.1.0")
+
+        Returns:
+            dict with keys:
+                - version: The version
+                - tag: The production tag
+                - deleted_branches: List of deleted branches
+
+        Raises:
+            ReleaseManagerError: If promotion fails
+
+        Examples:
+            rel_mgr.promote_to_prod("0.1.0")
+            # → Merges ho-release/0.1.0 into ho-prod
+            # → Creates tag "0.1.0"
+            # → Deletes patch and release branches
+        """
+        rc_file = self._releases_dir / f"{version}-rc.txt"
+        if not rc_file.exists():
+            raise ReleaseManagerError(f"RC release {version} not found")
+
+        release_branch = f"ho-release/{version}"
+
+        try:
+            # Read patches from rc file
+            patches = rc_file.read_text(encoding='utf-8').strip().split('\n')
+            patches = [p.strip() for p in patches if p.strip()]
+
+            # 1. Checkout ho-prod
+            self._repo.hgit.checkout("ho-prod")
+
+            # 2. Merge release branch into ho-prod (fast-forward only)
+            try:
+                self._repo.hgit.merge(
+                    release_branch,
+                    ff_only=True,
+                    message=f"Merge release {version} into production"
+                )
+            except Exception:
+                # If fast-forward fails, try normal merge
+                self._repo.hgit.merge(
+                    release_branch,
+                    message=f"Merge release {version} into production"
+                )
+
+            # 3. Create production tag on ho-prod
+            self._repo.hgit.create_tag(version)
+            self._repo.hgit.push_tag(version)
+
+            # 4. Push ho-prod
+            self._repo.hgit.push_branch("ho-prod")
+
+            # 5. Rename rc file to prod
+            prod_file = self._releases_dir / f"{version}.txt"
+            rc_file.rename(prod_file)
+            self._repo.hgit.add(str(rc_file))   # Old path
+            self._repo.hgit.add(str(prod_file)) # New path
+            self._repo.hgit.commit(f"Promote release {version} to production")
+            self._repo.hgit.push_branch("ho-prod")
+
+            # 6. Cleanup: Delete patch branches
+            deleted_branches = []
+            for patch_id in patches:
+                patch_branch = f"{release_branch}/{patch_id}"
+                try:
+                    self._repo.hgit.delete_branch(patch_branch, force=True)
+                    self._repo.hgit.delete_remote_branch(patch_branch)
+                    deleted_branches.append(patch_branch)
+                except Exception:
+                    # Continue even if deletion fails
+                    pass
+
+            # 7. Delete release branch
+            try:
+                self._repo.hgit.delete_branch(release_branch)
+                self._repo.hgit.delete_remote_branch(release_branch)
+                deleted_branches.append(release_branch)
+            except Exception:
+                pass
+
+            return {
+                'version': version,
+                'tag': version,
+                'deleted_branches': deleted_branches
+            }
+
+        except ReleaseManagerError:
+            raise
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to promote to production: {e}")

@@ -20,6 +20,31 @@ from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 from half_orm_dev.repo import Repo
 
 
+@pytest.fixture
+def release_manager(tmp_path):
+    """Create ReleaseManager with mocked Repo for testing."""
+    # Create releases/ directory
+    releases_dir = tmp_path / "releases"
+    releases_dir.mkdir()
+
+    # Create Patches/ directory
+    patches_dir = tmp_path / "Patches"
+    patches_dir.mkdir()
+
+    # Mock Repo
+    mock_repo = Mock()
+    mock_repo.base_dir = str(tmp_path)
+
+    # Mock database
+    mock_database = Mock()
+    mock_repo.database = mock_database
+
+    # Create ReleaseManager
+    rel_mgr = ReleaseManager(mock_repo)
+
+    return rel_mgr, mock_repo, tmp_path, releases_dir
+
+
 class TestReleaseIntegrationWorkflow:
     """Test the new workflow with release branches for patch integration."""
 
@@ -282,8 +307,9 @@ class TestReleaseIntegrationWorkflow:
         rel_mgr.promote_to_prod("0.1.0")
 
         # Verify: Release branch merged into ho-prod
+        # Filter for merge of release branch itself (not patch branches)
         merge_to_prod = [c for c in mock_hgit_complete.merge.call_args_list
-                        if "ho-release/0.1.0" in str(c)]
+                        if c[0][0] == "ho-release/0.1.0"]  # Exact match, not patch subdirectory
         assert len(merge_to_prod) == 1
 
     def test_cannot_add_patch_to_nonexistent_release(self, release_manager):
