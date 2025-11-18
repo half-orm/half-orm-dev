@@ -1225,3 +1225,158 @@ class HGit:
             'skipped': skipped,
             'errors': errors
         }
+
+    def get_active_branches_status(self, stage_files: list = None) -> dict:
+        """
+        Get status of active Half-ORM branches (branches that can still be modified).
+
+        Active branches are:
+        1. ho-patch/* branches (in development)
+        2. ho-release/{version}/* branches that are in stage files (not yet promoted)
+
+        For each branch, checks:
+        - Does it exist on remote?
+        - Is it ahead/behind/synced/diverged with remote?
+        - Number of commits ahead/behind
+
+        Args:
+            stage_files: List of stage file paths to identify active ho-release branches.
+                        If None, considers all ho-release branches as potentially active.
+
+        Returns:
+            dict with keys:
+                'current_branch': str - Currently checked out branch
+                'patch_branches': list of dicts for ho-patch/* branches
+                'release_branches': list of dicts for ho-release/* branches
+                Each dict contains:
+                    'name': str
+                    'is_current': bool
+                    'exists_on_remote': bool
+                    'sync_status': str - 'synced', 'ahead', 'behind', 'diverged', 'no_remote'
+                    'ahead': int
+                    'behind': int
+                    'in_stage_file': bool (for release branches only)
+
+        Examples:
+            status = hgit.get_active_branches_status()
+            # → {
+            #     'current_branch': 'ho-patch/123-fix',
+            #     'patch_branches': [
+            #         {'name': 'ho-patch/123-fix', 'is_current': True, 'exists_on_remote': True,
+            #          'sync_status': 'ahead', 'ahead': 2, 'behind': 0}
+            #     ],
+            #     'release_branches': [
+            #         {'name': 'ho-release/1.0.0/456', 'exists_on_remote': False,
+            #          'sync_status': 'no_remote', 'in_stage_file': True}
+            #     ]
+            # }
+        """
+        # Fetch to get latest remote refs
+        try:
+            self.fetch_from_origin()
+        except Exception:
+            pass  # Best effort
+
+        # Get current branch
+        try:
+            current_branch = str(self.__git_repo.active_branch)
+        except Exception:
+            current_branch = None
+
+        # Get remote branches
+        remote_branches = self.get_remote_branches()
+        remote_branch_names = {b.replace('origin/', '') for b in remote_branches}
+
+        # Get ho-patch branches
+        patch_branches = self.get_local_branches(pattern="ho-patch/*")
+
+        # Get ho-release branches
+        release_branches = self.get_local_branches(pattern="ho-release/*")
+
+        # Parse stage files to identify active release branches and their order
+        active_release_patches = set()
+        patch_order = {}  # {version: [ordered_patch_ids]}
+        if stage_files:
+            for stage_file_path in stage_files:
+                try:
+                    from pathlib import Path
+                    # Extract version from filename (e.g., "0.1.0-stage.txt" -> "0.1.0")
+                    filename = Path(stage_file_path).name
+                    version = filename.replace('-stage.txt', '')
+
+                    content = Path(stage_file_path).read_text()
+                    ordered_patches = []
+                    for line in content.split('\n'):
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            active_release_patches.add(line)
+                            ordered_patches.append(line)
+
+                    if ordered_patches:
+                        patch_order[version] = ordered_patches
+                except Exception:
+                    pass
+
+        def get_branch_info(branch: str, check_stage: bool = False) -> dict:
+            """Helper to get branch status."""
+            info = {
+                'name': branch,
+                'is_current': branch == current_branch,
+                'exists_on_remote': branch in remote_branch_names,
+                'sync_status': 'unknown',
+                'ahead': 0,
+                'behind': 0
+            }
+
+            if check_stage:
+                # Extract patch_id and version from ho-release/{version}/{patch_id}
+                parts = branch.split('/')
+                if len(parts) == 3:
+                    version = parts[1]
+                    patch_id = parts[2]
+                    info['in_stage_file'] = patch_id in active_release_patches
+
+                    # Add order if patch is in a stage file
+                    if patch_id in active_release_patches and version in patch_order:
+                        try:
+                            info['order'] = patch_order[version].index(patch_id)
+                        except ValueError:
+                            info['order'] = 999  # Fallback if not found
+                    else:
+                        info['order'] = 999  # Not in stage
+                else:
+                    info['in_stage_file'] = False
+                    info['order'] = 999
+
+            if not info['exists_on_remote']:
+                info['sync_status'] = 'no_remote'
+            else:
+                try:
+                    is_synced, status = self.is_branch_synced(branch, remote='origin')
+                    info['sync_status'] = status
+
+                    if not is_synced and status in ('ahead', 'behind', 'diverged'):
+                        try:
+                            result = subprocess.run(
+                                ["git", "rev-list", "--left-right", "--count",
+                                 f"{branch}...origin/{branch}"],
+                                cwd=self.__base_dir,
+                                capture_output=True,
+                                text=True,
+                                check=True
+                            )
+                            ahead, behind = result.stdout.strip().split()
+                            info['ahead'] = int(ahead)
+                            info['behind'] = int(behind)
+                        except Exception:
+                            pass
+                except Exception:
+                    info['sync_status'] = 'error'
+
+            return info
+
+        return {
+            'current_branch': current_branch,
+            'patch_branches': [get_branch_info(b) for b in patch_branches],
+            'release_branches': [get_branch_info(b, check_stage=True) for b in release_branches]
+        }

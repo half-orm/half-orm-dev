@@ -745,7 +745,26 @@ class Repo:
             else:
                 result['hooks'] = {'installed': False, 'action': 'skipped'}
 
-        # 2. Optionally prune stale branches
+        # 2. Get active branches status
+        try:
+            # Find stage files
+            stage_files = []
+            if hasattr(self, 'release_manager'):
+                releases_dir = Path(self.__base_dir) / 'releases'
+                if releases_dir.exists():
+                    stage_files = list(releases_dir.glob('*-stage.txt'))
+
+            result['active_branches'] = self.hgit.get_active_branches_status(
+                stage_files=[str(f) for f in stage_files]
+            )
+        except Exception:
+            result['active_branches'] = {
+                'current_branch': None,
+                'patch_branches': [],
+                'release_branches': []
+            }
+
+        # 3. Optionally prune stale branches
         if prune_branches:
             result['branches'] = self.hgit.prune_local_branches(
                 pattern="ho-*",

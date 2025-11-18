@@ -84,14 +84,52 @@ def _display_check_results(result: dict, dry_run: bool, prune_branches: bool, ve
     elif verbose:
         click.echo(f"✓ {utils.Color.green('Pre-commit hook up to date')}")
 
-    # Branches
+    # Active branches
+    active = result.get('active_branches', {})
+    patch_branches = active.get('patch_branches', [])
+    release_branches = active.get('release_branches', [])
+
+    # Show current branch
+    current = active.get('current_branch')
+    if current:
+        click.echo(f"\n📍 {utils.Color.bold('Current branch:')} {current}")
+
+    # Show patch branches
+    if patch_branches:
+        click.echo(f"\n🔧 {utils.Color.bold('Patch branches')} ({len(patch_branches)}):")
+        for branch_info in patch_branches:
+            _display_branch_info(branch_info, verbose)
+    elif verbose:
+        click.echo(f"\n🔧 {utils.Color.bold('Patch branches:')} None")
+
+    # Show patch branches in stage release (grouped by version)
+    active_release = [b for b in release_branches if b.get('in_stage_file', False)]
+    if active_release:
+        click.echo(f"\n📦 {utils.Color.bold('Patch branches in stage release:')}")
+        _display_release_branches_grouped(active_release, verbose)
+    elif verbose:
+        click.echo(f"\n📦 {utils.Color.bold('Patch branches in stage release:')} None")
+
+    # Show stale release branches (exist locally but not in stage)
+    stale_release = [b for b in release_branches if not b.get('in_stage_file', False)]
+    if stale_release and verbose:
+        click.echo(f"\n⚠️  {utils.Color.blue('Stale release branches')} ({len(stale_release)}):")
+        for branch_info in stale_release[:5]:
+            click.echo(f"  • {branch_info['name']}")
+            if not branch_info['exists_on_remote']:
+                click.echo(f"    {utils.Color.red('⚠ Not on remote - can be deleted')}")
+        if len(stale_release) > 5:
+            click.echo(f"  ... and {len(stale_release) - 5} more")
+
+    # Prune results
     if prune_branches:
         branches = result.get('branches', {})
         deleted = branches.get('deleted', [])
 
         if deleted:
+            click.echo()
             if dry_run:
-                click.echo(f"○ {utils.Color.yellow(f'Would delete {len(deleted)} stale branch(es)')}")
+                click.echo(f"○ {utils.Color.blue(f'Would delete {len(deleted)} stale branch(es)')}")
             else:
                 click.echo(f"✓ {utils.Color.green(f'Deleted {len(deleted)} stale branch(es)')}")
 
@@ -101,11 +139,83 @@ def _display_check_results(result: dict, dry_run: bool, prune_branches: bool, ve
                     click.echo(f"  {symbol} {branch}")
                 if len(deleted) > 10:
                     click.echo(f"  ... and {len(deleted) - 10} more")
-        elif verbose:
-            click.echo(f"✓ {utils.Color.green('No stale branches')}")
 
         if branches.get('errors'):
-            click.echo(f"⚠ {utils.Color.yellow('Some errors occurred during cleanup')}")
+            click.echo(f"⚠ {utils.Color.red('Some errors occurred during cleanup')}")
             if verbose:
                 for branch, error in branches['errors'][:3]:
                     click.echo(f"  {branch}: {error}")
+
+
+def _display_release_branches_grouped(branches: list, verbose: bool):
+    """Display release branches grouped by version and sorted by order."""
+    from collections import defaultdict
+
+    # Group branches by version
+    by_version = defaultdict(list)
+    for branch_info in branches:
+        name = branch_info['name']
+        # Extract version from ho-release/{version}/{patch_id}
+        parts = name.split('/')
+        if len(parts) >= 3 and parts[0] == 'ho-release':
+            version = parts[1]
+            patch_id = '/'.join(parts[2:])  # Handle patch IDs with slashes
+            by_version[version].append((patch_id, branch_info))
+
+    # Display each version group
+    for version in sorted(by_version.keys()):
+        patches = by_version[version]
+
+        # Sort patches by their order in the stage file
+        patches_sorted = sorted(patches, key=lambda x: x[1].get('order', 999))
+
+        click.echo(f"\n  {utils.Color.bold(f'Release {version}')} ({len(patches)} patch{'es' if len(patches) > 1 else ''}):")
+        for patch_id, branch_info in patches_sorted:
+            _display_branch_info(branch_info, verbose, indent="    ", show_patch_id_only=True)
+
+
+def _display_branch_info(branch_info: dict, verbose: bool, indent: str = "  ", show_patch_id_only: bool = False):
+    """Display information about a single branch.
+
+    Args:
+        branch_info: Branch information dict
+        verbose: Show verbose output
+        indent: Indentation prefix
+        show_patch_id_only: If True, show only patch_id instead of full branch name
+    """
+    name = branch_info['name']
+    is_current = branch_info.get('is_current', False)
+    exists_on_remote = branch_info.get('exists_on_remote', False)
+    sync_status = branch_info.get('sync_status', 'unknown')
+    ahead = branch_info.get('ahead', 0)
+    behind = branch_info.get('behind', 0)
+
+    # Extract display name
+    if show_patch_id_only:
+        # Extract patch_id from ho-release/{version}/{patch_id}
+        parts = name.split('/')
+        if len(parts) >= 3:
+            display_name = '/'.join(parts[2:])
+        else:
+            display_name = name
+    else:
+        display_name = name
+
+    # Symbol for current branch
+    marker = "→ " if is_current else ""
+
+    # Status symbol and text
+    if not exists_on_remote:
+        status = utils.Color.red("⚠ no remote")
+    elif sync_status == 'synced':
+        status = utils.Color.green("✓ synced")
+    elif sync_status == 'ahead':
+        status = utils.Color.blue(f"↑ {ahead} ahead")
+    elif sync_status == 'behind':
+        status = utils.Color.blue(f"↓ {behind} behind")
+    elif sync_status == 'diverged':
+        status = utils.Color.red(f"⚠ diverged (↑{ahead} ↓{behind})")
+    else:
+        status = "?"
+
+    click.echo(f"{indent}{marker}• {display_name} - {status}")
