@@ -7,7 +7,7 @@ import sys
 import subprocess
 import git
 from git.exc import GitCommandError
-from typing import List
+from typing import List, Optional
 
 from half_orm import utils
 from half_orm_dev.manifest import Manifest
@@ -1071,3 +1071,157 @@ class HGit:
         except subprocess.CalledProcessError:
             # If command fails, return empty list
             return []
+
+    def get_local_branches(self, pattern: Optional[str] = None) -> List[str]:
+        """
+        Get list of local branches, optionally filtered by pattern.
+
+        Args:
+            pattern: Optional glob pattern to filter branches (e.g., "ho-*", "ho-patch/*")
+
+        Returns:
+            List of local branch names (without 'refs/heads/' prefix)
+            Example: ['ho-prod', 'ho-patch/456-user-auth', 'ho-release/1.0.0/123']
+
+        Examples:
+            # Get all local branches
+            all_branches = hgit.get_local_branches()
+            # → ['ho-prod', 'ho-patch/456', 'ho-release/1.0.0/123']
+
+            # Get only ho-patch branches
+            patch_branches = hgit.get_local_branches(pattern="ho-patch/*")
+            # → ['ho-patch/456', 'ho-patch/789']
+
+            # Get only ho-release branches
+            release_branches = hgit.get_local_branches(pattern="ho-release/*")
+            # → ['ho-release/1.0.0/123', 'ho-release/1.0.0/456']
+        """
+        try:
+            cmd = ["git", "branch", "--format=%(refname:short)"]
+            result = subprocess.run(
+                cmd,
+                cwd=self.__base_dir,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+
+            # Parse output: each line is a branch name
+            branches = []
+            for line in result.stdout.strip().split('\n'):
+                branch = line.strip()
+                if branch:
+                    # Apply pattern filter if provided
+                    if pattern is None:
+                        branches.append(branch)
+                    else:
+                        # Simple glob pattern matching
+                        import fnmatch
+                        if fnmatch.fnmatch(branch, pattern):
+                            branches.append(branch)
+
+            return branches
+
+        except subprocess.CalledProcessError:
+            # If command fails, return empty list
+            return []
+
+    def prune_local_branches(
+        self,
+        pattern: Optional[str] = None,
+        dry_run: bool = False,
+        exclude_current: bool = True
+    ) -> dict:
+        """
+        Delete local branches that no longer exist on remote origin.
+
+        Compares local branches with remote branches and deletes local branches
+        that don't have a corresponding remote branch. This is useful for cleaning
+        up after branches are deleted on remote (e.g., after promote_to cleanup).
+
+        Args:
+            pattern: Optional glob pattern to limit pruning (e.g., "ho-release/*")
+                    If None, checks all branches except ho-prod
+            dry_run: If True, only report what would be deleted without deleting
+            exclude_current: If True, never delete currently checked out branch
+
+        Returns:
+            dict with keys:
+                'deleted': List of deleted branch names
+                'skipped': List of (branch_name, reason) tuples for skipped branches
+                'errors': List of (branch_name, error_message) tuples for failed deletions
+
+        Examples:
+            # Prune all stale ho-release branches (dry run)
+            result = hgit.prune_local_branches(pattern="ho-release/*", dry_run=True)
+            print(f"Would delete: {result['deleted']}")
+
+            # Actually prune stale ho-release branches
+            result = hgit.prune_local_branches(pattern="ho-release/*")
+            print(f"Deleted: {result['deleted']}")
+
+            # Prune all stale branches except ho-prod
+            result = hgit.prune_local_branches()
+        """
+        # Fetch from remote to get up-to-date branch list
+        try:
+            self.fetch_from_origin()
+        except Exception as e:
+            return {
+                'deleted': [],
+                'skipped': [],
+                'errors': [('fetch', f"Failed to fetch from origin: {e}")]
+            }
+
+        # Get current branch if we need to exclude it
+        current_branch = None
+        if exclude_current:
+            try:
+                current_branch = str(self.__git_repo.active_branch)
+            except:
+                pass
+
+        # Get local and remote branches
+        local_branches = self.get_local_branches(pattern=pattern)
+        remote_branches = self.get_remote_branches()
+
+        # Convert remote branches to set (without 'origin/' prefix)
+        remote_branch_names = {
+            b.replace('origin/', '') for b in remote_branches
+        }
+
+        deleted = []
+        skipped = []
+        errors = []
+
+        for branch in local_branches:
+            # Skip ho-prod (always keep)
+            if branch == 'ho-prod':
+                skipped.append((branch, 'protected branch'))
+                continue
+
+            # Skip current branch if requested
+            if exclude_current and branch == current_branch:
+                skipped.append((branch, 'currently checked out'))
+                continue
+
+            # Check if branch exists on remote
+            if branch in remote_branch_names:
+                skipped.append((branch, 'exists on remote'))
+                continue
+
+            # Branch doesn't exist on remote - delete it
+            if dry_run:
+                deleted.append(branch)
+            else:
+                try:
+                    self.__git_repo.git.branch('-D', branch)
+                    deleted.append(branch)
+                except Exception as e:
+                    errors.append((branch, str(e)))
+
+        return {
+            'deleted': deleted,
+            'skipped': skipped,
+            'errors': errors
+        }

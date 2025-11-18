@@ -145,6 +145,14 @@ class Repo:
         self._initialized = True
         self.__check()
 
+        # Automatically check and update hooks/config (if in a repo)
+        if self.__checked and self.devel:
+            try:
+                self.check_and_update(silent=True)
+            except Exception:
+                # Best effort - don't break if check fails
+                pass
+
     @classmethod
     def _find_base_dir(cls):
         """Find the base directory for the current context (same logic as __check)"""
@@ -597,12 +605,164 @@ class Repo:
         self._initialize_git_repository()
 
         # step 12: Protect ho-prod from direct commits
+        self.install_git_hooks()
+
+    def install_git_hooks(self, force: bool = False) -> dict:
+        """
+        Install or update Git hooks from templates.
+
+        Copies pre-commit hook from templates to .git/hooks/ and makes it executable.
+        Only updates if hook content has changed or if force=True.
+
+        Args:
+            force: If True, always install hook even if content is identical
+
+        Returns:
+            dict with keys:
+                'installed': bool - True if hook was installed/updated
+                'hook_path': str - Path to installed hook
+                'action': str - Action taken: 'installed', 'updated', or 'skipped'
+
+        Examples:
+            # Install hook (only if different)
+            result = repo.install_git_hooks()
+            # → {'installed': True, 'hook_path': '.git/hooks/pre-commit', 'action': 'updated'}
+
+            # Force install
+            result = repo.install_git_hooks(force=True)
+            # → {'installed': True, 'hook_path': '.git/hooks/pre-commit', 'action': 'installed'}
+        """
+        import filecmp
+
         hook_source = os.path.join(TEMPLATE_DIRS, 'pre-commit')
         hook_dest = os.path.join(self.__base_dir, '.git', 'hooks', 'pre-commit')
-        shutil.copy(hook_source, hook_dest)
-        # Make hook executable
-        os.chmod(hook_dest, 0o755)
 
+        # Determine action
+        if not os.path.exists(hook_dest):
+            action = 'installed'
+            should_install = True
+        elif force:
+            action = 'installed'
+            should_install = True
+        elif not filecmp.cmp(hook_source, hook_dest, shallow=False):
+            action = 'updated'
+            should_install = True
+        else:
+            action = 'skipped'
+            should_install = False
+
+        # Install if needed
+        if should_install:
+            shutil.copy(hook_source, hook_dest)
+            os.chmod(hook_dest, 0o755)
+            installed = True
+        else:
+            installed = False
+
+        return {
+            'installed': installed,
+            'hook_path': hook_dest,
+            'action': action
+        }
+
+    def check_and_update(
+        self,
+        prune_branches: bool = False,
+        dry_run: bool = False,
+        silent: bool = True,
+        force_check: bool = False
+    ) -> dict:
+        """
+        Check and update project configuration.
+
+        Checks project health and updates components as needed. Can be called
+        automatically at the start of commands (with silent=True) or explicitly
+        by the user (with silent=False).
+
+        Uses caching to avoid checking too frequently (once per day max unless force_check=True).
+
+        Args:
+            prune_branches: If True, clean up local branches that don't exist on remote
+            dry_run: If True, don't make changes, just report what would be done
+            silent: If True, don't print messages (for automatic checks)
+            force_check: If True, bypass cache and always check
+
+        Returns:
+            dict with keys:
+                'hooks': dict from install_git_hooks()
+                'branches': dict from prune_local_branches() (if prune_branches=True)
+                'cache_hit': bool - True if cache was used
+
+        Examples:
+            # Automatic check (silent, uses cache)
+            result = repo.check_and_update(silent=True)
+
+            # Manual check with branch pruning
+            result = repo.check_and_update(prune_branches=True, silent=False)
+
+            # Force check (bypass cache)
+            result = repo.check_and_update(force_check=True)
+        """
+        import time
+        from pathlib import Path
+
+        # Check cache (only if not forced and silent mode)
+        cache_file = Path(self.__base_dir) / '.git' / '.half_orm_check_cache'
+        cache_hit = False
+
+        if silent and not force_check and cache_file.exists():
+            try:
+                last_check = float(cache_file.read_text().strip())
+                # Check once per day (86400 seconds)
+                if time.time() - last_check < 86400:
+                    cache_hit = True
+                    return {
+                        'hooks': {'installed': False, 'action': 'skipped'},
+                        'branches': {},
+                        'cache_hit': True
+                    }
+            except (ValueError, IOError):
+                pass
+
+        # Perform checks
+        result = {
+            'cache_hit': False
+        }
+
+        # 1. Check and update Git hooks
+        if not dry_run:
+            result['hooks'] = self.install_git_hooks()
+        else:
+            # Dry run: just check if update would be needed
+            import filecmp
+            hook_source = os.path.join(TEMPLATE_DIRS, 'pre-commit')
+            hook_dest = os.path.join(self.__base_dir, '.git', 'hooks', 'pre-commit')
+
+            if not os.path.exists(hook_dest):
+                result['hooks'] = {'installed': False, 'action': 'would_install'}
+            elif not filecmp.cmp(hook_source, hook_dest, shallow=False):
+                result['hooks'] = {'installed': False, 'action': 'would_update'}
+            else:
+                result['hooks'] = {'installed': False, 'action': 'skipped'}
+
+        # 2. Optionally prune stale branches
+        if prune_branches:
+            result['branches'] = self.hgit.prune_local_branches(
+                pattern="ho-*",
+                dry_run=dry_run,
+                exclude_current=True
+            )
+        else:
+            result['branches'] = {}
+
+        # Update cache
+        if not dry_run and silent:
+            try:
+                cache_file.write_text(str(time.time()))
+            except IOError:
+                pass  # Best effort
+
+        return result
 
     def _validate_package_name(self, package_name):
         """

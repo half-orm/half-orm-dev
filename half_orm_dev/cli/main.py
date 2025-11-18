@@ -31,15 +31,15 @@ class Hop:
         # Inside hop repository
         if not self.__repo.devel:
             # Sync-only mode (no metadata)
-            return ['sync-package']
+            return ['sync-package', 'check']
 
         # Development mode (metadata present)
         if self.__repo.database.production:
             # PRODUCTION ENVIRONMENT - Release deployment only
-            return ['update', 'upgrade']
+            return ['update', 'upgrade', 'check']
         else:
             # DEVELOPMENT ENVIRONMENT - Patch development
-            return ['patch', 'release']
+            return ['patch', 'release', 'check']
 
     @property
     def repo_checked(self):
