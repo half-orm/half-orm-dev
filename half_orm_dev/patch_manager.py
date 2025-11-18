@@ -1292,28 +1292,29 @@ class PatchManager:
             normalized_id = patch_info.normalized_id
         except Exception as e:
             raise PatchManagerError(f"Invalid patch ID: {e}")
-
-        # Step 5: ACQUIRE LOCK on ho-prod (with 30 min timeout for stale locks)
-        lock_tag = self._repo.hgit.acquire_branch_lock("ho-prod", timeout_minutes=30)
-
-        # Step 6: Fetch all references from remote (branches + tags) - with lock held
-        self._fetch_from_remote()
-
-        # Step 6.5: Validate ho-prod is synced with origin
-        self._validate_ho_prod_synced_with_origin()
-
-        # Step 7: Check patch number available (via tag, with up-to-date state)
-        branch_name = f"ho-patch/{normalized_id}"
-        self._check_patch_id_available(normalized_id)
-
+        lock_tag = None
         # Save initial state for rollback
         initial_branch = self._repo.hgit.branch
         patch_dir = None
         commit_created = False
         tag_pushed = False
-
+        modifications_started = False  # Track if we started making changes
+        branch_name = f"ho-patch/{normalized_id}"
         try:
+            # Step 5: ACQUIRE LOCK on ho-prod (with 30 min timeout for stale locks)
+            lock_tag = self._repo.hgit.acquire_branch_lock("ho-prod", timeout_minutes=30)
+
+            # Step 6: Fetch all references from remote (branches + tags) - with lock held
+            self._fetch_from_remote()
+
+            # Step 6.5: Validate ho-prod is synced with origin
+            self._validate_ho_prod_synced_with_origin()
+
+            # Step 7: Check patch number available (via tag, with up-to-date state)
+            self._check_patch_id_available(normalized_id)
+
             # === LOCAL OPERATIONS ON HO-PROD (rollback on failure) ===
+            modifications_started = True  # From here, rollback is needed on failure
 
             # Step 7: Create patch directory (on ho-prod, not on branch!)
             patch_dir = self.create_patch_directory(normalized_id)
@@ -1353,9 +1354,19 @@ class PatchManager:
                 click.echo(f"⚠️  Push branch manually: git push -u origin {branch_name}")
                 # Don't raise - tag pushed means success
 
+            # Step 13: Checkout to new branch (non-critical, warn if fails)
+            try:
+                self._checkout_branch(branch_name)
+            except Exception as e:
+                import click
+                click.echo(f"⚠️  Checkout failed but patch created successfully")
+                click.echo(f"Run: git checkout {branch_name}")
+
         except Exception as e:
-            # Only rollback if tag NOT pushed yet
-            if not tag_pushed:
+            # Only rollback if tag NOT pushed yet AND modifications started
+            # modifications_started=False means failure during validation (steps 1-7)
+            # modifications_started=True means failure during creation (steps 8+)
+            if not tag_pushed and modifications_started:
                 self._rollback_patch_creation(
                     initial_branch,
                     branch_name,
@@ -1368,14 +1379,6 @@ class PatchManager:
         finally:
             # ALWAYS release lock (even on error)
             self._repo.hgit.release_branch_lock(lock_tag)
-
-        # Step 13: Checkout to new branch (non-critical, warn if fails)
-        try:
-            self._checkout_branch(branch_name)
-        except Exception as e:
-            import click
-            click.echo(f"⚠️  Checkout failed but patch created successfully")
-            click.echo(f"Run: git checkout {branch_name}")
 
         # Return result
         return {
