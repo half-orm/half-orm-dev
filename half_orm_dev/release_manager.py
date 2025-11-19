@@ -2309,7 +2309,7 @@ class ReleaseManager:
         # Commit stage file on ho-prod
         try:
             self._repo.hgit.add(str(stage_file))
-            self._repo.hgit.commit("-m", f"Create release {version} branch and stage file")
+            self._repo.hgit.commit("-m", f"[HOP] Create release {version} branch and stage file")
             self._repo.hgit.push_branch("ho-prod")
         except Exception as e:
             raise ReleaseManagerError(f"Failed to commit stage file: {e}")
@@ -2399,7 +2399,7 @@ class ReleaseManager:
                 self._repo.hgit.merge(
                     archived_branch,
                     no_ff=True,
-                    message=f"Merge patch {patch_id} into release {version}"
+                    message=f"[HOP] Merge patch {patch_id} into release {version}"
                 )
             except Exception as e:
                 # Merge conflict - stay on release branch for resolution
@@ -2424,7 +2424,7 @@ class ReleaseManager:
             # 7. Commit stage file update (on ho-prod)
             self._repo.hgit.checkout("ho-prod")
             self._repo.hgit.add(str(stage_file))
-            self._repo.hgit.commit("-m", f"Add patch {patch_id} to release {version} stage")
+            self._repo.hgit.commit("-m", f"[HOP] Add patch {patch_id} to release {version} stage")
             self._repo.hgit.push_branch("ho-prod")
 
             # 8. Return to original branch
@@ -2546,7 +2546,7 @@ class ReleaseManager:
             # Commit rename
             self._repo.hgit.add(str(stage_file))  # Old path (deleted)
             self._repo.hgit.add(str(rc_file))     # New path
-            self._repo.hgit.commit("-m", f"Promote release {version} to RC {rc_number}")
+            self._repo.hgit.commit("-m", f"[HOP] Promote release {version} to RC {rc_number}")
             self._repo.hgit.push_branch("ho-prod")
 
             return {
@@ -2614,13 +2614,13 @@ class ReleaseManager:
                 self._repo.hgit.merge(
                     release_branch,
                     ff_only=True,
-                    message=f"Merge release {version} into production"
+                    message=f"[HOP] Merge release {version} into production"
                 )
             except Exception:
                 # If fast-forward fails, try normal merge
                 self._repo.hgit.merge(
                     release_branch,
-                    message=f"Merge release {version} into production"
+                    message=f"[HOP] Merge release {version} into production"
                 )
 
             # 3. Create production tag on ho-prod
@@ -2636,7 +2636,7 @@ class ReleaseManager:
             stage_file.rename(prod_file)
             self._repo.hgit.add(str(stage_file))   # Old path
             self._repo.hgit.add(str(prod_file)) # New path
-            self._repo.hgit.commit("-m", f"Promote release {version} to production")
+            self._repo.hgit.commit("-m", f"[HOP] Promote release {version} to production")
             self._repo.hgit.push_branch("ho-prod")
 
             # 6. Cleanup: Delete patch branches (in ho-archive)

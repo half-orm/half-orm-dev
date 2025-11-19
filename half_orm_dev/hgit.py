@@ -101,7 +101,7 @@ class HGit:
             # Then add files and commit on ho-prod
             self.__git_repo.git.add('.')
             self.__git_repo.git.remote('add', 'origin', git_origin)
-            self.__git_repo.git.commit(m=f'[ho] Initial commit (release: 0.0.0)')
+            self.__git_repo.git.commit(m=f'[HOP] Initial commit (release: 0.0.0)')
             self.__git_repo.git.push('--set-upstream', 'origin', 'ho-prod')
             os.chdir(cur_dir)
         except GitCommandError as err:
@@ -566,7 +566,7 @@ class HGit:
 
         Examples:
             hgit.merge("ho-release/0.1.0/001-first", no_ff=True,
-                      message="Merge patch 001-first")
+                      message="[HOP] Merge patch 001-first")
             # Merges with merge commit
 
             hgit.merge("ho-release/0.1.0", ff_only=True)

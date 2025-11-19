@@ -109,7 +109,7 @@ class TestReleaseIntegrationWorkflow:
         mock_hgit_complete.merge.assert_called_once_with(
             "ho-archive/0.1.0/001-first",
             no_ff=True,
-            message="Merge patch 001-first into release 0.1.0"
+            message="[HOP] Merge patch 001-first into release 0.1.0"
         )
 
         # Should update stage file
@@ -163,12 +163,12 @@ class TestReleaseIntegrationWorkflow:
         assert merge_calls[0] == call(
             "ho-archive/0.1.0/001-first",
             no_ff=True,
-            message="Merge patch 001-first into release 0.1.0"
+            message="[HOP] Merge patch 001-first into release 0.1.0"
         )
         assert merge_calls[1] == call(
             "ho-archive/0.1.0/002-second",
             no_ff=True,
-            message="Merge patch 002-second into release 0.1.0"
+            message="[HOP] Merge patch 002-second into release 0.1.0"
         )
 
         # Stage file should contain both
@@ -225,7 +225,7 @@ class TestReleaseIntegrationWorkflow:
         mock_hgit_complete.merge.assert_called_once_with(
             "ho-release/0.1.0",
             ff_only=True,
-            message="Merge release 0.1.0 into production"
+            message="[HOP] Merge release 0.1.0 into production"
         )
 
         # Should create prod tag on ho-prod

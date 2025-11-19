@@ -928,10 +928,10 @@ class PatchManager:
 
         Examples:
             self._commit_patch_directory("456-user-auth")
-            # Creates commit: "Add Patches/456-user-auth directory"
+            # Creates commit: "[HOP] Add Patches/456-user-auth directory"
 
             self._commit_patch_directory("456-user-auth", "Add user authentication")
-            # Creates commit: "Add Patches/456-user-auth directory - Add user authentication"
+            # Creates commit: "[HOP] Add Patches/456-user-auth directory - Add user authentication"
         """
         try:
             # Add the patch directory to git
@@ -940,9 +940,9 @@ class PatchManager:
 
             # Create commit message
             if description:
-                commit_message = f"Add Patches/{patch_id} directory - {description}"
+                commit_message = f"[HOP] Add Patches/{patch_id} directory - {description}"
             else:
-                commit_message = f"Add Patches/{patch_id} directory"
+                commit_message = f"[HOP] Add Patches/{patch_id} directory"
 
             # Commit the changes
             self._repo.hgit.commit('-m', commit_message)
@@ -1240,7 +1240,7 @@ class PatchManager:
         6.5 Validates ho-prod is synced with origin/ho-prod
         7. Checks patch number available via tag lookup (with up-to-date state)
         8. Creates Patches/PATCH_ID/ directory (on ho-prod)
-        9. Commits directory on ho-prod "Add Patches/{patch_id} directory"
+        9. Commits directory on ho-prod "[HOP] Add Patches/{patch_id} directory"
         10. Creates local tag ho-patch/{number} (points to commit on ho-prod)
         11. **Pushes tag to reserve number globally** ← POINT OF NO RETURN
         12. Creates ho-patch/PATCH_ID branch from current commit
