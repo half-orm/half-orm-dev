@@ -94,11 +94,11 @@ class TestReleaseIntegrationWorkflow:
         # Should rename patch branch to archived name
         mock_hgit_complete.rename_branch.assert_called_once_with(
             "ho-patch/001-first",
-            "ho-release/0.1.0/001-first"
+            "ho-archive/0.1.0/001-first"
         )
 
         # Should push archived branch
-        assert call("ho-release/0.1.0/001-first") in mock_hgit_complete.push_branch.call_args_list
+        assert call("ho-archive/0.1.0/001-first") in mock_hgit_complete.push_branch.call_args_list
 
         # Should checkout release branch
         checkout_calls = [c for c in mock_hgit_complete.checkout.call_args_list
@@ -107,7 +107,7 @@ class TestReleaseIntegrationWorkflow:
 
         # Should merge archived patch into release branch
         mock_hgit_complete.merge.assert_called_once_with(
-            "ho-release/0.1.0/001-first",
+            "ho-archive/0.1.0/001-first",
             no_ff=True,
             message="Merge patch 001-first into release 0.1.0"
         )
@@ -161,12 +161,12 @@ class TestReleaseIntegrationWorkflow:
         merge_calls = mock_hgit_complete.merge.call_args_list
         assert len(merge_calls) == 2
         assert merge_calls[0] == call(
-            "ho-release/0.1.0/001-first",
+            "ho-archive/0.1.0/001-first",
             no_ff=True,
             message="Merge patch 001-first into release 0.1.0"
         )
         assert merge_calls[1] == call(
-            "ho-release/0.1.0/002-second",
+            "ho-archive/0.1.0/002-second",
             no_ff=True,
             message="Merge patch 002-second into release 0.1.0"
         )
@@ -192,24 +192,28 @@ class TestReleaseIntegrationWorkflow:
         assert call("ho-release/0.1.0") in mock_hgit_complete.checkout.call_args_list
 
         # Should create tag on release branch
-        mock_hgit_complete.create_tag.assert_called_once_with("0.1.0-rc")
+        mock_hgit_complete.create_tag.assert_called_once_with('v0.1.0-rc1', 'Release Candidate 0.1.0')
 
         # Should push tag
-        mock_hgit_complete.push_tag.assert_called_once_with("0.1.0-rc")
+        mock_hgit_complete.push_tag.assert_called_once_with('v0.1.0-rc1')
 
         # Should rename stage file to rc
-        rc_file = releases_dir / "0.1.0-rc.txt"
+        rc_file = releases_dir / "0.1.0-rc1.txt"
         assert rc_file.exists()
-        assert not stage_file.exists()
+        assert stage_file.exists()
 
     def test_promote_prod_merges_release_into_ho_prod(self, release_manager, mock_hgit_complete):
         """Test that 'promote prod' merges release branch into ho-prod."""
         rel_mgr, repo, temp_dir, releases_dir = release_manager
         repo.hgit = mock_hgit_complete
 
-        # Setup: create rc file
-        rc_file = releases_dir / "0.1.0-rc.txt"
+        # Setup: create rc file (with proper rc number)
+        rc_file = releases_dir / "0.1.0-rc1.txt"
         rc_file.write_text("001-first\n002-second\n")
+
+        # Setup: create stage file (automatically created after promote_to_rc)
+        stage_file = releases_dir / "0.1.0-stage.txt"
+        stage_file.write_text("001-first\n002-second\n")
 
         # Promote to prod
         result = rel_mgr.promote_to_prod("0.1.0")
@@ -225,16 +229,16 @@ class TestReleaseIntegrationWorkflow:
         )
 
         # Should create prod tag on ho-prod
-        mock_hgit_complete.create_tag.assert_called_once_with("0.1.0")
+        mock_hgit_complete.create_tag.assert_called_once_with('v0.1.0', 'Production release 0.1.0')
 
         # Should push ho-prod and tag
         assert call("ho-prod") in mock_hgit_complete.push_branch.call_args_list
-        mock_hgit_complete.push_tag.assert_called_once_with("0.1.0")
+        mock_hgit_complete.push_tag.assert_called_once_with("v0.1.0")
 
         # Should rename rc file to prod
         prod_file = releases_dir / "0.1.0.txt"
         assert prod_file.exists()
-        assert not rc_file.exists()
+        assert not stage_file.exists()
 
     def test_promote_prod_cleans_up_branches(self, release_manager, mock_hgit_complete):
         """Test that 'promote prod' deletes patch and release branches."""
@@ -242,23 +246,23 @@ class TestReleaseIntegrationWorkflow:
         repo.hgit = mock_hgit_complete
 
         # Setup: create rc file with patches
-        rc_file = releases_dir / "0.1.0-rc.txt"
-        rc_file.write_text("001-first\n002-second\n")
+        stage_file = releases_dir / "0.1.0-stage.txt"
+        stage_file.write_text("001-first\n002-second\n")
 
         # Promote to prod
-        rel_mgr.promote_to_prod("0.1.0")
+        rel_mgr.promote_to_prod()
 
         # Should delete patch branches (local and remote)
         delete_branch_calls = mock_hgit_complete.delete_branch.call_args_list
-        assert call("ho-release/0.1.0/001-first", force=True) in delete_branch_calls
-        assert call("ho-release/0.1.0/002-second", force=True) in delete_branch_calls
+        assert call("ho-archive/0.1.0/001-first", force=True) in delete_branch_calls
+        assert call("ho-archive/0.1.0/002-second", force=True) in delete_branch_calls
 
         delete_remote_calls = mock_hgit_complete.delete_remote_branch.call_args_list
-        assert call("ho-release/0.1.0/001-first") in delete_remote_calls
-        assert call("ho-release/0.1.0/002-second") in delete_remote_calls
+        assert call("ho-archive/0.1.0/001-first") in delete_remote_calls
+        assert call("ho-archive/0.1.0/002-second") in delete_remote_calls
 
         # Should delete release branch
-        assert call("ho-release/0.1.0") in delete_branch_calls
+        assert call("ho-release/0.1.0", force=True) in delete_branch_calls
         assert call("ho-release/0.1.0") in delete_remote_calls
 
     def test_patch_dependency_workflow(self, release_manager, mock_hgit_complete):
@@ -301,7 +305,7 @@ class TestReleaseIntegrationWorkflow:
 
         # Step 4: Promote to RC
         rel_mgr.promote_to_rc("0.1.0")
-        assert mock_hgit_complete.create_tag.call_args == call("0.1.0-rc")
+        assert mock_hgit_complete.create_tag.call_args == call('v0.1.0-rc1', 'Release Candidate 0.1.0')
 
         # Step 5: Promote to prod
         rel_mgr.promote_to_prod("0.1.0")

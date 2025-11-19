@@ -13,11 +13,11 @@ class TestAddToReleaseBranchArchiving:
     """Test branch archiving after add-to-release."""
 
     def test_archives_patch_branch(self, release_with_first_patch):
-        """Test that patch branch is archived to ho-release/{version}/ namespace."""
+        """Test that patch branch is archived to ho-archive/{version}/ namespace."""
         project_dir, db_name, patch_id, version, stage_file, _ = release_with_first_patch
 
         # Expected archived branch name
-        archived_branch = f"ho-release/{version}/{patch_id}"
+        archived_branch = f"ho-archive/{version}/{patch_id}"
 
         # Verify archived branch exists
         result = subprocess.run(

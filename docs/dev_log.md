@@ -1227,8 +1227,8 @@ tests/
 
 5. **Adaptation tests (massive mais mécanique)**
    - ~15 fichiers de tests modifiés
-   - Tous les appels `release_mgr.promote_to_rc()` → `release_mgr.promote_to('rc')`
-   - Tous les appels `release_mgr.promote_to_prod()` → `release_mgr.promote_to('prod')`
+   - Tous les appels `release_mgr.promote_to_rc()` → `release_mgr.promote_to_rc()`
+   - Tous les appels `release_mgr.promote_to_prod()` → `release_mgr.promote_to_prod()`
    - Commentaires et docstrings mis à jour
    - Fichiers concernés :
      - `test_release_manager_promote_to_rc.py`

@@ -445,11 +445,11 @@ def release_with_second_patch(release_with_first_patch, second_patch):
 
 def _restore_archived_branch(project_dir: Path, version: str, patch_id: str) -> None:
     """
-    Restore ho-patch branch if it was archived to ho-release/.
+    Restore ho-patch branch if it was archived to ho-archive/.
 
     Helper function for cleanup in fixtures.
     """
-    archived_branch = f"ho-release/{version}/{patch_id}"
+    archived_branch = f"ho-archive/{version}/{patch_id}"
     result = subprocess.run(
         ["git", "show-ref", "--verify", f"refs/heads/{archived_branch}"],
         cwd=str(project_dir),

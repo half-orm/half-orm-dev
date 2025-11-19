@@ -101,28 +101,30 @@ def release_new(level: str) -> None:
         # Get ReleaseManager
         release_mgr = repo.release_manager
 
-        click.echo(f"Preparing {level} release...")
+        click.echo(f"Creating {level} release with integration branch...")
         click.echo()
 
-        # Prepare release
-        result = release_mgr.prepare_release(level)
+        # Create new release with integration branch
+        result = release_mgr.new_release(level)
 
         # Extract result info
         version = result['version']
-        stage_file = result['file']
-        previous_version = result['previous_version']
+        branch = result['branch']
+        stage_file = result['stage_file']
 
         # Success message
-        click.echo(f"✅ {utils.Color.bold('Release prepared successfully!')}")
+        click.echo(f"✅ {utils.Color.bold('Release created successfully!')}")
         click.echo()
-        click.echo(f"  Previous version: {utils.Color.bold(previous_version)}")
-        click.echo(f"  New version:      {utils.Color.bold(version)}")
+        click.echo(f"  Version:          {utils.Color.bold(version)}")
+        click.echo(f"  Release branch:   {utils.Color.bold(branch)}")
         click.echo(f"  Stage file:       {utils.Color.bold(stage_file)}")
         click.echo()
         click.echo(f"📝 Next steps:")
         click.echo(f"  1. Create patches: {utils.Color.bold(f'half_orm dev patch new <patch_id>')}")
-        click.echo(f"  2. Add to release: {utils.Color.bold(f'half_orm dev patch add <patch_id>')}")
+        click.echo(f"  2. Add to release: {utils.Color.bold(f'half_orm dev patch add <patch_id> --to-version={version}')}")
         click.echo(f"  3. Promote to RC:  {utils.Color.bold('half_orm dev release promote rc')}")
+        click.echo()
+        click.echo(f"ℹ️  Patches will be merged into {utils.Color.bold(branch)} for integration testing")
         click.echo()
 
     except ReleaseManagerError as e:
@@ -222,12 +224,17 @@ def release_promote(target: str) -> None:
     try:
         # Get repository instance
         repo = Repo()
+        release_mgr = repo.release_manager
 
         # Delegate to ReleaseManager
         click.echo(f"Promoting release to {target.upper()}...")
         click.echo()
 
-        result = repo.release_manager.promote_to(target.lower())
+        # ReleaseManager auto-detects which version to promote
+        if target.lower() == 'rc':
+            result = release_mgr.promote_to_rc()
+        else:  # prod
+            result = release_mgr.promote_to_prod()
 
         # Display success message
         click.echo(f"✓ {utils.Color.green('Success!')}")
@@ -236,38 +243,25 @@ def release_promote(target: str) -> None:
         # Target-specific output
         if target.lower() == 'rc':
             # RC promotion output
-            click.echo(f"  Promoted:        {utils.Color.bold(result['from_file'])} → {utils.Color.bold(result['to_file'])}")
-            patches = result.get('patches_merged')
-            if patches:
-                click.echo(f"  Patches merged:  {utils.Color.bold(str(len(patches)))} patch(es)")
-            click.echo(f"  Branches cleaned: {utils.Color.bold(str(len(result['branches_deleted'])))} branch(es)")
-
-            if result.get('notified_branches'):
-                click.echo(f"  Notified:        {len(result['notified_branches'])} active branch(es)")
-
+            click.echo(f"  Version:  {utils.Color.bold(result['version'])}")
+            click.echo(f"  Tag:      {utils.Color.bold(result['tag'])}")
+            click.echo(f"  Branch:   {utils.Color.bold(result['branch'])}")
             click.echo()
             click.echo("📝 Next steps:")
             click.echo(f"  • Test RC thoroughly")
-            click.echo(f"  • Fix issues: Create patch, add to new stage, promote again")
             click.echo(f"  • Deploy to production: {utils.Color.bold('half_orm dev release promote prod')}")
 
         else:
             # Production promotion output
-            click.echo(f"  Promoted:        {utils.Color.bold(result['from_file'])} → {utils.Color.bold(result['to_file'])}")
-            click.echo(f"  Version:         {utils.Color.bold(result['version'])}")
-
-            if result.get('schema_file'):
-                click.echo(f"  Schema:          {utils.Color.bold(result['schema_file'])}")
-            if result.get('metadata_file'):
-                click.echo(f"  Metadata:        {utils.Color.bold(result['metadata_file'])}")
-            if result.get('symlink_updated'):
-                click.echo(f"  Symlink:         schema.sql → {utils.Color.bold(result['schema_file'])}")
-
+            click.echo(f"  Version:          {utils.Color.bold(result['version'])}")
+            click.echo(f"  Tag:              {utils.Color.bold(result['tag'])}")
+            deleted = result.get('deleted_branches', [])
+            if deleted:
+                click.echo(f"  Branches deleted: {utils.Color.bold(str(len(deleted)))}")
             click.echo()
             click.echo("📝 Next steps:")
-            click.echo(f"""  • Tag release: {utils.Color.bold(f'git tag v{result["version"]}')}""")
-            click.echo(f"  • Deploy to production servers: {utils.Color.bold('half_orm dev db upgrade')}")
-            click.echo(f"  • Start next cycle: {utils.Color.bold('half_orm dev release new patch')}")
+            click.echo(f"  • Deploy to production servers")
+            click.echo(f"  • Start next cycle: {utils.Color.bold('half_orm dev release new minor')}")
 
         click.echo()
 

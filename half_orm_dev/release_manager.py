@@ -16,6 +16,7 @@ from typing import Optional, Tuple, List, Dict
 from dataclasses import dataclass
 
 from git.exc import GitCommandError
+from half_orm_dev.decorators import with_ho_prod_lock
 
 class ReleaseManagerError(Exception):
     """Base exception for ReleaseManager operations."""
@@ -1328,722 +1329,6 @@ class ReleaseManager:
                 f"Failed to update stage file {stage_file}: {e}"
             )
 
-    def promote_to(self, target: str) -> dict:
-        """
-        Unified promotion workflow for RC and production releases.
-
-        Handles promotion of stage releases to either RC or production with
-        shared logic for validations, lock management, code merging, branch
-        cleanup, and notifications. Target-specific operations (RC numbering,
-        schema generation) are conditionally executed.
-
-        Args:
-            target: Either 'rc' or 'prod'
-                - 'rc': Promotes stage to RC (rc1, rc2, etc.)
-                - 'prod': Promotes stage (or empty) to production
-
-        Returns:
-            dict: Promotion result with target-specific fields
-
-            Common fields:
-                'status': 'success'
-                'version': str (e.g., "1.3.5")
-                'from_file': str or None (source filename)
-                'to_file': str (target filename)
-                'patches_merged': List[str] (merged patch IDs)
-                'branches_deleted': List[str] (deleted branch names)
-                'commit_sha': str
-                'notifications_sent': List[str] (notified branches)
-                'lock_tag': str
-
-            RC-specific fields (target='rc'):
-                'rc_number': int (e.g., 1, 2, 3)
-                'code_merged': bool (always True)
-
-            Production-specific fields (target='prod'):
-                'patches_applied': List[str] (all patches applied to DB)
-                'schema_file': Path (model/schema-X.Y.Z.sql)
-                'metadata_file': Path (model/metadata-X.Y.Z.sql)
-
-        Raises:
-            ReleaseManagerError: For validation failures, lock errors, etc.
-            ValueError: If target is not 'rc' or 'prod'
-
-        Workflow:
-            0. restore prod database (schema & metadata)
-            1. Pre-lock validations (ho-prod branch, clean repo)
-            2. Detect source and target (version-specific logic)
-            3. ACQUIRE DISTRIBUTED LOCK (30min timeout)
-            4. Fetch + sync with origin
-            5. [PROD ONLY] Restore DB and apply all patches
-            6. Merge archived patch code to ho-prod
-            7. Create target release file (mv or create)
-            8. [PROD ONLY] Generate schema + metadata + symlink
-            9. Commit + push
-            10. Push to origin
-            10.5 Create new empty stage file
-            11. Send rebase notifications
-            12. Cleanup patch branches
-            13. RELEASE LOCK (always, even on error)
-
-        Examples:
-            # Promote to RC
-            result = mgr.promote_to(target='rc')
-            # → Creates X.Y.Z-rc2.txt from X.Y.Z-stage.txt
-            # → Merges code, cleans branches, sends notifications
-
-            # Promote to production
-            result = mgr.promote_to(target='prod')
-            # → Creates X.Y.Z.txt from X.Y.Z-stage.txt (or empty)
-            # → Applies all patches to DB
-            # → Generates schema-X.Y.Z.sql + metadata-X.Y.Z.sql
-            # → Merges code, cleans branches, sends notifications
-        """
-        # Validate target parameter
-        if target not in ('alpha', 'beta', 'rc', 'prod'):
-            raise ValueError(f"Invalid target: {target}. Must be in ['alpha', 'beta', 'rc', 'prod']")
-
-        # 0. restore database to prod
-        self._repo.restore_database_from_schema()
-
-        # 1. Pre-lock validations (common)
-        if self._repo.hgit.branch != "ho-prod":
-            raise ReleaseManagerError(
-                "Must be on ho-prod branch to promote release. "
-                f"Current branch: {self._repo.hgit.branch}"
-            )
-
-        if not self._repo.hgit.repos_is_clean():
-            raise ReleaseManagerError(
-                "Repository has uncommitted changes. "
-                "Commit or stash changes before promoting."
-            )
-
-        # 2. Pre-lock validation: check stage exists (preliminary check on local state)
-        # This allows fast failure before acquiring lock
-        try:
-            version, stage_file = self._detect_stage_to_promote()
-        except ReleaseManagerError:
-            # No stage found locally - fail fast before lock
-            raise
-
-        # 3. Acquire distributed lock
-        lock_tag = None
-        try:
-            lock_tag = self._repo.hgit.acquire_branch_lock("ho-prod", timeout_minutes=30)
-
-            # 4. Fetch from origin and sync
-            self._repo.hgit.fetch_from_origin()
-
-            is_synced, sync_status = self._repo.hgit.is_branch_synced("ho-prod")
-            if not is_synced:
-                if sync_status == "behind":
-                    self._repo.hgit.pull()
-                elif sync_status == "diverged":
-                    raise ReleaseManagerError(
-                        "ho-prod has diverged from origin. "
-                        "Resolve conflicts manually: git pull origin ho-prod"
-                    )
-
-            # 5. Re-detect source and target (with up-to-date state after sync)
-            version, stage_file = self._detect_stage_to_promote()
-            if target != 'prod':
-                # RC: stage required, validate single active RC rule
-                self._validate_single_active_rc(version)
-                rc_number = self._determine_rc_number(version)
-                target_file = f"{version}-{target}{rc_number}.txt"
-                source_type = 'stage'
-            else:  # target == 'prod'
-                # Production: stage optional, sequential version
-                stage_path = Path(self._releases_dir) / f"{version}-stage.txt"
-                if stage_path.exists():
-                    stage_file = f"{version}-stage.txt"
-                    source_type = 'stage'
-                else:
-                    stage_file = None
-                    source_type = 'empty'
-                target_file = f"{version}.txt"
-
-            # 5. Apply patches to database (prod only)
-            patches_applied = []
-            if target == 'prod':
-                patches_applied = self._restore_and_apply_all_patches(version)
-
-            # 6. Merge archived patches code into ho-prod (common)
-            if stage_file:
-                patches_merged = self._merge_archived_patches_to_ho_prod(version, stage_file)
-            else:
-                patches_merged = []
-
-            # 7. Create target release file
-            stage_path = self._releases_dir / stage_file if stage_file else None
-            target_path = self._releases_dir / target_file
-
-            if stage_file:
-                # Rename stage to target (git mv)
-                self._repo.hgit.mv(str(stage_path), str(target_path))
-            else:
-                # Create empty production file (prod only)
-                target_path.touch()
-                self._repo.hgit.add(str(target_path))
-
-            # 8. Generate schema and metadata (prod only)
-            schema_info = {}
-            if target == 'prod':
-                schema_info = self._generate_schema_and_metadata(version)
-                # Add generated files to commit
-                self._repo.hgit.add(str(schema_info['schema_file']))
-                self._repo.hgit.add(str(schema_info['metadata_file']))
-                self._repo.hgit.add(str(self._repo.base_dir / Path("model") / "schema.sql"))
-
-            # 9. Commit promotion
-            full_version = version
-            if target != 'prod':
-                full_version = f"{version}-rc{rc_number}"
-                commit_message = f"Promote {version}-stage to {full_version}"
-            else:
-                commit_message = f"Promote {version}-stage to production release {version}"
-
-            self._repo.hgit.add(str(target_path))
-            self._repo.hgit.commit("-m", commit_message)
-            commit_sha = self._repo.hgit.last_commit()
-
-            # 10. Push to origin
-            self._repo.hgit.push()
-            #     Create and push Git tag for new release
-            tag_name = f"v{full_version}"
-            self._repo.hgit.create_tag(tag_name, f"Release {full_version}")
-            self._repo.hgit.push_tag(tag_name)
-
-            # 10.5 Create new empty stage file ONLY for RC promotion
-            new_stage_filename = None
-            new_stage_commit_sha = None
-
-            if target != 'prod':
-                # Pour RC : on peut continuer à travailler sur la même version (rc2, rc3...)
-                new_stage_filename = f"{version}-stage.txt"
-                new_stage_path = self._releases_dir / new_stage_filename
-                new_stage_path.write_text("")
-
-                # Add + commit + push
-                self._repo.hgit.add(new_stage_path)
-                commit_msg = f"Create new empty stage file for {version}"
-                new_stage_commit_sha = self._repo.hgit.commit('-m', commit_msg)
-                self._repo.hgit.push()
-
-            # 11. Send rebase notifications to active branches
-            if target != 'prod':
-                notifications_sent = self._send_rebase_notifications(version, target, rc_number=rc_number)
-            else:
-                notifications_sent = self._send_rebase_notifications(version, target)
-
-            # 12. Cleanup patch branches
-            if stage_file:
-                # Use target_file because stage_file was renamed to target_file at line 1484
-                branches_deleted = self._cleanup_patch_branches(version, target_file)
-            else:
-                branches_deleted = []
-
-            # Build result dict (common fields)
-            result = {
-                'status': 'success',
-                'version': version,
-                'from_file': stage_file,
-                'to_file': target_file,
-                'patches_merged': patches_merged,
-                'branches_deleted': branches_deleted,
-                'commit_sha': commit_sha,
-                'notifications_sent': notifications_sent,
-                'lock_tag': lock_tag,
-                'new_stage_created': new_stage_filename,
-                'tag_name': tag_name
-            }
-
-            # Add target-specific fields
-            if target != 'prod':
-                result['rc_number'] = rc_number
-                result['code_merged'] = True
-            else:
-                result['source_type'] = source_type
-                result['patches_applied'] = patches_applied
-                result.update(schema_info)
-
-            return result
-
-        finally:
-            # 13. Always release lock (even on error)
-            if lock_tag:
-                self._repo.hgit.release_branch_lock(lock_tag)
-
-
-    def _get_next_production_version(self) -> str:
-        """
-        Get next sequential production version.
-
-        Calculates the next patch version after current production.
-        Used by promote-to prod to determine target version.
-
-        Returns:
-            str: Next version (e.g., "1.3.5" if current is "1.3.4")
-
-        Raises:
-            ReleaseManagerError: If cannot determine production version
-
-        Examples:
-            # Current production: 1.3.4
-            next_ver = mgr._get_next_production_version()
-            # → "1.3.5"
-        """
-        rc_files = list(self._releases_dir.glob("*-rc*.txt"))
-
-        if rc_files:
-            # Use version from RC (without -rcN suffix)
-            # There should be only one due to single active RC rule
-            rc_file = rc_files[0]
-            version = self.parse_version_from_filename(rc_file.name)
-            return re.sub('-.*', '', str(version))
-
-        # No RC exists: increment from current production
-        # This handles edge case of direct prod promotion without RC
-        current_prod = self._get_production_version()
-        current_version = self.parse_version_from_filename(f"{current_prod}.txt")
-        return self.calculate_next_version(current_version, 'patch')
-
-
-    def _restore_and_apply_all_patches(self, version: str) -> List[str]:
-        """
-        Restore database and apply all patches sequentially.
-
-        Used by promote-to prod to prepare database before schema dump.
-        Restores DB from current schema.sql, then applies all patches
-        from RC files and stage file in order.
-
-        Args:
-            version: Target version (e.g., "1.3.5")
-
-        Returns:
-            List[str]: Patch IDs applied (in order)
-
-        Examples:
-            # Files: 1.3.5-rc1.txt [10], 1.3.5-rc2.txt [42, 12], 1.3.5-stage.txt [18]
-            patches = mgr._restore_and_apply_all_patches("1.3.5")
-            # → Returns ["10", "42", "12", "18"]
-            # → Database now at state with all patches applied
-        """
-        # 1. Restore database to current production state
-        self._repo.restore_database_from_schema()
-
-        # 2. Get all patches for this version (RC1 + RC2 + ... + stage)
-        all_patches = self.get_all_release_context_patches()
-
-        # 3. Apply each patch sequentially
-        for patch_id in all_patches:
-            self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
-
-        # 4. Update database version to target production version
-        # CRITICAL: Must be done before generating schema dumps
-        self._repo.database.register_release(*version.split('.'))
-
-        return all_patches
-
-
-    def _generate_schema_and_metadata(self, version: str) -> dict:
-        """
-        Generate schema and metadata dumps, update symlink.
-
-        Generates schema-X.Y.Z.sql and metadata-X.Y.Z.sql files via pg_dump,
-        then updates schema.sql symlink to point to new version.
-
-        Args:
-            version: Version string (e.g., "1.3.5")
-
-        Returns:
-            dict: Generated file paths
-                'schema_file': Path to schema-X.Y.Z.sql
-                'metadata_file': Path to metadata-X.Y.Z.sql
-
-        Raises:
-            Exception: If pg_dump fails or file operations fail
-
-        Examples:
-            info = mgr._generate_schema_and_metadata("1.3.5")
-            # → Creates model/schema-1.3.5.sql
-            # → Creates model/metadata-1.3.5.sql
-            # → Updates model/schema.sql → schema-1.3.5.sql
-            # → Returns {'schema_file': Path(...), 'metadata_file': Path(...)}
-        """
-        from half_orm_dev.database import Database
-
-        model_dir = Path(self._repo.base_dir) / "model"
-
-        # Database._generate_schema_sql() creates both schema and metadata
-        schema_file = Database._generate_schema_sql(
-            self._repo.database,
-            version,
-            model_dir
-        )
-        metadata_file = model_dir / f"metadata-{version}.sql"
-
-        return {
-            'schema_file': schema_file,
-            'metadata_file': metadata_file
-        }
-
-
-    def _detect_stage_to_promote(self) -> Tuple[str, str]:
-        """
-        Detect smallest stage release to promote.
-
-        Finds all *-stage.txt files, parses versions, and returns the smallest
-        version. This ensures sequential promotion (cannot skip versions).
-
-        Algorithm:
-        1. List all releases/*-stage.txt files
-        2. Parse version from each filename (e.g., "1.3.5-stage.txt" → "1.3.5")
-        3. Sort versions in ascending order
-        4. Return smallest version and filename
-
-        Returns:
-            Tuple of (version, stage_filename)
-            Example: ("1.3.5", "1.3.5-stage.txt")
-
-        Raises:
-            ReleaseManagerError: If no stage releases found
-
-        Examples:
-            # Single stage
-            releases/1.3.5-stage.txt exists
-            version, filename = mgr._detect_stage_to_promote()
-            # → ("1.3.5", "1.3.5-stage.txt")
-
-            # Multiple stages (returns smallest)
-            releases/1.3.5-stage.txt, 1.4.0-stage.txt, 2.0.0-stage.txt exist
-            version, filename = mgr._detect_stage_to_promote()
-            # → ("1.3.5", "1.3.5-stage.txt")
-
-            # No stages
-            version, filename = mgr._detect_stage_to_promote()
-            # → Raises: "No stage releases found. Create one with prepare-release"
-        """
-        # List all stage files
-        stage_files = list(self._releases_dir.glob("*-stage.txt"))
-
-        if not stage_files:
-            raise ReleaseManagerError(
-                "No stage releases found. "
-                "Create a stage release first with: half_orm dev prepare-release"
-            )
-
-        # Parse versions and sort
-        stage_versions = []
-        for stage_file in stage_files:
-            # Extract version from filename (e.g., "1.3.5-stage.txt" → "1.3.5")
-            version_str = stage_file.name.replace("-stage.txt", "")
-            version = self.parse_version_from_filename(stage_file.name)
-            stage_versions.append((version, version_str, stage_file.name))
-
-        # Sort by version (ascending)
-        stage_versions.sort(key=lambda x: (x[0].major, x[0].minor, x[0].patch))
-
-        # Return smallest version
-        smallest = stage_versions[0]
-        return smallest[1], smallest[2]  # (version_str, filename)
-
-
-    def _validate_single_active_rc(self, stage_version: str) -> None:
-        """
-        Validate single active RC rule.
-
-        Ensures only one version level is in RC at a time. The rule allows:
-        - No RC exists → OK (promoting first RC)
-        - RC of SAME version exists → OK (rc1 → rc2 → rc3)
-        - RC of DIFFERENT version exists → ERROR (must deploy first)
-
-        Args:
-            stage_version: Version being promoted (e.g., "1.3.5")
-
-        Raises:
-            ReleaseManagerError: If different version RC exists
-
-        Examples:
-            # No RC exists - OK
-            stage_version = "1.3.5"
-            mgr._validate_single_active_rc(stage_version)
-            # → No error
-
-            # Same version RC exists - OK
-            releases/1.3.5-rc1.txt exists
-            stage_version = "1.3.5"
-            mgr._validate_single_active_rc(stage_version)
-            # → No error (promoting to rc2)
-
-            # Different version RC exists - ERROR
-            releases/1.3.5-rc1.txt exists
-            stage_version = "1.4.0"
-            mgr._validate_single_active_rc(stage_version)
-            # → Raises: "Cannot promote 1.4.0-stage, RC 1.3.5-rc1 must be deployed first"
-
-            # Multiple RCs of same version - OK
-            releases/1.3.5-rc1.txt, 1.3.5-rc2.txt exist
-            stage_version = "1.3.5"
-            mgr._validate_single_active_rc(stage_version)
-            # → No error (promoting to rc3)
-        """
-        # List all RC files
-        rc_files = list(self._releases_dir.glob("*-rc*.txt"))
-
-        if not rc_files:
-            # No RC exists, promotion allowed
-            return
-
-        # Check if any RC is of a different version
-        for rc_file in rc_files:
-            # Extract version from RC filename (e.g., "1.3.5-rc1.txt" → "1.3.5")
-            rc_filename = rc_file.name
-            # Remove "-rcN.txt" suffix to get version
-            rc_version = rc_filename.split("-rc")[0]
-
-            if rc_version != stage_version:
-                # Different version RC exists, block promotion
-                raise ReleaseManagerError(
-                    f"Cannot promote {stage_version}-stage to RC: "
-                    f"RC {rc_filename.replace('.txt', '')} must be deployed to production first. "
-                    f"Only one version can be in RC at a time."
-                )
-
-        # All RCs are same version as stage, promotion allowed
-
-
-    def _determine_rc_number(self, version: str) -> int:
-        """
-        Determine next RC number for version.
-
-        Finds all existing RC files for the version and returns next number.
-        If no RCs exist, returns 1. If rc1, rc2 exist, returns 3.
-
-        Args:
-            version: Version string (e.g., "1.3.5")
-
-        Returns:
-            Next RC number (1, 2, 3, etc.)
-
-        Examples:
-            # No existing RCs
-            version = "1.3.5"
-            rc_num = mgr._determine_rc_number(version)
-            # → 1
-
-            # rc1 exists
-            releases/1.3.5-rc1.txt exists
-            rc_num = mgr._determine_rc_number(version)
-            # → 2
-
-            # rc1, rc2, rc3 exist
-            releases/1.3.5-rc1.txt, 1.3.5-rc2.txt, 1.3.5-rc3.txt exist
-            rc_num = mgr._determine_rc_number(version)
-            # → 4
-
-        Note:
-            Uses get_rc_files() which returns sorted RC files for version.
-        """
-        # Use existing get_rc_files() method which returns sorted list
-        rc_files = self.get_rc_files(version)
-
-        if not rc_files:
-            # No RCs exist, this will be rc1
-            return 1
-
-        # get_rc_files() returns sorted list, so last file has highest number
-        # Extract RC number from last filename (e.g., "1.3.5-rc3.txt" → 3)
-        last_rc_file = rc_files[-1].name
-
-        # Extract number after "-rc" (e.g., "1.3.5-rc3.txt" → "3")
-        match = re.search(r'-rc(\d+)\.txt', last_rc_file)
-        if match:
-            last_rc_num = int(match.group(1))
-            return last_rc_num + 1
-
-        # Fallback (shouldn't happen with valid RC files)
-        return len(rc_files) + 1
-
-
-    def _merge_archived_patches_to_ho_prod(self, version: str, stage_file: str) -> List[str]:
-        """
-        Merge all archived patch branches code into ho-prod.
-
-        THIS IS WHERE CODE ENTERS HO-PROD. During add-to-release, patches
-        are archived to ho-release/X.Y.Z/patch-id but code stays separate.
-        At promote_to, all archived patches are merged into ho-prod.
-
-        Algorithm:
-        1. Read patch list from stage file (e.g., releases/1.3.5-stage.txt)
-        2. For each patch in list:
-           - Check if archived branch exists: ho-release/{version}/{patch_id}
-           - If exists: git merge ho-release/{version}/{patch_id}
-           - Handle merge conflicts (abort and raise error)
-        3. Return list of merged patches
-
-        Args:
-            version: Version string (e.g., "1.3.5")
-            stage_file: Stage filename (e.g., "1.3.5-stage.txt")
-
-        Returns:
-            List of merged patch IDs
-
-        Raises:
-            ReleaseManagerError: If merge conflicts occur or branch not found
-
-        Examples:
-            # Successful merge
-            releases/1.3.5-stage.txt contains: ["456-user-auth", "789-security"]
-            ho-release/1.3.5/456-user-auth exists
-            ho-release/1.3.5/789-security exists
-
-            patches = mgr._merge_archived_patches_to_ho_prod("1.3.5", "1.3.5-stage.txt")
-            # → ["456-user-auth", "789-security"]
-            # → Both branches merged into ho-prod
-            # → Code now in ho-prod
-
-            # Merge conflict
-            Patch code conflicts with existing ho-prod code
-            patches = mgr._merge_archived_patches_to_ho_prod("1.3.5", "1.3.5-stage.txt")
-            # → Raises: "Merge conflict with patch 456-user-auth, resolve manually"
-
-            # Missing archived branch
-            releases/1.3.5-stage.txt contains: ["456-user-auth"]
-            ho-release/1.3.5/456-user-auth does NOT exist
-
-            patches = mgr._merge_archived_patches_to_ho_prod("1.3.5", "1.3.5-stage.txt")
-            # → Raises: "Archived branch not found: ho-release/1.3.5/456-user-auth"
-
-        Note:
-            After this operation, ho-prod contains both metadata (releases/*.txt)
-            and code (merged from ho-release/X.Y.Z/*). This is the key difference
-            between stage (metadata only) and RC (metadata + code).
-        """
-        # Read patch list from stage file using existing method
-        patch_ids = self.read_release_patches(stage_file)
-
-        if not patch_ids:
-            # Empty stage file, no patches to merge
-            return []
-
-        merged_patches = []
-
-        for patch_id in patch_ids:
-            # Construct archived branch name
-            archived_branch = f"ho-release/{version}/{patch_id}"
-
-            # Check if archived branch exists
-            if not self._repo.hgit.branch_exists(archived_branch):
-                raise ReleaseManagerError(
-                    f"Archived branch not found: {archived_branch}. "
-                    f"Patch {patch_id} was not properly archived during add-to-release."
-                )
-
-            # Merge archived branch into ho-prod with no-ff
-            try:
-                self._repo.hgit.merge(
-                    archived_branch,
-                    no_ff=True,
-                    m=f"Integrate patch {patch_id}")
-
-                merged_patches.append(patch_id)
-
-            except GitCommandError as e:
-                raise ReleaseManagerError(
-                    f"Merge conflict with patch {patch_id} from {archived_branch}. "
-                    f"Resolve conflicts manually and retry. Git error: {e}"
-                )
-
-        return merged_patches
-
-
-    def _cleanup_patch_branches(self, version: str, stage_file: str) -> List[str]:
-        """
-        Delete all patch branches listed in stage file.
-
-        Reads patch list from stage file and deletes both local and remote
-        branches. This is automatic cleanup at promote_to to maintain
-        clean repository state. Deletes both ho-patch/* and ho-release/<version>/* branches.
-
-        Algorithm:
-        1. Read patch list from stage file
-        2. For each patch:
-           - Delete ho-patch/{patch_id} (if exists locally and remotely)
-           - Delete ho-release/{version}/{patch_id} (if exists locally and remotely)
-        3. Return list of deleted branches
-
-        Args:
-            version: Version string (e.g., "1.3.5")
-            stage_file: Stage filename (e.g., "1.3.5-stage.txt")
-
-        Returns:
-            List of deleted branch names (e.g., ["ho-release/1.3.5/456-user-auth", ...])
-
-        Raises:
-            None - Uses best effort deletion (continues if branch doesn't exist)
-
-        Examples:
-            # Successful cleanup after promote
-            releases/1.3.5-stage.txt contains: ["456-user-auth", "789-security"]
-            ho-release/1.3.5/456-user-auth exists locally and remotely
-            ho-release/1.3.5/789-security exists locally and remotely
-
-            deleted = mgr._cleanup_patch_branches("1.3.5", "1.3.5-stage.txt")
-            # → ["ho-release/1.3.5/456-user-auth", "ho-release/1.3.5/789-security"]
-            # → Both archived branches deleted locally and remotely
-
-            # Branch already deleted (edge case)
-            releases/1.3.5-stage.txt contains: ["456-user-auth"]
-            ho-release/1.3.5/456-user-auth does NOT exist
-
-            deleted = mgr._cleanup_patch_branches("1.3.5", "1.3.5-stage.txt")
-            # → [] (nothing to delete, no error)
-
-        Note:
-            This is called AFTER merging archived branches (ho-release/<version>/*)
-            to ho-prod during promote_to. The code is preserved in ho-prod,
-            so the archived branches are no longer needed.
-
-            Timeline:
-            - add_patch_to_release: ho-patch/* → ho-release/<version>/*
-            - promote_to: merge ho-release/<version>/* to ho-prod
-            - _cleanup_patch_branches: delete ho-release/<version>/*
-        """
-        patch_ids = self.read_release_patches(stage_file)
-
-        if not patch_ids:
-            # Empty stage file, no branches to cleanup
-            return []
-
-        deleted_branches = []
-
-        for patch_id in patch_ids:
-            # At promote time, patches are in ho-release/{version}/{patch_id} format
-            # (ho-patch/* was renamed to ho-release/* during add_patch_to_release)
-            # After merging to ho-prod, these archived branches can be deleted
-            archived_branch = f"ho-release/{version}/{patch_id}"
-
-            # Delete local archived branch (force delete with -D)
-            try:
-                self._repo.hgit.delete_branch(archived_branch, force=True)
-                deleted_branches.append(archived_branch)
-            except GitCommandError as e:
-                # Best effort: continue even if deletion fails
-                # (branch might already be deleted)
-                pass
-
-            # Delete remote archived branch
-            try:
-                self._repo.hgit.delete_remote_branch(archived_branch)
-            except GitCommandError as e:
-                # Best effort: continue even if deletion fails
-                # (branch might already be deleted from remote)
-                pass
-
-        return deleted_branches
-
     def _ensure_patch_branch_synced(self, patch_id: str) -> dict:
         """
         Ensure patch branch is synced with ho-prod before integration.
@@ -2895,7 +2180,7 @@ class ReleaseManager:
         # Get current production version
         try:
             current_version = self._get_current_production_version()
-        except Exception:
+        except Exception as e:
             # No production version yet, start at 0.0.0
             current_version = "0.0.0"
 
@@ -2933,20 +2218,29 @@ class ReleaseManager:
         Raises:
             ReleaseManagerError: If no production version found
         """
+        # Fetch tags from remote to ensure we have the latest
+        try:
+            self._repo.hgit.fetch_from_origin()
+        except Exception:
+            # If fetch fails, continue with local tags
+            pass
+
         # Get all production tags (X.Y.Z format, no -rc suffix)
-        tags = self._repo.hgit.get_tags()
+        tags = self._repo.hgit.list_tags()
         version_tags = []
 
         for tag in tags:
-            # Match X.Y.Z pattern (no -rc)
-            if tag.count('.') == 2 and not tag.endswith('-rc'):
+            # Match vX.Y.Z pattern (with v prefix, no -rc suffix)
+            if tag.startswith('v') and tag.count('.') == 2 and '-rc' not in tag:
                 try:
-                    parts = tag.split('.')
+                    # Remove 'v' prefix and validate
+                    version = tag[1:]  # Remove 'v'
+                    parts = version.split('.')
                     # Validate it's numeric
                     int(parts[0])
                     int(parts[1])
                     int(parts[2])
-                    version_tags.append(tag)
+                    version_tags.append(version)  # Store without 'v' prefix
                 except (ValueError, IndexError):
                     continue
 
@@ -2961,6 +2255,7 @@ class ReleaseManager:
         version_tags.sort(key=version_key, reverse=True)
         return version_tags[0]
 
+    @with_ho_prod_lock()
     def new_release(self, level: str) -> dict:
         """
         Create a new release with integration branch.
@@ -2998,6 +2293,27 @@ class ReleaseManager:
         version = self._calculate_next_version(level)
         release_branch = f"ho-release/{version}"
 
+        # Ensure we're on ho-prod
+        try:
+            self._repo.hgit.checkout("ho-prod")
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to checkout ho-prod: {e}")
+
+        # Create empty stage file
+        stage_file = self._releases_dir / f"{version}-stage.txt"
+        try:
+            stage_file.write_text("", encoding='utf-8')
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to create stage file: {e}")
+
+        # Commit stage file on ho-prod
+        try:
+            self._repo.hgit.add(str(stage_file))
+            self._repo.hgit.commit("-m", f"Create release {version} branch and stage file")
+            self._repo.hgit.push_branch("ho-prod")
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to commit stage file: {e}")
+
         # Create release branch from ho-prod
         try:
             self._repo.hgit.create_branch(release_branch, from_branch="ho-prod")
@@ -3010,33 +2326,19 @@ class ReleaseManager:
         except Exception as e:
             raise ReleaseManagerError(f"Failed to push release branch: {e}")
 
-        # Create empty stage file
-        stage_file = self._releases_dir / f"{version}-stage.txt"
-        try:
-            stage_file.write_text("", encoding='utf-8')
-        except Exception as e:
-            raise ReleaseManagerError(f"Failed to create stage file: {e}")
-
-        # Commit stage file on ho-prod
-        try:
-            self._repo.hgit.add(str(stage_file))
-            self._repo.hgit.commit(f"Create release {version} branch and stage file")
-            self._repo.hgit.push_branch("ho-prod")
-        except Exception as e:
-            raise ReleaseManagerError(f"Failed to commit stage file: {e}")
-
         return {
             'version': version,
             'branch': release_branch,
             'stage_file': str(stage_file)
         }
 
+    @with_ho_prod_lock()
     def add_patch_to_release(self, patch_id: str, version: str) -> dict:
         """
         Add a patch to a release by merging into the release branch.
 
         This is the key method of the new workflow. It:
-        1. Renames ho-patch/{patch_id} → ho-release/{version}/{patch_id}
+        1. Renames ho-patch/{patch_id} → ho-archive/{version}/{patch_id}
         2. Merges the patch into ho-release/{version} branch
         3. Updates {version}-stage.txt with the patch
 
@@ -3059,11 +2361,17 @@ class ReleaseManager:
         Examples:
             # After creating release 0.1.0
             rel_mgr.add_patch_to_release("001-first", "0.1.0")
-            # → Renames ho-patch/001-first to ho-release/0.1.0/001-first
+            # → Renames ho-patch/001-first to ho-archive/0.1.0/001-first
             # → Merges into ho-release/0.1.0
             # → Adds "001-first" to 0.1.0-stage.txt
         """
-        # Validate release exists
+        # Save current branch to return to it later
+        original_branch = self._repo.hgit.branch
+
+        # Ensure we're on ho-prod to access stage file
+        self._repo.hgit.checkout("ho-prod")
+
+        # Validate release exists (stage file must be on ho-prod)
         stage_file = self._releases_dir / f"{version}-stage.txt"
         if not stage_file.exists():
             raise ReleaseManagerError(f"Release {version} not found (no stage file)")
@@ -3073,11 +2381,8 @@ class ReleaseManager:
         if not self._repo.hgit.branch_exists(patch_branch):
             raise ReleaseManagerError(f"Patch branch {patch_branch} not found")
 
-        # Save current branch to return to it later
-        original_branch = self._repo.hgit.branch
-
         release_branch = f"ho-release/{version}"
-        archived_branch = f"{release_branch}/{patch_id}"
+        archived_branch = f"ho-archive/{version}/{patch_id}"
 
         try:
             # 1. Rename patch branch to archived name
@@ -3119,7 +2424,7 @@ class ReleaseManager:
             # 7. Commit stage file update (on ho-prod)
             self._repo.hgit.checkout("ho-prod")
             self._repo.hgit.add(str(stage_file))
-            self._repo.hgit.commit(f"Add patch {patch_id} to release {version} stage")
+            self._repo.hgit.commit("-m", f"Add patch {patch_id} to release {version} stage")
             self._repo.hgit.push_branch("ho-prod")
 
             # 8. Return to original branch
@@ -3128,21 +2433,56 @@ class ReleaseManager:
             return {
                 'patch_id': patch_id,
                 'archived_branch': archived_branch,
-                'merged': True
+                'merged': True,
+                'stage_file': stage_file                
             }
 
         except ReleaseManagerError:
             # Re-raise our own errors as-is
             raise
-        except Exception as e:
-            # Try to return to original branch on error
-            try:
-                self._repo.hgit.checkout(original_branch)
-            except Exception:
-                pass
-            raise ReleaseManagerError(f"Failed to add patch to release: {e}")
+        # except Exception as e:
+        #     # Try to return to original branch on error
+        #     try:
+        #         self._repo.hgit.checkout(original_branch)
+        #     except Exception:
+        #         pass
+        #     raise ReleaseManagerError(f"Failed to add patch to release: {e}")
 
-    def promote_to_rc(self, version: str) -> dict:
+    def _detect_version_to_promote(self, target: str) -> str:
+        """
+        Detect which version to promote (smallest version for sequential promotion).
+
+        Args:
+            target: Either 'rc' or 'prod'
+
+        Returns:
+            Version string (e.g., "0.1.0")
+
+        Raises:
+            ReleaseManagerError: If no release found to promote
+        """
+        # Find stage files
+        stage_files = list(self._releases_dir.glob("*-stage.txt"))
+        if not stage_files:
+            raise ReleaseManagerError(
+                "No stage release found. "
+                "Create a stage release first with: half_orm dev release new"
+            )
+
+        # Sort by version to get the smallest (oldest) one first
+        def version_key(path):
+            version_str = path.stem.replace('-stage', '')
+            parts = version_str.split('.')
+            try:
+                return (int(parts[0]), int(parts[1]), int(parts[2]))
+            except (ValueError, IndexError):
+                return (0, 0, 0)
+
+        stage_files.sort(key=version_key)
+        return stage_files[0].stem.replace('-stage', '')
+
+    @with_ho_prod_lock()
+    def promote_to_rc(self, version: str = None) -> dict:
         """
         Promote a stage release to RC by tagging the release branch.
 
@@ -3150,7 +2490,8 @@ class ReleaseManager:
         The release branch contains all merged patches.
 
         Args:
-            version: Version to promote (e.g., "0.1.0")
+            version: Version to promote (e.g., "0.1.0"). If None, auto-detects
+                    the smallest (oldest) stage release for sequential promotion.
 
         Returns:
             dict with keys:
@@ -3165,20 +2506,28 @@ class ReleaseManager:
             rel_mgr.promote_to_rc("0.1.0")
             # → Creates tag "0.1.0-rc" on ho-release/0.1.0
             # → Renames 0.1.0-stage.txt to 0.1.0-rc.txt
+
+            rel_mgr.promote_to_rc()  # Auto-detect version
+            # → Promotes the smallest stage release
         """
+        # Auto-detect version if not provided
+        if version is None:
+            version = self._detect_version_to_promote('rc')
+
         stage_file = self._releases_dir / f"{version}-stage.txt"
         if not stage_file.exists():
             raise ReleaseManagerError(f"Release {version} not found (no stage file)")
 
         release_branch = f"ho-release/{version}"
-        rc_tag = f"{version}-rc"
+        rc_number = self._determine_rc_number(version)
+        rc_tag = f"v{version}-rc{rc_number}"  # Use v prefix and rc1 for first RC
 
         try:
             # Checkout release branch
             self._repo.hgit.checkout(release_branch)
 
             # Create RC tag on release branch
-            self._repo.hgit.create_tag(rc_tag)
+            self._repo.hgit.create_tag(rc_tag, f"Release Candidate {version}")
 
             # Push tag
             self._repo.hgit.push_tag(rc_tag)
@@ -3187,13 +2536,17 @@ class ReleaseManager:
             self._repo.hgit.checkout("ho-prod")
 
             # Rename stage file to rc file
-            rc_file = self._releases_dir / f"{version}-rc.txt"
+            rc_file = self._releases_dir / f"{version}-rc{rc_number}.txt"
             stage_file.rename(rc_file)
+            try:
+                stage_file.write_text("", encoding='utf-8')
+            except Exception as e:
+                raise ReleaseManagerError(f"Failed to create stage file: {e}")
 
             # Commit rename
             self._repo.hgit.add(str(stage_file))  # Old path (deleted)
             self._repo.hgit.add(str(rc_file))     # New path
-            self._repo.hgit.commit(f"Promote release {version} to RC")
+            self._repo.hgit.commit("-m", f"Promote release {version} to RC {rc_number}")
             self._repo.hgit.push_branch("ho-prod")
 
             return {
@@ -3205,18 +2558,20 @@ class ReleaseManager:
         except Exception as e:
             raise ReleaseManagerError(f"Failed to promote to RC: {e}")
 
-    def promote_to_prod(self, version: str) -> dict:
+    @with_ho_prod_lock()
+    def promote_to_prod(self, version: str = None) -> dict:
         """
         Promote an RC release to production.
 
         Merges the release branch into ho-prod and cleans up:
         1. Merge ho-release/{version} into ho-prod (fast-forward)
         2. Create production tag on ho-prod
-        3. Delete patch branches (ho-release/{version}/{patch_id})
+        3. Delete patch branches (ho-archive/{version}/{patch_id})
         4. Delete release branch (ho-release/{version})
 
         Args:
-            version: Version to promote (e.g., "0.1.0")
+            version: Version to promote (e.g., "0.1.0"). If None, auto-detects
+                    the smallest (oldest) RC release for sequential promotion.
 
         Returns:
             dict with keys:
@@ -3232,16 +2587,23 @@ class ReleaseManager:
             # → Merges ho-release/0.1.0 into ho-prod
             # → Creates tag "0.1.0"
             # → Deletes patch and release branches
+
+            rel_mgr.promote_to_prod()  # Auto-detect version
+            # → Promotes the smallest RC release
         """
-        rc_file = self._releases_dir / f"{version}-rc.txt"
-        if not rc_file.exists():
+        # Auto-detect version if not provided
+        if version is None:
+            version = self._detect_version_to_promote('prod')
+
+        stage_file = self._releases_dir / f"{version}-stage.txt"
+        if not stage_file.exists():
             raise ReleaseManagerError(f"RC release {version} not found")
 
         release_branch = f"ho-release/{version}"
 
         try:
             # Read patches from rc file
-            patches = rc_file.read_text(encoding='utf-8').strip().split('\n')
+            patches = stage_file.read_text(encoding='utf-8').strip().split('\n')
             patches = [p.strip() for p in patches if p.strip()]
 
             # 1. Checkout ho-prod
@@ -3262,24 +2624,25 @@ class ReleaseManager:
                 )
 
             # 3. Create production tag on ho-prod
-            self._repo.hgit.create_tag(version)
-            self._repo.hgit.push_tag(version)
+            prod_tag = f"v{version}"  # Use v prefix to match existing convention
+            self._repo.hgit.create_tag(prod_tag, f"Production release {version}")
+            self._repo.hgit.push_tag(prod_tag)
 
             # 4. Push ho-prod
             self._repo.hgit.push_branch("ho-prod")
 
             # 5. Rename rc file to prod
             prod_file = self._releases_dir / f"{version}.txt"
-            rc_file.rename(prod_file)
-            self._repo.hgit.add(str(rc_file))   # Old path
+            stage_file.rename(prod_file)
+            self._repo.hgit.add(str(stage_file))   # Old path
             self._repo.hgit.add(str(prod_file)) # New path
-            self._repo.hgit.commit(f"Promote release {version} to production")
+            self._repo.hgit.commit("-m", f"Promote release {version} to production")
             self._repo.hgit.push_branch("ho-prod")
 
-            # 6. Cleanup: Delete patch branches
+            # 6. Cleanup: Delete patch branches (in ho-archive)
             deleted_branches = []
             for patch_id in patches:
-                patch_branch = f"{release_branch}/{patch_id}"
+                patch_branch = f"ho-archive/{version}/{patch_id}"
                 try:
                     self._repo.hgit.delete_branch(patch_branch, force=True)
                     self._repo.hgit.delete_remote_branch(patch_branch)
@@ -3288,17 +2651,19 @@ class ReleaseManager:
                     # Continue even if deletion fails
                     pass
 
-            # 7. Delete release branch
+            # 7. Delete release branch (force=True because Git may not recognize the merge)
             try:
-                self._repo.hgit.delete_branch(release_branch)
+                self._repo.hgit.delete_branch(release_branch, force=True)
                 self._repo.hgit.delete_remote_branch(release_branch)
                 deleted_branches.append(release_branch)
-            except Exception:
-                pass
+            except Exception as e:
+                # Log error for debugging
+                import sys
+                print(f"Warning: Failed to delete release branch {release_branch}: {e}", file=sys.stderr)
 
             return {
                 'version': version,
-                'tag': version,
+                'tag': f"v{version}",
                 'deleted_branches': deleted_branches
             }
 
@@ -3306,3 +2671,54 @@ class ReleaseManager:
             raise
         except Exception as e:
             raise ReleaseManagerError(f"Failed to promote to production: {e}")
+
+    def _determine_rc_number(self, version: str) -> int:
+        """
+        Determine next RC number for version.
+
+        Finds all existing RC files for the version and returns next number.
+        If no RCs exist, returns 1. If rc1, rc2 exist, returns 3.
+
+        Args:
+            version: Version string (e.g., "1.3.5")
+
+        Returns:
+            Next RC number (1, 2, 3, etc.)
+
+        Examples:
+            # No existing RCs
+            version = "1.3.5"
+            rc_num = mgr._determine_rc_number(version)
+            # → 1
+
+            # rc1 exists
+            releases/1.3.5-rc1.txt exists
+            rc_num = mgr._determine_rc_number(version)
+            # → 2
+
+            # rc1, rc2, rc3 exist
+            releases/1.3.5-rc1.txt, 1.3.5-rc2.txt, 1.3.5-rc3.txt exist
+            rc_num = mgr._determine_rc_number(version)
+            # → 4
+
+        Note:
+            Uses get_rc_files() which returns sorted RC files for version.
+        """
+        # Use existing get_rc_files() method which returns sorted list
+        rc_files = self.get_rc_files(version)
+
+        if not rc_files:
+            # No RCs exist, this will be rc1
+            return 1
+
+        # get_rc_files() returns sorted list, so last file has highest number
+        # Extract RC number from last filename (e.g., "1.3.5-rc3.txt" → 3)
+        last_rc_file = rc_files[-1].name
+        # Extract number after "-rc" (e.g., "1.3.5-rc3.txt" → "3")
+        match = re.search(r'-rc(\d+)\.txt', last_rc_file)
+        if match:
+            last_rc_num = int(match.group(1))
+            return last_rc_num + 1
+
+        # Fallback (shouldn't happen with valid RC files)
+        return len(rc_files) + 1
