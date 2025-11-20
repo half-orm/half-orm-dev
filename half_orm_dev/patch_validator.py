@@ -95,14 +95,14 @@ class PatchValidator:
         if not patch_id or not patch_id.strip():
             raise InvalidPatchIdError("Patch ID cannot be empty")
 
-        patch_id = patch_id.strip()
+        patch_id = patch_id.strip().lstrip('0') or '0'
 
         # Check for numeric-only format
         if self.NUMERIC_PATTERN.match(patch_id):
             return PatchInfo(
                 original_id=patch_id,
                 normalized_id=patch_id,
-                ticket_number=patch_id,
+                ticket_number=int(patch_id),
                 description=None,
                 is_numeric_only=True
             )
@@ -110,7 +110,7 @@ class PatchValidator:
         # Check for full format (number-description)
         if self.FULL_PATTERN.match(patch_id):
             parts = patch_id.split('-', 1)
-            ticket_number = parts[0]
+            ticket_number = int(parts[0])
             description = parts[1]
 
             return PatchInfo(

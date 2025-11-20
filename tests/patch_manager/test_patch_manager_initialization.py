@@ -156,7 +156,7 @@ class TestPatchDirectoryInitialization:
         # Validator should be functional
         # Test basic validation call
         patch_info = patch_mgr._validator.validate_patch_id("456")
-        assert patch_info.ticket_number == "456"
+        assert patch_info.ticket_number == 456
 
     def test_init_with_repo_name_storage(self, temp_repo):
         """Test that repository name is properly stored."""

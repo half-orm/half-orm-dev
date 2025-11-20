@@ -32,7 +32,7 @@ class TestPatchValidator:
         assert isinstance(result, PatchInfo)
         assert result.original_id == "456"
         assert result.normalized_id == "456"
-        assert result.ticket_number == "456"
+        assert result.ticket_number == 456
         assert result.description is None
         assert result.is_numeric_only is True
 
@@ -43,13 +43,13 @@ class TestPatchValidator:
         assert isinstance(result, PatchInfo)
         assert result.original_id == "456-user-authentication"
         assert result.normalized_id == "456-user-authentication"
-        assert result.ticket_number == "456"
+        assert result.ticket_number == 456
         assert result.description == "user-authentication"
         assert result.is_numeric_only is False
 
         # Multi-part description
         result = validator.validate_patch_id("789-user-auth-system-fix")
-        assert result.ticket_number == "789"
+        assert result.ticket_number == 789
         assert result.description == "user-auth-system-fix"
         assert result.is_numeric_only is False
 
@@ -268,7 +268,7 @@ class TestPatchValidatorIntegration:
         # Validate
         info = validator.validate_patch_id(patch_id)
         assert info.is_numeric_only is False
-        assert info.ticket_number == "789"
+        assert info.ticket_number == 789
         assert info.description == "security-fix"
 
         # Normalize (should return unchanged)
@@ -304,9 +304,17 @@ class TestPatchValidatorEdgeCases:
         """Test handling of very large ticket numbers."""
         large_number = "999999999"
         result = validator.validate_patch_id(large_number)
-        assert result.ticket_number == large_number
+        assert result.ticket_number == int(large_number)
 
     def test_single_character_description(self, validator):
         """Test handling of single character descriptions."""
         result = validator.validate_patch_id("456-a")
         assert result.description == "a"
+
+
+    def test_zeor_ticket_number(self, validator):
+        """Test handling of very large ticket numbers."""
+        zero = "000"
+        result = validator.validate_patch_id(zero)
+        assert result.ticket_number == int(zero)
+
