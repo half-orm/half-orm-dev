@@ -301,7 +301,6 @@ def patch_add(patch_id: str, to_version: Optional[str] = None) -> None:
         click.echo(f"  Stage file:      {utils.Color.bold(result['stage_file'])}")
         click.echo(f"  Patch added:     {utils.Color.bold(result['patch_id'])}")
         click.echo(f"  Tests passed:    {utils.Color.green('✓')}")
-        click.echo(f"  Archived branch: {utils.Color.bold(result['archived_branch'])}")
 
         if result.get('notified_branches'):
             click.echo(f"  Notified:        {len(result['notified_branches'])} active branch(es)")

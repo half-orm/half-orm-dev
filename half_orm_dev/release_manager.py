@@ -2338,9 +2338,9 @@ class ReleaseManager:
         Add a patch to a release by merging into the release branch.
 
         This is the key method of the new workflow. It:
-        1. Renames ho-patch/{patch_id} → ho-archive/{version}/{patch_id}
-        2. Merges the patch into ho-release/{version} branch
-        3. Updates {version}-stage.txt with the patch
+        1. Merges the patch into ho-release/{version} branch
+        2. Updates {version}-stage.txt with the patch
+        3. Delete ho-patch/{patch_id}
 
         This ensures patches in the same release can see each other's changes.
 
@@ -2361,9 +2361,9 @@ class ReleaseManager:
         Examples:
             # After creating release 0.1.0
             rel_mgr.add_patch_to_release("001-first", "0.1.0")
-            # → Renames ho-patch/001-first to ho-archive/0.1.0/001-first
             # → Merges into ho-release/0.1.0
             # → Adds "001-first" to 0.1.0-stage.txt
+            # → Delete ho-patch/001-first
         """
         # Save current branch to return to it later
         original_branch = self._repo.hgit.branch
@@ -2382,14 +2382,9 @@ class ReleaseManager:
             raise ReleaseManagerError(f"Patch branch {patch_branch} not found")
 
         release_branch = f"ho-release/{version}"
-        archived_branch = f"ho-archive/{version}/{patch_id}"
+        patch_branch = f"ho-patch/{patch_id}"
 
         try:
-            # 1. Rename patch branch to archived name
-            self._repo.hgit.rename_branch(patch_branch, archived_branch)
-
-            # 2. Push archived branch
-            self._repo.hgit.push_branch(archived_branch)
 
             # 3. Checkout release branch
             self._repo.hgit.checkout(release_branch)
@@ -2397,7 +2392,7 @@ class ReleaseManager:
             # 4. Merge archived patch branch (--no-ff for merge commit)
             try:
                 self._repo.hgit.merge(
-                    archived_branch,
+                    patch_branch,
                     no_ff=True,
                     message=f"[HOP] Merge patch {patch_id} into release {version}"
                 )
@@ -2427,12 +2422,14 @@ class ReleaseManager:
             self._repo.hgit.commit("-m", f"[HOP] Add patch {patch_id} to release {version} stage")
             self._repo.hgit.push_branch("ho-prod")
 
+            # 1. Delete patch branch
+            self._repo.hgit.delete_branch(patch_branch, force=True)
+
             # 8. Return to original branch
             self._repo.hgit.checkout(original_branch)
 
             return {
                 'patch_id': patch_id,
-                'archived_branch': archived_branch,
                 'merged': True,
                 'stage_file': stage_file                
             }
@@ -2440,13 +2437,13 @@ class ReleaseManager:
         except ReleaseManagerError:
             # Re-raise our own errors as-is
             raise
-        # except Exception as e:
-        #     # Try to return to original branch on error
-        #     try:
-        #         self._repo.hgit.checkout(original_branch)
-        #     except Exception:
-        #         pass
-        #     raise ReleaseManagerError(f"Failed to add patch to release: {e}")
+        except Exception as e:
+            # Try to return to original branch on error
+            try:
+                self._repo.hgit.checkout(original_branch)
+            except Exception:
+                pass
+            raise ReleaseManagerError(f"Failed to add patch to release: {e}")
 
     def _detect_version_to_promote(self, target: str) -> str:
         """
@@ -2504,8 +2501,8 @@ class ReleaseManager:
 
         Examples:
             rel_mgr.promote_to_rc("0.1.0")
-            # → Creates tag "0.1.0-rc" on ho-release/0.1.0
-            # → Renames 0.1.0-stage.txt to 0.1.0-rc.txt
+            # → Creates tag "0.1.0-rcN" on ho-release/0.1.0
+            # → Renames 0.1.0-stage.txt to 0.1.0-rcN.txt
 
             rel_mgr.promote_to_rc()  # Auto-detect version
             # → Promotes the smallest stage release
@@ -2649,17 +2646,7 @@ class ReleaseManager:
             # 5. Push ho-prod
             self._repo.hgit.push_branch("ho-prod")
 
-            # 6. Cleanup: Delete patch branches (in ho-archive)
             deleted_branches = []
-            for patch_id in patches:
-                patch_branch = f"ho-archive/{version}/{patch_id}"
-                try:
-                    self._repo.hgit.delete_branch(patch_branch, force=True)
-                    self._repo.hgit.delete_remote_branch(patch_branch)
-                    deleted_branches.append(patch_branch)
-                except Exception:
-                    # Continue even if deletion fails
-                    pass
 
             # 7. Delete release branch (force=True because Git may not recognize the merge)
             try:

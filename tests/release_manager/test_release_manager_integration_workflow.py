@@ -89,16 +89,12 @@ class TestReleaseIntegrationWorkflow:
         mock_hgit_complete.branch_exists.return_value = True
 
         # Add patch to release
-        result = rel_mgr.add_patch_to_release("001-first", "0.1.0")
+        result = rel_mgr.add_patch_to_release("1-first", "0.1.0")
 
         # Should rename patch branch to archived name
-        mock_hgit_complete.rename_branch.assert_called_once_with(
-            "ho-patch/001-first",
-            "ho-archive/0.1.0/001-first"
+        mock_hgit_complete.delete_branch.assert_called_once_with(
+            "ho-patch/1-first", force=True
         )
-
-        # Should push archived branch
-        assert call("ho-archive/0.1.0/001-first") in mock_hgit_complete.push_branch.call_args_list
 
         # Should checkout release branch
         checkout_calls = [c for c in mock_hgit_complete.checkout.call_args_list
@@ -107,13 +103,13 @@ class TestReleaseIntegrationWorkflow:
 
         # Should merge archived patch into release branch
         mock_hgit_complete.merge.assert_called_once_with(
-            "ho-archive/0.1.0/001-first",
+            "ho-patch/1-first",
             no_ff=True,
-            message="[HOP] Merge patch 001-first into release 0.1.0"
+            message="[HOP] Merge patch 1-first into release 0.1.0"
         )
 
         # Should update stage file
-        assert "001-first" in stage_file.read_text()
+        assert "1-first" in stage_file.read_text()
 
         # Should push release branch
         assert call("ho-release/0.1.0") in mock_hgit_complete.push_branch.call_args_list
@@ -152,29 +148,29 @@ class TestReleaseIntegrationWorkflow:
         mock_hgit_complete.branch_exists.return_value = True
 
         # Add first patch
-        rel_mgr.add_patch_to_release("001-first", "0.1.0")
+        rel_mgr.add_patch_to_release("1-first", "0.1.0")
 
         # Add second patch
-        rel_mgr.add_patch_to_release("002-second", "0.1.0")
+        rel_mgr.add_patch_to_release("2-second", "0.1.0")
 
         # Both should be merged
         merge_calls = mock_hgit_complete.merge.call_args_list
         assert len(merge_calls) == 2
         assert merge_calls[0] == call(
-            "ho-archive/0.1.0/001-first",
+            "ho-patch/1-first",
             no_ff=True,
-            message="[HOP] Merge patch 001-first into release 0.1.0"
+            message="[HOP] Merge patch 1-first into release 0.1.0"
         )
         assert merge_calls[1] == call(
-            "ho-archive/0.1.0/002-second",
+            "ho-patch/2-second",
             no_ff=True,
-            message="[HOP] Merge patch 002-second into release 0.1.0"
+            message="[HOP] Merge patch 2-second into release 0.1.0"
         )
 
         # Stage file should contain both
         content = stage_file.read_text()
-        assert "001-first" in content
-        assert "002-second" in content
+        assert "1-first" in content
+        assert "2-second" in content
 
     def test_promote_rc_tags_release_branch(self, release_manager, mock_hgit_complete):
         """Test that 'promote rc' creates tag on release branch."""
@@ -247,19 +243,14 @@ class TestReleaseIntegrationWorkflow:
 
         # Setup: create rc file with patches
         stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("001-first\n002-second\n")
+        stage_file.write_text("1-first\n2-second\n")
 
         # Promote to prod
         rel_mgr.promote_to_prod()
 
         # Should delete patch branches (local and remote)
         delete_branch_calls = mock_hgit_complete.delete_branch.call_args_list
-        assert call("ho-archive/0.1.0/001-first", force=True) in delete_branch_calls
-        assert call("ho-archive/0.1.0/002-second", force=True) in delete_branch_calls
-
         delete_remote_calls = mock_hgit_complete.delete_remote_branch.call_args_list
-        assert call("ho-archive/0.1.0/001-first") in delete_remote_calls
-        assert call("ho-archive/0.1.0/002-second") in delete_remote_calls
 
         # Should delete release branch
         assert call("ho-release/0.1.0", force=True) in delete_branch_calls
