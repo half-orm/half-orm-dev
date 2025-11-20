@@ -2623,20 +2623,20 @@ class ReleaseManager:
                     message=f"[HOP] Merge release {version} into production"
                 )
 
-            # 3. Create production tag on ho-prod
-            prod_tag = f"v{version}"  # Use v prefix to match existing convention
-            self._repo.hgit.create_tag(prod_tag, f"Production release {version}")
-            self._repo.hgit.push_tag(prod_tag)
-
-            # 4. Push ho-prod
-            self._repo.hgit.push_branch("ho-prod")
-
-            # 5. Rename rc file to prod
+            # 3. Rename rc file to prod
             prod_file = self._releases_dir / f"{version}.txt"
             stage_file.rename(prod_file)
             self._repo.hgit.add(str(stage_file))   # Old path
             self._repo.hgit.add(str(prod_file)) # New path
             self._repo.hgit.commit("-m", f"[HOP] Promote release {version} to production")
+            self._repo.hgit.push_branch("ho-prod")
+
+            # 4. Create production tag on ho-prod
+            prod_tag = f"v{version}"  # Use v prefix to match existing convention
+            self._repo.hgit.create_tag(prod_tag, f"Production release {version}")
+            self._repo.hgit.push_tag(prod_tag)
+
+            # 5. Push ho-prod
             self._repo.hgit.push_branch("ho-prod")
 
             # 6. Cleanup: Delete patch branches (in ho-archive)
