@@ -2617,11 +2617,21 @@ class ReleaseManager:
                     message=f"[HOP] Merge release {version} into production"
                 )
             except Exception:
-                # If fast-forward fails, try normal merge
-                self._repo.hgit.merge(
-                    release_branch,
-                    message=f"[HOP] Merge release {version} into production"
-                )
+                try:
+                    self._repo.hgit.merge(
+                        release_branch,
+                        message=f"[HOP] Merge release {version} into production"
+                    )
+                except Exception as e:
+                    # Abort merge to restore clean state
+                    try:
+                        self._repo.hgit.merge_abort()
+                    except Exception:
+                        pass  # Ignore if no merge in progress
+                    raise ReleaseManagerError(
+                        f"Failed to merge {release_branch} into ho-prod: {e}\n"
+                        "ho-prod has been restored to its previous state."
+                    )
 
             # 3. Rename rc file to prod
             prod_file = self._releases_dir / f"{version}.txt"
