@@ -611,58 +611,69 @@ class Repo:
         """
         Install or update Git hooks from templates.
 
-        Copies pre-commit hook from templates to .git/hooks/ and makes it executable.
+        Copies all hooks from templates/git-hooks/ to .git/hooks/ and makes them executable.
         Only updates if hook content has changed or if force=True.
 
         Args:
-            force: If True, always install hook even if content is identical
+            force: If True, always install hooks even if content is identical
 
         Returns:
             dict with keys:
-                'installed': bool - True if hook was installed/updated
-                'hook_path': str - Path to installed hook
-                'action': str - Action taken: 'installed', 'updated', or 'skipped'
+                'installed': bool - True if any hook was installed/updated
+                'action': str - Overall action: 'installed', 'updated', or 'skipped'
 
         Examples:
-            # Install hook (only if different)
+            # Install hooks (only if different)
             result = repo.install_git_hooks()
-            # → {'installed': True, 'hook_path': '.git/hooks/pre-commit', 'action': 'updated'}
+            # → {'installed': True, 'action': 'updated'}
 
             # Force install
             result = repo.install_git_hooks(force=True)
-            # → {'installed': True, 'hook_path': '.git/hooks/pre-commit', 'action': 'installed'}
+            # → {'installed': True, 'action': 'installed'}
         """
         import filecmp
 
-        hook_source = os.path.join(TEMPLATE_DIRS, 'pre-commit')
-        hook_dest = os.path.join(self.__base_dir, '.git', 'hooks', 'pre-commit')
+        hooks_source_dir = os.path.join(TEMPLATE_DIRS, 'git-hooks')
+        hooks_dest_dir = os.path.join(self.__base_dir, '.git', 'hooks')
 
-        # Determine action
-        if not os.path.exists(hook_dest):
-            action = 'installed'
-            should_install = True
-        elif force:
-            action = 'installed'
-            should_install = True
-        elif not filecmp.cmp(hook_source, hook_dest, shallow=False):
-            action = 'updated'
-            should_install = True
-        else:
-            action = 'skipped'
-            should_install = False
+        any_installed = False
+        overall_action = 'skipped'
 
-        # Install if needed
-        if should_install:
-            shutil.copy(hook_source, hook_dest)
-            os.chmod(hook_dest, 0o755)
-            installed = True
-        else:
-            installed = False
+        # Install all hooks from templates/git-hooks/
+        for hook_name in os.listdir(hooks_source_dir):
+            hook_source = os.path.join(hooks_source_dir, hook_name)
+            hook_dest = os.path.join(hooks_dest_dir, hook_name)
+
+            # Skip non-files
+            if not os.path.isfile(hook_source):
+                continue
+
+            # Determine action for this hook
+            if not os.path.exists(hook_dest):
+                action = 'installed'
+                should_install = True
+            elif force:
+                action = 'installed'
+                should_install = True
+            elif not filecmp.cmp(hook_source, hook_dest, shallow=False):
+                action = 'updated'
+                should_install = True
+            else:
+                action = 'skipped'
+                should_install = False
+
+            # Install if needed
+            if should_install:
+                shutil.copy(hook_source, hook_dest)
+                os.chmod(hook_dest, 0o755)
+                any_installed = True
+                # Update overall action (installed > updated > skipped)
+                if action == 'installed' or overall_action == 'skipped':
+                    overall_action = action
 
         return {
-            'installed': installed,
-            'hook_path': hook_dest,
-            'action': action
+            'installed': any_installed,
+            'action': overall_action
         }
 
     def check_and_update(
@@ -735,12 +746,27 @@ class Repo:
         else:
             # Dry run: just check if update would be needed
             import filecmp
-            hook_source = os.path.join(TEMPLATE_DIRS, 'pre-commit')
-            hook_dest = os.path.join(self.__base_dir, '.git', 'hooks', 'pre-commit')
+            hooks_source_dir = os.path.join(TEMPLATE_DIRS, 'git-hooks')
+            hooks_dest_dir = os.path.join(self.__base_dir, '.git', 'hooks')
 
-            if not os.path.exists(hook_dest):
+            would_install = False
+            would_update = False
+
+            for hook_name in os.listdir(hooks_source_dir):
+                hook_source = os.path.join(hooks_source_dir, hook_name)
+                hook_dest = os.path.join(hooks_dest_dir, hook_name)
+
+                if not os.path.isfile(hook_source):
+                    continue
+
+                if not os.path.exists(hook_dest):
+                    would_install = True
+                elif not filecmp.cmp(hook_source, hook_dest, shallow=False):
+                    would_update = True
+
+            if would_install:
                 result['hooks'] = {'installed': False, 'action': 'would_install'}
-            elif not filecmp.cmp(hook_source, hook_dest, shallow=False):
+            elif would_update:
                 result['hooks'] = {'installed': False, 'action': 'would_update'}
             else:
                 result['hooks'] = {'installed': False, 'action': 'skipped'}
