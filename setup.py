@@ -44,7 +44,7 @@ setup(
     license='GNU General Public License v3 (GPLv3)',
     packages=find_packages(),
     package_data={'half_orm_dev': [
-        'templates/*', 'templates/.gitignore', 'db_patch_system/*', 'patches/**/*', 'version.txt']},
+        'templates/*', 'templates/git-hooks/*', 'templates/.gitignore', 'db_patch_system/*', 'patches/**/*', 'version.txt']},
     install_requires=[
         'GitPython',
         'click',
