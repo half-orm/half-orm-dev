@@ -888,7 +888,7 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 ---
 
 **Version**: 0.17.0
-**halfORM**: Compatible with halfORM 0.16.x
+**halfORM**: Compatible with halfORM 0.17.x
 **Python**: 3.8+
 **PostgreSQL**: Tested with 13+ (might work with earlier versions)
 
