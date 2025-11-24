@@ -2520,10 +2520,26 @@ class ReleaseManager:
         rc_tag = f"v{version}-rc{rc_number}"  # Use v prefix and rc1 for first RC
 
         try:
-            # Checkout release branch
+            # 1. Apply patches to database (for validation)
+            # 1.1. Restore database from baseline
+            self._repo.restore_database_from_schema()
+
+            # 1.2. Apply all previous RC patches in order
+            rc_files = self.get_rc_files(version)
+            for rc_file_name in rc_files:
+                rc_patches = self.read_release_patches(rc_file_name)
+                for patch_id in rc_patches:
+                    self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
+
+            # 1.3. Apply stage patches
+            stage_patches = self.read_release_patches(f"{version}-stage.txt")
+            for patch_id in stage_patches:
+                self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
+
+            # 2. Checkout release branch
             self._repo.hgit.checkout(release_branch)
 
-            # Create RC tag on release branch
+            # 3. Create RC tag on release branch
             self._repo.hgit.create_tag(rc_tag, f"Release Candidate {version}")
 
             # Push tag
@@ -2630,7 +2646,33 @@ class ReleaseManager:
                         "ho-prod has been restored to its previous state."
                     )
 
-            # 3. Rename rc file to prod
+            # 3. Apply patches and generate schema
+            # 3.1. Restore database from baseline
+            self._repo.restore_database_from_schema()
+
+            # 3.2. Apply all RC patches in order
+            rc_files = self.get_rc_files(version)
+            for rc_file in rc_files:
+                rc_patches = self.read_release_patches(rc_file)
+                for patch_id in rc_patches:
+                    self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
+
+            # 3.3. Apply stage patches (before renaming to prod)
+            stage_patches = self.read_release_patches(f"{version}-stage.txt")
+            for patch_id in stage_patches:
+                self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
+
+            # 3.4. Generate schema dump for this version
+            from pathlib import Path
+            model_dir = Path(self._repo.base_dir) / "model"
+            self._repo.database._generate_schema_sql(version, model_dir)
+
+            # 3.5. Commit schema files
+            self._repo.hgit.add(str(model_dir / f"schema-{version}.sql"))
+            self._repo.hgit.add(str(model_dir / f"metadata-{version}.sql"))
+            self._repo.hgit.add(str(model_dir / "schema.sql"))  # symlink
+
+            # 4. Rename stage file to prod
             prod_file = self._releases_dir / f"{version}.txt"
             stage_file.rename(prod_file)
             self._repo.hgit.add(str(stage_file))   # Old path
