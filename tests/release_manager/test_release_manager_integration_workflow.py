@@ -105,7 +105,7 @@ class TestReleaseIntegrationWorkflow:
         mock_hgit_complete.merge.assert_called_once_with(
             "ho-patch/1-first",
             no_ff=True,
-            message="[HOP] Merge patch 1-first into release 0.1.0"
+            message="[HOP] Merge patch #1-first into release %0.1.0"
         )
 
         # Should update stage file
@@ -159,12 +159,12 @@ class TestReleaseIntegrationWorkflow:
         assert merge_calls[0] == call(
             "ho-patch/1-first",
             no_ff=True,
-            message="[HOP] Merge patch 1-first into release 0.1.0"
+            message="[HOP] Merge patch #1-first into release %0.1.0"
         )
         assert merge_calls[1] == call(
             "ho-patch/2-second",
             no_ff=True,
-            message="[HOP] Merge patch 2-second into release 0.1.0"
+            message="[HOP] Merge patch #2-second into release %0.1.0"
         )
 
         # Stage file should contain both
