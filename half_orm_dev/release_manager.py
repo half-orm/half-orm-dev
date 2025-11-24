@@ -650,6 +650,35 @@ class ReleaseManager:
 
         return patch_ids
 
+    def _apply_release_patches(self, version: str) -> None:
+        """
+        Apply all patches for a release version to the database.
+
+        Restores database from baseline and applies patches in order:
+        1. All RC patches (rc1, rc2, etc.)
+        2. Stage patches
+
+        Args:
+            version: Release version (e.g., "0.1.0")
+
+        Raises:
+            ReleaseManagerError: If patch application fails
+        """
+        # Restore database from baseline
+        self._repo.restore_database_from_schema()
+
+        # Apply all RC patches in order
+        rc_files = self.get_rc_files(version)
+        for rc_file in rc_files:
+            rc_patches = self.read_release_patches(rc_file.name)
+            for patch_id in rc_patches:
+                self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
+
+        # Apply stage patches
+        stage_patches = self.read_release_patches(f"{version}-stage.txt")
+        for patch_id in stage_patches:
+            self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
+
     def get_all_release_context_patches(self) -> List[str]:
         """
         Récupère TOUS les patches du contexte de la prochaine release.
@@ -2521,20 +2550,7 @@ class ReleaseManager:
 
         try:
             # 1. Apply patches to database (for validation)
-            # 1.1. Restore database from baseline
-            self._repo.restore_database_from_schema()
-
-            # 1.2. Apply all previous RC patches in order
-            rc_files = self.get_rc_files(version)
-            for rc_file_name in rc_files:
-                rc_patches = self.read_release_patches(rc_file_name)
-                for patch_id in rc_patches:
-                    self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
-
-            # 1.3. Apply stage patches
-            stage_patches = self.read_release_patches(f"{version}-stage.txt")
-            for patch_id in stage_patches:
-                self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
+            self._apply_release_patches(version)
 
             # 2. Checkout release branch
             self._repo.hgit.checkout(release_branch)
@@ -2647,22 +2663,9 @@ class ReleaseManager:
                     )
 
             # 3. Apply patches and generate schema
-            # 3.1. Restore database from baseline
-            self._repo.restore_database_from_schema()
+            self._apply_release_patches(version)
 
-            # 3.2. Apply all RC patches in order
-            rc_files = self.get_rc_files(version)
-            for rc_file in rc_files:
-                rc_patches = self.read_release_patches(rc_file)
-                for patch_id in rc_patches:
-                    self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
-
-            # 3.3. Apply stage patches (before renaming to prod)
-            stage_patches = self.read_release_patches(f"{version}-stage.txt")
-            for patch_id in stage_patches:
-                self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
-
-            # 3.4. Generate schema dump for this version
+            # Generate schema dump for this version
             from pathlib import Path
             model_dir = Path(self._repo.base_dir) / "model"
             self._repo.database._generate_schema_sql(version, model_dir)

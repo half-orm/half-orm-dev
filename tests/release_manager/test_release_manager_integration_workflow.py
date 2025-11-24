@@ -348,3 +348,194 @@ class TestReleaseIntegrationWorkflow:
         checkout_calls = mock_hgit_complete.checkout.call_args_list
         # Last checkout should be to original branch
         assert checkout_calls[-1] == call("ho-patch/003-my-work")
+
+
+class TestApplyReleasePatches:
+    """Test the _apply_release_patches() method for correct patch application order."""
+
+    def test_applies_patches_in_correct_order(self, release_manager):
+        """Test that patches are applied in order: restore → RC patches → stage patches."""
+        rel_mgr, repo, temp_dir, releases_dir = release_manager
+
+        # Setup: create RC files and stage file
+        rc1_file = releases_dir / "0.1.0-rc1.txt"
+        rc1_file.write_text("001-first\n002-second\n")
+
+        rc2_file = releases_dir / "0.1.0-rc2.txt"
+        rc2_file.write_text("003-third\n")
+
+        stage_file = releases_dir / "0.1.0-stage.txt"
+        stage_file.write_text("004-fourth\n005-fifth\n")
+
+        # Mock patch_manager
+        mock_patch_manager = Mock()
+        repo.patch_manager = mock_patch_manager
+        repo.model = Mock()
+
+        # Execute
+        rel_mgr._apply_release_patches("0.1.0")
+
+        # Verify restore was called first
+        repo.restore_database_from_schema.assert_called_once()
+
+        # Verify patches applied in correct order
+        apply_calls = mock_patch_manager.apply_patch_files.call_args_list
+        assert len(apply_calls) == 5
+
+        # RC1 patches first
+        assert apply_calls[0] == call("001-first", repo.model)
+        assert apply_calls[1] == call("002-second", repo.model)
+
+        # RC2 patches second
+        assert apply_calls[2] == call("003-third", repo.model)
+
+        # Stage patches last
+        assert apply_calls[3] == call("004-fourth", repo.model)
+        assert apply_calls[4] == call("005-fifth", repo.model)
+
+    def test_restore_called_before_any_patch(self, release_manager):
+        """Test that database restore happens before any patch application."""
+        rel_mgr, repo, temp_dir, releases_dir = release_manager
+
+        # Setup: create stage file only
+        stage_file = releases_dir / "0.1.0-stage.txt"
+        stage_file.write_text("001-first\n")
+
+        # Track call order
+        call_order = []
+
+        def track_restore():
+            call_order.append('restore')
+
+        def track_apply(*args):
+            call_order.append(f'apply:{args[0]}')
+
+        repo.restore_database_from_schema = track_restore
+        mock_patch_manager = Mock()
+        mock_patch_manager.apply_patch_files.side_effect = track_apply
+        repo.patch_manager = mock_patch_manager
+        repo.model = Mock()
+
+        # Execute
+        rel_mgr._apply_release_patches("0.1.0")
+
+        # Verify order
+        assert call_order[0] == 'restore'
+        assert call_order[1] == 'apply:001-first'
+
+    def test_no_rc_files_applies_only_stage(self, release_manager):
+        """Test that when no RC files exist, only stage patches are applied."""
+        rel_mgr, repo, temp_dir, releases_dir = release_manager
+
+        # Setup: create only stage file
+        stage_file = releases_dir / "0.1.0-stage.txt"
+        stage_file.write_text("001-first\n002-second\n")
+
+        mock_patch_manager = Mock()
+        repo.patch_manager = mock_patch_manager
+        repo.model = Mock()
+
+        # Execute
+        rel_mgr._apply_release_patches("0.1.0")
+
+        # Verify only stage patches applied
+        apply_calls = mock_patch_manager.apply_patch_files.call_args_list
+        assert len(apply_calls) == 2
+        assert apply_calls[0] == call("001-first", repo.model)
+        assert apply_calls[1] == call("002-second", repo.model)
+
+    def test_empty_stage_file_applies_only_rc_patches(self, release_manager):
+        """Test that empty stage file still applies RC patches."""
+        rel_mgr, repo, temp_dir, releases_dir = release_manager
+
+        # Setup: create RC file and empty stage
+        rc1_file = releases_dir / "0.1.0-rc1.txt"
+        rc1_file.write_text("001-first\n")
+
+        stage_file = releases_dir / "0.1.0-stage.txt"
+        stage_file.write_text("")
+
+        mock_patch_manager = Mock()
+        repo.patch_manager = mock_patch_manager
+        repo.model = Mock()
+
+        # Execute
+        rel_mgr._apply_release_patches("0.1.0")
+
+        # Verify only RC patches applied
+        apply_calls = mock_patch_manager.apply_patch_files.call_args_list
+        assert len(apply_calls) == 1
+        assert apply_calls[0] == call("001-first", repo.model)
+
+    def test_multiple_rc_files_applied_in_order(self, release_manager):
+        """Test that RC files are applied in numerical order (rc1, rc2, rc3...)."""
+        rel_mgr, repo, temp_dir, releases_dir = release_manager
+
+        # Setup: create RC files out of order
+        rc3_file = releases_dir / "0.1.0-rc3.txt"
+        rc3_file.write_text("003-third\n")
+
+        rc1_file = releases_dir / "0.1.0-rc1.txt"
+        rc1_file.write_text("001-first\n")
+
+        rc2_file = releases_dir / "0.1.0-rc2.txt"
+        rc2_file.write_text("002-second\n")
+
+        stage_file = releases_dir / "0.1.0-stage.txt"
+        stage_file.write_text("")
+
+        mock_patch_manager = Mock()
+        repo.patch_manager = mock_patch_manager
+        repo.model = Mock()
+
+        # Execute
+        rel_mgr._apply_release_patches("0.1.0")
+
+        # Verify RC files applied in correct order
+        apply_calls = mock_patch_manager.apply_patch_files.call_args_list
+        assert len(apply_calls) == 3
+        assert apply_calls[0] == call("001-first", repo.model)
+        assert apply_calls[1] == call("002-second", repo.model)
+        assert apply_calls[2] == call("003-third", repo.model)
+
+    def test_handles_comments_and_empty_lines(self, release_manager):
+        """Test that comments and empty lines in release files are ignored."""
+        rel_mgr, repo, temp_dir, releases_dir = release_manager
+
+        # Setup: create stage file with comments and empty lines
+        stage_file = releases_dir / "0.1.0-stage.txt"
+        stage_file.write_text("# This is a comment\n001-first\n\n002-second\n# Another comment\n")
+
+        mock_patch_manager = Mock()
+        repo.patch_manager = mock_patch_manager
+        repo.model = Mock()
+
+        # Execute
+        rel_mgr._apply_release_patches("0.1.0")
+
+        # Verify only actual patches applied
+        apply_calls = mock_patch_manager.apply_patch_files.call_args_list
+        assert len(apply_calls) == 2
+        assert apply_calls[0] == call("001-first", repo.model)
+        assert apply_calls[1] == call("002-second", repo.model)
+
+    def test_no_patches_still_restores_database(self, release_manager):
+        """Test that database is restored even when there are no patches."""
+        rel_mgr, repo, temp_dir, releases_dir = release_manager
+
+        # Setup: create empty stage file
+        stage_file = releases_dir / "0.1.0-stage.txt"
+        stage_file.write_text("")
+
+        mock_patch_manager = Mock()
+        repo.patch_manager = mock_patch_manager
+        repo.model = Mock()
+
+        # Execute
+        rel_mgr._apply_release_patches("0.1.0")
+
+        # Verify restore was still called
+        repo.restore_database_from_schema.assert_called_once()
+
+        # Verify no patches applied
+        mock_patch_manager.apply_patch_files.assert_not_called()
