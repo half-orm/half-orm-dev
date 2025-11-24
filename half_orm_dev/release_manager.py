@@ -2423,7 +2423,7 @@ class ReleaseManager:
                 self._repo.hgit.merge(
                     patch_branch,
                     no_ff=True,
-                    message=f"[HOP] Merge patch {patch_id} into release {version}"
+                    message=f"[HOP] Merge patch #{patch_id} into release %{version}"
                 )
             except Exception as e:
                 # Merge conflict - stay on release branch for resolution
@@ -2448,7 +2448,7 @@ class ReleaseManager:
             # 7. Commit stage file update (on ho-prod)
             self._repo.hgit.checkout("ho-prod")
             self._repo.hgit.add(str(stage_file))
-            self._repo.hgit.commit("-m", f"[HOP] Add patch {patch_id} to release {version} stage")
+            self._repo.hgit.commit("-m", f"[HOP] Add patch #{patch_id} to release %{version} stage. Closes #{patch_id}")
             self._repo.hgit.push_branch("ho-prod")
 
             # 1. Delete patch branch
