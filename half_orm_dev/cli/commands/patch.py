@@ -217,6 +217,79 @@ def patch_apply() -> None:
         raise click.ClickException(str(e))
 
 
+@patch.command('close')
+@click.argument('patch_id', type=str)
+def patch_close(patch_id: str) -> None:
+    """
+    Close patch by merging into release branch.
+
+    Integrates developed patch into a release by merging into ho-release/X.Y.Z.
+    This replaces the old 'patch add' workflow with a more intuitive semantic.
+
+    Complete workflow:
+        1. Detect version from X.Y.Z-candidates.txt
+        2. Validate patch branch exists
+        3. Merge ho-patch/PATCH_ID into ho-release/X.Y.Z
+        4. Move patch from candidates.txt to stage.txt
+        5. Delete ho-patch/PATCH_ID branch
+        6. Commit and push changes
+        7. Notify other candidate patches to sync
+
+    Args:
+        patch_id: Patch identifier to close (e.g., "456-user-auth")
+
+    Examples:
+        Close patch after development:
+        $ half_orm dev patch close 456-user-auth
+
+    Output:
+        ✓ Patch closed successfully!
+
+          Version:         0.17.0
+          Stage file:      releases/0.17.0-stage.txt
+          Merged into:     ho-release/0.17.0
+          Notified:        2 active branch(es)
+
+        📝 Next steps:
+          • Other developers: git pull && git merge origin/ho-release/0.17.0
+          • Continue development: half_orm dev patch new <next_patch_id>
+          • Promote to RC: half_orm dev release promote rc
+
+    Raises:
+        click.ClickException: If validation fails or integration errors occur
+    """
+    try:
+        # Get repository instance
+        repo = Repo()
+
+        # Display context
+        click.echo(f"Closing patch {utils.Color.bold(patch_id)}...")
+        click.echo()
+
+        # Delegate to PatchManager
+        result = repo.patch_manager.close_patch(patch_id)
+
+        # Display success message
+        click.echo(f"✓ {utils.Color.green('Patch closed successfully!')}")
+        click.echo()
+        click.echo(f"  Version:         {utils.Color.bold(result['version'])}")
+        click.echo(f"  Stage file:      {utils.Color.bold(result['stage_file'])}")
+        click.echo(f"  Merged into:     {utils.Color.bold(result['merged_into'])}")
+
+        if result.get('notified_branches'):
+            click.echo(f"  Notified:        {len(result['notified_branches'])} active branch(es)")
+
+        click.echo()
+        click.echo("📝 Next steps:")
+        click.echo(f"""  • Other developers: {utils.Color.bold(f'git pull && git merge origin/{result["merged_into"]}')}""")
+        click.echo(f"  • Continue development: {utils.Color.bold('half_orm dev patch new <next_patch_id>')}")
+        click.echo(f"  • Promote to RC: {utils.Color.bold('half_orm dev release promote rc')}")
+        click.echo()
+
+    except PatchManagerError as e:
+        raise click.ClickException(str(e))
+
+
 @patch.command('add')
 @click.argument('patch_id', type=str)
 @click.option(

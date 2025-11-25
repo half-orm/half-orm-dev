@@ -1397,6 +1397,105 @@ class PatchManager:
             'version': release_version  # NEW: include release version
         }
 
+    def close_patch(self, patch_id: str) -> dict:
+        """
+        Close a patch by merging it into the release branch.
+
+        This replaces the old add_patch_to_release workflow. Instead of merging
+        into ho-prod, we merge into ho-release/X.Y.Z where other patches can
+        see the changes.
+
+        Workflow:
+        1. Find which release the patch belongs to (from candidates.txt)
+        2. Validate patch branch exists
+        3. Checkout to ho-release/X.Y.Z
+        4. Merge ho-patch/PATCH_ID into ho-release/X.Y.Z
+        5. Move patch from candidates.txt to stage.txt
+        6. Delete ho-patch/PATCH_ID branch
+        7. Commit and push
+        8. Notify other candidate patches to sync
+
+        Args:
+            patch_id: Patch identifier (e.g., "456-user-auth")
+
+        Returns:
+            dict with keys:
+                - version: Release version
+                - patch_id: Patch identifier
+                - stage_file: Path to stage file
+                - merged_into: Release branch name
+                - notified_branches: List of notified patch branches
+
+        Raises:
+            PatchManagerError: If patch not found or merge fails
+
+        Examples:
+            result = patch_mgr.close_patch("456-user-auth")
+            # Merges into ho-release/0.17.0, moves to stage
+        """
+        # 1. Find version from candidates.txt
+        version = self._find_version_for_candidate(patch_id)
+        if not version:
+            raise PatchManagerError(
+                f"Patch {patch_id} not found in any candidates file.\n"
+                f"Available candidates:\n{self._list_all_candidates()}"
+            )
+
+        release_branch = f"ho-release/{version}"
+        patch_branch = f"ho-patch/{patch_id}"
+
+        # 2. Validate patch branch exists
+        if not self._repo.hgit.branch_exists(patch_branch):
+            raise PatchManagerError(
+                f"Patch branch {patch_branch} does not exist.\n"
+                f"The patch may have already been closed or deleted."
+            )
+
+        # 3. Checkout to release branch
+        try:
+            self._repo.hgit.checkout(release_branch)
+        except Exception as e:
+            raise PatchManagerError(f"Failed to checkout {release_branch}: {e}")
+
+        # 4. Merge patch branch into release branch
+        try:
+            self._repo.hgit.merge(patch_branch)
+        except Exception as e:
+            raise PatchManagerError(
+                f"Failed to merge {patch_branch} into {release_branch}: {e}\n"
+                f"You may need to resolve conflicts manually."
+            )
+
+        # 5. Move from candidates to stage
+        self._move_patch_to_stage(patch_id, version)
+
+        # 6. Commit changes
+        try:
+            self._repo.hgit.commit("-m", f"[HOP] Close patch {patch_id} for {version}")
+            self._repo.hgit.push_branch(release_branch)
+        except Exception as e:
+            raise PatchManagerError(f"Failed to commit/push changes: {e}")
+
+        # 7. Delete patch branch (local and remote)
+        try:
+            self._repo.hgit.delete_local_branch(patch_branch)
+            self._repo.hgit.delete_remote_branch(patch_branch)
+        except Exception as e:
+            # Non-critical - branch deletion can fail
+            import click
+            click.echo(f"⚠️  Warning: Failed to delete branch {patch_branch}: {e}")
+
+        # 8. Get other candidates for notification
+        other_candidates = self._get_other_candidates(version, patch_id)
+
+        return {
+            'version': version,
+            'patch_id': patch_id,
+            'stage_file': f"releases/{version}-stage.txt",
+            'merged_into': release_branch,
+            'notified_branches': other_candidates
+        }
+
     def _validate_on_ho_release(self) -> str:
         """
         Validate that current branch is ho-release/X.Y.Z.
@@ -1877,3 +1976,149 @@ class PatchManager:
             raise PatchManagerError(
                 f"Failed to commit patch to candidates: {e}"
             )
+
+    def _find_version_for_candidate(self, patch_id: str) -> Optional[str]:
+        """
+        Find which release version a patch belongs to from candidates files.
+
+        Searches all X.Y.Z-candidates.txt files in releases/ directory to find
+        which release the patch is assigned to.
+
+        Args:
+            patch_id: Patch identifier to search for
+
+        Returns:
+            Version string (e.g., "0.17.0") or None if not found
+
+        Examples:
+            version = self._find_version_for_candidate("456-user-auth")
+            # Returns "0.17.0" if found in 0.17.0-candidates.txt
+        """
+        candidates_files = self._releases_dir.glob("*-candidates.txt")
+
+        for candidates_file in candidates_files:
+            content = candidates_file.read_text(encoding='utf-8').strip()
+            if not content:
+                continue
+
+            patches = [line.strip() for line in content.split('\n') if line.strip()]
+            if patch_id in patches:
+                # Extract version from filename (X.Y.Z-candidates.txt → X.Y.Z)
+                version = candidates_file.stem.replace('-candidates', '')
+                return version
+
+        return None
+
+    def _list_all_candidates(self) -> str:
+        """
+        List all candidate patches across all releases for error messages.
+
+        Returns:
+            Formatted string showing all releases and their candidates
+
+        Examples:
+            candidates = self._list_all_candidates()
+            # Returns:
+            # "Release 0.17.0:\n  - 456-user-auth\n  - 457-feature-x"
+        """
+        candidates_files = sorted(self._releases_dir.glob("*-candidates.txt"))
+
+        if not candidates_files:
+            return "No releases with candidates found."
+
+        lines = []
+        for candidates_file in candidates_files:
+            version = candidates_file.stem.replace('-candidates', '')
+            content = candidates_file.read_text(encoding='utf-8').strip()
+
+            if content:
+                patches = [line.strip() for line in content.split('\n') if line.strip()]
+                lines.append(f"Release {version}:")
+                for patch in patches:
+                    lines.append(f"  - {patch}")
+            else:
+                lines.append(f"Release {version}: (no candidates)")
+
+        return '\n'.join(lines)
+
+    def _move_patch_to_stage(self, patch_id: str, version: str) -> None:
+        """
+        Move patch from candidates.txt to stage.txt.
+
+        Removes the patch from X.Y.Z-candidates.txt and appends it to
+        X.Y.Z-stage.txt, indicating it has been integrated.
+
+        Args:
+            patch_id: Patch identifier to move
+            version: Release version
+
+        Raises:
+            PatchManagerError: If file operations fail
+
+        Examples:
+            self._move_patch_to_stage("456-user-auth", "0.17.0")
+            # Removes from 0.17.0-candidates.txt, adds to 0.17.0-stage.txt
+        """
+        candidates_file = self._releases_dir / f"{version}-candidates.txt"
+        stage_file = self._releases_dir / f"{version}-stage.txt"
+
+        try:
+            # Read candidates
+            candidates_content = candidates_file.read_text(encoding='utf-8').strip()
+            candidates = [line.strip() for line in candidates_content.split('\n') if line.strip()]
+
+            # Remove patch from candidates
+            if patch_id not in candidates:
+                raise PatchManagerError(
+                    f"Patch {patch_id} not found in {candidates_file.name}"
+                )
+
+            candidates.remove(patch_id)
+
+            # Write back candidates (empty or updated list)
+            candidates_file.write_text('\n'.join(candidates) + '\n' if candidates else '', encoding='utf-8')
+
+            # Append to stage
+            with stage_file.open('a', encoding='utf-8') as f:
+                f.write(f"{patch_id}\n")
+
+            # Stage both files for commit
+            self._repo.hgit.add(str(candidates_file))
+            self._repo.hgit.add(str(stage_file))
+
+        except PatchManagerError:
+            raise
+        except Exception as e:
+            raise PatchManagerError(
+                f"Failed to move patch from candidates to stage: {e}"
+            )
+
+    def _get_other_candidates(self, version: str, exclude_patch: str) -> List[str]:
+        """
+        Get list of other candidate patches for a release (excluding one).
+
+        Used to notify other developers that they should sync their patches
+        after one patch is closed.
+
+        Args:
+            version: Release version
+            exclude_patch: Patch ID to exclude from the list
+
+        Returns:
+            List of patch IDs that are still candidates
+
+        Examples:
+            others = self._get_other_candidates("0.17.0", "456-user-auth")
+            # Returns ["457-feature-x", "458-bugfix"] if they exist
+        """
+        candidates_file = self._releases_dir / f"{version}-candidates.txt"
+
+        if not candidates_file.exists():
+            return []
+
+        content = candidates_file.read_text(encoding='utf-8').strip()
+        if not content:
+            return []
+
+        patches = [line.strip() for line in content.split('\n') if line.strip()]
+        return [p for p in patches if p != exclude_patch]
