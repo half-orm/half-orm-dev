@@ -2608,13 +2608,17 @@ class ReleaseManager:
     @with_ho_prod_lock()
     def promote_to_prod(self, version: str = None) -> dict:
         """
-        Promote an RC release to production.
+        Promote stage release to production.
 
-        Merges the release branch into ho-prod and cleans up:
-        1. Merge ho-release/{version} into ho-prod (fast-forward)
-        2. Create production tag on ho-prod
-        3. Delete patch branches (ho-archive/{version}/{patch_id})
-        4. Delete release branch (ho-release/{version})
+        Merges the release branch into ho-prod and finalizes:
+        1. Merge ho-release/{version} into ho-prod
+        2. Apply all patches (RCs + stage) and generate schema
+        3. Rename stage.txt to X.Y.Z.txt (incremental patches after last RC)
+        4. Delete candidates.txt file
+        5. Create production tag on ho-prod
+        6. Delete release branch (ho-release/{version})
+
+        RC files are preserved for historical tracking.
 
         Args:
             version: Version to promote (e.g., "0.1.0"). If None, auto-detects
@@ -2633,7 +2637,8 @@ class ReleaseManager:
             rel_mgr.promote_to_prod("0.1.0")
             # → Merges ho-release/0.1.0 into ho-prod
             # → Creates tag "0.1.0"
-            # → Deletes patch and release branches
+            # → Deletes candidates.txt, renames stage.txt to 0.1.0.txt
+            # → Keeps RC files (0.1.0-rc1.txt, etc.) for history
 
             rel_mgr.promote_to_prod()  # Auto-detect version
             # → Promotes the smallest RC release
@@ -2693,11 +2698,19 @@ class ReleaseManager:
             self._repo.hgit.add(str(model_dir / f"metadata-{version}.sql"))
             self._repo.hgit.add(str(model_dir / "schema.sql"))  # symlink
 
-            # 4. Rename stage file to prod
+            # 4. Rename stage file to prod and delete candidates
             prod_file = self._releases_dir / f"{version}.txt"
+            candidates_file = self._releases_dir / f"{version}-candidates.txt"
+
             stage_file.rename(prod_file)
-            self._repo.hgit.add(str(stage_file))   # Old path
-            self._repo.hgit.add(str(prod_file)) # New path
+            self._repo.hgit.add(str(stage_file))   # Old path (deleted)
+            self._repo.hgit.add(str(prod_file))    # New path (created)
+
+            # Delete candidates file if it exists
+            if candidates_file.exists():
+                candidates_file.unlink()
+                self._repo.hgit.add(str(candidates_file))  # Mark as deleted
+
             self._repo.hgit.commit("-m", f"[HOP] Promote release %{version} to production")
             self._repo.hgit.push_branch("ho-prod")
 
