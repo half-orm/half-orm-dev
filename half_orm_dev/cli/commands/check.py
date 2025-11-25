@@ -94,21 +94,20 @@ def _display_check_results(result: dict, dry_run: bool, prune_branches: bool, ve
     if current:
         click.echo(f"\n📍 {utils.Color.bold('Current branch:')} {current}")
 
-    # Show patch branches
-    if patch_branches:
-        click.echo(f"\n🔧 {utils.Color.bold('Patch branches')} ({len(patch_branches)}):")
-        for branch_info in patch_branches:
-            _display_branch_info(branch_info, verbose)
+    # Show releases with candidates and staged patches
+    releases_info = result.get('releases_info', {})
+    if releases_info:
+        _display_releases_with_patches(releases_info, patch_branches, verbose)
     elif verbose:
-        click.echo(f"\n🔧 {utils.Color.bold('Patch branches:')} None")
+        click.echo(f"\n📦 {utils.Color.bold('Active releases:')} None")
 
-    # Show patch branches in stage release (grouped by version)
-    active_release = [b for b in release_branches if b.get('in_stage_file', False)]
-    if active_release:
-        click.echo(f"\n📦 {utils.Color.bold('Patch branches in stage release:')}")
-        _display_release_branches_grouped(active_release, verbose)
-    elif verbose:
-        click.echo(f"\n📦 {utils.Color.bold('Patch branches in stage release:')} None")
+    # Show standalone patch branches (not in candidates/stage)
+    standalone_patches = [b for b in patch_branches
+                         if not _is_patch_in_releases(b['name'], releases_info)]
+    if standalone_patches:
+        click.echo(f"\n🔧 {utils.Color.bold('Standalone patch branches')} ({len(standalone_patches)}):")
+        for branch_info in standalone_patches:
+            _display_branch_info(branch_info, verbose)
 
     # Show stale release branches (exist locally but not in stage)
     stale_release = [b for b in release_branches if not b.get('in_stage_file', False)]
@@ -219,3 +218,87 @@ def _display_branch_info(branch_info: dict, verbose: bool, indent: str = "  ", s
         status = "?"
 
     click.echo(f"{indent}{marker}• {display_name} - {status}")
+
+
+def _display_releases_with_patches(releases_info: dict, patch_branches: list, verbose: bool):
+    """Display releases grouped by version with candidates and staged patches.
+
+    Args:
+        releases_info: Dict of {version: {candidates: [], staged: [], ...}}
+        patch_branches: List of patch branch info dicts
+        verbose: Show verbose output
+    """
+    # Sort versions
+    sorted_versions = sorted(releases_info.keys(), key=lambda v: [int(x) for x in v.split('.')])
+
+    for version in sorted_versions:
+        info = releases_info[version]
+        candidates = info.get('candidates', [])
+        staged = info.get('staged', [])
+
+        # Release header
+        total_patches = len(candidates) + len(staged)
+        click.echo(f"\n📦 {utils.Color.bold(f'Release {version}')} (ho-release/{version}):")
+
+        # Show staged patches
+        if staged:
+            click.echo(f"\n  {utils.Color.bold('Stage')} ({len(staged)} integrated):")
+            for patch_id in staged:
+                click.echo(f"    • {patch_id} {utils.Color.green('✓')}")
+
+        # Show candidate patches with sync status
+        if candidates:
+            click.echo(f"\n  {utils.Color.bold('Candidates')} ({len(candidates)} in development):")
+            for patch_id in candidates:
+                # Find branch info for this patch
+                branch_name = f"ho-patch/{patch_id}"
+                branch_info = next((b for b in patch_branches if b['name'] == branch_name), None)
+
+                if branch_info:
+                    sync_status = branch_info.get('sync_status', 'unknown')
+                    behind = branch_info.get('behind', 0)
+                    ahead = branch_info.get('ahead', 0)
+
+                    if sync_status == 'synced':
+                        status = utils.Color.green("✓ synced")
+                    elif sync_status == 'behind':
+                        status = utils.Color.blue(f"⚠️ {behind} commits behind")
+                    elif sync_status == 'ahead':
+                        status = utils.Color.blue(f"↑ {ahead} ahead")
+                    elif sync_status == 'diverged':
+                        status = utils.Color.red(f"⚠ diverged (↑{ahead} ↓{behind})")
+                    else:
+                        status = "?"
+
+                    click.echo(f"    • {patch_id} - {status}")
+                else:
+                    # Branch doesn't exist locally
+                    click.echo(f"    • {patch_id} {utils.Color.red('⚠ branch not found')}")
+
+        if not staged and not candidates:
+            click.echo(f"    {utils.Color.blue('(empty - no patches yet)')}")
+
+
+def _is_patch_in_releases(branch_name: str, releases_info: dict) -> bool:
+    """Check if a patch branch is referenced in any release candidates or stage.
+
+    Args:
+        branch_name: Branch name (e.g., "ho-patch/42-feature-x")
+        releases_info: Dict of release information
+
+    Returns:
+        True if patch is in any candidates or staged list
+    """
+    # Extract patch_id from branch name
+    if not branch_name.startswith('ho-patch/'):
+        return False
+
+    patch_id = branch_name.replace('ho-patch/', '')
+
+    for info in releases_info.values():
+        if patch_id in info.get('candidates', []):
+            return True
+        if patch_id in info.get('staged', []):
+            return True
+
+    return False

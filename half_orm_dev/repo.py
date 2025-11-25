@@ -771,24 +771,49 @@ class Repo:
             else:
                 result['hooks'] = {'installed': False, 'action': 'skipped'}
 
-        # 2. Get active branches status
+        # 2. Get active branches status and release files
         try:
-            # Find stage files
-            stage_files = []
+            # Find release files (candidates and stage)
+            releases_info = {}
             if hasattr(self, 'release_manager'):
                 releases_dir = Path(self.__base_dir) / 'releases'
                 if releases_dir.exists():
-                    stage_files = list(releases_dir.glob('*-stage.txt'))
+                    # Group files by version
+                    from collections import defaultdict
+                    by_version = defaultdict(dict)
+
+                    for candidates_file in releases_dir.glob('*-candidates.txt'):
+                        version = candidates_file.stem.replace('-candidates', '')
+                        by_version[version]['candidates_file'] = str(candidates_file)
+                        # Read candidates
+                        candidates_content = candidates_file.read_text(encoding='utf-8').strip()
+                        by_version[version]['candidates'] = [
+                            c.strip() for c in candidates_content.split('\n') if c.strip()
+                        ]
+
+                    for stage_file in releases_dir.glob('*-stage.txt'):
+                        version = stage_file.stem.replace('-stage', '')
+                        by_version[version]['stage_file'] = str(stage_file)
+                        # Read staged patches
+                        stage_content = stage_file.read_text(encoding='utf-8').strip()
+                        by_version[version]['staged'] = [
+                            s.strip() for s in stage_content.split('\n') if s.strip()
+                        ]
+
+                    releases_info = dict(by_version)
 
             result['active_branches'] = self.hgit.get_active_branches_status(
-                stage_files=[str(f) for f in stage_files]
+                stage_files=[info.get('stage_file') for info in releases_info.values()
+                            if 'stage_file' in info]
             )
+            result['releases_info'] = releases_info
         except Exception:
             result['active_branches'] = {
                 'current_branch': None,
                 'patch_branches': [],
                 'release_branches': []
             }
+            result['releases_info'] = {}
 
         # 3. Optionally prune stale branches
         if prune_branches:

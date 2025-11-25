@@ -1459,7 +1459,7 @@ class PatchManager:
 
         # 4. Merge patch branch into release branch
         try:
-            self._repo.hgit.merge(patch_branch)
+            self._repo.hgit.merge(patch_branch, message=f"[HOP] Merge #{patch_id} into %{version}")
         except Exception as e:
             raise PatchManagerError(
                 f"Failed to merge {patch_branch} into {release_branch}: {e}\n"
@@ -1471,7 +1471,7 @@ class PatchManager:
 
         # 6. Commit changes
         try:
-            self._repo.hgit.commit("-m", f"[HOP] Closes patch #{patch_id} for %{version}")
+            self._repo.hgit.commit("-m", f"[HOP] move patch #{patch_id} from candidate to stage %{version}")
             self._repo.hgit.push_branch(release_branch)
         except Exception as e:
             raise PatchManagerError(f"Failed to commit/push changes: {e}")
