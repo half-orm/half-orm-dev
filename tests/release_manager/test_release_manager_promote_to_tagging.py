@@ -115,7 +115,7 @@ class TestPromoteToRCTagging:
 
         # Verify tag was created with correct name and message
         expected_tag = "v1.3.6-rc1"
-        expected_message = "Release Candidate 1.3.6"
+        expected_message = "Release Candidate %1.3.6"
 
         mock_hgit.create_tag.assert_called_once_with(expected_tag, expected_message)
 
@@ -150,7 +150,7 @@ class TestPromoteToRCTagging:
 
         # Verify RC2 tag with correct message format
         expected_tag = "v1.3.6-rc2"
-        expected_message = "Release Candidate 1.3.6"
+        expected_message = "Release Candidate %1.3.6"
 
         mock_hgit.create_tag.assert_called_once_with(expected_tag, expected_message)
         assert result['tag'] == "v1.3.6-rc2"
@@ -205,7 +205,7 @@ class TestPromoteToProdTagging:
 
         # Verify production tag was created
         expected_tag = "v1.3.6"
-        expected_message = "Production release 1.3.6"
+        expected_message = "Production release %1.3.6"
 
         mock_hgit.create_tag.assert_called_once_with(expected_tag, expected_message)
 
@@ -299,7 +299,7 @@ class TestTagFormatConsistency:
         tag_message = call_args[0][1]
 
         # Verify message format
-        assert tag_message == "Release Candidate 1.3.6"
+        assert tag_message == "Release Candidate %1.3.6"
         assert "Release Candidate" in tag_message
         assert "1.3.6" in tag_message
 
@@ -315,6 +315,6 @@ class TestTagFormatConsistency:
         tag_message = call_args[0][1]
 
         # Verify message format
-        assert tag_message == "Production release 1.3.6"
+        assert tag_message == "Production release %1.3.6"
         assert "Production release" in tag_message
         assert "1.3.6" in tag_message

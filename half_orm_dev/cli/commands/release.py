@@ -120,11 +120,12 @@ def release_new(level: str) -> None:
         click.echo(f"  Stage file:       {utils.Color.bold(stage_file)}")
         click.echo()
         click.echo(f"📝 Next steps:")
-        click.echo(f"  1. Create patches: {utils.Color.bold(f'half_orm dev patch new <patch_id>')}")
-        click.echo(f"  2. Add to release: {utils.Color.bold(f'half_orm dev patch add <patch_id> --to-version={version}')}")
-        click.echo(f"  3. Promote to RC:  {utils.Color.bold('half_orm dev release promote rc')}")
+        click.echo(f"  1. Switch to release branch: {utils.Color.bold(f'git checkout {branch}')}")
+        click.echo(f"  2. Create patches: {utils.Color.bold(f'half_orm dev patch new <patch_id>')}")
+        click.echo(f"  3. Close patches:  {utils.Color.bold(f'half_orm dev patch close <patch_id>')}")
+        click.echo(f"  4. Promote to RC:  {utils.Color.bold('half_orm dev release promote rc')}")
         click.echo()
-        click.echo(f"ℹ️  Patches will be merged into {utils.Color.bold(branch)} for integration testing")
+        click.echo(f"ℹ️  You are now on {utils.Color.bold(branch)} - patches will be merged here")
         click.echo()
 
     except ReleaseManagerError as e:

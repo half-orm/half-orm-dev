@@ -188,7 +188,7 @@ class TestReleaseIntegrationWorkflow:
         assert call("ho-release/0.1.0") in mock_hgit_complete.checkout.call_args_list
 
         # Should create tag on release branch
-        mock_hgit_complete.create_tag.assert_called_once_with('v0.1.0-rc1', 'Release Candidate 0.1.0')
+        mock_hgit_complete.create_tag.assert_called_once_with('v0.1.0-rc1', 'Release Candidate %0.1.0')
 
         # Should push tag
         mock_hgit_complete.push_tag.assert_called_once_with('v0.1.0-rc1')
@@ -221,11 +221,11 @@ class TestReleaseIntegrationWorkflow:
         mock_hgit_complete.merge.assert_called_once_with(
             "ho-release/0.1.0",
             ff_only=True,
-            message="[HOP] Merge release 0.1.0 into production"
+            message="[HOP] Merge release %0.1.0 into production"
         )
 
         # Should create prod tag on ho-prod
-        mock_hgit_complete.create_tag.assert_called_once_with('v0.1.0', 'Production release 0.1.0')
+        mock_hgit_complete.create_tag.assert_called_once_with('v0.1.0', 'Production release %0.1.0')
 
         # Should push ho-prod and tag
         assert call("ho-prod") in mock_hgit_complete.push_branch.call_args_list
@@ -296,7 +296,7 @@ class TestReleaseIntegrationWorkflow:
 
         # Step 4: Promote to RC
         rel_mgr.promote_to_rc("0.1.0")
-        assert mock_hgit_complete.create_tag.call_args == call('v0.1.0-rc1', 'Release Candidate 0.1.0')
+        assert mock_hgit_complete.create_tag.call_args == call('v0.1.0-rc1', 'Release Candidate %0.1.0')
 
         # Step 5: Promote to prod
         rel_mgr.promote_to_prod("0.1.0")
