@@ -2651,6 +2651,21 @@ class ReleaseManager:
         if not stage_file.exists():
             raise ReleaseManagerError(f"RC release {version} not found")
 
+        # Verify that candidates.txt is empty before promoting to production
+        candidates_file = self._releases_dir / f"{version}-candidates.txt"
+        if candidates_file.exists():
+            candidates_content = candidates_file.read_text(encoding='utf-8').strip()
+            if candidates_content:
+                candidates = [c.strip() for c in candidates_content.split('\n') if c.strip()]
+                raise ReleaseManagerError(
+                    f"Cannot promote {version} to production: {len(candidates)} candidate patch(es) remain:\n"
+                    f"  • " + "\n  • ".join(candidates) + "\n\n"
+                    f"Actions required:\n"
+                    f"  1. Close patches: half_orm dev patch close <patch_id>\n"
+                    f"  2. OR delete branches: git branch -D ho-patch/<patch_id>\n"
+                    f"  3. OR move to another release (edit candidates file manually)"
+                )
+
         release_branch = f"ho-release/{version}"
 
         try:
