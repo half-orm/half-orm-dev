@@ -1471,7 +1471,7 @@ class PatchManager:
 
         # 6. Commit changes
         try:
-            self._repo.hgit.commit("-m", f"[HOP] Close patch {patch_id} for {version}")
+            self._repo.hgit.commit("-m", f"[HOP] Closes patch #{patch_id} for %{version}")
             self._repo.hgit.push_branch(release_branch)
         except Exception as e:
             raise PatchManagerError(f"Failed to commit/push changes: {e}")

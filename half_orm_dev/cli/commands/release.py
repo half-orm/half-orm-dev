@@ -250,7 +250,10 @@ def release_promote(target: str) -> None:
             click.echo()
             click.echo("📝 Next steps:")
             click.echo(f"  • Test RC thoroughly")
+            click.echo(f"  • If fixes needed: {utils.Color.bold('half_orm dev patch new <patch_id>')}")
             click.echo(f"  • Deploy to production: {utils.Color.bold('half_orm dev release promote prod')}")
+            click.echo()
+            click.echo(f"ℹ️  You are now on {utils.Color.bold(result['branch'])} - patches will be merged here")
 
         else:
             # Production promotion output

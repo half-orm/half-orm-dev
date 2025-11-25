@@ -2579,8 +2579,8 @@ class ReleaseManager:
             # Push tag
             self._repo.hgit.push_tag(rc_tag)
 
-            # Return to ho-prod
-            self._repo.hgit.checkout("ho-prod")
+            # Stay on release branch for rename operations
+            # (allows continued development on this release)
 
             # Rename stage file to rc file
             rc_file = self._releases_dir / f"{version}-rc{rc_number}.txt"
@@ -2590,11 +2590,11 @@ class ReleaseManager:
             except Exception as e:
                 raise ReleaseManagerError(f"Failed to create stage file: {e}")
 
-            # Commit rename
+            # Commit rename on release branch
             self._repo.hgit.add(str(stage_file))  # Old path (deleted)
             self._repo.hgit.add(str(rc_file))     # New path
             self._repo.hgit.commit("-m", f"[HOP] Promote release %{version} to RC {rc_number}")
-            self._repo.hgit.push_branch("ho-prod")
+            self._repo.hgit.push_branch(release_branch)
 
             return {
                 'version': version,
