@@ -1964,8 +1964,9 @@ class PatchManager:
             # Commits with message: "[HOP] Add patch 456-user-auth to 0.17.0 candidates"
         """
         try:
+            self._repo.hgit.add(self._releases_dir / f"{version}-candidates.txt")
             # Construct commit message
-            msg = f"[HOP] Add patch {patch_id} to {version} candidates"
+            msg = f"[HOP] Add patch #{patch_id} to %{version} candidates"
             if description:
                 msg += f"\n\n{description}"
 
