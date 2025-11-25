@@ -25,7 +25,7 @@ def release_manager(tmp_path):
     """Create ReleaseManager with mocked Repo for testing."""
     # Create releases/ directory
     releases_dir = tmp_path / "releases"
-    releases_dir.mkdir()
+    releases_dir.mkdir(exist_ok=True)
 
     # Create Patches/ directory
     patches_dir = tmp_path / "Patches"

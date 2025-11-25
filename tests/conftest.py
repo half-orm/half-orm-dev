@@ -20,6 +20,12 @@ def temp_repo():
     patches_dir = Path(temp_dir) / "Patches"
     patches_dir.mkdir()
 
+    # Create releases/ directory with candidates file (for new workflow)
+    releases_dir = Path(temp_dir) / "releases"
+    releases_dir.mkdir(exist_ok=True)
+    candidates_file = releases_dir / "0.17.0-candidates.txt"
+    candidates_file.write_text("", encoding='utf-8')  # Empty file initially
+
     repo = Mock()
     repo.base_dir = temp_dir
     repo.devel = True
@@ -63,23 +69,23 @@ def mock_hgit_complete():
     Create complete mock HGit for create_patch workflow tests.
 
     Provides all necessary mocks for successful patch creation workflow:
-    - Branch validation (on ho-prod)
+    - Branch validation (on ho-release/X.Y.Z) - NEW workflow
     - Repository clean check
     - Remote configuration check
     - Remote fetch operations
-    - Branch synchronization check (NEW)
+    - Branch synchronization check
     - Tag availability check
     - Git operations (checkout, add, commit, tag, push)
     - Branch operations (create, delete, checkout)
     """
     mock_hgit = Mock()
 
-    # Branch and repo state
-    mock_hgit.branch = "ho-prod"
+    # Branch and repo state - NEW: use ho-release/X.Y.Z instead of ho-prod
+    mock_hgit.branch = "ho-release/0.17.0"
     mock_hgit.repos_is_clean.return_value = True
     mock_hgit.has_remote.return_value = True
 
-    # NEW: Branch synchronization check
+    # Branch synchronization check
     # Returns (is_synced, status) tuple
     mock_hgit.is_branch_synced.return_value = (True, "synced")
 
@@ -211,7 +217,7 @@ def mock_release_manager_basic(tmp_path):
 
     # Create releases/ directory
     releases_dir = tmp_path / "releases"
-    releases_dir.mkdir()
+    releases_dir.mkdir(exist_ok=True)
 
     release_mgr = ReleaseManager(mock_repo)
 
@@ -315,7 +321,7 @@ def sample_release_files(tmp_path):
         Tuple of (releases_dir, dict of created files)
     """
     releases_dir = tmp_path / "releases"
-    releases_dir.mkdir()
+    releases_dir.mkdir(exist_ok=True)
 
     files = {
         '1.3.4.txt': '',

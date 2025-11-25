@@ -251,7 +251,7 @@ class TestPatchManagerTagReservation:
         repo.hgit = mock_hgit_complete
 
         # Should fail on branch validation (before fetching tags)
-        with pytest.raises(PatchManagerError, match="Must be on ho-prod branch"):
+        with pytest.raises(PatchManagerError, match="Must be on ho-release/X.Y.Z branch to create patch."):
             patch_mgr.create_patch("456-user-auth")
 
         # Fetch tags should NOT be called (validation failed earlier)

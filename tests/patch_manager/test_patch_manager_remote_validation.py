@@ -83,23 +83,21 @@ class TestPatchManagerRemoteValidation:
         with pytest.raises(PatchManagerError, match="Patch ID reservation"):
             patch_mgr._push_branch_to_reserve_id("ho-patch/456-user-auth")
 
-    def test_create_patch_validates_remote_before_branch_creation(self, patch_manager):
+    def test_create_patch_validates_remote_before_branch_creation(self, patch_manager, mock_hgit_complete):
         """Test that remote validation happens before branch creation."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit with no remote
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.has_remote.return_value = False  # No remote
-        repo.hgit = mock_hgit
+        mock_hgit_complete.repos_is_clean.return_value = True
+        mock_hgit_complete.has_remote.return_value = False  # No remote
+        repo.hgit = mock_hgit_complete
 
         # Should fail on remote validation before creating branch
         with pytest.raises(PatchManagerError, match="No git remote configured"):
             patch_mgr.create_patch("456")
 
         # Branch creation should NOT be called
-        assert not mock_hgit.checkout.called
+        assert not mock_hgit_complete.checkout.called
 
     def test_create_patch_pushes_branch_after_creation(self, patch_manager, mock_hgit_complete):
         """Test that branch is pushed after creation."""
@@ -115,29 +113,28 @@ class TestPatchManagerRemoteValidation:
         calls = mock_hgit_complete.push_branch.call_args_list
         assert calls[1] == call("ho-patch/456", set_upstream=True)
 
-    def test_create_patch_validation_order_with_remote(self, patch_manager):
+    def test_create_patch_validation_order_with_remote(self, patch_manager, mock_hgit_complete):
         """Test validation order includes remote check."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit: wrong branch, dirty repo, no remote
-        mock_hgit = Mock()
-        mock_hgit.branch = "main"
-        mock_hgit.repos_is_clean.return_value = False
-        mock_hgit.has_remote.return_value = False
-        repo.hgit = mock_hgit
+        mock_hgit_complete.branch = "main"
+        mock_hgit_complete.repos_is_clean.return_value = False
+        mock_hgit_complete.has_remote.return_value = False
+        repo.hgit = mock_hgit_complete
 
         # Should fail on branch validation first
-        with pytest.raises(PatchManagerError, match="Must be on ho-prod branch"):
+        with pytest.raises(PatchManagerError, match="Must be on ho-release/X.Y.Z branch to create patch."):
             patch_mgr.create_patch("456")
 
     def test_create_patch_network_error_on_push(self, patch_manager, mock_hgit_complete, capsys):
         """Test handling of network errors during branch push after tag push succeeds."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Mock push_branch: ho-prod succeeds, branch patch fails
+        # Mock push_branch: ho-release succeeds, branch patch fails
         def push_branch_side_effect(branch_name, set_upstream=True):
-            if branch_name == 'ho-prod':
-                return None  # Success for ho-prod
+            if branch_name == 'ho-release/0.17.0':
+                return None  # Success for ho-release
             else:
                 raise GitCommandError("git push", 1, stderr="Could not resolve host")
 
@@ -197,7 +194,7 @@ class TestPatchManagerRemoteValidation:
 
         # 5. Branch pushed for tracking
         calls = mock_hgit_complete.push_branch.call_args_list
-        assert calls[0] == call("ho-prod")
+        assert calls[0] == call('ho-release/0.17.0')
         assert calls[1] == call("ho-patch/456-user-auth", set_upstream=True)
 
         # 6. Directory created

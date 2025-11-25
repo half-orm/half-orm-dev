@@ -30,7 +30,7 @@ def release_manager_multi_version(tmp_path):
     """
     # Create directories
     releases_dir = tmp_path / "releases"
-    releases_dir.mkdir()
+    releases_dir.mkdir(exist_ok=True)
 
     backups_dir = tmp_path / "backups"
     backups_dir.mkdir()
@@ -270,7 +270,7 @@ class TestUpgradeProductionComplexScenarios:
         """Test upgrade through many versions (stress test)."""
         # Create 10 sequential versions: 1.3.5 → 1.3.6 → ... → 1.3.14
         releases_dir = tmp_path / "releases"
-        releases_dir.mkdir()
+        releases_dir.mkdir(exist_ok=True)
 
         for i in range(6, 15):
             (releases_dir / f"1.3.{i}.txt").write_text(f"{i}00-patch\n")

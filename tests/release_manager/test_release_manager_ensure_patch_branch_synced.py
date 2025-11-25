@@ -28,7 +28,7 @@ class TestEnsurePatchBranchSynced:
 
         # Create releases/ directory
         releases_dir = tmp_path / "releases"
-        releases_dir.mkdir()
+        releases_dir.mkdir(exist_ok=True)
 
         # Mock HGit
         mock_hgit = Mock()

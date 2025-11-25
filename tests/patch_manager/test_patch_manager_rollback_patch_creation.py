@@ -175,7 +175,7 @@ class TestPatchManagerRollback:
         # Should have attempted checkout back to ho-prod (rollback happened)
         # Note: checkout called twice - once for branch creation, once for rollback
         checkout_calls = mock_hgit_complete.checkout.call_args_list
-        assert call("ho-prod") in checkout_calls
+        assert call('ho-release/0.17.0') in checkout_calls
 
     def test_rollback_not_called_after_tag_push(self, patch_manager, mock_hgit_complete):
         """Test rollback is NOT called if tag push succeeds."""

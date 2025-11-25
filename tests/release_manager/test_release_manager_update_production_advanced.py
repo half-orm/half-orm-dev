@@ -30,7 +30,7 @@ def release_manager_with_releases(tmp_path):
     """
     # Create releases directory
     releases_dir = tmp_path / "releases"
-    releases_dir.mkdir()
+    releases_dir.mkdir(exist_ok=True)
 
     # Create release files with patches
     (releases_dir / "1.3.6.txt").write_text("456-user-auth\n789-security\n")

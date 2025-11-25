@@ -93,15 +93,12 @@ class TestCreatePatchValidation:
         with pytest.raises(PatchManagerError, match="Repository has uncommitted changes"):
             patch_mgr._validate_repo_clean()
 
-    def test_create_patch_invalid_patch_id_format(self, patch_manager):
+    def test_create_patch_invalid_patch_id_format(self, patch_manager, mock_hgit_complete):
         """Test create_patch fails with invalid patch ID format."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit for valid context
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.repos_is_clean.return_value = True
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
 
         # Invalid patch IDs (no number prefix)
         invalid_ids = [
@@ -143,29 +140,14 @@ class TestCreatePatchValidation:
         assert result['patch_id'] == "456"
         assert result['branch_name'] == "ho-patch/456"
 
-    def test_create_patch_validation_order(self, patch_manager):
+    def test_create_patch_validation_order(self, patch_manager, mock_hgit_complete):
         """Test validations are performed in correct order."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit: wrong branch AND dirty repo
-        mock_hgit = Mock()
-        mock_hgit.branch = "main"
-        mock_hgit.repos_is_clean.return_value = False
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
+        mock_hgit_complete.branch = "main"
 
         # Should fail on branch validation first (before checking clean state)
-        with pytest.raises(PatchManagerError, match="Must be on ho-prod branch"):
+        with pytest.raises(PatchManagerError, match="Must be on ho-release/X.Y.Z branch to create patch"):
             patch_mgr.create_patch("456-test")
-
-    def test_validate_on_ho_prod_case_sensitive(self, patch_manager):
-        """Test branch validation is case-sensitive."""
-        patch_mgr, repo, temp_dir, patches_dir = patch_manager
-
-        # Mock HGit with uppercase HO-PROD
-        mock_hgit = Mock()
-        mock_hgit.branch = "HO-PROD"
-        repo.hgit = mock_hgit
-
-        # Should fail (case-sensitive)
-        with pytest.raises(PatchManagerError, match="Must be on ho-prod branch"):
-            patch_mgr._validate_on_ho_prod()

@@ -28,7 +28,7 @@ def release_manager_for_rc_tagging(tmp_path):
     """
     # Create releases directory
     releases_dir = tmp_path / "releases"
-    releases_dir.mkdir()
+    releases_dir.mkdir(exist_ok=True)
 
     # Create stage file
     stage_file = releases_dir / "1.3.6-stage.txt"
@@ -66,7 +66,7 @@ def release_manager_for_prod_tagging(tmp_path):
     """
     # Create releases directory
     releases_dir = tmp_path / "releases"
-    releases_dir.mkdir()
+    releases_dir.mkdir(exist_ok=True)
 
     # Create RC file (needed for promote to prod)
     rc_file = releases_dir / "1.3.6-rc1.txt"

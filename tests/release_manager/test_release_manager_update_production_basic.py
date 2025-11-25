@@ -34,7 +34,7 @@ def release_manager_for_update(tmp_path):
     """
     # Create releases directory structure
     releases_dir = tmp_path / "releases"
-    releases_dir.mkdir()
+    releases_dir.mkdir(exist_ok=True)
 
     # Mock Repo
     mock_repo = Mock()

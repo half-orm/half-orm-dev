@@ -29,7 +29,7 @@ def release_manager_with_options(tmp_path):
     - Mocked dependencies
     """
     releases_dir = tmp_path / "releases"
-    releases_dir.mkdir()
+    releases_dir.mkdir(exist_ok=True)
 
     backups_dir = tmp_path / "backups"
     backups_dir.mkdir()

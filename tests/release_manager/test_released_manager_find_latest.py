@@ -27,7 +27,7 @@ class TestReleaseManagerFindLatest:
 
         # Create releases/ directory
         releases_dir = tmp_path / "releases"
-        releases_dir.mkdir()
+        releases_dir.mkdir(exist_ok=True)
 
         release_mgr = ReleaseManager(mock_repo)
 

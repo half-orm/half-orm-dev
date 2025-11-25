@@ -83,13 +83,14 @@ def patch_new(patch_id: str, description: Optional[str] = None) -> None:
         # Display success message
         click.echo(f"✓ Created patch branch: {utils.Color.bold(result['branch_name'])}")
         click.echo(f"✓ Created patch directory: {utils.Color.bold(str(result['patch_dir']))}")
+        click.echo(f"✓ Added to candidates: {utils.Color.bold(result['version'] + '-candidates.txt')}")
         click.echo(f"✓ Switched to branch: {utils.Color.bold(result['on_branch'])}")
         click.echo()
         click.echo("📝 Next steps:")
         click.echo(f"  1. Add SQL/Python files to {result['patch_dir']}/")
         click.echo(f"  2. Run: {utils.Color.bold('half_orm dev patch apply')}")
         click.echo("  3. Test your changes")
-        click.echo(f"  4. Run: {utils.Color.bold('half_orm dev patch add')} {patch_id}")
+        click.echo(f"  4. Run: {utils.Color.bold('half_orm dev patch close')} (when ready to integrate)")
 
     except PatchManagerError as e:
         raise click.ClickException(str(e))

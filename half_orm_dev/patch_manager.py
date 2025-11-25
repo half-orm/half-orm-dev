@@ -114,6 +114,7 @@ class PatchManager:
         self._repo = repo
         self._base_dir = str(repo.base_dir)
         self._schema_patches_dir = base_path / "Patches"
+        self._releases_dir = base_path / "releases"
 
         # Store repository name
         self._repo_name = repo.name
@@ -1231,17 +1232,18 @@ class PatchManager:
         Create new patch with atomic tag-first reservation strategy.
 
         Orchestrates the full patch creation workflow with transactional guarantees:
-        1. Validates we're on ho-prod branch
+        1. Validates we're on ho-release/X.Y.Z branch
         2. Validates repository is clean
         3. Validates git remote is configured
         4. Validates and normalizes patch ID format
-        5. **ACQUIRES DISTRIBUTED LOCK on ho-prod** (30min timeout)
+        5. **ACQUIRES DISTRIBUTED LOCK on ho-release/X.Y.Z** (30min timeout)
         6. Fetches all references from remote (branches + tags) - with lock
-        6.5 Validates ho-prod is synced with origin/ho-prod
+        6.5 Validates ho-release is synced with origin
         7. Checks patch number available via tag lookup (with up-to-date state)
-        8. Creates Patches/PATCH_ID/ directory (on ho-prod)
-        9. Commits directory on ho-prod "[HOP] Add Patches/{patch_id} directory"
-        10. Creates local tag ho-patch/{number} (points to commit on ho-prod)
+        8. Creates Patches/PATCH_ID/ directory (on ho-release/X.Y.Z)
+        8.5. **Adds PATCH_ID to X.Y.Z-candidates.txt** (NEW)
+        9. Commits changes on ho-release/X.Y.Z "[HOP] Add patch {patch_id} to candidates"
+        10. Creates local tag ho-patch/{number} (points to commit on ho-release)
         11. **Pushes tag to reserve number globally** ← POINT OF NO RETURN
         12. Creates ho-patch/PATCH_ID branch from current commit
         13. Pushes branch to remote (with retry)
@@ -1270,19 +1272,21 @@ class PatchManager:
                 - branch_name: Created branch name
                 - patch_dir: Path to patch directory
                 - on_branch: Current branch after checkout
+                - version: Release version (e.g., "0.17.0")
 
         Raises:
             PatchManagerError: If validation fails or creation errors occur
 
         Examples:
+            # On branch ho-release/0.17.0:
             result = patch_mgr.create_patch("456-user-auth")
-            # Creates patch with all steps, returns on success
+            # Creates patch, adds to 0.17.0-candidates.txt
 
             result = patch_mgr.create_patch("456", "Add authentication")
             # With description for README and commits
         """
         # Step 1-3: Validate context
-        self._validate_on_ho_prod()
+        release_version = self._validate_on_ho_release()  # NEW: returns version
         self._validate_repo_clean()
         self._validate_has_remote()
 
@@ -1294,47 +1298,51 @@ class PatchManager:
             raise PatchManagerError(f"Invalid patch ID: {e}")
         lock_tag = None
         # Save initial state for rollback
-        initial_branch = self._repo.hgit.branch
+        initial_branch = self._repo.hgit.branch  # Should be ho-release/X.Y.Z
+        release_branch = f"ho-release/{release_version}"
         patch_dir = None
         commit_created = False
         tag_pushed = False
         modifications_started = False  # Track if we started making changes
         branch_name = f"ho-patch/{normalized_id}"
         try:
-            # Step 5: ACQUIRE LOCK on ho-prod (with 30 min timeout for stale locks)
-            lock_tag = self._repo.hgit.acquire_branch_lock("ho-prod", timeout_minutes=30)
+            # Step 5: ACQUIRE LOCK on ho-release/X.Y.Z (with 30 min timeout for stale locks)
+            lock_tag = self._repo.hgit.acquire_branch_lock(release_branch, timeout_minutes=30)
 
             # Step 6: Fetch all references from remote (branches + tags) - with lock held
             self._fetch_from_remote()
 
-            # Step 6.5: Validate ho-prod is synced with origin
-            self._validate_ho_prod_synced_with_origin()
+            # Step 6.5: Validate ho-release/X.Y.Z is synced with origin
+            self._validate_release_branch_synced_with_origin(release_branch)
 
             # Step 7: Check patch number available (via tag, with up-to-date state)
             self._check_patch_id_available(normalized_id)
 
-            # === LOCAL OPERATIONS ON HO-PROD (rollback on failure) ===
+            # === LOCAL OPERATIONS ON HO-RELEASE (rollback on failure) ===
             modifications_started = True  # From here, rollback is needed on failure
 
-            # Step 7: Create patch directory (on ho-prod, not on branch!)
+            # Step 7: Create patch directory (on ho-release/X.Y.Z, not on branch!)
             patch_dir = self.create_patch_directory(normalized_id)
 
             # Step 7b: Update README if description provided
             if description:
                 self._update_readme_with_description(patch_dir, normalized_id, description)
 
-            # Step 8: Commit patch directory ON HO-PROD
-            self._commit_patch_directory(normalized_id, description)
+            # Step 8: Add patch to candidates.txt (NEW)
+            self._add_patch_to_candidates(normalized_id, release_version)
+
+            # Step 9: Commit patch directory and candidates file ON HO-RELEASE
+            self._commit_patch_to_candidates(normalized_id, release_version, description)
             commit_created = True  # Track that commit was made
 
-            # Step 9: Create local tag (points to commit on ho-prod with Patches/)
+            # Step 10: Create local tag (points to commit on ho-release with Patches/)
             self._create_local_tag(normalized_id, description)
 
             # === REMOTE OPERATIONS (point of no return) ===
 
-            # Step 10: Push tag FIRST → ATOMIC RESERVATION
+            # Step 11: Push tag FIRST → ATOMIC RESERVATION
             self._push_tag_to_reserve_number(normalized_id)
-            self._repo.hgit.push_branch('ho-prod')
+            self._repo.hgit.push_branch(release_branch)
             tag_pushed = True  # Tag pushed = point of no return
             # ✅ If we reach here: patch number globally reserved!
 
@@ -1385,15 +1393,46 @@ class PatchManager:
             'patch_id': normalized_id,
             'branch_name': branch_name,
             'patch_dir': patch_dir,
-            'on_branch': branch_name
+            'on_branch': branch_name,
+            'version': release_version  # NEW: include release version
         }
+
+    def _validate_on_ho_release(self) -> str:
+        """
+        Validate that current branch is ho-release/X.Y.Z.
+
+        The create_patch operation must start from a release integration branch
+        to allow patches to see each other's changes and support dependencies.
+
+        Returns:
+            Version string extracted from branch name (e.g., "0.17.0")
+
+        Raises:
+            PatchManagerError: If not on ho-release/* branch
+
+        Examples:
+            version = self._validate_on_ho_release()
+            # On ho-release/0.17.0 → returns "0.17.0"
+            # On main → raises PatchManagerError
+        """
+        current_branch = self._repo.hgit.branch
+        if not current_branch.startswith("ho-release/"):
+            raise PatchManagerError(
+                f"Must be on ho-release/X.Y.Z branch to create patch. "
+                f"Current branch: {current_branch}\n"
+                f"Hint: Run 'half_orm dev release new <level>' first to create a release"
+            )
+
+        # Extract version from branch name (ho-release/X.Y.Z → X.Y.Z)
+        version = current_branch.replace("ho-release/", "")
+        return version
 
     def _validate_on_ho_prod(self) -> None:
         """
         Validate that current branch is ho-prod.
 
-        The create_patch operation must start from ho-prod branch to ensure
-        patches are based on the current production state.
+        DEPRECATED: Legacy validation for old workflow.
+        New workflow uses _validate_on_ho_release() instead.
 
         Raises:
             PatchManagerError: If not on ho-prod branch
@@ -1703,4 +1742,138 @@ class PatchManager:
         except Exception as e:
             raise PatchManagerError(
                 f"Unexpected error checking ho-prod sync: {e}"
+            )
+
+    def _validate_release_branch_synced_with_origin(self, release_branch: str) -> None:
+        """
+        Validate that local release branch is synchronized with origin.
+
+        Similar to _validate_ho_prod_synced_with_origin but for ho-release/X.Y.Z branches.
+        Prevents creating patches on an outdated release integration branch.
+
+        Args:
+            release_branch: Release branch name (e.g., "ho-release/0.17.0")
+
+        Raises:
+            PatchManagerError: If branch is not synced with origin
+
+        Examples:
+            self._validate_release_branch_synced_with_origin("ho-release/0.17.0")
+            # Passes if synced, raises otherwise
+        """
+        try:
+            # Check sync status with origin
+            is_synced, status = self._repo.hgit.is_branch_synced(release_branch, remote="origin")
+
+            if is_synced:
+                return
+
+            # Not synced - provide specific guidance
+            if status == "ahead":
+                raise PatchManagerError(
+                    f"{release_branch} is ahead of origin/{release_branch}.\n"
+                    f"Push your local commits before creating patch:\n"
+                    f"  git push origin {release_branch}"
+                )
+            elif status == "behind":
+                raise PatchManagerError(
+                    f"{release_branch} is behind origin/{release_branch}.\n"
+                    f"Pull remote commits before creating patch:\n"
+                    f"  git pull origin {release_branch}"
+                )
+            elif status == "diverged":
+                raise PatchManagerError(
+                    f"{release_branch} has diverged from origin/{release_branch}.\n"
+                    f"Resolve conflicts before creating patch:\n"
+                    f"  git pull --rebase origin {release_branch}"
+                )
+            else:
+                raise PatchManagerError(
+                    f"{release_branch} sync check failed with status: {status}\n"
+                    f"Ensure {release_branch} is synchronized with origin."
+                )
+
+        except GitCommandError as e:
+            raise PatchManagerError(
+                f"Failed to check {release_branch} sync status: {e}\n"
+                "Ensure origin remote is configured and accessible."
+            )
+        except PatchManagerError:
+            raise
+        except Exception as e:
+            raise PatchManagerError(
+                f"Unexpected error checking {release_branch} sync: {e}"
+            )
+
+    def _add_patch_to_candidates(self, patch_id: str, version: str) -> None:
+        """
+        Add patch ID to X.Y.Z-candidates.txt file.
+
+        Automatically tracks patches in development by appending to the candidates file.
+        Creates one line per patch: "PATCH_ID # Optional comment"
+
+        Args:
+            patch_id: Normalized patch identifier (e.g., "456-user-auth")
+            version: Release version (e.g., "0.17.0")
+
+        Raises:
+            PatchManagerError: If candidates file doesn't exist or write fails
+
+        Examples:
+            self._add_patch_to_candidates("456-user-auth", "0.17.0")
+            # Appends "456-user-auth\n" to releases/0.17.0-candidates.txt
+        """
+        candidates_file = self._releases_dir / f"{version}-candidates.txt"
+
+        if not candidates_file.exists():
+            raise PatchManagerError(
+                f"Candidates file not found: {candidates_file}\n"
+                f"Hint: Run 'half_orm dev release new <level>' first"
+            )
+
+        try:
+            # Append patch ID to candidates file
+            with candidates_file.open('a', encoding='utf-8') as f:
+                f.write(f"{patch_id}\n")
+        except Exception as e:
+            raise PatchManagerError(
+                f"Failed to add patch to candidates file: {e}"
+            )
+
+    def _commit_patch_to_candidates(
+        self,
+        patch_id: str,
+        version: str,
+        description: Optional[str] = None
+    ) -> None:
+        """
+        Commit patch directory and candidates file to release branch.
+
+        Replaces _commit_patch_directory for the new workflow. Commits both
+        the Patches/PATCH_ID directory and the updated X.Y.Z-candidates.txt file.
+
+        Args:
+            patch_id: Normalized patch identifier
+            version: Release version
+            description: Optional description for commit message
+
+        Raises:
+            PatchManagerError: If commit fails
+
+        Examples:
+            self._commit_patch_to_candidates("456-user-auth", "0.17.0", "Add auth")
+            # Commits with message: "[HOP] Add patch 456-user-auth to 0.17.0 candidates"
+        """
+        try:
+            # Construct commit message
+            msg = f"[HOP] Add patch {patch_id} to {version} candidates"
+            if description:
+                msg += f"\n\n{description}"
+
+            # Commit both Patches/ directory and candidates file
+            self._repo.hgit.commit("-m", msg)
+
+        except Exception as e:
+            raise PatchManagerError(
+                f"Failed to commit patch to candidates: {e}"
             )

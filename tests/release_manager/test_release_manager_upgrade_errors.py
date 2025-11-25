@@ -28,7 +28,7 @@ def release_manager_for_errors(tmp_path):
     - Mocked dependencies configured for error scenarios
     """
     releases_dir = tmp_path / "releases"
-    releases_dir.mkdir()
+    releases_dir.mkdir(exist_ok=True)
 
     backups_dir = tmp_path / "backups"
     backups_dir.mkdir()

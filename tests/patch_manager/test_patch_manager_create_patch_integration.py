@@ -65,23 +65,20 @@ class TestCreatePatchIntegration:
         readme_content = readme_path.read_text()
         assert description in readme_content
 
-    def test_create_patch_stops_on_validation_error(self, patch_manager):
+    def test_create_patch_stops_on_validation_error(self, patch_manager, mock_hgit_complete):
         """Test that workflow stops at validation errors."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Mock HGit with invalid context (wrong branch)
-        mock_hgit = Mock()
-        mock_hgit.branch = "main"
-        mock_hgit.repos_is_clean.return_value = True
-        mock_hgit.checkout = Mock()
-        repo.hgit = mock_hgit
+        repo.hgit = mock_hgit_complete
+        repo.hgit.branch = "ho-prod"
 
         # Should fail at validation
-        with pytest.raises(PatchManagerError, match="Must be on ho-prod branch"):
+        with pytest.raises(PatchManagerError, match="Must be on ho-release/X.Y.Z branch to create patch."):
             patch_mgr.create_patch("456-user-auth")
 
         # Git operations should NOT be called
-        mock_hgit.checkout.assert_not_called()
+        mock_hgit_complete.checkout.assert_not_called()
 
         # Directory should NOT be created
         expected_dir = patches_dir / "456-user-auth"
@@ -126,7 +123,6 @@ class TestCreatePatchIntegration:
 
         for patch_id in patches:
             # Reset to ho-prod for each patch
-            mock_hgit_complete.branch = "ho-prod"
 
             result = patch_mgr.create_patch(patch_id)
 

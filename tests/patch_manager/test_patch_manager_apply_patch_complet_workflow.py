@@ -42,9 +42,9 @@ def mock_workflow_with_release_context(patch_manager):
     schema_file = model_dir / "schema.sql"
     schema_file.write_text("CREATE TABLE users (id SERIAL PRIMARY KEY);")
 
-    # Create releases/ directory
+    # Create releases/ directory (if not exists - may be created by temp_repo fixture)
     releases_dir = Path(temp_dir) / "releases"
-    releases_dir.mkdir()
+    releases_dir.mkdir(exist_ok=True)
 
     # Mock Model
     mock_model = Mock()
