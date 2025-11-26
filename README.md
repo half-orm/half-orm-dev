@@ -20,7 +20,7 @@ Modern development workflow for PostgreSQL databases with automatic code generat
 
 **1. Complete Command Reorganization**
 - **OLD**: `half_orm patch new`, `half_orm patch apply`, `half_orm release new`
-- **NEW**: `half_orm dev patch new`, `half_orm dev patch apply`, `half_orm dev release new`
+- **NEW**: `half_orm dev patch new`, `half_orm dev patch close`, `half_orm dev release new`
 - All commands now under `half_orm dev` namespace for better organization
 
 **2. New Branch Strategy**
@@ -36,7 +36,7 @@ Modern development workflow for PostgreSQL databases with automatic code generat
 **4. Different Release File Organization**
 - **OLD**: CHANGELOG.py-based versioning
 - **NEW**: `releases/*.txt` files with explicit patch lists
-- **Structure**: `X.Y.Z-stage.txt` → `X.Y.Z-rc1.txt` → `X.Y.Z.txt`
+- **Structure**: `X.Y.Z-candidates.txt` → `X.Y.Z-stage.txt` → `X.Y.Z-rc1.txt` | `X.Y.Z-hotfix1.txt` → `X.Y.Z.txt`
 
 **5. Test Organization and Validation**
 - **NEW**: Systematic test validation before ANY integration
@@ -45,11 +45,12 @@ Modern development workflow for PostgreSQL databases with automatic code generat
 
 ### What Stayed the Same
 
-✅ **Business Logic Code**: Your database schemas, models, and application code remain unchanged
-✅ **Database Structure**: PostgreSQL schemas and data are not affected
-✅ **halfORM Integration**: Code generation and ORM features work identically
-✅ **Semantic Versioning**: MAJOR.MINOR.PATCH logic is preserved
-✅ **SQL Patch Files**: Format and execution order unchanged
+
+- ✅ **Business Logic Code**: Your database schemas, models, and application code remain unchanged
+- ✅ **Database Structure**: PostgreSQL schemas and data are not affected
+- ✅ **halfORM Integration**: Code generation and ORM features work identically
+- ✅ **Semantic Versioning**: MAJOR.MINOR.PATCH logic is preserved
+- ✅ **SQL Patch Files**: Format and execution order unchanged
 
 ### Migration Guide
 
@@ -233,87 +234,209 @@ half_orm dev clone https://github.com/user/project.git
 cd project
 ```
 
-### First Patch (Exploratory Development with TDD)
+### First Patch (TDD Development)
 
 ```bash
-# Create patch
-half_orm dev patch new 001-users
+# First, create a release integration branch
+half_orm dev release new minor  # Creates ho-release/0.1.0
+
+# Now create patch (automatically added to candidates)
+half_orm dev patch new 1-users
+# → Auto-added to 0.1.0-candidates.txt
 
 # Add schema changes
-echo "CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT);" > Patches/001-users/01_users.sql
+echo "CREATE TABLE users (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), username TEXT NOT NULL);" > Patches/1-users/01_users.sql
 
-# Write tests (TDD approach)
-cat > tests/public/users/test_users_creation.py << 'EOF'
-def test_user_creation():
-    """Test user creation."""
-    user = User(username='alice').ho_insert()
-    assert user['id'] is not None
+# Apply patch - this generates Python code AND test directory structure
+half_orm dev patch apply
+# → Restores database
+# → Applies SQL patches
+# → Generates Python classes (mydb/public/user.py)
+# → Creates test directory structure (tests/public/user/)
+
+# Now write business logic tests (TDD approach)
+# IMPORTANT: Test business logic, NOT ORM operations like ho_insert()
+cat > tests/public/user/test_user_business_logic.py << 'EOF'
+from mydb.public.user import User
+
+def test_user_creation_with_valid_data():
+    """Test creating a user with valid business logic."""
+    # Assuming you implement a create() business method
+    user = User.create(username='alice')
     assert user['username'] == 'alice'
+    assert user['id'] is not None
+
+def test_user_creation_rejects_empty_username():
+    """Test business validation."""
+    # Should raise an error if you implement validation
+    with pytest.raises(ValueError):
+        User.create(username='')
 EOF
 
-# Apply and generate code
-half_orm dev patch apply
+# Implement business logic in your User class
+cat >> mydb/public/user.py << 'EOF'
+
+@classmethod
+def create(cls, username: str):
+    """Business logic for creating a user."""
+    if not username or not username.strip():
+        raise ValueError("Username cannot be empty")
+    return cls(username=username).ho_insert()
+EOF
 
 # Run tests
 pytest
 
 # Commit your work
 git add .
-git commit -m "Add users table with tests"
+git commit -m "Add users table with business logic and tests"
 
-# THEN prepare release when ready
-git checkout ho-prod
-half_orm dev release new minor
-
-# Add to release (automatic validation runs here!)
-half_orm dev patch add 001-users
+# Close patch - integrate to release (automatic validation runs here!)
+half_orm dev patch close 1-users
+# → Moved from candidates to stage
+# → Tests validated automatically
 ```
 
 ## 💻 Development Workflow
+
+### Vision: Git-Flow Release Management
+
+The workflow follows a **Git-Flow** approach with dedicated integration branches (`ho-release/X.Y.Z`) that serve as **test sandboxes** before production.
+
+**Motivation:**
+- Patches are visible and testable on `ho-release/X.Y.Z` before production
+- `ho-prod` remains stable and contains only validated versions (RC or production)
+- Workflow compatible with GitLab/GitHub (milestones, merge requests, issues)
+- No need to create RC just to make a patch accessible
 
 ### Complete Cycle: Patch → Release → Deploy
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ DEVELOPMENT (ho-prod branch)                                    │
+│ DEVELOPMENT (ho-release/X.Y.Z branch)                           │
 ├─────────────────────────────────────────────────────────────────┤
-│ 1. patch new <id>          Create patch branch                  │
-│ 2. patch apply             Apply & test changes                 │
+│ 1. release new <level>     Create ho-release/X.Y.Z              │
+│ 2. patch new <id>          Create patch (auto in candidates)    │
+│ 3. patch apply             Apply & test changes                 │
+│ 4. patch close <id>        Merge into ho-release (TESTS!)       │
 │                                                                 │
-│ RELEASE PREPARATION                                             │
-│ 3. release new <level>     Prepare release container            │
-│ 4. patch add <id>          Add to release (TESTS RUN HERE!)     │
-│ 5. release promote rc      Create release candidate             │
+│ RELEASE PROMOTION                                               │
+│ 5. release promote rc      Create RC (tags ho-release branch)   │
+│ 6. release promote prod    Merge to ho-prod + deploy            │
 │                                                                 │
 │ PRODUCTION DEPLOYMENT                                           │
-│ 6. release promote prod    Deploy to production                 │
 │ 7. update                  Check available releases             │
 │ 8. upgrade                 Apply on production servers          │
+│                                                                 │
+│ HOTFIX WORKFLOW (urgent fixes)                                  │
+│ 9. release hotfix          Reopen production version            │
+│ 10. patch new/close        Same workflow on hotfix branch       │
+│ 11. release promote hotfix Deploy as vX.Y.Z-hotfixN             │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Workflow Details
 
-#### Step 1: Create Patches
+#### Concepts: Release Files and Patch States
 
-```bash
-# Create patch branch and directory
-half_orm dev patch new 123-feature-name
-
-# Now on ho-patch/123-feature-name branch
-# Add SQL/Python files to Patches/123-feature-name/
+**Release Files:**
+```
+releases/
+├── 0.17.0-candidates.txt   # Patches in development
+├── 0.17.0-stage.txt        # Integrated patches (awaiting RC)
+├── 0.17.0-rc1.txt          # First Release Candidate
+├── 0.17.0-rc2.txt          # Second RC (with fixes)
+├── 0.17.0.txt              # Production version
+├── 0.17.0-hotfix1.txt      # Urgent production fix
+└── 0.18.0-candidates.txt   # Next release in progress
 ```
 
-#### Step 2: Develop and Test (TDD Approach)
+**Patch States:**
+1. **Candidate**: Assigned to release, in development (in `-candidates.txt`)
+2. **Staged**: Integrated in `ho-release/X.Y.Z`, awaiting promotion (in `-stage.txt`)
+3. **Released**: Included in deployed production version (in `X.Y.Z.txt`)
 
-# Apply patch (on ho-patch/* branch)
-half_orm dev patch apply
-* → Restores database from production state
-* → Applies all release patches + current patch
-* → Generates Python code
-* → Ready for testing
+**Analogy with GitLab/GitHub:**
+
+| half-orm state | File | GitLab/GitHub |
+|----------------|------|---------------|
+| `release new` | Creates `-candidates.txt` and `-stage.txt` | Create milestone |
+| `patch new` (on ho-release) | Adds to `-candidates.txt` | Create issue assigned to milestone |
+| Candidate | `-candidates.txt` | Open issue assigned to milestone |
+| `patch close` | Moves to `-stage.txt` | Merge MR and close issue |
+| Stage | `-stage.txt` | Closed issue in milestone |
+| `release promote rc` | Renames to `-rcN.txt` | Create pre-release |
+| RC | `-rcN.txt` | GitHub pre-release |
+| `release promote prod` | Renames to `X.Y.Z.txt` | Create stable release |
+| Production | `X.Y.Z.txt` | Stable release |
+
+#### Step 1: Create a New Release
 
 ```bash
+half_orm dev release new minor
+# → Detects current production version (e.g., 0.16.0)
+# → Calculates next minor version: 0.17.0
+# → Creates branch ho-release/0.17.0 from ho-prod
+# → Creates releases/0.17.0-candidates.txt (empty)
+# → Creates releases/0.17.0-stage.txt (empty)
+# → Commits and pushes to reserve version globally
+# → Automatically switches to ho-release/0.17.0
+```
+
+**Output:**
+```
+✅ Release created successfully!
+
+  Version:          0.17.0
+  Release branch:   ho-release/0.17.0
+  Candidates file:  releases/0.17.0-candidates.txt
+  Stage file:       releases/0.17.0-stage.txt
+
+📝 Next steps:
+  1. Create patches: half_orm dev patch new <patch_id>
+  2. Close patches: half_orm dev patch close <patch_id>
+  3. Promote to RC: half_orm dev release promote rc
+
+ℹ️  Patches will be merged into ho-release/0.17.0 for integration testing
+```
+
+#### Step 2: Create a Candidate Patch
+
+**Prerequisites:** Must be on `ho-release/0.17.0` branch
+
+```bash
+git checkout ho-release/0.17.0
+half_orm dev patch new 6-feature-x
+# → Auto-detects version 0.17.0 from current branch
+# → Creates ho-patch/6-feature-x from ho-release/0.17.0
+# → Adds 6-feature-x to 0.17.0-candidates.txt
+# → Switches to ho-patch/6-feature-x
+```
+
+**Output:**
+```
+✓ Created patch branch: ho-patch/6-feature-x
+✓ Created patch directory: Patches/6-feature-x/
+✓ Added to candidates: releases/0.17.0-candidates.txt
+✓ Switched to branch: ho-patch/6-feature-x
+
+📝 Next steps:
+  1. Add SQL/Python files to Patches/6-feature-x/
+  2. Run: half_orm dev patch apply
+  3. Test your changes
+  4. Run: half_orm dev patch close 6-feature-x
+```
+
+#### Step 3: Develop and Test (TDD Approach)
+
+```bash
+# Apply patch (on ho-patch/* branch)
+half_orm dev patch apply
+# → Restores database from production state
+# → Applies all release patches + current patch
+# → Generates Python code
+# → Ready for testing
+
 # FIRST: Write tests
 cat > tests/public/users/test_users_feature.py << 'EOF'
 def test_feature():
@@ -329,66 +452,132 @@ git add .
 git commit -m "Implement feature with tests"
 ```
 
-#### Step 3: Prepare Release Container (When Ready)
+#### Step 4: Close Patch (Integrate to Release)
 
 ```bash
-# When ready to integrate: Create the release file that will contain patches
-half_orm dev release new patch   # Bug fixes (1.3.5 → 1.3.6)
-half_orm dev release new minor   # New features (1.3.5 → 1.4.0)
-half_orm dev release new major   # Breaking changes (1.3.5 → 2.0.0)
-
-# This creates releases/X.Y.Z-stage.txt (empty, ready for patches)
+half_orm dev patch close 6-feature-x
+# Complete workflow:
+# → Detects version from 0.17.0-candidates.txt
+# → Validates ho-patch/6-feature-x exists
+# → Creates temporary validation branch
+# → Merges ho-patch/6-feature-x into temp branch
+# → Restores database and applies all patches
+# → Runs tests (pytest)
+# → If PASS: Merges into ho-release/0.17.0
+# → Moves 6-feature-x from candidates.txt to stage.txt
+# → Deletes branch ho-patch/6-feature-x
+# → Commits and pushes changes
+# → Notifies other candidate patches to sync
 ```
 
-#### Step 4: Add to Release (⚠️ AUTOMATIC VALIDATION HAPPENS HERE)
+**Output:**
+```
+✓ Patch closed successfully!
 
-```bash
-# Switch to ho-prod
-git checkout ho-prod
+  Stage file:      releases/0.17.0-stage.txt
+  Patch added:     6-feature-x
+  Tests passed:    ✓
+  Notified:        2 active branch(es)
 
-# Add patch to prepared release
-half_orm dev patch add 123-feature-name
-
-# What happens automatically:
-# 1. Creates temp-valid-1.3.6 branch
-# 2. Merges ALL release patches
-# 3. Merges YOUR patch
-# 4. Runs pytest tests/
-# 5. If PASS → commits to ho-prod, archives branch
-# 6. If FAIL → cleanup, nothing committed, error reported
-
-# Result:
-# ✓ Patch validated with full integration
-# ✓ Branch archived to ho-release/X.Y.Z/123-feature-name
-# ✓ Only TESTED code in releases/X.Y.Z-stage.txt
+📝 Next steps:
+  • Other developers: git pull && git merge ho-release/0.17.0
+  • Continue development: half_orm dev patch new <next_patch_id>
+  • Promote to RC: half_orm dev release promote rc
 ```
 
-#### Step 5: Promote to RC
+**Important:** `patch close` replaces the old `patch add` command. The semantics are different:
+- **OLD**: `patch add` = "I add my validated patch to release" (from ho-prod)
+- **NEW**: `patch close` = "I close my work, it's integrated in release" (merge into ho-release)
+
+#### Step 5: Synchronize with Other Integrated Patches
+
+When another patch is integrated in the release, candidate patches must update:
 
 ```bash
-# Create release candidate
+git fetch origin
+git merge origin/ho-release/0.17.0
+```
+
+#### Step 6: Promote to RC
+
+**Sequentiality Rule:** Only the **smallest version** in preparation can be promoted to RC. This guarantees sequential release order.
+
+**Example:** If releases `0.17.1`, `0.18.0` and `1.0.0` are in preparation, only `0.17.1` can be promoted to RC.
+
+```bash
 half_orm dev release promote rc
-
-# → Renames X.Y.Z-stage.txt → X.Y.Z-rc1.txt
-# → Merges all patch code into ho-prod
-# → Deletes patch branches (cleanup)
-# → Notifies active branches to rebase
-# → Automatically pushes to origin
+# Complete workflow:
+# → Auto-detects smallest version with -stage.txt
+# → Verifies it's sequential (follows last prod/RC)
+# → Automatically switches to ho-release/X.Y.Z
+# → Finds next RC number (rc1, rc2, etc.)
+# → Creates tag vX.Y.Z-rc1 on ho-release/X.Y.Z (NOT on ho-prod!)
+# → Renames releases/X.Y.Z-stage.txt to releases/X.Y.Z-rc1.txt (git mv)
+# → Recreates releases/X.Y.Z-stage.txt (empty) for next patches
+# → Commits and pushes
 ```
 
-#### Step 6: Deploy to Production
+**Output:**
+```
+✓ Success!
+
+  Version:  0.17.0
+  Tag:      v0.17.0-rc1
+  Branch:   ho-release/0.17.0
+
+📝 Next steps:
+  • Test RC thoroughly
+  • Deploy to production: half_orm dev release promote prod
+```
+
+**Important Notes:**
+- Tag is created on `ho-release/0.17.0`, **NOT on `ho-prod`**
+- Command **auto-detects** which version to promote (smallest)
+- Cannot "skip" a version: if 0.17.0 isn't in prod, can't promote 0.18.0
+
+#### Step 7: Promote to Production
+
+**Sequentiality Rule:** Only the **smallest version in preparation** (with a stage file) can be promoted to production.
 
 ```bash
-# After RC validation
 half_orm dev release promote prod
-
-# → Renames X.Y.Z-rc1.txt → X.Y.Z.txt
-# → Generates schema-X.Y.Z.sql and metadata-X.Y.Z.sql
-# → Updates schema.sql symlink
-# → Commits and pushes to ho-prod automatically
+# Complete workflow:
+# → Auto-detects smallest version with -stage.txt file
+# → Verifies strict sequentiality (0.17.0 must follow last prod)
+# → Automatically switches to ho-prod
+# → Merges ho-release/0.17.0 into ho-prod (integrates patch code)
+# → Restores database and applies all patches from stage
+# → Generates model/schema-0.17.0.sql and metadata-0.17.0.sql
+# → Updates symlink model/schema.sql → schema-0.17.0.sql
+# → Renames 0.17.0-stage.txt to releases/0.17.0.txt (final list)
+# → Deletes releases/0.17.0-candidates.txt
+# → Preserves releases/0.17.0-rc*.txt for history (if any)
+# → Creates tag v0.17.0 on ho-prod
+# → Deletes branch ho-release/0.17.0 (mission complete)
+# → Commits and pushes
 ```
 
-#### Step 7/8: Production Upgrade
+**Output:**
+```
+✓ Success!
+
+  Version:          0.17.0
+  Tag:              v0.17.0
+  Branches deleted: ho-release/0.17.0
+
+📝 Next steps:
+  • Deploy to production servers
+  • Start next cycle: half_orm dev release new minor
+```
+
+**Important Notes:**
+- This is when patch code is **actually merged into `ho-prod`**, not before
+- Command **auto-detects** smallest version with stage file
+- **Always uses stage file**: RC files are preserved for history but not used for promotion
+- **RC is optional**: Can promote directly from stage to production without creating RC
+- Sequentiality is **strictly enforced**: impossible to promote 0.18.0 if 0.17.0 isn't already in prod
+
+#### Step 8/9: Production Upgrade
 
 ```bash
 # On production server (automatically pulls from origin)
@@ -398,6 +587,92 @@ half_orm dev update
 # Apply upgrade (with automatic backup and git pull)
 half_orm dev upgrade
 ```
+
+#### Hotfix Workflow (Urgent Production Fixes)
+
+**Scenario:** Critical bug discovered in production (v0.17.0) while new release (v0.18.0) is already in development. Production needs fixing **immediately** without waiting for v0.18.0.
+
+**Step 1: Reopen Production Version**
+
+```bash
+half_orm dev release hotfix
+# Workflow:
+# → Detects production version from model/schema.sql (e.g., 0.17.0)
+# → Verifies tag v0.17.0 exists
+# → Reopens branch ho-release/0.17.0 from tag v0.17.0
+# → Automatically switches to ho-release/0.17.0
+```
+
+**Output:**
+```
+✓ Reopened ho-release/0.17.0 from v0.17.0
+✓ Ready for hotfix patches
+
+📝 Next steps:
+  1. half_orm dev patch new <patch_id>
+  2. half_orm dev patch close <patch_id>
+  3. half_orm dev release promote hotfix
+```
+
+**Important Note:** This is a **break from sequential workflow** as we now have two active release branches simultaneously (`ho-release/0.17.0` and `ho-release/0.18.0`).
+
+**Step 2: Create and Integrate Hotfix Patch**
+
+The workflow is **identical** to normal workflow:
+
+```bash
+# On ho-release/0.17.0
+half_orm dev patch new 999-critical-security-fix
+# ... develop ...
+half_orm dev patch apply
+# ... test ...
+half_orm dev patch close 999-critical-security-fix
+```
+
+**Step 3: Promote Hotfix to Production**
+
+**Important:** Cannot use `promote prod` as tag `v0.17.0` already exists!
+
+```bash
+git checkout ho-prod
+half_orm dev release promote hotfix
+# Hotfix-specific workflow:
+# → Detects hotfix context (tag vX.Y.Z already exists)
+# → Finds next hotfix number (hotfix1, hotfix2, etc.)
+# → Merges ho-release/0.17.0 into ho-prod
+# → Generates model/schema-0.17.0-hotfix1.sql and metadata-0.17.0-hotfix1.sql
+# → Updates symlink model/schema.sql → schema-0.17.0-hotfix1.sql
+# → Creates releases/0.17.0-hotfix1.txt with patch list
+# → Creates tag v0.17.0-hotfix1 on ho-prod
+# → Deletes branch ho-release/0.17.0
+# → Commits and pushes
+```
+
+**Output:**
+```
+✓ Hotfix deployed!
+
+  Version:  0.17.0-hotfix1
+  Tag:      v0.17.0-hotfix1
+  Patches:  999-critical-security-fix
+
+📝 Next steps:
+  • Deploy to production servers immediately
+  • Sync other releases: git checkout ho-release/0.18.0 && git merge ho-prod
+```
+
+**Step 4: Sync Other In-Progress Releases**
+
+If a release is in development (e.g., 0.18.0), it **must** integrate the hotfix:
+
+```bash
+git checkout ho-release/0.18.0
+git merge ho-prod
+# Resolve any conflicts
+git push origin ho-release/0.18.0
+```
+
+This guarantees the bugfix won't be lost in the next release.
 
 ## 📖 Command Reference
 
@@ -416,29 +691,38 @@ half_orm dev clone <git_origin>
 ### Patch Commands
 
 ```bash
-# Create new patch
+# Create new patch (must be on ho-release/* branch)
 half_orm dev patch new <patch_id> [-d "description"]
 
 # Apply current patch (from ho-patch/* branch)
 half_orm dev patch apply
 
-# Add patch to stage release (AUTOMATIC VALIDATION!)
-half_orm dev patch add <patch_id> [--to-version X.Y.Z]
+# Close patch - integrate to release (AUTOMATIC VALIDATION!)
+half_orm dev patch close <patch_id>
 ```
 
 ### Release Commands
 
 ```bash
 # Prepare next release (patch/minor/major)
+# Creates ho-release/X.Y.Z branch + candidates.txt + stage.txt
 half_orm dev release new patch
 half_orm dev release new minor
 half_orm dev release new major
 
 # Promote stage to RC (automatically pushes)
+# Tags ho-release/X.Y.Z, renames stage → rc
 half_orm dev release promote rc
 
 # Promote RC to production (automatically pushes)
+# Merges ho-release/X.Y.Z → ho-prod, creates tag
 half_orm dev release promote prod
+
+# Reopen production version for hotfix
+half_orm dev release hotfix
+
+# Promote hotfix to production
+half_orm dev release promote hotfix
 ```
 
 ### Production Commands
@@ -456,11 +740,15 @@ half_orm dev upgrade --dry-run
 
 ## 🎯 Common Patterns
 
-### Pattern 1: Exploratory Development with TDD
+### Pattern 1: Planned Development with Integration Branch
 
 ```bash
-# Start exploring (no release needed yet)
+# Start by creating release integration branch
+half_orm dev release new minor  # Creates ho-release/0.17.0
+
+# Now on ho-release/0.17.0, create patch
 half_orm dev patch new 123-add-users
+# → Auto-added to 0.17.0-candidates.txt
 
 # Add SQL/Python files
 echo "CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT);" > Patches/123-add-users/01_users.sql
@@ -476,96 +764,127 @@ EOF
 half_orm dev patch apply
 pytest  # Tests should pass
 
-# Commit your exploration
+# Commit your work
 git add .
-git commit -m "Explore users table design with tests"
+git commit -m "Implement users table with tests"
 
-# When satisfied, prepare release
-git checkout ho-prod
-half_orm dev release new minor
-
-# Add to release (tests validated automatically!)
-half_orm dev patch add 123-add-users
+# Close patch - integrate to release (tests validated automatically!)
+half_orm dev patch close 123-add-users
+# → Moved from candidates to stage
+# → Tests run automatically before integration
 ```
 
-### Pattern 2: Planned Development
+### Pattern 2: Team Collaboration on Same Release
 
 ```bash
-# Know what you want - prepare release first
-half_orm dev release new minor
+# Integration Manager: Create release
+half_orm dev release new minor  # Creates ho-release/0.17.0
 
-# Create patch
-half_orm dev patch new 456-user-auth
-
-# Develop with tests
-# ... add files, write tests ...
-
-# Apply and test locally
-half_orm dev patch apply
-pytest
-
-# Add to release (automatic validation!)
-git checkout ho-prod
-half_orm dev patch add 456-user-auth
-```
-
-### Pattern 3: Team Collaboration
-
-```bash
 # Developer A: Working on feature
+git checkout ho-release/0.17.0
 half_orm dev patch new 456-dashboard
+# → Added to 0.17.0-candidates.txt
 # ... develop and test ...
+half_orm dev patch close 456-dashboard
+# → Moved to 0.17.0-stage.txt
 
-# Developer B: Working on another feature
+# Developer B: Must sync with A's changes first
+git checkout ho-release/0.17.0
+git pull origin ho-release/0.17.0  # Get A's integrated changes
+
+# Then create patch
 half_orm dev patch new 789-reports
+# → Added to 0.17.0-candidates.txt
 # ... develop and test ...
+git merge origin/ho-release/0.17.0  # Sync again before closing
+half_orm dev patch close 789-reports
+# → Tests run with 456 + 789 together!
 
-# Integration Manager: Add both to release
-git checkout ho-prod
-half_orm dev patch add 456-dashboard  # Validates with tests
-half_orm dev patch add 789-reports    # Validates 456 + 789 together!
-
-# All patches validated together before RC
+# All patches validated together in stage
 ```
 
-### Pattern 4: Multiple Stages
+### Pattern 3: Parallel Development of Different Releases
 
 ```bash
 # Parallel development of different versions
-# 1. Prepare multiple stages
-half_orm dev release new minor  # Creates 1.4.0-stage
-half_orm dev release new patch  # Creates 1.3.6-stage
+# 1. Create multiple release branches
+half_orm dev release new minor  # Creates 0.18.0
+half_orm dev release new patch  # Creates 0.17.1
 
 # 2. Add patches to specific versions
-half_orm dev patch add 123-hotfix --to-version="1.3.6"
-half_orm dev patch add 456-feature --to-version="1.4.0"
+git checkout ho-release/0.17.1
+half_orm dev patch new 123-hotfix
+half_orm dev patch close 123-hotfix
 
-# 3. Sequential promotion (must promote 1.3.6 before 1.4.0)
-half_orm dev release promote rc  # Promotes 1.3.6-stage → 1.3.6-rc1
+git checkout ho-release/0.18.0
+half_orm dev patch new 456-feature
+half_orm dev patch close 456-feature
+
+# 3. Sequential promotion (must promote 0.17.1 before 0.18.0)
+half_orm dev release promote rc   # Auto-promotes 0.17.1 (smallest)
 # ... validate ...
-half_orm dev release promote prod  # 1.3.6-rc1 → 1.3.6.txt
-# Now can promote 1.4.0
+half_orm dev release promote prod  # 0.17.1 to production
+# Now can promote 0.18.0
+half_orm dev release promote rc   # Auto-promotes 0.18.0
 ```
 
-### Pattern 5: Incremental RC (Fix Issues)
+### Pattern 4: Incremental RC (Fix Issues)
 
 ```bash
 # RC1 has issues discovered in testing
-half_orm dev release promote rc  # Creates 1.3.5-rc1
+half_orm dev release promote rc  # Creates 0.17.0-rc1
+# → stage.txt renamed to rc1.txt
+# → new empty stage.txt created
 
 # Found bug in testing, create fix patch
+git checkout ho-release/0.17.0  # Back to integration branch
 half_orm dev patch new 999-rc1-fix
+# → Added to 0.17.0-candidates.txt
 half_orm dev patch apply
 # ... fix and test ...
 
-# Add to NEW stage (same version)
-git checkout ho-prod
-half_orm dev patch add 999-rc1-fix  # Validated automatically
+# Close patch - adds to NEW stage
+half_orm dev patch close 999-rc1-fix
+# → Moved to 0.17.0-stage.txt (the new empty one)
+# → Validated automatically
 
 # Promote again (creates rc2, automatically pushes)
-half_orm dev release promote rc  # Creates 1.3.5-rc2
+half_orm dev release promote rc  # Creates 0.17.0-rc2
+# → stage.txt renamed to rc2.txt
+# → new empty stage.txt created
 
 # Repeat until RC passes all validation
+```
+
+### Pattern 5: Hotfix on Production
+
+```bash
+# Bug discovered in production (v0.17.0)
+# New release (v0.18.0) already in development
+
+# Reopen production version
+half_orm dev release hotfix
+# → Reopens ho-release/0.17.0 from tag v0.17.0
+# → Creates 0.17.0-candidates.txt and 0.17.0-stage.txt
+
+# Same workflow as normal patch
+half_orm dev patch new 999-critical-fix
+# → Added to 0.17.0-candidates.txt (with # HOTFIX marker)
+half_orm dev patch apply
+# ... fix and test ...
+half_orm dev patch close 999-critical-fix
+# → Moved to 0.17.0-stage.txt
+
+# Promote as hotfix
+git checkout ho-prod
+half_orm dev release promote hotfix
+# → Creates v0.17.0-hotfix1 tag
+# → Creates 0.17.0-hotfix1.txt file
+# → Merges into ho-prod
+
+# Sync other in-progress releases
+git checkout ho-release/0.18.0
+git merge ho-prod  # Integrate the hotfix
 ```
 
 ### Pattern 6: Production Deployment
@@ -591,37 +910,75 @@ half_orm dev upgrade --to-release 1.4.0
 ### Branch Strategy
 
 ```
-ho-prod (main)
-├── ho-patch/123-feature    (development, temporary)
-├── ho-patch/124-bugfix     (development, temporary)
-└── ho-release/
-    └── 1.3.5/
-        ├── 123-feature     (archived after RC promotion)
-        └── 124-bugfix      (archived after RC promotion)
+ho-prod (main production)
+│
+├── ho-release/0.17.0 (integration branch, deleted after prod promotion)
+│   ├── ho-patch/6-feature-x    (temporary, deleted after close)
+│   ├── ho-patch/7-bugfix-y     (temporary, deleted after close)
+│   └── ho-patch/8-auth-z       (temporary, deleted after close)
+│
+└── ho-release/0.18.0 (next version in parallel)
+    └── ho-patch/10-new-api     (temporary, deleted after close)
 ```
 
 **Branch types:**
-- **ho-prod**: Main production branch (source of truth)
-- **ho-patch/\***: Patch development branches (temporary, deleted after RC)
-- **ho-release/\*/\***: Archived patch branches (history preservation)
+- **ho-prod**: Main production branch (source of truth, stable)
+- **ho-release/X.Y.Z**: Integration branch for version X.Y.Z (temporary, deleted after prod promotion)
+- **ho-patch/\***: Patch development branches created from ho-release/* (temporary, deleted after close)
+
+**Branch Lifecycle:**
+1. `release new` creates `ho-release/X.Y.Z` from `ho-prod`
+2. `patch new` creates `ho-patch/ID` from `ho-release/X.Y.Z`
+3. `patch close` merges `ho-patch/ID` into `ho-release/X.Y.Z` and deletes `ho-patch/ID`
+4. `release promote prod` merges `ho-release/X.Y.Z` into `ho-prod` and deletes `ho-release/X.Y.Z`
+
+**Exception - Hotfix Branches:**
+- `release hotfix` reopens `ho-release/X.Y.Z` from existing tag `vX.Y.Z`
+- Multiple `ho-release/*` branches can exist temporarily (prod version + dev version)
+- After `promote hotfix`, the hotfix branch is deleted
 
 ### Release Files
 
 ```
 releases/
-├── 1.3.5-stage.txt    (development, mutable, not present if production ready)
-├── 1.3.5-rc1.txt      (validation, immutable)
-├── 1.3.5-rc2.txt      (fixes from rc1, immutable)
-├── 1.3.5.txt          (production, immutable)
-└── 1.3.6-stage.txt    (next development)
+├── 0.17.0-candidates.txt  (patches in development, mutable)
+├── 0.17.0-stage.txt       (integrated patches, mutable)
+├── 0.17.0-rc1.txt         (first RC, immutable)
+├── 0.17.0-rc2.txt         (fixes from rc1, immutable)
+├── 0.17.0.txt             (production, immutable)
+├── 0.17.0-hotfix1.txt     (hotfix on production, immutable)
+├── 0.18.0-candidates.txt  (next version candidates)
+└── 0.18.0-stage.txt       (next version stage)
 ```
 
-**File lifecycle:**
+**File lifecycle (normal workflow):**
 ```
-X.Y.Z-stage.txt → X.Y.Z-rc1.txt → X.Y.Z.txt
-                       ↓
-                  X.Y.Z-rc2.txt (if fixes needed)
+patch new → X.Y.Z-candidates.txt (patch added automatically)
+                    ↓
+patch close → X.Y.Z-stage.txt (moved from candidates)
+                    ↓
+                    ├─→ promote rc → X.Y.Z-rc1.txt (OPTIONAL: renamed from stage, new empty stage created)
+                    │                    ↓
+                    │             promote rc → X.Y.Z-rc2.txt (if fixes needed, stage renamed again)
+                    │
+                    └─→ promote prod → X.Y.Z.txt (ALWAYS renames stage file, preserves RC for history)
 ```
+
+**Key point:** `promote prod` always uses and renames the **stage file**, regardless of whether RCs exist. RC files are kept for history only.
+
+**File lifecycle (hotfix workflow):**
+```
+release hotfix → Reopens X.Y.Z-candidates.txt and X.Y.Z-stage.txt
+                    ↓
+patch close → X.Y.Z-stage.txt (adds hotfix patches)
+                    ↓
+promote hotfix → X.Y.Z-hotfixN.txt (new file, candidates/stage deleted)
+```
+
+**File content format:**
+- Each line contains a patch ID
+- Lines starting with `#` are comments (e.g., `# HOTFIX` marker for candidates)
+- Empty lines are ignored
 
 ### Patch Directory Structure
 
@@ -648,30 +1005,49 @@ MAJOR.MINOR.PATCH
 
 ### Workflow Rules
 
-1. **Sequential releases**: Must promote 1.3.5 before 1.3.6
-2. **Single active RC**: Only one RC can exist at a time
-3. **Branch cleanup**: Patch branches deleted when promoted to RC
-4. **Database restore**: `patch apply` always restores from production state
-5. **Immutable releases**: RC and production files never modified
-6. **Automatic Git operations**: Push/pull handled by commands automatically
-7. **⚠️ SYSTEMATIC TEST VALIDATION**: Tests run before ANY integration to stage
+1. **Sequential releases**: Must promote 0.17.0 before 0.17.1 or 0.18.0
+2. **Auto-detection**: Commands automatically detect smallest version to promote
+3. **Patch origin**: Must create patches from `ho-release/*` branch, not `ho-prod`
+4. **Patch lifecycle**: new → candidates → close → stage → rc → prod
+5. **Branch cleanup**:
+   - `patch close` deletes `ho-patch/*` branch
+   - `promote prod` deletes `ho-release/*` branch
+6. **Database restore**: `patch apply` always restores from production state
+7. **Immutable releases**: RC and production files never modified
+8. **Automatic Git operations**: Push/pull handled by commands automatically
+9. **⚠️ SYSTEMATIC TEST VALIDATION**: Tests run before integration (in `patch close`)
+10. **Hotfix exception**: Can reopen production version while other releases in progress
+11. **# HOTFIX marker**: Candidates file marked with `# HOTFIX` comment for hotfix releases
 
 ## 🔧 Troubleshooting
 
-### Error: "Must be on ho-prod branch"
+### Error: "Must be on ho-release/* branch"
 
 ```bash
-# Solution: Switch to ho-prod
-git checkout ho-prod
+# Solution: Create release or switch to release branch
+half_orm dev release new minor
+# or
+git checkout ho-release/0.17.0
 ```
 
 ### Error: "Must be on ho-patch/* branch"
 
 ```bash
 # Solution: Create or switch to patch branch
+# First ensure you're on ho-release/*
+git checkout ho-release/0.17.0
 half_orm dev patch new <patch_id>
 # or
 git checkout ho-patch/<patch_id>
+```
+
+### Error: "Patch not found in candidates file"
+
+```bash
+# Solution: Patch must be created from ho-release/* branch
+# to be automatically added to candidates
+git checkout ho-release/0.17.0
+half_orm dev patch new <patch_id>
 ```
 
 ### Error: "Repository is not clean"

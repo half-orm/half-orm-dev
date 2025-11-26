@@ -2657,8 +2657,8 @@ class ReleaseManager:
         if candidates_file.exists():
             candidates_content = candidates_file.read_text(encoding='utf-8').strip()
             if candidates_content:
-                # candidates = [c.strip() for c in candidates_content.split('\n') if c.strip() and not c.strip().startswith('#')]
-                # if candidates:
+                candidates = [c.strip() for c in candidates_content.split('\n') if c.strip() and not c.strip().startswith('#')]
+                if candidates:
                     raise ReleaseManagerError(
                         f"Cannot promote {version} to production: {len(candidates)} candidate patch(es) remain:\n"
                         f"  • " + "\n  • ".join(candidates) + "\n\n"
