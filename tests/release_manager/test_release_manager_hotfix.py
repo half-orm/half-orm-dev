@@ -214,9 +214,9 @@ class TestPromoteToHotfix:
 
         # Verify Git operations
         mock_hgit.checkout.assert_any_call("ho-prod")
-        mock_hgit.merge_branch.assert_called_once_with(
+        mock_hgit.merge.assert_called_once_with(
             "ho-release/1.3.5",
-            "[release] Merge hotfix %1.3.5-hotfix1"
+            message="[release] Merge hotfix %1.3.5-hotfix1"
         )
         mock_hgit.create_tag.assert_called_once_with(
             "v1.3.5-hotfix1",
@@ -226,7 +226,7 @@ class TestPromoteToHotfix:
         mock_hgit.push_branch.assert_called_once_with("ho-prod")
 
         # Verify returned to ho-release branch
-        mock_hgit.checkout.assert_called_with("ho-release/1.3.5")
+        mock_hgit.checkout.assert_called_with("ho-prod")
 
     def test_promote_second_hotfix(self, release_manager_hotfix_ready):
         """Test promoting second hotfix for same version."""
@@ -273,7 +273,7 @@ class TestPromoteToHotfix:
         release_mgr.promote_to_hotfix()
 
         # Verify patches applied
-        release_mgr._apply_release_patches.assert_called_once_with("1.3.5")
+        release_mgr._apply_release_patches.assert_called_once_with("1.3.5", True)
 
 
 class TestDetermineHotfixNumber:

@@ -650,7 +650,7 @@ class ReleaseManager:
 
         return patch_ids
 
-    def _apply_release_patches(self, version: str) -> None:
+    def _apply_release_patches(self, version: str, hotfix=False) -> None:
         """
         Apply all patches for a release version to the database.
 
@@ -668,11 +668,12 @@ class ReleaseManager:
         self._repo.restore_database_from_schema()
 
         # Apply all RC patches in order
-        rc_files = self.get_rc_files(version)
-        for rc_file in rc_files:
-            rc_patches = self.read_release_patches(rc_file.name)
-            for patch_id in rc_patches:
-                self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
+        if not hotfix:
+            rc_files = self.get_rc_files(version)
+            for rc_file in rc_files:
+                rc_patches = self.read_release_patches(rc_file.name)
+                for patch_id in rc_patches:
+                    self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
 
         # Apply stage patches
         stage_patches = self.read_release_patches(f"{version}-stage.txt")
@@ -2704,7 +2705,6 @@ class ReleaseManager:
             self._apply_release_patches(version)
 
             # Generate schema dump for this version
-            from pathlib import Path
             model_dir = Path(self._repo.base_dir) / "model"
             self._repo.database._generate_schema_sql(version, model_dir)
 
@@ -3006,10 +3006,10 @@ class ReleaseManager:
 
             # Merge ho-release/X.Y.Z into ho-prod
             merge_msg = f"[release] Merge hotfix %{version}-hotfix{hotfix_num}"
-            self._repo.hgit.merge_branch(current_branch, merge_msg)
+            self._repo.hgit.merge(current_branch, message=merge_msg)
 
             # 5. Apply release patches and generate SQL dumps
-            self._apply_release_patches(version)
+            self._apply_release_patches(version, True)
 
             # 6. Create hotfix tag on ho-prod
             self._repo.hgit.create_tag(hotfix_tag, f"Hotfix release %{version}-hotfix{hotfix_num}")
@@ -3018,13 +3018,23 @@ class ReleaseManager:
             # 7. Push ho-prod
             self._repo.hgit.push_branch("ho-prod")
 
-            # 8. Return to ho-release/X.Y.Z
-            self._repo.hgit.checkout(current_branch)
+            deleted_branches = []
+
+            # 7. Delete release branch (force=True because Git may not recognize the merge)
+            try:
+                self._repo.hgit.delete_branch(current_branch, force=True)
+                self._repo.hgit.delete_remote_branch(current_branch)
+                deleted_branches.append(current_branch)
+            except Exception as e:
+                # Log error for debugging
+                import sys
+                print(f"Warning: Failed to delete release branch {current_branch}: {e}", file=sys.stderr)
 
             return {
                 'version': version,
                 'hotfix_tag': hotfix_tag,
-                'branch': current_branch
+                'branch': current_branch,
+                'deleted_branches': deleted_branches
             }
 
         except ReleaseManagerError:
