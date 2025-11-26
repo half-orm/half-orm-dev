@@ -14,7 +14,6 @@ from .update import update
 from .upgrade import upgrade
 from .check import check
 from .todo import apply_release
-from .todo import create_hotfix
 from .todo import rollback
 
 # ♻️ Adapted existing commands
@@ -35,7 +34,6 @@ ALL_COMMANDS = {
     'apply_release': apply_release,
 
     # 🚧 Emergency workflow (stubs)
-    'create-hotfix': create_hotfix,
     'rollback': rollback,
 
     # ♻️ Adapted commands
@@ -51,7 +49,6 @@ __all__ = [
     'release',
     'upgrade',
     'check',
-    'create_hotfix',
     'rollback',
     # Adapted commands
     'sync_package',

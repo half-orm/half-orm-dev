@@ -2810,3 +2810,268 @@ class ReleaseManager:
 
         # Fallback (shouldn't happen with valid RC files)
         return len(rc_files) + 1
+
+    @with_ho_prod_lock()
+    def reopen_for_hotfix(self, version: str = None) -> dict:
+        """
+        Reopen a production version for hotfix development.
+
+        Recreates the ho-release/X.Y.Z branch from the production tag vX.Y.Z
+        and creates empty candidates.txt and stage.txt files to enable
+        emergency patches.
+
+        Args:
+            version: Production version to reopen (e.g., "1.3.5")
+                    If None, uses current production version from model/schema.sql
+
+        Returns:
+            dict with:
+                - version: Version reopened
+                - branch: Branch name created
+                - candidates_file: Path to candidates file
+                - stage_file: Path to stage file
+
+        Raises:
+            ReleaseManagerError: If validation fails or reopening errors occur
+
+        Examples:
+            # Reopen current production version
+            result = mgr.reopen_for_hotfix()
+            # → {'version': '1.3.5', 'branch': 'ho-release/1.3.5', ...}
+
+            # Reopen specific version
+            result = mgr.reopen_for_hotfix('1.3.4')
+            # → {'version': '1.3.4', 'branch': 'ho-release/1.3.4', ...}
+
+        Workflow:
+            1. Detect production version (from model/schema.sql or parameter)
+            2. Verify production tag vX.Y.Z exists
+            3. Delete existing ho-release/X.Y.Z branch if exists
+            4. Create branch from production tag
+            5. Create empty X.Y.Z-candidates.txt file
+            6. Create empty X.Y.Z-stage.txt file
+            7. Commit and push
+            8. Switch to branch
+        """
+        try:
+            # 1. Determine version to reopen
+            if version is None:
+                # Get current production version from model/schema.sql
+                version = self._get_production_version()
+
+            # Validate version format
+            if not re.match(r'^\d+\.\d+\.\d+$', version):
+                raise ReleaseManagerError(
+                    f"Invalid version format: {version}\n"
+                    f"Expected format: X.Y.Z (e.g., 1.3.5)"
+                )
+
+            # 2. Verify production tag exists
+            prod_tag = f"v{version}"
+            if not self._repo.hgit.tag_exists(prod_tag):
+                raise ReleaseManagerError(
+                    f"Production tag {prod_tag} does not exist.\n"
+                    f"Cannot reopen version {version} for hotfix.\n"
+                    f"Available tags: {', '.join(self._repo.hgit.list_tags())}"
+                )
+
+            # 3. Check if branch already exists
+            release_branch = f"ho-release/{version}"
+            branch_exists = self._repo.hgit.branch_exists(release_branch)
+
+            if branch_exists:
+                # Verify branch is clean before recreating
+                current_branch = self._repo.hgit.branch
+                if current_branch == release_branch:
+                    raise ReleaseManagerError(
+                        f"Cannot reopen: Already on {release_branch}\n"
+                        f"Switch to another branch first: git checkout ho-prod"
+                    )
+
+                # Delete existing branch (local and remote)
+                try:
+                    self._repo.hgit.delete_branch(release_branch, force=True)
+                except Exception as e:
+                    raise ReleaseManagerError(
+                        f"Failed to delete existing branch {release_branch}: {e}"
+                    )
+
+                try:
+                    self._repo.hgit.delete_remote_branch(release_branch)
+                except Exception:
+                    # Remote branch might not exist, ignore error
+                    pass
+
+            # 4. Create branch from production tag
+            self._repo.hgit.create_branch_from_tag(release_branch, prod_tag)
+            self._repo.hgit.push_branch(release_branch, set_upstream=True)
+            self._repo.hgit.checkout(release_branch)
+
+            # 5. Create candidates.txt file with HOTFIX marker
+            candidates_file = self._releases_dir / f"{version}-candidates.txt"
+            candidates_file.write_text("# HOTFIX\n", encoding='utf-8')
+
+            # 6. Create empty stage.txt file
+            stage_file = self._releases_dir / f"{version}-stage.txt"
+            stage_file.write_text("", encoding='utf-8')
+
+            # 7. Commit and push
+            self._repo.hgit.add(str(candidates_file))
+            self._repo.hgit.add(str(stage_file))
+
+            commit_msg = f"[release] Reopen %{version} for hotfix development"
+            self._repo.hgit.commit(message=commit_msg)
+            self._repo.hgit.push_branch(release_branch, set_upstream=True)
+
+            return {
+                'version': version,
+                'branch': release_branch,
+                'candidates_file': str(candidates_file),
+                'stage_file': str(stage_file)
+            }
+
+        except ReleaseManagerError:
+            raise
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to reopen version for hotfix: {e}")
+
+    def promote_to_hotfix(self) -> dict:
+        """
+        Promote hotfix release to production with hotfix tag.
+
+        Similar to promote_to_prod() but:
+        - Works from ho-release/X.Y.Z branch (not ho-prod)
+        - Creates hotfix tag vX.Y.Z-hotfixN (not vX.Y.Z)
+        - Merges ho-release/X.Y.Z into ho-prod
+        - Keeps ho-release/X.Y.Z branch for potential additional hotfixes
+
+        Returns:
+            dict with:
+                - version: Base version (e.g., "1.3.5")
+                - hotfix_tag: Tag created (e.g., "v1.3.5-hotfix1")
+                - branch: Branch used (e.g., "ho-release/1.3.5")
+
+        Raises:
+            ReleaseManagerError: If validation fails or promotion errors occur
+
+        Workflow:
+            1. Verify on ho-release/X.Y.Z branch
+            2. Verify candidates.txt is empty
+            3. Determine next hotfix number
+            4. Merge ho-release/X.Y.Z into ho-prod
+            5. Generate SQL dumps on ho-prod
+            6. Create hotfix tag vX.Y.Z-hotfixN on ho-prod
+            7. Return to ho-release/X.Y.Z
+        """
+        try:
+            # 1. Verify on ho-release/* branch
+            current_branch = self._repo.hgit.branch
+            if not current_branch.startswith('ho-release/'):
+                raise ReleaseManagerError(
+                    f"Must be on ho-release/* branch for hotfix promotion.\n"
+                    f"Current branch: {current_branch}\n"
+                    f"Use: git checkout ho-release/X.Y.Z"
+                )
+
+            # Extract version from branch name
+            version = current_branch.replace('ho-release/', '')
+
+            # 2. Verify candidates.txt is empty (ignoring comments)
+            candidates_file = self._releases_dir / f"{version}-candidates.txt"
+            if candidates_file.exists():
+                candidates_content = candidates_file.read_text(encoding='utf-8').strip()
+                if candidates_content:
+                    # Filter out comment lines (starting with #)
+                    candidates = [
+                        c.strip()
+                        for c in candidates_content.split('\n')
+                        if c.strip() and not c.strip().startswith('#')
+                    ]
+                    if candidates:
+                        raise ReleaseManagerError(
+                            f"Cannot promote hotfix: {len(candidates)} candidate patch(es) remain:\n"
+                            f"  • " + "\n  • ".join(candidates) + "\n\n"
+                            f"Actions required:\n"
+                            f"  1. Close patches: half_orm dev patch close <patch_id>\n"
+                            f"  2. OR delete branches: git branch -D ho-patch/<patch_id>\n"
+                            f"  3. OR move to another release (edit candidates file manually)"
+                        )
+
+            # 3. Determine next hotfix number
+            hotfix_num = self._determine_hotfix_number(version)
+            hotfix_tag = f"v{version}-hotfix{hotfix_num}"
+
+            # 4. Switch to ho-prod and merge
+            self._repo.hgit.checkout("ho-prod")
+
+            # Merge ho-release/X.Y.Z into ho-prod
+            merge_msg = f"[release] Merge hotfix %{version}-hotfix{hotfix_num}"
+            self._repo.hgit.merge_branch(current_branch, merge_msg)
+
+            # 5. Apply release patches and generate SQL dumps
+            self._apply_release_patches(version)
+
+            # 6. Create hotfix tag on ho-prod
+            self._repo.hgit.create_tag(hotfix_tag, f"Hotfix release %{version}-hotfix{hotfix_num}")
+            self._repo.hgit.push_tag(hotfix_tag)
+
+            # 7. Push ho-prod
+            self._repo.hgit.push_branch("ho-prod")
+
+            # 8. Return to ho-release/X.Y.Z
+            self._repo.hgit.checkout(current_branch)
+
+            return {
+                'version': version,
+                'hotfix_tag': hotfix_tag,
+                'branch': current_branch
+            }
+
+        except ReleaseManagerError:
+            raise
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to promote hotfix: {e}")
+
+    def _determine_hotfix_number(self, version: str) -> int:
+        """
+        Determine next hotfix number for version.
+
+        Finds all existing hotfix tags for the version and returns next number.
+        If no hotfixes exist, returns 1. If hotfix1, hotfix2 exist, returns 3.
+
+        Args:
+            version: Version string (e.g., "1.3.5")
+
+        Returns:
+            Next hotfix number (1, 2, 3, etc.)
+
+        Examples:
+            # No existing hotfixes
+            version = "1.3.5"
+            hotfix_num = mgr._determine_hotfix_number(version)
+            # → 1
+
+            # v1.3.5-hotfix1 exists
+            hotfix_num = mgr._determine_hotfix_number(version)
+            # → 2
+
+            # v1.3.5-hotfix1, v1.3.5-hotfix2 exist
+            hotfix_num = mgr._determine_hotfix_number(version)
+            # → 3
+        """
+        # Get all tags
+        all_tags = self._repo.hgit.list_tags()
+
+        # Filter hotfix tags for this version
+        hotfix_pattern = re.compile(rf'^v{re.escape(version)}-hotfix(\d+)$')
+        hotfix_numbers = []
+
+        for tag in all_tags:
+            match = hotfix_pattern.match(tag)
+            if match:
+                hotfix_numbers.append(int(match.group(1)))
+
+        if not hotfix_numbers:
+            return 1
+
+        return max(hotfix_numbers) + 1

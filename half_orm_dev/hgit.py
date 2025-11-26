@@ -527,6 +527,29 @@ class HGit:
                 raise
             raise GitCommandError(f"git branch {branch_name}", 1, stderr=str(e))
 
+    def create_branch_from_tag(self, branch_name: str, tag_name: str) -> None:
+        """
+        Create a new branch from a specific tag.
+
+        Args:
+            branch_name: Name of the new branch to create
+            tag_name: Tag to create branch from
+
+        Raises:
+            GitCommandError: If branch creation fails
+
+        Examples:
+            hgit.create_branch_from_tag("ho-release/1.3.5", "v1.3.5")
+            # Creates ho-release/1.3.5 from tag v1.3.5
+        """
+        try:
+            self.__git_repo.git.branch(branch_name, tag_name)
+        except Exception as e:
+            from git.exc import GitCommandError
+            if isinstance(e, GitCommandError):
+                raise
+            raise GitCommandError(f"git branch {branch_name} {tag_name}", 1, stderr=str(e))
+
     def rename_branch(self, old_name: str, new_name: str) -> None:
         """
         Rename a branch (move).

@@ -148,19 +148,20 @@ def release_new(level: str) -> None:
 
 
 @release.command('promote')
-@click.argument('target', type=click.Choice(['rc', 'prod'], case_sensitive=False))
+@click.argument('target', type=click.Choice(['rc', 'prod', 'hotfix'], case_sensitive=False))
 def release_promote(target: str) -> None:
     """
-    Promote stage release to RC or production.
+    Promote stage release to RC, production, or hotfix.
 
-    Promotes the smallest stage release to RC (rc1, rc2, etc.) or promotes
-    an RC to production. Merges archived patch code into ho-prod and
-    manages branch cleanup. Must be run from ho-prod branch.
+    Promotes the smallest stage release to RC (rc1, rc2, etc.), promotes
+    an RC to production, or promotes a hotfix to production. Merges code
+    into ho-prod and manages branches.
 
     \b
-    TARGET: Either 'rc' or 'prod'
-    • rc: Promotes stage to release candidate (with branch cleanup)
+    TARGET: Either 'rc', 'prod', or 'hotfix'
+    • rc: Promotes stage to release candidate (from ho-release/X.Y.Z)
     • prod: Promotes RC to production release (generates schema dumps)
+    • hotfix: Promotes hotfix to production (from ho-release/X.Y.Z)
 
     \b
     Complete workflow for RC:
@@ -234,6 +235,8 @@ def release_promote(target: str) -> None:
         # ReleaseManager auto-detects which version to promote
         if target.lower() == 'rc':
             result = release_mgr.promote_to_rc()
+        elif target.lower() == 'hotfix':
+            result = release_mgr.promote_to_hotfix()
         else:  # prod
             result = release_mgr.promote_to_prod()
 
@@ -255,6 +258,19 @@ def release_promote(target: str) -> None:
             click.echo()
             click.echo(f"ℹ️  You are now on {utils.Color.bold(result['branch'])} - patches will be merged here")
 
+        elif target.lower() == 'hotfix':
+            # Hotfix promotion output
+            click.echo(f"  Version:     {utils.Color.bold(result['version'])}")
+            click.echo(f"  Hotfix tag:  {utils.Color.bold(result['hotfix_tag'])}")
+            click.echo(f"  Branch:      {utils.Color.bold(result['branch'])}")
+            click.echo()
+            click.echo("📝 Next steps:")
+            click.echo(f"  • Deploy hotfix to production servers")
+            click.echo(f"  • Monitor for additional issues")
+            click.echo(f"  • If more fixes needed: {utils.Color.bold('half_orm dev patch new <patch_id>')}")
+            click.echo()
+            click.echo(f"ℹ️  You are back on {utils.Color.bold(result['branch'])} - ready for more hotfixes if needed")
+
         else:
             # Production promotion output
             click.echo(f"  Version:          {utils.Color.bold(result['version'])}")
@@ -274,33 +290,87 @@ def release_promote(target: str) -> None:
 
 
 @release.command('hotfix')
-@click.argument('patch_id', type=str)
-def release_hotfix(patch_id: str) -> None:
+@click.argument('version', type=str, required=False)
+def release_hotfix(version: Optional[str] = None) -> None:
     """
-    Create emergency hotfix release (NOT IMPLEMENTED YET).
+    Reopen a production version for hotfix development.
 
-    Creates a hotfix release that bypasses the normal stage → rc → prod
-    workflow for critical production issues.
+    Recreates the ho-release/X.Y.Z branch from the production tag vX.Y.Z
+    and creates empty candidates.txt and stage.txt files to enable
+    emergency patches on a production version.
 
     \b
     Args:
-        patch_id: Patch identifier for the hotfix
+        version: Production version to reopen (e.g., "1.3.5")
+                If not provided, uses current production version from model/schema.sql
 
     \b
-    Example:
-        $ half_orm dev release hotfix critical-security-fix
+    Complete workflow:
+        1. Detect production version (from model/schema.sql or parameter)
+        2. Verify production tag vX.Y.Z exists
+        3. Delete existing ho-release/X.Y.Z branch if exists
+        4. Create branch from production tag
+        5. Create empty X.Y.Z-candidates.txt file
+        6. Create empty X.Y.Z-stage.txt file
+        7. Commit and push
+        8. Switch to branch
 
     \b
-    Status: 🚧 Not implemented - planned for future release
+    Examples:
+        Reopen current production version:
+        $ half_orm dev release hotfix
+
+        Output:
+        ✓ Reopened version 1.3.5 for hotfix
+          Branch:           ho-release/1.3.5
+          Candidates file:  releases/1.3.5-candidates.txt
+          Stage file:       releases/1.3.5-stage.txt
+
+        Reopen specific version:
+        $ half_orm dev release hotfix 1.3.4
+
+    \b
+    Next steps after hotfix:
+        • Create patches: half_orm dev patch new <patch_id>
+        • Close patches: half_orm dev patch close <patch_id>
+        • Promote hotfix: half_orm dev release promote hotfix
+
+    \b
+    Raises:
+        click.ClickException: If validation fails or reopening errors occur
     """
-    click.echo("🚧 Hotfix release creation not implemented yet")
-    click.echo()
-    click.echo("Planned workflow:")
-    click.echo("  1. Create ho-patch/PATCH_ID from ho-prod")
-    click.echo("  2. Create releases/X.Y.Z-hotfixN.txt")
-    click.echo("  3. Emergency deployment workflow")
-    click.echo()
-    raise NotImplementedError("Hotfix release creation not yet implemented")
+    try:
+        # Get repository instance
+        repo = Repo()
+
+        # Display context
+        if version:
+            click.echo(f"Reopening version {utils.Color.bold(version)} for hotfix...")
+        else:
+            click.echo("Reopening current production version for hotfix...")
+        click.echo()
+
+        # Delegate to ReleaseManager
+        result = repo.release_manager.reopen_for_hotfix(version)
+
+        # Display success message
+        click.echo(f"✓ {utils.Color.green('Version reopened for hotfix successfully!')}")
+        click.echo()
+        click.echo(f"  Version:          {utils.Color.bold(result['version'])}")
+        click.echo(f"  Branch:           {utils.Color.bold(result['branch'])}")
+        click.echo(f"  Candidates file:  {utils.Color.bold(result['candidates_file'])}")
+        click.echo(f"  Stage file:       {utils.Color.bold(result['stage_file'])}")
+        click.echo()
+        click.echo("📝 Next steps:")
+        click.echo(f"  • Create patches: {utils.Color.bold('half_orm dev patch new <patch_id>')}")
+        click.echo(f"  • Close patches: {utils.Color.bold('half_orm dev patch close <patch_id>')}")
+        click.echo(f"  • Promote hotfix: {utils.Color.bold('half_orm dev release promote hotfix')}")
+        click.echo()
+        click.echo(f"ℹ️  You are now on {utils.Color.bold(result['branch'])} - patches will be merged here")
+        click.echo()
+
+    except ReleaseManagerError as e:
+        raise click.ClickException(str(e))
 
 
 @release.command('apply')

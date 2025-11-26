@@ -1313,7 +1313,7 @@ class PatchManager:
             self._fetch_from_remote()
 
             # Step 6.5: Validate ho-release/X.Y.Z is synced with origin
-            self._validate_release_branch_synced_with_origin(release_branch)
+            self._validate_branch_synced_with_origin(release_branch)
 
             # Step 7: Check patch number available (via tag, with up-to-date state)
             self._check_patch_id_available(normalized_id)
@@ -1323,6 +1323,7 @@ class PatchManager:
 
             # Step 7: Create patch directory (on ho-release/X.Y.Z, not on branch!)
             patch_dir = self.create_patch_directory(normalized_id)
+            self._repo.hgit.add(patch_dir)
 
             # Step 7b: Update README if description provided
             if description:
@@ -1750,119 +1751,25 @@ class PatchManager:
             )
 
 
-    def _validate_ho_prod_synced_with_origin(self) -> None:
-        """
-        Validate that local ho-prod is synchronized with origin/ho-prod.
-
-        Prevents creating patches on an outdated or unsynchronized base which
-        would cause merge conflicts, inconsistent patch history, and potential
-        data loss. Must be called after fetch_from_origin() to ensure accurate
-        comparison.
-
-        Sync requirements:
-        - Local ho-prod must be at the same commit as origin/ho-prod (synced)
-        - If ahead: Must push local commits before creating patch
-        - If behind: Must pull remote commits before creating patch
-        - If diverged: Must resolve conflicts before creating patch
-
-        Raises:
-            PatchManagerError: If ho-prod is not synced with origin with specific
-                guidance on how to resolve the sync issue
-
-        Examples:
-            # Successful validation (synced)
-            self._fetch_from_remote()
-            self._validate_ho_prod_synced_with_origin()
-            # Continues to patch creation
-
-            # Failed validation (behind)
-            try:
-                self._validate_ho_prod_synced_with_origin()
-            except PatchManagerError as e:
-                # Error: "ho-prod is behind origin/ho-prod. Run: git pull"
-
-            # Failed validation (ahead)
-            try:
-                self._validate_ho_prod_synced_with_origin()
-            except PatchManagerError as e:
-                # Error: "ho-prod is ahead of origin/ho-prod. Run: git push"
-
-            # Failed validation (diverged)
-            try:
-                self._validate_ho_prod_synced_with_origin()
-            except PatchManagerError as e:
-                # Error: "ho-prod has diverged from origin/ho-prod.
-                #         Resolve conflicts first."
-        """
-        try:
-            # Check sync status with origin
-            is_synced, status = self._repo.hgit.is_branch_synced("ho-prod", remote="origin")
-
-            if is_synced:
-                # All good - ho-prod is synced with origin
-                return
-
-            # Not synced - provide specific guidance based on status
-            if status == "ahead":
-                raise PatchManagerError(
-                    "ho-prod is ahead of origin/ho-prod.\n"
-                    "Push your local commits before creating patch:\n"
-                    "  git push origin ho-prod"
-                )
-            elif status == "behind":
-                raise PatchManagerError(
-                    "ho-prod is behind origin/ho-prod.\n"
-                    "Pull remote commits before creating patch:\n"
-                    "  git pull origin ho-prod"
-                )
-            elif status == "diverged":
-                raise PatchManagerError(
-                    "ho-prod has diverged from origin/ho-prod.\n"
-                    "Resolve conflicts before creating patch:\n"
-                    "  git pull --rebase origin ho-prod\n"
-                    "  or\n"
-                    "  git pull origin ho-prod (and resolve merge conflicts)"
-                )
-            else:
-                # Unknown status - generic error
-                raise PatchManagerError(
-                    f"ho-prod sync check failed with status: {status}\n"
-                    "Ensure ho-prod is synchronized with origin before creating patch."
-                )
-
-        except GitCommandError as e:
-            raise PatchManagerError(
-                f"Failed to check ho-prod sync status: {e}\n"
-                "Ensure origin remote is configured and accessible."
-            )
-        except PatchManagerError:
-            # Re-raise PatchManagerError as-is
-            raise
-        except Exception as e:
-            raise PatchManagerError(
-                f"Unexpected error checking ho-prod sync: {e}"
-            )
-
-    def _validate_release_branch_synced_with_origin(self, release_branch: str) -> None:
+    def _validate_branch_synced_with_origin(self, branch: str) -> None:
         """
         Validate that local release branch is synchronized with origin.
 
-        Similar to _validate_ho_prod_synced_with_origin but for ho-release/X.Y.Z branches.
-        Prevents creating patches on an outdated release integration branch.
+        Prevents creating branch on an outdated integration branch.
 
         Args:
-            release_branch: Release branch name (e.g., "ho-release/0.17.0")
+            branch: branch name (e.g., "ho-release/0.17.0", "ho-prod", ...)
 
         Raises:
             PatchManagerError: If branch is not synced with origin
 
         Examples:
-            self._validate_release_branch_synced_with_origin("ho-release/0.17.0")
+            self._validate_branch_synced_with_origin("ho-release/0.17.0")
             # Passes if synced, raises otherwise
         """
         try:
             # Check sync status with origin
-            is_synced, status = self._repo.hgit.is_branch_synced(release_branch, remote="origin")
+            is_synced, status = self._repo.hgit.is_branch_synced(branch, remote="origin")
 
             if is_synced:
                 return
@@ -1870,39 +1777,40 @@ class PatchManager:
             # Not synced - provide specific guidance
             if status == "ahead":
                 raise PatchManagerError(
-                    f"{release_branch} is ahead of origin/{release_branch}.\n"
+                    f"{branch} is ahead of origin/{branch}.\n"
                     f"Push your local commits before creating patch:\n"
-                    f"  git push origin {release_branch}"
+                    f"  git push origin {branch}"
                 )
             elif status == "behind":
                 raise PatchManagerError(
-                    f"{release_branch} is behind origin/{release_branch}.\n"
+                    f"{branch} is behind origin/{branch}.\n"
                     f"Pull remote commits before creating patch:\n"
-                    f"  git pull origin {release_branch}"
+                    f"  git pull origin {branch}"
                 )
             elif status == "diverged":
                 raise PatchManagerError(
-                    f"{release_branch} has diverged from origin/{release_branch}.\n"
+                    f"{branch} has diverged from origin/{branch}.\n"
                     f"Resolve conflicts before creating patch:\n"
-                    f"  git pull --rebase origin {release_branch}"
+                    f"  git pull --rebase origin {branch}"
                 )
             else:
                 raise PatchManagerError(
-                    f"{release_branch} sync check failed with status: {status}\n"
-                    f"Ensure {release_branch} is synchronized with origin."
+                    f"{branch} sync check failed with status: {status}\n"
+                    f"Ensure {branch} is synchronized with origin."
                 )
 
         except GitCommandError as e:
             raise PatchManagerError(
-                f"Failed to check {release_branch} sync status: {e}\n"
+                f"Failed to check {branch} sync status: {e}\n"
                 "Ensure origin remote is configured and accessible."
             )
         except PatchManagerError:
             raise
         except Exception as e:
             raise PatchManagerError(
-                f"Unexpected error checking {release_branch} sync: {e}"
+                f"Unexpected error checking {branch} sync: {e}"
             )
+
 
     def _add_patch_to_candidates(self, patch_id: str, version: str) -> None:
         """
