@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from git.exc import GitCommandError
 
 from half_orm import utils
+from half_orm_dev import modules
 from .patch_validator import PatchValidator, PatchInfo
 
 
@@ -513,7 +514,6 @@ class PatchManager:
             # 6. Apply 999 ← At the end
             # 7. Generate code
         """
-        from half_orm_dev import modules
 
         try:
             # Étape 1: Restauration DB
@@ -829,7 +829,7 @@ class PatchManager:
         """
         try:
             # Read SQL content
-            sql_content = file_path.read_text(encoding='utf-8')
+            sql_content = str(file_path.read_text(encoding='utf-8'))
 
             # Skip empty files
             if not sql_content.strip():
@@ -1452,13 +1452,16 @@ class PatchManager:
                 f"The patch may have already been closed or deleted."
             )
 
-        # 3. Checkout to release branch
+        # 3. Validate patch before merge (apply + tests)
+        self._validate_patch_before_merge(patch_id, version, release_branch, patch_branch)
+
+        # 4. Checkout to release branch
         try:
             self._repo.hgit.checkout(release_branch)
         except Exception as e:
             raise PatchManagerError(f"Failed to checkout {release_branch}: {e}")
 
-        # 4. Merge patch branch into release branch
+        # 5. Merge patch branch into release branch
         try:
             self._repo.hgit.merge(patch_branch, message=f"[HOP] Merge #{patch_id} into %{version}")
         except Exception as e:
@@ -1467,17 +1470,17 @@ class PatchManager:
                 f"You may need to resolve conflicts manually."
             )
 
-        # 5. Move from candidates to stage
+        # 6. Move from candidates to stage
         self._move_patch_to_stage(patch_id, version)
 
-        # 6. Commit changes
+        # 7. Commit changes
         try:
             self._repo.hgit.commit("-m", f"[HOP] move patch #{patch_id} from candidate to stage %{version}")
             self._repo.hgit.push_branch(release_branch)
         except Exception as e:
             raise PatchManagerError(f"Failed to commit/push changes: {e}")
 
-        # 7. Delete patch branch (local and remote)
+        # 8. Delete patch branch (local and remote)
         try:
             self._repo.hgit.delete_local_branch(patch_branch)
             self._repo.hgit.delete_remote_branch(patch_branch)
@@ -1486,7 +1489,7 @@ class PatchManager:
             import click
             click.echo(f"⚠️  Warning: Failed to delete branch {patch_branch}: {e}")
 
-        # 8. Get other candidates for notification
+        # 9. Get other candidates for notification
         other_candidates = self._get_other_candidates(version, patch_id)
 
         return {
@@ -1496,6 +1499,136 @@ class PatchManager:
             'merged_into': release_branch,
             'notified_branches': other_candidates
         }
+
+    def _validate_patch_before_merge(
+        self,
+        patch_id: str,
+        version: str,
+        release_branch: str,
+        patch_branch: str
+    ) -> None:
+        """
+        Validate patch before merging by testing in temporary branch.
+
+        Creates a temporary validation branch, merges the patch, runs apply
+        to verify no modifications, and optionally runs tests. Ensures patch
+        is safe to merge before committing to the release branch.
+
+        Workflow:
+        1. Save current branch
+        2. Create temporary validation branch from release branch
+        3. Merge patch into temp branch
+        4. Run patch apply and verify no modifications
+        5. Run tests (TODO: implement test runner)
+        6. Cleanup temp branch
+        7. Return to original branch
+
+        Args:
+            patch_id: Patch identifier (e.g., "456-user-auth")
+            version: Release version (e.g., "0.17.0")
+            release_branch: Release branch name (e.g., "ho-release/0.17.0")
+            patch_branch: Patch branch name (e.g., "ho-patch/456-user-auth")
+
+        Raises:
+            PatchManagerError: If validation fails (apply modifies files, tests fail, etc.)
+
+        Examples:
+            self._validate_patch_before_merge("456", "0.17.0", "ho-release/0.17.0", "ho-patch/456")
+            # Creates temp branch, validates, cleans up
+        """
+        import click
+
+        # Save current branch
+        original_branch = self._repo.hgit.branch
+        temp_branch = f"ho-validate/{patch_id}"
+
+        try:
+            click.echo(f"\n🔍 Validating patch {utils.Color.bold(patch_id)} before merge...")
+
+            # 1. Create temporary validation branch from release branch
+            click.echo(f"  • Creating temporary validation branch: {temp_branch}")
+            self._repo.hgit.checkout(release_branch)
+            self._repo.hgit.checkout('-b', temp_branch)
+
+            # 2. Merge patch into temp branch
+            click.echo(f"  • Merging {patch_branch} into temp branch...")
+            try:
+                self._repo.hgit.merge(patch_branch, message=f"[VALIDATE] Test merge #{patch_id}")
+            except Exception as e:
+                raise PatchManagerError(
+                    f"Failed to merge {patch_branch} during validation: {e}\n"
+                    f"Please resolve conflicts before closing the patch."
+                )
+
+            # 3. Run patch apply and verify no modifications
+            click.echo(f"  • Running patch apply to verify idempotency...")
+            try:
+                # Get list of staged patches for this version
+                stage_file = Path(self._repo.base_dir) / "releases" / f"{version}-stage.txt"
+                staged_patches = []
+                if stage_file.exists():
+                    content = stage_file.read_text(encoding='utf-8').strip()
+                    if content:
+                        staged_patches = [
+                            line.strip()
+                            for line in content.split('\n')
+                            if line.strip() and not line.strip().startswith('#')
+                        ]
+
+                # Apply all staged patches + current patch
+                all_patches = staged_patches + [patch_id]
+
+                # Restore database and apply patches
+                self._repo.restore_database_from_schema()
+
+                for pid in all_patches:
+                    patch_dir = Path(self._repo.base_dir) / "Patches" / pid
+                    if patch_dir.exists():
+                        self.apply_patch_files(pid, self._repo.model)
+
+                # Generate modules                
+                modules.generate(self._repo)
+
+                # Check if any files were modified
+                if not self._repo.hgit.repos_is_clean():
+                    modified_files = self._repo.hgit.get_modified_files()
+                    raise PatchManagerError(
+                        f"Patch validation failed: patch apply modified files!\n"
+                        f"This indicates the patch is not idempotent or schema is out of sync.\n\n"
+                        f"Modified files:\n" + "\n".join(f"  • {f}" for f in modified_files) + "\n\n"
+                        f"Actions required:\n"
+                        f"  1. Verify patch SQL is idempotent (uses CREATE IF NOT EXISTS, etc.)\n"
+                        f"  2. Ensure schema.sql is up to date with all previous patches\n"
+                        f"  3. Run 'half_orm dev patch apply' on your patch branch to test"
+                    )
+
+                click.echo(f"  • {utils.Color.green('✓')} Patch apply succeeded with no modifications")
+
+            except PatchManagerError:
+                raise
+            except Exception as e:
+                raise PatchManagerError(
+                    f"Failed to run patch apply during validation: {e}"
+                )
+
+            # 4. Run tests (TODO: implement test runner)
+            click.echo(f"  • {utils.Color.blue('⚠')} Skipping tests (not implemented yet)")
+
+            click.echo(f"  • {utils.Color.green('✓')} Validation passed!\n")
+
+        finally:
+            # 5. Cleanup: Delete temp branch and return to original branch
+            try:
+                # Return to original branch
+                if self._repo.hgit.branch != original_branch:
+                    self._repo.hgit.checkout(original_branch)
+
+                # Delete temp branch if it exists
+                if self._repo.hgit.branch_exists(temp_branch):
+                    self._repo.hgit.delete_branch(temp_branch, force=True)
+            except Exception as e:
+                # Cleanup errors are non-critical, just warn
+                click.echo(f"⚠️  Warning: Failed to cleanup temp branch {temp_branch}: {e}")
 
     def _validate_on_ho_release(self) -> str:
         """
@@ -1981,7 +2114,6 @@ class PatchManager:
                 raise PatchManagerError(
                     f"Patch {patch_id} not found in {candidates_file.name}"
                 )
-
             candidates.remove(patch_id)
 
             # Write back candidates (empty or updated list)

@@ -251,7 +251,7 @@ def __get_inheritance_info(rel, package_name):
 
 def __get_fkeys(repo, class_name, module_path):
     try:
-        mod_path = module_path.replace(repo.base_dir, '').replace(os.path.sep, '.')[1:-3]
+        mod_path = module_path.replace(str(repo.base_dir), '').replace(os.path.sep, '.')[1:-3]
         mod = importlib.import_module(mod_path)
         importlib.reload(mod)
         cls = mod.__dict__[class_name]

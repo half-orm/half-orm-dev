@@ -136,6 +136,35 @@ class HGit:
         "Returns True if the git repository is clean, False otherwise."
         return not self.__git_repo.is_dirty(untracked_files=True)
 
+    def get_modified_files(self):
+        """
+        Returns list of modified files in working directory.
+
+        Returns both staged and unstaged modifications, plus untracked files.
+
+        Returns:
+            List of file paths (str) that have been modified
+
+        Examples:
+            files = hgit.get_modified_files()
+            # ['model/schema.sql', 'mydb/public/user.py']
+        """
+        modified = []
+
+        # Get modified files (staged and unstaged)
+        for item in self.__git_repo.index.diff(None):
+            modified.append(item.a_path)
+
+        # Get staged files
+        for item in self.__git_repo.index.diff('HEAD'):
+            if item.a_path not in modified:
+                modified.append(item.a_path)
+
+        # Get untracked files
+        modified.extend(self.__git_repo.untracked_files)
+
+        return modified
+
     def last_commit(self):
         """Returns the last commit
         """
