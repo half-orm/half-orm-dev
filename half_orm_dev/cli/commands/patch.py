@@ -4,7 +4,7 @@ Patch command group - Unified patch development and management.
 Groups all patch-related commands under 'half_orm dev patch':
 - patch new: Create new patch branch and directory
 - patch apply: Apply current patch files to database
-- patch add: Add patch to stage release with validation
+- patch close: Add patch to stage release with validation
 
 Replaces legacy commands:
 - create-patch → patch new
@@ -33,7 +33,7 @@ def patch():
     Common workflow:
         1. half_orm dev patch new <patch_id>
         2. half_orm dev patch apply
-        3. half_orm dev patch add <patch_id>
+        3. half_orm dev patch close <patch_id>
     """
     pass
 
@@ -287,104 +287,4 @@ def patch_close(patch_id: str) -> None:
         click.echo()
 
     except PatchManagerError as e:
-        raise click.ClickException(str(e))
-
-
-@patch.command('add')
-@click.argument('patch_id', type=str)
-@click.option(
-    '--to-version', '-v',
-    type=str,
-    default=None,
-    help='Target release version (required if multiple stage releases exist)'
-)
-def patch_add(patch_id: str, to_version: Optional[str] = None) -> None:
-    """
-    Add patch to stage release file with validation.
-
-    Integrates developed patch into a stage release for deployment.
-    Must be run from ho-prod branch. All business logic is delegated
-    to ReleaseManager with distributed lock for safe concurrent operations.
-
-    \b
-    Complete workflow:
-        1. Acquire exclusive lock on ho-prod (via Git tag)
-        2. Create temporary validation branch
-        3. Apply all release patches + current patch
-        4. Run pytest validation tests
-        5. If tests pass: integrate to ho-prod
-        6. If tests fail: cleanup and exit with error
-        7. Send resync notifications to other patch branches
-        8. Archive patch branch to ho-release/{version}/ namespace
-        9. Cleanup patch branch
-        10. Release lock
-
-    \b
-    Args:
-        patch_id: Patch identifier to add (e.g., "456-user-auth")
-        to_version: Target release version (auto-detected if single stage exists)
-
-    \b
-    Branch Requirements:
-        - Must be on ho-prod branch
-        - Repository must be clean (no uncommitted changes)
-        - Must be synced with origin/ho-prod
-        - Patch branch ho-patch/PATCH_ID must exist
-        - At least one stage release file must exist
-
-    \b
-    Examples:
-        Add patch to auto-detected stage release:
-        $ half_orm dev patch add 456-user-auth
-
-        Add patch to specific version:
-        $ half_orm dev patch add 456-user-auth --to-version 1.3.6
-
-    \b
-    Output:
-        ✓ Detected stage release: 1.3.6-stage.txt
-        ✓ Validated patch 456-user-auth
-        ✓ All tests passed
-        ✓ Integrated to ho-prod
-        ✓ Archived branch: ho-release/1.3.6/456-user-auth
-        ✓ Notified 2 active patch branches
-
-        📝 Next steps:
-          1. Other developers: git pull && git rebase ho-prod
-          2. Continue development: half_orm dev patch new <next_patch_id>
-          3. Promote to RC: half_orm dev release promote rc
-
-    \b
-    Raises:
-        click.ClickException: If validation fails or integration errors occur
-    """
-    try:
-        # Get repository instance
-        repo = Repo()
-
-        # Display context
-        click.echo(f"Adding patch {utils.Color.bold(patch_id)} to stage release...")
-        click.echo()
-
-        # Delegate to ReleaseManager
-        result = repo.release_manager.add_patch_to_release(patch_id, to_version)
-
-        # Display success message
-        click.echo(f"✓ {utils.Color.green('Patch added to release successfully!')}")
-        click.echo()
-        click.echo(f"  Stage file:      {utils.Color.bold(result['stage_file'])}")
-        click.echo(f"  Patch added:     {utils.Color.bold(result['patch_id'])}")
-        click.echo(f"  Tests passed:    {utils.Color.green('✓')}")
-
-        if result.get('notified_branches'):
-            click.echo(f"  Notified:        {len(result['notified_branches'])} active branch(es)")
-
-        click.echo()
-        click.echo("📝 Next steps:")
-        click.echo(f"  • Other developers: {utils.Color.bold('git pull && git rebase ho-prod')}")
-        click.echo(f"  • Continue development: {utils.Color.bold('half_orm dev patch new <next_patch_id>')}")
-        click.echo(f"  • Promote to RC: {utils.Color.bold('half_orm dev release promote rc')}")
-        click.echo()
-
-    except ReleaseManagerError as e:
         raise click.ClickException(str(e))
