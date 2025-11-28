@@ -345,13 +345,12 @@ def release_hotfix(version: Optional[str] = None) -> None:
 
         # Display context
         if version:
-            click.echo(f"Reopening version {utils.Color.bold(version)} for hotfix...")
-        else:
-            click.echo("Reopening current production version for hotfix...")
+            click.echo(f"⚠️  Version parameter is ignored - will reopen current production version")
+        click.echo("Reopening current production version for hotfix...")
         click.echo()
 
-        # Delegate to ReleaseManager
-        result = repo.release_manager.reopen_for_hotfix(version)
+        # Delegate to ReleaseManager (auto-detects version)
+        result = repo.release_manager.reopen_for_hotfix()
 
         # Display success message
         click.echo(f"✓ {utils.Color.green('Version reopened for hotfix successfully!')}")

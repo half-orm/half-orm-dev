@@ -1531,7 +1531,7 @@ class PatchManager:
 
         # 5. Merge patch branch into release branch
         try:
-            self._repo.hgit.merge(patch_branch, message=f"[HOP] Merge #{patch_id} into %{version}")
+            self._repo.hgit.merge(patch_branch, message=f'''[HOP] Merge #{patch_id} into %"{version}"''')
         except Exception as e:
             raise PatchManagerError(
                 f"Failed to merge {patch_branch} into {release_branch}: {e}\n"

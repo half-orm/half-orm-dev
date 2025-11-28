@@ -2700,10 +2700,31 @@ class ReleaseManager:
                         "ho-prod has been restored to its previous state."
                     )
 
-            # 3. Apply patches and generate schema
-            self._apply_release_patches(version)
+            # 3. Apply only NEW patches from stage (if any) and generate schema
+            # Note: RC patches have already been applied during promote_to_rc
+            stage_patches = self.read_release_patches(f"{version}-stage.txt")
 
-            # Generate schema dump for this version
+            if stage_patches:
+                # There are new patches after RC - apply them
+                # First, restore from latest RC schema
+                latest_rc = self._get_latest_rc_number(version)
+                rc_schema_version = f"{version}-rc{latest_rc}" if latest_rc > 0 else "0.0.0"
+
+                # Restore from RC schema if it exists, otherwise from baseline
+                try:
+                    self._repo.restore_database_from_schema(rc_schema_version)
+                except:
+                    self._repo.restore_database_from_schema()
+
+                # Apply new stage patches
+                for patch_id in stage_patches:
+                    self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
+            else:
+                # No new patches - just restore from latest RC
+                # The database should already be in the correct state from RC
+                pass
+
+            # Generate schema dump for this production version
             model_dir = Path(self._repo.base_dir) / "model"
             self._repo.database._generate_schema_sql(version, model_dir)
 
@@ -2758,6 +2779,39 @@ class ReleaseManager:
             raise
         except Exception as e:
             raise ReleaseManagerError(f"Failed to promote to production: {e}")
+
+    def _get_latest_rc_number(self, version: str) -> int:
+        """
+        Get the latest (highest) RC number for a version.
+
+        Args:
+            version: Version string (e.g., "1.3.5")
+
+        Returns:
+            Latest RC number (0 if no RCs exist, 1 for rc1, 2 for rc2, etc.)
+
+        Examples:
+            # No RCs
+            latest = mgr._get_latest_rc_number("1.3.5")
+            # → 0
+
+            # rc1, rc2 exist
+            latest = mgr._get_latest_rc_number("1.3.5")
+            # → 2
+        """
+        rc_files = self.get_rc_files(version)
+        if not rc_files:
+            return 0
+
+        # Extract RC numbers from filenames
+        rc_numbers = []
+        for rc_file in rc_files:
+            # Format: "1.3.5-rc2.txt" → extract "2"
+            match = re.search(r'-rc(\d+)\.txt$', rc_file.name)
+            if match:
+                rc_numbers.append(int(match.group(1)))
+
+        return max(rc_numbers) if rc_numbers else 0
 
     def _determine_rc_number(self, version: str) -> int:
         """
