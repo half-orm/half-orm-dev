@@ -32,17 +32,22 @@ class TestCreatePatchIntegration:
         # Verify all steps executed
         # 1. Validations passed (no exceptions)
         # 2. Branch created
-        assert mock_hgit_complete.checkout.call_count == 2  # create + checkout
+        # Note: checkout count includes sync to ho-prod (2 checkouts) + final checkout to patch branch
+        assert mock_hgit_complete.checkout.call_count >= 2  # At least create + checkout (may include ho-prod sync)
 
         # 3. Directory created
         expected_dir = patches_dir / "456-user-auth"
         assert expected_dir.exists()
 
         # 4. Checkout to new branch
-        mock_hgit_complete.checkout.assert_any_call("ho-patch/456-user-auth")
+        mock_hgit_complete.checkout.assert_any_call("-b", "ho-patch/456-user-auth")
 
+        # Verify patch branch was pushed with set_upstream
+        # Note: There may be other pushes (ho-release, ho-prod sync) before the patch branch push
         calls = mock_hgit_complete.push_branch.call_args_list
-        assert calls[1] == call("ho-patch/456-user-auth", set_upstream=True)
+        patch_branch_pushes = [c for c in calls if 'ho-patch/456-user-auth' in str(c)]
+        assert len(patch_branch_pushes) >= 1
+        assert patch_branch_pushes[0] == call("ho-patch/456-user-auth", set_upstream=True)
 
         # 5. Return value complete
         assert result['patch_id'] == "456-user-auth"
@@ -223,12 +228,15 @@ class TestCreatePatchIntegration:
         # Create patch
         result = patch_mgr.create_patch("456-user-auth", None)
 
-        # Verify call order: create branch, then checkout
+        # Verify call order: sync to ho-prod, return to release, create patch branch
         calls = mock_hgit_complete.checkout.call_args_list
-        assert len(calls) == 2
+        assert len(calls) == 3
 
-        # First call: create branch (git checkout -b)
-        assert calls[0] == call('-b', 'ho-patch/456-user-auth')
+        # First call: checkout ho-prod (for sync)
+        assert calls[0] == call('ho-prod')
 
-        # Second call: checkout to branch (git checkout)
-        assert calls[1] == call('ho-patch/456-user-auth')
+        # Second call: return to release branch (after sync)
+        assert calls[1] == call('ho-release/0.17.0')
+
+        # Third call: create patch branch (git checkout -b)
+        assert calls[2] == call('-b', 'ho-patch/456-user-auth')

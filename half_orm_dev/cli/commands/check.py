@@ -97,7 +97,7 @@ def _display_check_results(result: dict, dry_run: bool, prune_branches: bool, ve
     # Show releases with candidates and staged patches
     releases_info = result.get('releases_info', {})
     if releases_info:
-        _display_releases_with_patches(releases_info, patch_branches, verbose)
+        _display_releases_with_patches(releases_info, patch_branches, release_branches, verbose)
     elif verbose:
         click.echo(f"\n📦 {utils.Color.bold('Active releases:')} None")
 
@@ -220,12 +220,13 @@ def _display_branch_info(branch_info: dict, verbose: bool, indent: str = "  ", s
     click.echo(f"{indent}{marker}• {display_name} - {status}")
 
 
-def _display_releases_with_patches(releases_info: dict, patch_branches: list, verbose: bool):
+def _display_releases_with_patches(releases_info: dict, patch_branches: list, release_branches: list, verbose: bool):
     """Display releases grouped by version with candidates and staged patches.
 
     Args:
         releases_info: Dict of {version: {candidates: [], staged: [], ...}}
         patch_branches: List of patch branch info dicts
+        release_branches: List of release branch info dicts
         verbose: Show verbose output
     """
     # Sort versions
@@ -236,9 +237,22 @@ def _display_releases_with_patches(releases_info: dict, patch_branches: list, ve
         candidates = info.get('candidates', [])
         staged = info.get('staged', [])
 
-        # Release header
-        total_patches = len(candidates) + len(staged)
-        click.echo(f"\n📦 {utils.Color.bold(f'Release {version}')} (ho-release/{version}):")
+        # Check if release branch exists
+        release_branch_name = f"ho-release/{version}"
+        release_branch_info = next((b for b in release_branches if b['name'] == release_branch_name), None)
+
+        # Release header with status
+        release_status = ""
+        if release_branch_info:
+            if not release_branch_info.get('exists_on_remote', False) and release_branch_info.get('exists_locally', False):
+                release_status = f" {utils.Color.yellow('⚠️ local only - remote deleted')}"
+            elif release_branch_info.get('sync_status') == 'remote_only':
+                release_status = f" {utils.Color.blue('☁️ on remote only')}"
+        else:
+            # Release files exist but no branch at all
+            release_status = f" {utils.Color.red('⚠️ branch not found')}"
+
+        click.echo(f"\n📦 {utils.Color.bold(f'Release {version}')} (ho-release/{version}):{release_status}")
 
         # Show staged patches
         if staged:
@@ -261,18 +275,22 @@ def _display_releases_with_patches(releases_info: dict, patch_branches: list, ve
 
                     if sync_status == 'synced':
                         status = utils.Color.green("✓ synced")
+                    elif sync_status == 'remote_only':
+                        status = utils.Color.blue("☁️ on remote only (run: git checkout -b ho-patch/" + patch_id + " origin/ho-patch/" + patch_id + ")")
                     elif sync_status == 'behind':
                         status = utils.Color.blue(f"⚠️ {behind} commits behind")
                     elif sync_status == 'ahead':
                         status = utils.Color.blue(f"↑ {ahead} ahead")
                     elif sync_status == 'diverged':
                         status = utils.Color.red(f"⚠ diverged (↑{ahead} ↓{behind})")
+                    elif sync_status == 'no_remote':
+                        status = utils.Color.yellow("⚠️ local only (remote deleted or not pushed - run: git branch -d " + branch_name + ")")
                     else:
                         status = "?"
 
                     click.echo(f"    • {patch_id} - {status}")
                 else:
-                    # Branch doesn't exist locally
+                    # Branch doesn't exist anywhere
                     click.echo(f"    • {patch_id} {utils.Color.red('⚠ branch not found')}")
 
         if not staged and not candidates:

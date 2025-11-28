@@ -236,7 +236,9 @@ class TestPatchManagerTagReservation:
 
         # 5. Branch push
         calls = mock_hgit_complete.push_branch.call_args_list
-        assert calls[1] == call("ho-patch/456-user-auth", set_upstream=True)
+        patch_branch_pushes = [c for c in calls if 'ho-patch/456-user-auth' in str(c)]
+        assert len(patch_branch_pushes) >= 1
+        assert patch_branch_pushes[0] == call("ho-patch/456-user-auth", set_upstream=True)
 
         # 6. Directory created
         expected_dir = patches_dir / "456-user-auth"

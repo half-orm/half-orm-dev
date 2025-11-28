@@ -255,6 +255,32 @@ class HGit:
         "Proxy to git.commit method"
         return self.__git_repo.git.checkout(*args, **kwargs)
 
+    def checkout_paths_from_branch(self, branch: str, paths: list) -> None:
+        """
+        Checkout specific paths from another branch into working directory.
+
+        This allows selective extraction of files/directories from a branch
+        without merging the entire branch. Used to sync metadata files
+        (like releases/*.txt) between branches.
+
+        Args:
+            branch: Source branch name (e.g., "ho-release/0.1.0")
+            paths: List of paths to checkout (e.g., ["releases/", "docs/"])
+
+        Examples:
+            # Copy only releases/ directory from release branch to current branch
+            hgit.checkout("ho-prod")
+            hgit.checkout_paths_from_branch("ho-release/0.1.0", ["releases/"])
+            # Now releases/ contains files from ho-release/0.1.0
+            hgit.commit("-m", "sync releases/ from ho-release/0.1.0")
+
+        Notes:
+            - Changes are staged automatically
+            - Current branch must be checked out first
+            - Paths are relative to repository root
+        """
+        self.__git_repo.git.checkout(branch, '--', *paths)
+
     def pull(self, *args, **kwargs):
         "Proxy to git.pull method"
         return self.__git_repo.git.pull(*args, **kwargs)
@@ -411,12 +437,13 @@ class HGit:
 
     def fetch_from_origin(self) -> None:
         """
-        Fetch all references from origin remote.
+        Fetch all references from origin remote with pruning.
 
         Updates local knowledge of all remote references including:
         - All remote branches
         - All remote tags
         - Other remote refs
+        - Removes stale remote-tracking references (--prune)
 
         This is more comprehensive than fetch_tags() which only fetches tags.
         Used before patch creation to ensure up-to-date view of remote state.
@@ -427,10 +454,11 @@ class HGit:
         Examples:
             hgit.fetch_from_origin()
             # Local git now has complete up-to-date view of origin
+            # Stale remote refs (deleted branches on remote) are removed
         """
         try:
             origin = self.__git_repo.remote('origin')
-            origin.fetch()
+            origin.fetch(prune=True)
         except Exception as e:
             from git.exc import GitCommandError
             if isinstance(e, GitCommandError):
@@ -1447,11 +1475,19 @@ class HGit:
         remote_branches = self.get_remote_branches()
         remote_branch_names = {b.replace('origin/', '') for b in remote_branches}
 
-        # Get ho-patch branches
-        patch_branches = self.get_local_branches(pattern="ho-patch/*")
+        # Get ho-patch branches (local + remote)
+        local_patch_branches = self.get_local_branches(pattern="ho-patch/*")
+        remote_patch_branches = [b.replace('origin/', '') for b in remote_branches
+                                if b.startswith('origin/ho-patch/')]
+        # Combine local and remote, avoiding duplicates
+        all_patch_branches = list(set(local_patch_branches + remote_patch_branches))
 
-        # Get ho-release branches
-        release_branches = self.get_local_branches(pattern="ho-release/*")
+        # Get ho-release branches (local + remote)
+        local_release_branches = self.get_local_branches(pattern="ho-release/*")
+        remote_release_branches = [b.replace('origin/', '') for b in remote_branches
+                                  if b.startswith('origin/ho-release/')]
+        # Combine local and remote, avoiding duplicates
+        all_release_branches = list(set(local_release_branches + remote_release_branches))
 
         # Parse stage files to identify active release branches and their order
         active_release_patches = set()
@@ -1477,11 +1513,18 @@ class HGit:
                 except Exception:
                     pass
 
-        def get_branch_info(branch: str, check_stage: bool = False) -> dict:
-            """Helper to get branch status."""
+        def get_branch_info(branch: str, check_stage: bool = False, is_local: bool = True) -> dict:
+            """Helper to get branch status.
+
+            Args:
+                branch: Branch name
+                check_stage: Whether to check stage file membership
+                is_local: Whether branch exists locally
+            """
             info = {
                 'name': branch,
                 'is_current': branch == current_branch,
+                'exists_locally': is_local,
                 'exists_on_remote': branch in remote_branch_names,
                 'sync_status': 'unknown',
                 'ahead': 0,
@@ -1508,9 +1551,13 @@ class HGit:
                     info['in_stage_file'] = False
                     info['order'] = 999
 
+            # Determine sync status
             if not info['exists_on_remote']:
                 info['sync_status'] = 'no_remote'
+            elif not info['exists_locally']:
+                info['sync_status'] = 'remote_only'
             else:
+                # Both local and remote exist - check sync
                 try:
                     is_synced, status = self.is_branch_synced(branch, remote='origin')
                     info['sync_status'] = status
@@ -1535,8 +1582,19 @@ class HGit:
 
             return info
 
+        # Build branch info with local/remote indication
+        patch_branch_infos = []
+        for branch in all_patch_branches:
+            is_local = branch in local_patch_branches
+            patch_branch_infos.append(get_branch_info(branch, is_local=is_local))
+
+        release_branch_infos = []
+        for branch in all_release_branches:
+            is_local = branch in local_release_branches
+            release_branch_infos.append(get_branch_info(branch, check_stage=True, is_local=is_local))
+
         return {
             'current_branch': current_branch,
-            'patch_branches': [get_branch_info(b) for b in patch_branches],
-            'release_branches': [get_branch_info(b, check_stage=True) for b in release_branches]
+            'patch_branches': patch_branch_infos,
+            'release_branches': release_branch_infos
         }

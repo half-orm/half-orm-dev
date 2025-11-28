@@ -2932,6 +2932,7 @@ class ReleaseManager:
         except Exception as e:
             raise ReleaseManagerError(f"Failed to reopen version for hotfix: {e}")
 
+    @with_dynamic_branch_lock(lambda self: "ho-prod")
     def promote_to_hotfix(self) -> dict:
         """
         Promote hotfix release to production with hotfix tag.

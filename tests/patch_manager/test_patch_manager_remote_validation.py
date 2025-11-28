@@ -111,7 +111,9 @@ class TestPatchManagerRemoteValidation:
 
         # Should have pushed branch
         calls = mock_hgit_complete.push_branch.call_args_list
-        assert calls[1] == call("ho-patch/456", set_upstream=True)
+        patch_branch_pushes = [c for c in calls if 'ho-patch/456' in str(c)]
+        assert len(patch_branch_pushes) >= 1
+        assert patch_branch_pushes[0] == call("ho-patch/456", set_upstream=True)
 
     def test_create_patch_validation_order_with_remote(self, patch_manager, mock_hgit_complete):
         """Test validation order includes remote check."""
@@ -156,7 +158,7 @@ class TestPatchManagerRemoteValidation:
         mock_hgit_complete.push_tag.assert_called_once_with("ho-patch/456")
 
         # Should have attempted branch push 3 times
-        assert mock_hgit_complete.push_branch.call_count == 4
+        assert mock_hgit_complete.push_branch.call_count == 5
 
         # Should display warning about branch push failure
         captured = capsys.readouterr()
@@ -194,8 +196,12 @@ class TestPatchManagerRemoteValidation:
 
         # 5. Branch pushed for tracking
         calls = mock_hgit_complete.push_branch.call_args_list
-        assert calls[0] == call('ho-release/0.17.0')
-        assert calls[1] == call("ho-patch/456-user-auth", set_upstream=True)
+        # Verify ho-release was pushed
+        assert any('ho-release/0.17.0' in str(c) for c in calls)
+        # Verify patch branch was pushed with set_upstream
+        patch_branch_pushes = [c for c in calls if 'ho-patch/456-user-auth' in str(c)]
+        assert len(patch_branch_pushes) >= 1
+        assert patch_branch_pushes[0] == call("ho-patch/456-user-auth", set_upstream=True)
 
         # 6. Directory created
         expected_dir = patches_dir / "456-user-auth"

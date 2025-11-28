@@ -1228,7 +1228,7 @@ class PatchManager:
                 # Directory deletion may fail (permissions, etc.) - continue
                 pass
 
-    @with_dynamic_branch_lock(lambda self, patch_id, description=None: self._validate_on_ho_release())
+    @with_dynamic_branch_lock(lambda self, patch_id, description=None: "ho-prod")
     def create_patch(self, patch_id: str, description: Optional[str] = None) -> dict:
         """
         Create new patch with atomic tag-first reservation strategy.
@@ -1346,6 +1346,9 @@ class PatchManager:
             tag_pushed = True  # Tag pushed = point of no return
             # ✅ If we reach here: patch number globally reserved!
 
+            # Step 11b: Sync release files to ho-prod (non-critical)
+            self._sync_release_files_to_ho_prod(release_version, release_branch, critical=False)
+
             # === BRANCH CREATION (after reservation) ===
 
             # Step 11: Create branch FROM current commit (after tag push)
@@ -1362,13 +1365,7 @@ class PatchManager:
                 click.echo(f"⚠️  Push branch manually: git push -u origin {branch_name}")
                 # Don't raise - tag pushed means success
 
-            # Step 13: Checkout to new branch (non-critical, warn if fails)
-            try:
-                self._checkout_branch(branch_name)
-            except Exception as e:
-                import click
-                click.echo(f"⚠️  Checkout failed but patch created successfully")
-                click.echo(f"Run: git checkout {branch_name}")
+            # Note: No need to checkout - already on branch after _create_git_branch()
 
         except Exception as e:
             # Only rollback if tag NOT pushed yet AND modifications started
@@ -1393,6 +1390,60 @@ class PatchManager:
             'version': release_version  # NEW: include release version
         }
 
+    def _sync_release_files_to_ho_prod(self, version: str, release_branch: str, critical: bool = False) -> None:
+        """
+        Sync release files for a specific version to ho-prod.
+
+        This ensures that ho-prod always has the latest state of release metadata
+        files, making it the single source of truth for release information.
+
+        Args:
+            version: Release version (e.g., "0.17.0")
+            release_branch: Source release branch (e.g., "ho-release/0.17.0")
+            critical: If True, raise exception on failure. If False, just warn.
+
+        Raises:
+            PatchManagerError: If critical=True and sync fails
+
+        Examples:
+            # After modifying candidates.txt on ho-release/0.17.0
+            self._sync_release_files_to_ho_prod("0.17.0", "ho-release/0.17.0")
+        """
+        try:
+            # Save current branch
+            current_branch = release_branch
+
+            # Checkout ho-prod
+            self._repo.hgit.checkout("ho-prod")
+
+            # Copy ONLY the files for this specific version from release branch
+            release_files = [
+                f"releases/{version}-candidates.txt",
+                f"releases/{version}-stage.txt"
+            ]
+            self._repo.hgit.checkout_paths_from_branch(release_branch, release_files)
+
+            # Commit on ho-prod
+            self._repo.hgit.commit("-m", f"[HOP] sync release {version} files from {release_branch}")
+            self._repo.hgit.push_branch("ho-prod")
+
+            # Return to release branch
+            self._repo.hgit.checkout(current_branch)
+        except Exception as e:
+            # Try to return to release branch even on error
+            try:
+                self._repo.hgit.checkout(release_branch)
+            except:
+                pass
+
+            if critical:
+                raise PatchManagerError(f"Failed to sync release files to ho-prod: {e}")
+            else:
+                # Non-critical - just warn
+                import click
+                click.echo(f"⚠️  Warning: Failed to sync release files to ho-prod: {e}")
+                click.echo(f"⚠️  You may need to manually sync releases/ to ho-prod")
+
     def _get_release_branch_for_patch(self, patch_id: str, *args, **kwargs) -> str:
         """
         Helper to determine release branch for close_patch lock.
@@ -1414,7 +1465,7 @@ class PatchManager:
             )
         return f"ho-release/{version}"
 
-    @with_dynamic_branch_lock(lambda self, patch_id: self._get_release_branch_for_patch(patch_id))
+    @with_dynamic_branch_lock(lambda self, patch_id: "ho-prod")
     def close_patch(self, patch_id: str) -> dict:
         """
         Close a patch by merging it into the release branch.
@@ -1490,12 +1541,15 @@ class PatchManager:
         # 6. Move from candidates to stage
         self._move_patch_to_stage(patch_id, version)
 
-        # 7. Commit changes
+        # 7. Commit changes on release branch
         try:
             self._repo.hgit.commit("-m", f"[HOP] move patch #{patch_id} from candidate to stage %{version}")
             self._repo.hgit.push_branch(release_branch)
         except Exception as e:
             raise PatchManagerError(f"Failed to commit/push changes: {e}")
+
+        # 7b. Sync release files to ho-prod (metadata only, not code)
+        self._sync_release_files_to_ho_prod(version, release_branch, critical=True)
 
         # 8. Delete patch branch (local and remote)
         try:

@@ -91,4 +91,4 @@ class TestHGitFetchFromOrigin:
 
         # Should call fetch() without arguments (fetches all refs)
         # vs fetch_tags() which calls fetch(tags=True)
-        mock_origin.fetch.assert_called_once_with()  # No tags=True argument
+        mock_origin.fetch.assert_called_once_with(prune=True)  # No tags=True argument

@@ -773,34 +773,59 @@ class Repo:
 
         # 2. Get active branches status and release files
         try:
-            # Find release files (candidates and stage)
+            # Find release files (candidates and stage) from ho-prod
             releases_info = {}
             if hasattr(self, 'release_manager'):
-                releases_dir = Path(self.__base_dir) / 'releases'
-                if releases_dir.exists():
-                    # Group files by version
-                    from collections import defaultdict
-                    by_version = defaultdict(dict)
+                # Save current branch
+                try:
+                    current_branch = str(self.hgit._HGit__git_repo.active_branch)
+                except:
+                    current_branch = None
 
-                    for candidates_file in releases_dir.glob('*-candidates.txt'):
-                        version = candidates_file.stem.replace('-candidates', '')
-                        by_version[version]['candidates_file'] = str(candidates_file)
-                        # Read candidates
-                        candidates_content = candidates_file.read_text(encoding='utf-8').strip()
-                        by_version[version]['candidates'] = [
-                            c.strip() for c in candidates_content.split('\n') if c.strip()
-                        ]
+                # Switch to ho-prod to read release files (source of truth)
+                try:
+                    self.hgit.checkout('ho-prod')
 
-                    for stage_file in releases_dir.glob('*-stage.txt'):
-                        version = stage_file.stem.replace('-stage', '')
-                        by_version[version]['stage_file'] = str(stage_file)
-                        # Read staged patches
-                        stage_content = stage_file.read_text(encoding='utf-8').strip()
-                        by_version[version]['staged'] = [
-                            s.strip() for s in stage_content.split('\n') if s.strip()
-                        ]
+                    # Pull latest changes from origin to ensure we have up-to-date metadata
+                    try:
+                        self.hgit.pull()
+                    except Exception:
+                        pass  # Best effort - may fail if no remote or no changes
 
-                    releases_info = dict(by_version)
+                    releases_dir = Path(self.__base_dir) / 'releases'
+                    if releases_dir.exists():
+                        # Group files by version
+                        from collections import defaultdict
+                        by_version = defaultdict(dict)
+
+                        for candidates_file in releases_dir.glob('*-candidates.txt'):
+                            version = candidates_file.stem.replace('-candidates', '')
+                            by_version[version]['candidates_file'] = str(candidates_file)
+                            # Read candidates (skip comments)
+                            candidates_content = candidates_file.read_text(encoding='utf-8').strip()
+                            by_version[version]['candidates'] = [
+                                c.strip() for c in candidates_content.split('\n')
+                                if c.strip() and not c.startswith('#')
+                            ]
+
+                        for stage_file in releases_dir.glob('*-stage.txt'):
+                            version = stage_file.stem.replace('-stage', '')
+                            by_version[version]['stage_file'] = str(stage_file)
+                            # Read staged patches (skip comments)
+                            stage_content = stage_file.read_text(encoding='utf-8').strip()
+                            by_version[version]['staged'] = [
+                                s.strip() for s in stage_content.split('\n')
+                                if s.strip() and not s.startswith('#')
+                            ]
+
+                        releases_info = dict(by_version)
+                finally:
+                    # Return to original branch
+                    if current_branch:
+                        try:
+                            self.hgit.checkout(current_branch)
+                        except:
+                            pass  # Best effort
 
             result['active_branches'] = self.hgit.get_active_branches_status(
                 stage_files=[info.get('stage_file') for info in releases_info.values()
