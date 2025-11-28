@@ -221,7 +221,7 @@ class TestCreatePatchIntegration:
         repo.hgit = mock_hgit_complete
 
         # Create patch
-        result = patch_mgr.create_patch("456-user-auth")
+        result = patch_mgr.create_patch("456-user-auth", None)
 
         # Verify call order: create branch, then checkout
         calls = mock_hgit_complete.checkout.call_args_list

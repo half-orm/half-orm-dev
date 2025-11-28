@@ -47,16 +47,3 @@ def resolve_database_config_name(base_dir):
 
     # Priority 3: directory name
     return base_path.name
-
-def lock_tag(repo: 'Repo'):
-    def temp_lock(func):
-        def wrapper(*args, **kwargs):
-            lock_tag = None
-            try:        
-                lock_tag = repo.hgit.acquire_branch_lock("ho-prod", timeout_minutes=30)
-                result = func(*args, **kwargs)
-            finally:
-                if lock_tag:
-                    repo.hgit.release_branch_lock(lock_tag)
-            return result
-        return wrapper

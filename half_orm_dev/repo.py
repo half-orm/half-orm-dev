@@ -1798,16 +1798,3 @@ See docs/half_orm_dev.md for complete documentation.
             raise RepoError(
                 f"Failed to restore database from schema: {e}"
             ) from e
-
-def temp_lock(func):
-    def wrapper(*args, **kwargs):
-        repo = Repo()
-        lock_tag = None
-        try:        
-            lock_tag = repo.hgit.acquire_branch_lock("ho-prod", timeout_minutes=30)
-            result = func(*args, **kwargs)
-            result['lock_tag'] = lock_tag
-        finally:
-            repo.hgit.release_branch_lock(lock_tag)
-        return result
-    return wrapper

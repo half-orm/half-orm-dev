@@ -20,6 +20,7 @@ from git.exc import GitCommandError
 from half_orm import utils
 from half_orm_dev import modules
 from .patch_validator import PatchValidator, PatchInfo
+from .decorators import with_dynamic_branch_lock
 
 
 class PatchManagerError(Exception):
@@ -1227,6 +1228,7 @@ class PatchManager:
                 # Directory deletion may fail (permissions, etc.) - continue
                 pass
 
+    @with_dynamic_branch_lock(lambda self, patch_id, description=None: self._validate_on_ho_release())
     def create_patch(self, patch_id: str, description: Optional[str] = None) -> dict:
         """
         Create new patch with atomic tag-first reservation strategy.
@@ -1286,7 +1288,8 @@ class PatchManager:
             # With description for README and commits
         """
         # Step 1-3: Validate context
-        release_version = self._validate_on_ho_release()  # NEW: returns version
+        release_branch = self._validate_on_ho_release()
+        release_version = release_branch.replace("ho-release/", "")
         self._validate_repo_clean()
         self._validate_has_remote()
 
@@ -1299,16 +1302,12 @@ class PatchManager:
         lock_tag = None
         # Save initial state for rollback
         initial_branch = self._repo.hgit.branch  # Should be ho-release/X.Y.Z
-        release_branch = f"ho-release/{release_version}"
         patch_dir = None
         commit_created = False
         tag_pushed = False
         modifications_started = False  # Track if we started making changes
         branch_name = f"ho-patch/{normalized_id}"
         try:
-            # Step 5: ACQUIRE LOCK on ho-release/X.Y.Z (with 30 min timeout for stale locks)
-            lock_tag = self._repo.hgit.acquire_branch_lock(release_branch, timeout_minutes=30)
-
             # Step 6: Fetch all references from remote (branches + tags) - with lock held
             self._fetch_from_remote()
 
@@ -1385,10 +1384,6 @@ class PatchManager:
                 )
             raise PatchManagerError(f"Patch creation failed: {e}")
 
-        finally:
-            # ALWAYS release lock (even on error)
-            self._repo.hgit.release_branch_lock(lock_tag)
-
         # Return result
         return {
             'patch_id': normalized_id,
@@ -1398,6 +1393,28 @@ class PatchManager:
             'version': release_version  # NEW: include release version
         }
 
+    def _get_release_branch_for_patch(self, patch_id: str, *args, **kwargs) -> str:
+        """
+        Helper to determine release branch for close_patch lock.
+
+        Args:
+            patch_id: Patch identifier
+
+        Returns:
+            Release branch name (e.g., "ho-release/0.17.0")
+
+        Raises:
+            PatchManagerError: If patch not found in candidates
+        """
+        version = self._find_version_for_candidate(patch_id)
+        if not version:
+            raise PatchManagerError(
+                f"Patch {patch_id} not found in any candidates file.\n"
+                f"Available candidates:\n{self._list_all_candidates()}"
+            )
+        return f"ho-release/{version}"
+
+    @with_dynamic_branch_lock(lambda self, patch_id: self._get_release_branch_for_patch(patch_id))
     def close_patch(self, patch_id: str) -> dict:
         """
         Close a patch by merging it into the release branch.
@@ -1638,14 +1655,14 @@ class PatchManager:
         to allow patches to see each other's changes and support dependencies.
 
         Returns:
-            Version string extracted from branch name (e.g., "0.17.0")
+            branch name (e.g., "ho-release/0.17.0")
 
         Raises:
             PatchManagerError: If not on ho-release/* branch
 
         Examples:
-            version = self._validate_on_ho_release()
-            # On ho-release/0.17.0 → returns "0.17.0"
+            branch_name = self._validate_on_ho_release()
+            # On ho-release/X.Y.Z → returns "ho-release/X.Y.Z"
             # On main → raises PatchManagerError
         """
         current_branch = self._repo.hgit.branch
@@ -1656,9 +1673,7 @@ class PatchManager:
                 f"Hint: Run 'half_orm dev release new <level>' first to create a release"
             )
 
-        # Extract version from branch name (ho-release/X.Y.Z → X.Y.Z)
-        version = current_branch.replace("ho-release/", "")
-        return version
+        return current_branch
 
     def _validate_on_ho_prod(self) -> None:
         """

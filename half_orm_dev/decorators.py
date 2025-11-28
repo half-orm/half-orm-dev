@@ -7,34 +7,39 @@ Provides common decorators for ReleaseManager and PatchManager.
 from functools import wraps
 
 
-def with_ho_prod_lock(branch: str = "ho-prod", timeout_minutes: int = 30):
+def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
     """
-    Decorator to protect methods that modify ho-prod with a lock tag.
+    Decorator to protect methods with a dynamic branch lock.
 
-    The lock tag allows the pre-commit hook to permit commits on ho-prod
-    during the execution of the decorated method.
+    Unlike with_branch_lock which uses a static branch name, this decorator
+    calls a function to determine the branch name at runtime.
 
     Args:
-        branch: Branch to lock (default: "ho-prod")
+        branch_getter: Callable that takes (self, *args, **kwargs) and returns branch name
         timeout_minutes: Lock timeout in minutes (default: 30)
 
     Usage:
-        @with_ho_prod_lock()
-        def my_method(self, ...):
-            # Can commit to ho-prod here
+        def _get_release_branch(self, patch_id, *args, **kwargs):
+            # Logic to determine release branch from patch_id
+            return f"ho-release/{version}"
+
+        @with_dynamic_branch_lock(_get_release_branch)
+        def close_patch(self, patch_id):
+            # Will lock the release branch determined by _get_release_branch
             ...
 
     Notes:
-        - The decorator assumes `self._repo.hgit` has `acquire_branch_lock()`
-          and `release_branch_lock()` methods
+        - branch_getter is called with the same arguments as the decorated function
         - The lock is ALWAYS released in the finally block, even on error
-        - If lock acquisition fails, the method is not executed
     """
     def decorator(func):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             lock_tag = None
             try:
+                # Determine branch name dynamically
+                branch = branch_getter(self, *args, **kwargs)
+
                 # Acquire lock
                 lock_tag = self._repo.hgit.acquire_branch_lock(branch, timeout_minutes=timeout_minutes)
 

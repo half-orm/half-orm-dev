@@ -16,7 +16,7 @@ from typing import Optional, Tuple, List, Dict
 from dataclasses import dataclass
 
 from git.exc import GitCommandError
-from half_orm_dev.decorators import with_ho_prod_lock
+from half_orm_dev.decorators import with_dynamic_branch_lock
 
 class ReleaseManagerError(Exception):
     """Base exception for ReleaseManager operations."""
@@ -2285,7 +2285,7 @@ class ReleaseManager:
         version_tags.sort(key=version_key, reverse=True)
         return version_tags[0]
 
-    @with_ho_prod_lock()
+    @with_dynamic_branch_lock(lambda self, level: "ho-prod")
     def new_release(self, level: str) -> dict:
         """
         Create a new release with integration branch.
@@ -2380,7 +2380,7 @@ class ReleaseManager:
             'stage_file': str(stage_file)
         }
 
-    @with_ho_prod_lock()
+    @with_dynamic_branch_lock(lambda self, patch_id, version: "ho-prod")
     def add_patch_to_release(self, patch_id: str, version: str) -> dict:
         """
         Add a patch to a release by merging into the release branch.
@@ -2526,8 +2526,8 @@ class ReleaseManager:
         stage_files.sort(key=version_key)
         return stage_files[0].stem.replace('-stage', '')
 
-    @with_ho_prod_lock()
-    def promote_to_rc(self, version: str = None) -> dict:
+    @with_dynamic_branch_lock(lambda self: "ho-prod")
+    def promote_to_rc(self) -> dict:
         """
         Promote a stage release to RC by tagging the release branch.
 
@@ -2548,7 +2548,7 @@ class ReleaseManager:
             ReleaseManagerError: If promotion fails
 
         Examples:
-            rel_mgr.promote_to_rc("0.1.0")
+            rel_mgr.promote_to_rc()
             # → Creates tag "0.1.0-rcN" on ho-release/0.1.0
             # → Renames 0.1.0-stage.txt to 0.1.0-rcN.txt
 
@@ -2556,8 +2556,7 @@ class ReleaseManager:
             # → Promotes the smallest stage release
         """
         # Auto-detect version if not provided
-        if version is None:
-            version = self._detect_version_to_promote('rc')
+        version = self._detect_version_to_promote('rc')
 
         stage_file = self._releases_dir / f"{version}-stage.txt"
         if not stage_file.exists():
@@ -2606,8 +2605,8 @@ class ReleaseManager:
         except Exception as e:
             raise ReleaseManagerError(f"Failed to promote to RC: {e}")
 
-    @with_ho_prod_lock()
-    def promote_to_prod(self, version: str = None) -> dict:
+    @with_dynamic_branch_lock(lambda self: "ho-prod")
+    def promote_to_prod(self) -> dict:
         """
         Promote stage release to production.
 
@@ -2635,7 +2634,7 @@ class ReleaseManager:
             ReleaseManagerError: If promotion fails
 
         Examples:
-            rel_mgr.promote_to_prod("0.1.0")
+            rel_mgr.promote_to_prod()
             # → Merges ho-release/0.1.0 into ho-prod
             # → Creates tag "0.1.0"
             # → Deletes candidates.txt, renames stage.txt to 0.1.0.txt
@@ -2644,9 +2643,8 @@ class ReleaseManager:
             rel_mgr.promote_to_prod()  # Auto-detect version
             # → Promotes the smallest RC release
         """
-        # Auto-detect version if not provided
-        if version is None:
-            version = self._detect_version_to_promote('prod')
+        # Auto-detect version
+        version = self._detect_version_to_promote('prod')
 
         stage_file = self._releases_dir / f"{version}-stage.txt"
         if not stage_file.exists():
@@ -2812,8 +2810,8 @@ class ReleaseManager:
         # Fallback (shouldn't happen with valid RC files)
         return len(rc_files) + 1
 
-    @with_ho_prod_lock()
-    def reopen_for_hotfix(self, version: str = None) -> dict:
+    @with_dynamic_branch_lock(lambda self: "ho-prod")
+    def reopen_for_hotfix(self) -> dict:
         """
         Reopen a production version for hotfix development.
 
@@ -2855,10 +2853,8 @@ class ReleaseManager:
             8. Switch to branch
         """
         try:
-            # 1. Determine version to reopen
-            if version is None:
-                # Get current production version from model/schema.sql
-                version = self._get_production_version()
+            # Get current production version from model/schema.sql
+            version = self._get_production_version()
 
             # Validate version format
             if not re.match(r'^\d+\.\d+\.\d+$', version):

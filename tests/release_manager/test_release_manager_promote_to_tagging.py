@@ -111,7 +111,7 @@ class TestPromoteToRCTagging:
         release_mgr, releases_dir, mock_hgit = release_manager_for_rc_tagging
 
         # Execute promotion to RC
-        result = release_mgr.promote_to_rc("1.3.6")
+        result = release_mgr.promote_to_rc()
 
         # Verify tag was created with correct name and message
         expected_tag = "v1.3.6-rc1"
@@ -127,7 +127,7 @@ class TestPromoteToRCTagging:
         release_mgr, releases_dir, mock_hgit = release_manager_for_rc_tagging
 
         # Execute promotion
-        result = release_mgr.promote_to_rc("1.3.6")
+        result = release_mgr.promote_to_rc()
 
         # Verify result contains tag
         assert 'tag' in result
@@ -146,7 +146,7 @@ class TestPromoteToRCTagging:
         rc1_file = releases_dir / "1.3.6-rc1.txt"
         rc1_file.write_text("456-user-auth\n")
 
-        result = release_mgr.promote_to_rc("1.3.6")
+        result = release_mgr.promote_to_rc()
 
         # Verify RC2 tag with correct message format
         expected_tag = "v1.3.6-rc2"
@@ -160,7 +160,7 @@ class TestPromoteToRCTagging:
         release_mgr, releases_dir, mock_hgit = release_manager_for_rc_tagging
 
         # Execute promotion
-        result = release_mgr.promote_to_rc("1.3.6")
+        result = release_mgr.promote_to_rc()
 
         # Verify order: create_tag then push_tag
         calls = mock_hgit.method_calls
@@ -181,7 +181,7 @@ class TestPromoteToRCTagging:
         """Test that release branch is checked out before creating tag."""
         release_mgr, releases_dir, mock_hgit = release_manager_for_rc_tagging
 
-        result = release_mgr.promote_to_rc("1.3.6")
+        result = release_mgr.promote_to_rc()
 
         # Verify checkout was called with release branch
         checkout_calls = [c for c in mock_hgit.checkout.call_args_list
@@ -201,7 +201,7 @@ class TestPromoteToProdTagging:
         release_mgr, releases_dir, mock_hgit = release_manager_for_prod_tagging
 
         # Execute promotion to production
-        result = release_mgr.promote_to_prod("1.3.6")
+        result = release_mgr.promote_to_prod()
 
         # Verify production tag was created
         expected_tag = "v1.3.6"
@@ -216,7 +216,7 @@ class TestPromoteToProdTagging:
         """Test that production tag is included in result."""
         release_mgr, releases_dir, mock_hgit = release_manager_for_prod_tagging
 
-        result = release_mgr.promote_to_prod("1.3.6")
+        result = release_mgr.promote_to_prod()
 
         # Verify result contains tag
         assert 'tag' in result
@@ -227,7 +227,7 @@ class TestPromoteToProdTagging:
         """Test that production tag is created on ho-prod after merge."""
         release_mgr, releases_dir, mock_hgit = release_manager_for_prod_tagging
 
-        result = release_mgr.promote_to_prod("1.3.6")
+        result = release_mgr.promote_to_prod()
 
         # Verify ho-prod was checked out before tagging
         checkout_calls = mock_hgit.checkout.call_args_list
@@ -240,7 +240,7 @@ class TestPromoteToProdTagging:
         """Test that tag is created after merging release branch."""
         release_mgr, releases_dir, mock_hgit = release_manager_for_prod_tagging
 
-        result = release_mgr.promote_to_prod("1.3.6")
+        result = release_mgr.promote_to_prod()
 
         # Verify merge was called before create_tag
         calls = mock_hgit.method_calls
@@ -269,7 +269,7 @@ class TestTagFormatConsistency:
         """Test that RC tags use 'v' prefix."""
         release_mgr, releases_dir, mock_hgit = release_manager_for_rc_tagging
 
-        result = release_mgr.promote_to_rc("1.3.6")
+        result = release_mgr.promote_to_rc()
 
         # Verify tag starts with 'v'
         tag = result['tag']
@@ -280,7 +280,7 @@ class TestTagFormatConsistency:
         """Test that production tags use 'v' prefix."""
         release_mgr, releases_dir, mock_hgit = release_manager_for_prod_tagging
 
-        result = release_mgr.promote_to_prod("1.3.6")
+        result = release_mgr.promote_to_prod()
 
         # Verify tag starts with 'v'
         tag = result['tag']
@@ -291,7 +291,7 @@ class TestTagFormatConsistency:
         """Test RC tag message format."""
         release_mgr, releases_dir, mock_hgit = release_manager_for_rc_tagging
 
-        release_mgr.promote_to_rc("1.3.6")
+        release_mgr.promote_to_rc()
 
         # Get the actual call arguments
         call_args = mock_hgit.create_tag.call_args
@@ -307,7 +307,7 @@ class TestTagFormatConsistency:
         """Test production tag message format."""
         release_mgr, releases_dir, mock_hgit = release_manager_for_prod_tagging
 
-        release_mgr.promote_to_prod("1.3.6")
+        release_mgr.promote_to_prod()
 
         # Get the actual call arguments
         call_args = mock_hgit.create_tag.call_args

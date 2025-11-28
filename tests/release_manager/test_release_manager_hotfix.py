@@ -87,32 +87,19 @@ class TestReopenForHotfix:
         # Mock tag exists for 1.3.4
         mock_hgit.tag_exists.return_value = True
 
-        result = release_mgr.reopen_for_hotfix("1.3.4")
+        result = release_mgr.reopen_for_hotfix()
 
         # Verify correct version used
-        assert result['version'] == "1.3.4"
-        assert result['branch'] == "ho-release/1.3.4"
+        assert result['version'] == "1.3.5"
+        assert result['branch'] == "ho-release/1.3.5"
 
         # Verify tag checked
-        mock_hgit.tag_exists.assert_called_with("v1.3.4")
+        mock_hgit.tag_exists.assert_called_with("v1.3.5")
 
         # Verify files created with HOTFIX marker
-        candidates_file = releases_dir / "1.3.4-candidates.txt"
+        candidates_file = releases_dir / "1.3.5-candidates.txt"
         assert candidates_file.exists()
         assert candidates_file.read_text() == "# HOTFIX\n"
-
-    def test_reopen_invalid_version_format(self, release_manager_with_tag):
-        """Test error when version format is invalid."""
-        release_mgr, _, _ = release_manager_with_tag
-
-        with pytest.raises(ReleaseManagerError, match="Invalid version format"):
-            release_mgr.reopen_for_hotfix("1.3")
-
-        with pytest.raises(ReleaseManagerError, match="Invalid version format"):
-            release_mgr.reopen_for_hotfix("1.3.5-rc1")
-
-        with pytest.raises(ReleaseManagerError, match="Invalid version format"):
-            release_mgr.reopen_for_hotfix("v1.3.5")
 
     def test_reopen_tag_does_not_exist(self, release_manager_with_tag):
         """Test error when production tag doesn't exist."""
@@ -123,7 +110,7 @@ class TestReopenForHotfix:
         mock_hgit.list_tags.return_value = ["v1.3.4", "v1.3.3"]
 
         with pytest.raises(ReleaseManagerError, match="Production tag v1.3.5 does not exist"):
-            release_mgr.reopen_for_hotfix("1.3.5")
+            release_mgr.reopen_for_hotfix()
 
     def test_reopen_deletes_existing_branch(self, release_manager_with_tag):
         """Test deletes existing ho-release/X.Y.Z branch if exists."""
@@ -145,7 +132,7 @@ class TestReopenForHotfix:
         """Test commit message format."""
         release_mgr, _, mock_hgit = release_manager_with_tag
 
-        release_mgr.reopen_for_hotfix("1.3.5")
+        release_mgr.reopen_for_hotfix()
 
         # Verify commit message
         mock_hgit.commit.assert_called_once()
@@ -156,7 +143,7 @@ class TestReopenForHotfix:
         """Test return dictionary structure."""
         release_mgr, releases_dir, _ = release_manager_with_tag
 
-        result = release_mgr.reopen_for_hotfix("1.3.5")
+        result = release_mgr.reopen_for_hotfix()
 
         # Verify all return keys present
         assert 'version' in result
@@ -450,11 +437,13 @@ class TestHotfixMarker:
         releases_dir = tmp_path / "releases"
         releases_dir.mkdir(exist_ok=True)
 
-        # Create model/schema.sql
+        # Create model/schema-1.3.5.sql and symlink
         model_dir = tmp_path / "model"
         model_dir.mkdir(exist_ok=True)
+        schema_versioned = model_dir / "schema-1.3.5.sql"
+        schema_versioned.write_text("-- VERSION: 1.3.5\n")
         schema_file = model_dir / "schema.sql"
-        schema_file.write_text("-- VERSION: 1.3.5\n")
+        schema_file.symlink_to("schema-1.3.5.sql")
 
         # Mock HGit
         mock_hgit = Mock()
@@ -470,7 +459,7 @@ class TestHotfixMarker:
         """Test # HOTFIX marker is present in candidates.txt."""
         release_mgr, releases_dir = release_manager_with_tag
 
-        release_mgr.reopen_for_hotfix("1.3.5")
+        release_mgr.reopen_for_hotfix()
 
         candidates_file = releases_dir / "1.3.5-candidates.txt"
         content = candidates_file.read_text()
@@ -483,7 +472,7 @@ class TestHotfixMarker:
         """Test HOTFIX marker format is exactly '# HOTFIX\\n'."""
         release_mgr, releases_dir = release_manager_with_tag
 
-        release_mgr.reopen_for_hotfix("1.3.5")
+        release_mgr.reopen_for_hotfix()
 
         candidates_file = releases_dir / "1.3.5-candidates.txt"
         content = candidates_file.read_text()
@@ -495,7 +484,7 @@ class TestHotfixMarker:
         """Test stage.txt does not have HOTFIX marker."""
         release_mgr, releases_dir = release_manager_with_tag
 
-        release_mgr.reopen_for_hotfix("1.3.5")
+        release_mgr.reopen_for_hotfix()
 
         stage_file = releases_dir / "1.3.5-stage.txt"
         content = stage_file.read_text()

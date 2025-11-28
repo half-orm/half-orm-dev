@@ -182,7 +182,7 @@ class TestReleaseIntegrationWorkflow:
         stage_file.write_text("001-first\n")
 
         # Promote to RC
-        result = rel_mgr.promote_to_rc("0.1.0")
+        result = rel_mgr.promote_to_rc()
 
         # Should checkout release branch
         assert call("ho-release/0.1.0") in mock_hgit_complete.checkout.call_args_list
@@ -212,7 +212,7 @@ class TestReleaseIntegrationWorkflow:
         stage_file.write_text("001-first\n002-second\n")
 
         # Promote to prod
-        result = rel_mgr.promote_to_prod("0.1.0")
+        result = rel_mgr.promote_to_prod()
 
         # Should checkout ho-prod
         assert call("ho-prod") in mock_hgit_complete.checkout.call_args_list
@@ -295,11 +295,11 @@ class TestReleaseIntegrationWorkflow:
         # Developer can test 002 with 001's changes present
 
         # Step 4: Promote to RC
-        rel_mgr.promote_to_rc("0.1.0")
+        rel_mgr.promote_to_rc()
         assert mock_hgit_complete.create_tag.call_args == call('v0.1.0-rc1', 'Release Candidate %0.1.0')
 
         # Step 5: Promote to prod
-        rel_mgr.promote_to_prod("0.1.0")
+        rel_mgr.promote_to_prod()
 
         # Verify: Release branch merged into ho-prod
         # Filter for merge of release branch itself (not patch branches)
