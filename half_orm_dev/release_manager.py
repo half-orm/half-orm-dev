@@ -2596,6 +2596,13 @@ class ReleaseManager:
             self._repo.hgit.commit("-m", f"[HOP] Promote release %{version} to RC {rc_number}")
             self._repo.hgit.push_branch(release_branch)
 
+            # Sync RC and stage files to ho-prod (single source of truth)
+            self._repo.patch_manager._sync_release_files_to_ho_prod(
+                version,
+                release_branch,
+                critical=False
+            )
+
             return {
                 'version': version,
                 'tag': rc_tag,

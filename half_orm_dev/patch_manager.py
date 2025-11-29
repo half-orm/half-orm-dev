@@ -1416,12 +1416,10 @@ class PatchManager:
             # Checkout ho-prod
             self._repo.hgit.checkout("ho-prod")
 
-            # Copy ONLY the files for this specific version from release branch
-            release_files = [
-                f"releases/{version}-candidates.txt",
-                f"releases/{version}-stage.txt"
-            ]
-            self._repo.hgit.checkout_paths_from_branch(release_branch, release_files)
+            # Copy ALL files for this specific version from release branch
+            # This includes: -candidates.txt, -stage.txt, -rc*.txt, .txt, -hotfix*.txt
+            # Using wildcard pattern to get all files matching the version
+            self._repo.hgit.checkout_paths_from_branch(release_branch, [f"releases/{version}*.txt"])
 
             # Commit on ho-prod
             self._repo.hgit.commit("-m", f"[HOP] sync release {version} files from {release_branch}")
