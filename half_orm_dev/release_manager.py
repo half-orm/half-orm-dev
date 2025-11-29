@@ -2994,14 +2994,16 @@ class ReleaseManager:
         Similar to promote_to_prod() but:
         - Works from ho-release/X.Y.Z branch (not ho-prod)
         - Creates hotfix tag vX.Y.Z-hotfixN (not vX.Y.Z)
+        - Renames stage.txt to X.Y.Z-hotfixN.txt
         - Merges ho-release/X.Y.Z into ho-prod
-        - Keeps ho-release/X.Y.Z branch for potential additional hotfixes
+        - Deletes ho-release/X.Y.Z branch after promotion
 
         Returns:
             dict with:
                 - version: Base version (e.g., "1.3.5")
                 - hotfix_tag: Tag created (e.g., "v1.3.5-hotfix1")
                 - branch: Branch used (e.g., "ho-release/1.3.5")
+                - deleted_branches: List of deleted branches
 
         Raises:
             ReleaseManagerError: If validation fails or promotion errors occur
@@ -3011,9 +3013,12 @@ class ReleaseManager:
             2. Verify candidates.txt is empty
             3. Determine next hotfix number
             4. Merge ho-release/X.Y.Z into ho-prod
-            5. Generate SQL dumps on ho-prod
-            6. Create hotfix tag vX.Y.Z-hotfixN on ho-prod
-            7. Return to ho-release/X.Y.Z
+            5. Rename stage.txt to X.Y.Z-hotfixN.txt and delete candidates.txt
+            6. Apply release patches and generate SQL dumps on ho-prod
+            7. Commit release file changes
+            8. Create hotfix tag vX.Y.Z-hotfixN on ho-prod
+            9. Push ho-prod
+            10. Delete ho-release/X.Y.Z branch
         """
         try:
             # 1. Verify on ho-release/* branch
@@ -3060,19 +3065,37 @@ class ReleaseManager:
             merge_msg = f"[release] Merge hotfix %{version}-hotfix{hotfix_num}"
             self._repo.hgit.merge(current_branch, message=merge_msg)
 
-            # 5. Apply release patches and generate SQL dumps
+            # 5. Rename stage file to hotfix file and delete candidates
+            stage_file = self._releases_dir / f"{version}-stage.txt"
+            hotfix_file = self._releases_dir / f"{version}-hotfix{hotfix_num}.txt"
+            candidates_file = self._releases_dir / f"{version}-candidates.txt"
+
+            if stage_file.exists():
+                stage_file.rename(hotfix_file)
+                self._repo.hgit.add(str(stage_file))   # Old path (deleted)
+                self._repo.hgit.add(str(hotfix_file))   # New path (created)
+
+            # Delete candidates file if it exists
+            if candidates_file.exists():
+                candidates_file.unlink()
+                self._repo.hgit.add(str(candidates_file))  # Mark as deleted
+
+            # 6. Apply release patches and generate SQL dumps
             self._apply_release_patches(version, True)
 
-            # 6. Create hotfix tag on ho-prod
+            # 7. Commit release file changes
+            self._repo.hgit.commit("-m", f"[HOP] Finalize hotfix %{version}-hotfix{hotfix_num} release files")
+
+            # 8. Create hotfix tag on ho-prod
             self._repo.hgit.create_tag(hotfix_tag, f"Hotfix release %{version}-hotfix{hotfix_num}")
             self._repo.hgit.push_tag(hotfix_tag)
 
-            # 7. Push ho-prod
+            # 9. Push ho-prod
             self._repo.hgit.push_branch("ho-prod")
 
             deleted_branches = []
 
-            # 7. Delete release branch (force=True because Git may not recognize the merge)
+            # 10. Delete release branch (force=True because Git may not recognize the merge)
             try:
                 self._repo.hgit.delete_branch(current_branch, force=True)
                 self._repo.hgit.delete_remote_branch(current_branch)
