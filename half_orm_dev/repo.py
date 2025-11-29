@@ -291,15 +291,15 @@ class Repo:
         else:
             utils.error(f"ERROR! The path '{self.__base_dir}' already exists!\n", exit_code=1)
         readme = utils.read(os.path.join(TEMPLATE_DIRS, 'README'))
-        setup_template = utils.read(os.path.join(TEMPLATE_DIRS, 'setup.py'))
+        pyproject_template = utils.read(os.path.join(TEMPLATE_DIRS, 'pyproject.toml'))
         git_ignore = utils.read(os.path.join(TEMPLATE_DIRS, '.gitignore'))
         pipfile = utils.read(os.path.join(TEMPLATE_DIRS, 'Pipfile'))
 
-        setup = setup_template.format(
+        pyproject = pyproject_template.format(
                 dbname=self.__config.name,
                 package_name=self.__config.name,
                 half_orm_version=half_orm.__version__)
-        utils.write(os.path.join(self.__base_dir, 'setup.py'), setup)
+        utils.write(os.path.join(self.__base_dir, 'pyproject.toml'), pyproject)
 
         pipfile = pipfile.format(
                 half_orm_version=half_orm.__version__,
@@ -527,7 +527,7 @@ class Repo:
             7. Initialize Database instance (self.database)
             8. Generate Python package structure
             9. Initialize Git repository with ho-prod branch
-            10. Generate template files (README, .gitignore, setup.py, Pipfile)
+            10. Generate template files (README, .gitignore, pyproject.toml, Pipfile)
             11. Save model/schema-0.0.0.sql
 
         Git-centric Architecture:
@@ -1303,31 +1303,28 @@ See docs/half_orm_dev.md for complete documentation.
         Creates standard project files:
         - README.md: Project documentation
         - .gitignore: Git exclusions
-        - setup.py: Python packaging (current template)
+        - pyproject.toml: Python packaging (PEP 517/518)
         - Pipfile: Dependencies (current template)
 
         Templates read from TEMPLATE_DIRS and formatted with project variables.
 
-        Note: Future enhancement will migrate to pyproject.toml,
-        but keeping current templates for initial implementation.
-
         Examples:
             _generate_template_files()
-            # Creates: README.md, .gitignore, setup.py, Pipfile
+            # Creates: README.md, .gitignore, pyproject.toml, Pipfile
         """
         import half_orm
         from half_orm_dev.utils import TEMPLATE_DIRS, hop_version
 
         # Read templates
         readme_template = utils.read(os.path.join(TEMPLATE_DIRS, 'README'))
-        setup_template = utils.read(os.path.join(TEMPLATE_DIRS, 'setup.py'))
+        pyproject_template = utils.read(os.path.join(TEMPLATE_DIRS, 'pyproject.toml'))
         git_ignore = utils.read(os.path.join(TEMPLATE_DIRS, '.gitignore'))
         pipfile_template = utils.read(os.path.join(TEMPLATE_DIRS, 'Pipfile'))
 
         # Format templates with project variables
         package_name = self.__config.name
 
-        setup = setup_template.format(
+        pyproject = pyproject_template.format(
             dbname=package_name,
             package_name=package_name,
             half_orm_version=half_orm.__version__
@@ -1345,7 +1342,7 @@ See docs/half_orm_dev.md for complete documentation.
         )
 
         # Write files
-        utils.write(os.path.join(self.__base_dir, 'setup.py'), setup)
+        utils.write(os.path.join(self.__base_dir, 'pyproject.toml'), pyproject)
         utils.write(os.path.join(self.__base_dir, 'Pipfile'), pipfile)
         utils.write(os.path.join(self.__base_dir, 'README.md'), readme)
         utils.write(os.path.join(self.__base_dir, '.gitignore'), git_ignore)
