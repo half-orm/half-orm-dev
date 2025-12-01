@@ -815,6 +815,167 @@ class PatchManager:
         """
         pass
 
+    def _is_data_file(self, file_path: Path) -> bool:
+        """
+        Check if SQL file is annotated with @HOP:data marker.
+
+        Data files contain reference data (DML) that should be preserved
+        for from-scratch installations. They must be marked with `-- @HOP:data`
+        as the first line of the file.
+
+        Args:
+            file_path: Path to SQL file to check
+
+        Returns:
+            True if file has @HOP:data annotation, False otherwise
+
+        Examples:
+            if self._is_data_file(Path("Patches/456/01_roles.sql")):
+                # This is a data file
+                pass
+        """
+        try:
+            with file_path.open('r', encoding='utf-8') as f:
+                first_line = f.readline().strip().lower()
+                return re.match(r"--\s*@hop:data", first_line) is not None
+        except Exception:
+            return False
+
+    def _get_data_files_from_patch(self, patch_id: str) -> List[Path]:
+        """
+        Get all data files (annotated with @HOP:data) from a patch.
+
+        Returns SQL files from the patch directory that are annotated with
+        `-- @HOP:data` marker, in lexicographic order for proper sequencing.
+
+        Args:
+            patch_id: Patch identifier (e.g., "456-user-auth")
+
+        Returns:
+            List of Path objects for data files in application order
+
+        Examples:
+            data_files = self._get_data_files_from_patch("456-user-auth")
+            # Returns [Path("Patches/456-user-auth/01_roles.sql"), ...]
+        """
+        data_files = []
+        structure = self.get_patch_structure(patch_id)
+
+        if not structure.is_valid:
+            return []
+
+        for patch_file in structure.files:
+            if patch_file.is_sql and self._is_data_file(patch_file.path):
+                data_files.append(patch_file.path)
+
+        return data_files
+
+    def _validate_data_file_idempotent(self, file_path: Path) -> Tuple[bool, List[str]]:
+        """
+        Validate that data file uses idempotent SQL patterns.
+
+        Data files must be replayable without errors. This checks for common
+        idempotent patterns like:
+        - INSERT ... ON CONFLICT DO NOTHING
+        - INSERT ... ON CONFLICT DO UPDATE
+        - DELETE before INSERT
+        - Conditional statements
+
+        Args:
+            file_path: Path to SQL file to validate
+
+        Returns:
+            Tuple of (is_valid, list_of_warnings)
+            - is_valid: True if file appears idempotent
+            - warnings: List of warning messages if patterns not detected
+
+        Examples:
+            is_valid, warnings = self._validate_data_file_idempotent(
+                Path("Patches/456/01_roles.sql")
+            )
+            if not is_valid:
+                for warning in warnings:
+                    print(f"Warning: {warning}")
+        """
+        warnings = []
+
+        try:
+            content = file_path.read_text(encoding='utf-8')
+            content_lower = content.lower()
+
+            # Check if file has INSERT statements
+            has_insert = 'insert' in content_lower and 'into' in content_lower
+
+            if has_insert:
+                # Check for idempotent patterns
+                has_on_conflict = 'on conflict' in content_lower
+                has_delete_before = 'delete' in content_lower and content_lower.find('delete') < content_lower.find('insert')
+                has_where_not_exists = 'where not exists' in content_lower
+
+                if not (has_on_conflict or has_delete_before or has_where_not_exists):
+                    warnings.append(
+                        f"{file_path.name}: Contains INSERT without idempotent pattern.\n"
+                        f"  Consider using:\n"
+                        f"  - INSERT ... ON CONFLICT DO NOTHING\n"
+                        f"  - INSERT ... ON CONFLICT DO UPDATE\n"
+                        f"  - DELETE before INSERT\n"
+                        f"  - INSERT ... WHERE NOT EXISTS"
+                    )
+
+            # Note: Empty or comment-only files are considered valid
+            return len(warnings) == 0, warnings
+
+        except Exception as e:
+            warnings.append(f"Failed to validate {file_path.name}: {e}")
+            return False, warnings
+
+    def _collect_data_files_from_patches(self, patch_list: List[str]) -> List[Path]:
+        """
+        Collect all data files from a list of patches.
+
+        Processes a list of patch IDs and returns all data files (marked with
+        @HOP:data) in the order they should be applied. Validates idempotency
+        and shows warnings for non-idempotent patterns.
+
+        Args:
+            patch_list: List of patch identifiers in application order
+
+        Returns:
+            List of Path objects for all data files across patches
+
+        Raises:
+            PatchManagerError: If validation fails critically
+
+        Examples:
+            patches = ["456-user-auth", "457-roles", "458-permissions"]
+            data_files = self._collect_data_files_from_patches(patches)
+            # Returns all @HOP:data files from these patches in order
+        """
+        all_data_files = []
+        all_warnings = []
+
+        for patch_id in patch_list:
+            data_files = self._get_data_files_from_patch(patch_id)
+
+            for data_file in data_files:
+                # Validate idempotency
+                is_valid, warnings = self._validate_data_file_idempotent(data_file)
+
+                if warnings:
+                    all_warnings.extend(warnings)
+
+                all_data_files.append(data_file)
+
+        # Show warnings if any
+        if all_warnings:
+            import click
+            click.echo(f"\n{utils.Color.bold('⚠ Data file idempotency warnings:')}")
+            for warning in all_warnings:
+                click.echo(f"  {warning}")
+            click.echo("")
+
+        return all_data_files
+
     def _execute_sql_file(self, file_path: Path, database_model) -> None:
         """
         Execute SQL file against database.

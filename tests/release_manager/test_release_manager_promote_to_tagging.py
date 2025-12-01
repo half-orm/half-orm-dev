@@ -45,8 +45,17 @@ def release_manager_for_rc_tagging(tmp_path):
     mock_hgit.list_tags = Mock(return_value=[])  # No existing tags
     mock_hgit.create_tag = Mock()
     mock_hgit.push_tag = Mock()
+    mock_hgit.push_branch = Mock()
+    mock_hgit.add = Mock()
+    mock_hgit.commit = Mock()
 
     mock_repo.hgit = mock_hgit
+
+    # Mock patch_manager for data file generation
+    mock_patch_manager = Mock()
+    mock_patch_manager._collect_data_files_from_patches = Mock(return_value=[])
+    mock_patch_manager._sync_release_files_to_ho_prod = Mock()
+    mock_repo.patch_manager = mock_patch_manager
 
     # Create ReleaseManager
     release_mgr = ReleaseManager(mock_repo)
@@ -90,8 +99,24 @@ def release_manager_for_prod_tagging(tmp_path):
     mock_hgit.push_branch = Mock()
     mock_hgit.delete_branch = Mock()
     mock_hgit.delete_remote_branch = Mock()
+    mock_hgit.add = Mock()
+    mock_hgit.commit = Mock()
 
     mock_repo.hgit = mock_hgit
+
+    # Mock patch_manager for data file generation
+    mock_patch_manager = Mock()
+    mock_patch_manager._collect_data_files_from_patches = Mock(return_value=[])
+    mock_repo.patch_manager = mock_patch_manager
+
+    # Mock database for schema generation
+    mock_database = Mock()
+    mock_database._generate_schema_sql = Mock()
+    mock_repo.database = mock_database
+
+    # Mock model directory
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
 
     # Create ReleaseManager
     release_mgr = ReleaseManager(mock_repo)

@@ -680,6 +680,76 @@ class ReleaseManager:
         for patch_id in stage_patches:
             self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
 
+    def _generate_data_sql_file(self, patch_list: List[str], output_filename: str) -> Optional[Path]:
+        """
+        Generate data-X.Y.Z.sql file from patches with @HOP:data annotation.
+
+        Collects all SQL files marked with `-- @HOP:data` from the patch list
+        and concatenates them into a single data SQL file for from-scratch
+        installations.
+
+        Args:
+            patch_list: List of patch IDs to process
+            output_filename: Name of the output file (e.g., "data-0.17.0-rc1.sql")
+
+        Returns:
+            Path to generated file, or None if no data files found
+
+        Examples:
+            self._generate_data_sql_file(
+                ["456-auth", "457-roles"],
+                "data-0.17.0-rc1.sql"
+            )
+            # Generates releases/data-0.17.0-rc1.sql with data from both patches
+        """
+        if not patch_list:
+            return None
+
+        try:
+            # Collect all data files from patches
+            data_files = self._repo.patch_manager._collect_data_files_from_patches(patch_list)
+
+            if not data_files:
+                # No data files found - skip generation
+                return None
+
+            # Generate output file
+            output_path = self._releases_dir / output_filename
+
+            with output_path.open('w', encoding='utf-8') as out_file:
+                # Write header
+                out_file.write(f"-- Data file for {output_filename.replace('.sql', '')}\n")
+                out_file.write(f"-- Generated from patches: {', '.join(patch_list)}\n")
+                out_file.write(f"-- This file contains reference data (DML) for from-scratch installations\n")
+                out_file.write(f"--\n")
+                out_file.write(f"-- Usage: psql -f {output_filename}\n")
+                out_file.write(f"--\n\n")
+
+                # Concatenate all data files
+                for data_file in data_files:
+                    # Write separator comment
+                    out_file.write(f"-- ========================================\n")
+                    out_file.write(f"-- Source: {data_file}\n")
+                    out_file.write(f"-- ========================================\n\n")
+
+                    # Write file content (skip first line which is -- @HOP:data)
+                    content = data_file.read_text(encoding='utf-8')
+                    lines = content.split('\n')
+
+                    # Skip first line if it's the annotation
+                    if lines and lines[0].strip() == "-- @HOP:data":
+                        lines = lines[1:]
+
+                    out_file.write('\n'.join(lines))
+                    out_file.write('\n\n')
+
+            return output_path
+
+        except Exception as e:
+            raise ReleaseManagerError(
+                f"Failed to generate data SQL file {output_filename}: {e}"
+            )
+
     def get_all_release_context_patches(self) -> List[str]:
         """
         Récupère TOUS les patches du contexte de la prochaine release.
@@ -2590,9 +2660,18 @@ class ReleaseManager:
             except Exception as e:
                 raise ReleaseManagerError(f"Failed to create stage file: {e}")
 
-            # Commit rename on release branch
+            # Generate data-X.Y.Z-rcN.sql if any patches have @HOP:data files
+            rc_patches = self.read_release_patches(rc_file.name)
+            data_file = self._generate_data_sql_file(
+                rc_patches,
+                f"data-{version}-rc{rc_number}.sql"
+            )
+
+            # Commit rename on release branch (and data file if generated)
             self._repo.hgit.add(str(stage_file))  # Old path (deleted)
             self._repo.hgit.add(str(rc_file))     # New path
+            if data_file:
+                self._repo.hgit.add(str(data_file))  # Data file if generated
             self._repo.hgit.commit("-m", f"[HOP] Promote release %{version} to RC {rc_number}")
             self._repo.hgit.push_branch(release_branch)
 
@@ -2752,6 +2831,16 @@ class ReleaseManager:
             if candidates_file.exists():
                 candidates_file.unlink()
                 self._repo.hgit.add(str(candidates_file))  # Mark as deleted
+
+            # Generate data-X.Y.Z.sql if any patches have @HOP:data files
+            # This includes patches from stage (incremental after last RC)
+            prod_patches = self.read_release_patches(prod_file.name)
+            data_file = self._generate_data_sql_file(
+                prod_patches,
+                f"data-{version}.sql"
+            )
+            if data_file:
+                self._repo.hgit.add(str(data_file))  # Add data file if generated
 
             self._repo.hgit.commit("-m", f"[HOP] Promote release %{version} to production")
             self._repo.hgit.push_branch("ho-prod")
@@ -3086,6 +3175,15 @@ class ReleaseManager:
             if candidates_file.exists():
                 candidates_file.unlink()
                 self._repo.hgit.add(str(candidates_file))  # Mark as deleted
+
+            # Generate data-X.Y.Z-hotfixN.sql if any patches have @HOP:data files
+            hotfix_patches = self.read_release_patches(hotfix_file.name)
+            data_file = self._generate_data_sql_file(
+                hotfix_patches,
+                f"data-{version}-hotfix{hotfix_num}.sql"
+            )
+            if data_file:
+                self._repo.hgit.add(str(data_file))  # Add data file if generated
 
             # 6. Apply release patches and generate SQL dumps
             self._apply_release_patches(version, True)

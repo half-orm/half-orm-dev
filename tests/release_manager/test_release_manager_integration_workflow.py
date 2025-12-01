@@ -39,6 +39,12 @@ def release_manager(tmp_path):
     mock_database = Mock()
     mock_repo.database = mock_database
 
+    # Mock patch_manager for data file generation
+    mock_patch_manager = Mock()
+    mock_patch_manager._collect_data_files_from_patches = Mock(return_value=[])
+    mock_patch_manager._sync_release_files_to_ho_prod = Mock()
+    mock_repo.patch_manager = mock_patch_manager
+
     # Create ReleaseManager
     rel_mgr = ReleaseManager(mock_repo)
 
