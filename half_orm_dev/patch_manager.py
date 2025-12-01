@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass
+import click
 from git.exc import GitCommandError
 
 from half_orm import utils
@@ -1588,7 +1589,7 @@ class PatchManager:
         2. Create temporary validation branch from release branch
         3. Merge patch into temp branch
         4. Run patch apply and verify no modifications
-        5. Run tests (TODO: implement test runner)
+        5. Run tests (best-effort if available)
         6. Cleanup temp branch
         7. Return to original branch
 
@@ -1680,8 +1681,8 @@ class PatchManager:
                     f"Failed to run patch apply during validation: {e}"
                 )
 
-            # 4. Run tests (TODO: implement test runner)
-            click.echo(f"  • {utils.Color.blue('⚠')} Skipping tests (not implemented yet)")
+            # 4. Run tests (best-effort)
+            self._run_tests_if_available()
 
             click.echo(f"  • {utils.Color.green('✓')} Validation passed!\n")
 
@@ -1698,6 +1699,95 @@ class PatchManager:
             except Exception as e:
                 # Cleanup errors are non-critical, just warn
                 click.echo(f"⚠️  Warning: Failed to cleanup temp branch {temp_branch}: {e}")
+
+    def _run_tests_if_available(self) -> None:
+        """
+        Run tests if test configuration is available.
+
+        Detects if the project has test configuration (pytest.ini, pyproject.toml
+        with pytest config, etc.) and runs pytest if available.
+        - If no test config found: skip silently
+        - If tests fail: raise PatchManagerError (BLOCKS workflow)
+        - If tests pass: success message
+        - If pytest not installed: warning but continue
+
+        This ensures code quality by blocking patches with failing tests.
+
+        Raises:
+            PatchManagerError: If tests fail
+
+        Examples:
+            self._run_tests_if_available()
+            # With tests configured and passing → ✓ Tests passed
+            # With tests configured but failing → raises PatchManagerError
+            # Without test config → skips silently
+        """
+        base_dir = Path(self._repo.base_dir)
+
+        # Check if test configuration exists
+        test_config_files = [
+            base_dir / "pytest.ini",
+            base_dir / "pyproject.toml",
+            base_dir / "setup.cfg",
+            base_dir / "tox.ini"
+        ]
+
+        has_test_config = any(f.exists() for f in test_config_files)
+
+        # Also check if tests directory exists
+        tests_dir = base_dir / "tests"
+        has_tests_dir = tests_dir.exists() and tests_dir.is_dir()
+
+        if not has_test_config and not has_tests_dir:
+            # No test config - skip silently (project may not have tests yet)
+            return
+
+        # Try to run pytest
+        try:
+            click.echo(f"  • Running tests...")
+            result = subprocess.run(
+                ["pytest", "-v", "--tb=short"],
+                cwd=str(base_dir),
+                capture_output=True,
+                text=True
+                # No timeout - user can Ctrl+C if needed
+                # Cleanup (temp branch + lock) is protected by finally blocks
+            )
+
+            if result.returncode == 0:
+                click.echo(f"  • {utils.Color.green('✓')} Tests passed")
+            else:
+                # Tests failed - BLOCK the workflow
+                error_msg = f"Tests failed! Cannot close patch with failing tests.\n\n"
+
+                if result.stdout:
+                    # Show test output
+                    error_msg += "Test output:\n"
+                    output_lines = result.stdout.strip().split('\n')
+                    # Show last 20 lines to give enough context
+                    last_lines = output_lines[-20:] if len(output_lines) > 20 else output_lines
+                    for line in last_lines:
+                        error_msg += f"  {line}\n"
+
+                if result.stderr:
+                    error_msg += f"\nErrors:\n{result.stderr}\n"
+
+                error_msg += "\nFix the failing tests before closing the patch."
+                raise PatchManagerError(error_msg)
+
+        except FileNotFoundError:
+            # pytest not installed - warn but don't block
+            click.echo(f"  • {utils.Color.yellow('⚠')} pytest not found (install pytest to run tests)")
+        except PatchManagerError:
+            # Re-raise our own exceptions (test failures)
+            raise
+        except Exception as e:
+            # Any other error - warn but don't block (might be environment issue)
+            click.echo(f"  • {utils.Color.yellow('⚠')} Failed to run tests: {e} (continuing anyway)")
+
+        # Note: KeyboardInterrupt (Ctrl+C) is not caught here - it inherits from
+        # BaseException, not Exception, so it will propagate up to the decorator
+        # where the lock will be properly released in the finally block
 
     def _validate_on_ho_release(self) -> str:
         """
