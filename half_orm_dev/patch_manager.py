@@ -1625,27 +1625,181 @@ class PatchManager:
             )
         return f"ho-release/{version}"
 
-    @with_dynamic_branch_lock(lambda self, patch_id: "ho-prod")
-    def close_patch(self, patch_id: str) -> dict:
+    def get_patch_close_info(self) -> dict:
+        """
+        Get all information needed to display before closing a patch.
+
+        Extracts patch_id from current branch, gathers patch information,
+        checks synchronization status, and prepares action summary.
+
+        Returns:
+            dict with keys:
+                - patch_id: Extracted patch identifier
+                - current_branch: Current branch name
+                - version: Target release version
+                - release_branch: Target release branch name
+                - readme: README.md content or None
+                - files: List of patch files with metadata
+                - sync_status: Branch synchronization status
+                - actions: List of actions that will be performed
+
+        Raises:
+            PatchManagerError: If not on patch branch or patch not in candidates
+
+        Examples:
+            info = patch_mgr.get_patch_close_info()
+            # Returns all info needed for CLI display
+        """
+        # 1. Validate we're on a patch branch
+        current_branch = self._repo.hgit.branch
+        if not current_branch.startswith('ho-patch/'):
+            raise PatchManagerError(
+                f"Must be on a patch branch to close.\n"
+                f"Current branch: {current_branch}\n"
+                f"Expected: ho-patch/PATCH_ID"
+            )
+
+        # 2. Extract patch_id
+        patch_id = current_branch.replace('ho-patch/', '')
+
+        # 3. Find version from candidates
+        version = self._find_version_for_candidate(patch_id)
+        if not version:
+            raise PatchManagerError(
+                f"Patch {patch_id} is not in candidates.\n\n"
+                f"Possible reasons:\n"
+                f"  • Patch was already closed (check stage files)\n"
+                f"  • Patch was removed from release\n\n"
+                f"To check patch status:\n"
+                f"  grep -r '{patch_id}' releases/*.txt"
+            )
+
+        release_branch = f"ho-release/{version}"
+
+        # 4. Get README content
+        readme = None
+        patch_dir = Path(self._repo.base_dir) / "Patches" / patch_id
+        readme_file = patch_dir / "README.md"
+        if readme_file.exists():
+            try:
+                readme = readme_file.read_text(encoding='utf-8').strip()
+            except Exception:
+                pass
+
+        # 5. Get patch files
+        files = []
+        try:
+            structure = self.get_patch_structure(patch_id)
+            for patch_file in structure.files:
+                file_info = {
+                    'name': patch_file.path.name,
+                    'is_sql': patch_file.is_sql,
+                    'is_python': patch_file.is_python
+                }
+                files.append(file_info)
+        except Exception:
+            pass
+
+        # 6. Check synchronization status
+        sync_status = self._check_branch_synchronization(current_branch)
+
+        # 7. Prepare actions list
+        actions = [
+            f"Merge {current_branch} into {release_branch}",
+            f"Move patch from candidates to stage",
+            f"Delete the patch branch"
+        ]
+
+        return {
+            'patch_id': patch_id,
+            'current_branch': current_branch,
+            'version': version,
+            'release_branch': release_branch,
+            'readme': readme,
+            'files': files,
+            'sync_status': sync_status,
+            'actions': actions
+        }
+
+    def _check_branch_synchronization(self, branch_name: str) -> dict:
+        """
+        Check branch synchronization with origin.
+
+        Args:
+            branch_name: Branch to check
+
+        Returns:
+            dict with keys:
+                - has_remote: bool
+                - is_synced: bool or None
+                - status: 'synced', 'behind', 'ahead', 'diverged', or 'no_remote'
+                - message: Human-readable status message
+        """
+        try:
+            if not self._repo.hgit.has_remote():
+                return {
+                    'has_remote': False,
+                    'is_synced': None,
+                    'status': 'no_remote',
+                    'message': 'No remote configured (local-only repository)'
+                }
+
+            # Fetch to get latest state
+            try:
+                self._repo.hgit.fetch_from_origin()
+            except Exception as e:
+                return {
+                    'has_remote': True,
+                    'is_synced': None,
+                    'status': 'fetch_failed',
+                    'message': f'Could not fetch from origin: {e}'
+                }
+
+            # Check sync status
+            is_synced, status = self._repo.hgit.is_branch_synced(branch_name)
+
+            messages = {
+                'synced': 'Branch is synchronized with origin',
+                'behind': f'Branch is behind origin - updates available',
+                'ahead': 'Branch is ahead of origin - unpushed commits',
+                'diverged': 'Branch has diverged from origin - manual resolution needed'
+            }
+
+            return {
+                'has_remote': True,
+                'is_synced': is_synced,
+                'status': status if status in messages else 'unknown',
+                'message': messages.get(status, f'Branch sync status: {status}')
+            }
+
+        except Exception as e:
+            return {
+                'has_remote': True,
+                'is_synced': None,
+                'status': 'check_failed',
+                'message': f'Could not check synchronization: {e}'
+            }
+
+    @with_dynamic_branch_lock(lambda self: "ho-prod")
+    def close_patch(self) -> dict:
         """
         Close a patch by merging it into the release branch.
 
+        Extracts patch_id from current branch (must be on ho-patch/PATCH_ID).
         This replaces the old add_patch_to_release workflow. Instead of merging
         into ho-prod, we merge into ho-release/X.Y.Z where other patches can
         see the changes.
 
         Workflow:
-        1. Find which release the patch belongs to (from candidates.txt)
-        2. Validate patch branch exists
-        3. Checkout to ho-release/X.Y.Z
-        4. Merge ho-patch/PATCH_ID into ho-release/X.Y.Z
-        5. Move patch from candidates.txt to stage.txt
-        6. Delete ho-patch/PATCH_ID branch
-        7. Commit and push
-        8. Notify other candidate patches to sync
-
-        Args:
-            patch_id: Patch identifier (e.g., "456-user-auth")
+        1. Extract patch_id from current branch
+        2. Find which release the patch belongs to (from candidates.txt)
+        3. Validate patch branch exists
+        4. Checkout to ho-release/X.Y.Z
+        5. Merge ho-patch/PATCH_ID into ho-release/X.Y.Z
+        6. Move patch from candidates.txt to stage.txt
+        7. Delete ho-patch/PATCH_ID branch
+        8. Commit and push
+        9. Notify other candidate patches to sync
 
         Returns:
             dict with keys:
@@ -1656,13 +1810,25 @@ class PatchManager:
                 - notified_branches: List of notified patch branches
 
         Raises:
-            PatchManagerError: If patch not found or merge fails
+            PatchManagerError: If not on patch branch, patch not found, or merge fails
 
         Examples:
-            result = patch_mgr.close_patch("456-user-auth")
+            # Must be on ho-patch/456-user-auth
+            result = patch_mgr.close_patch()
             # Merges into ho-release/0.17.0, moves to stage
         """
-        # 1. Find version from candidates.txt
+        # 1. Extract patch_id from current branch
+        current_branch = self._repo.hgit.branch
+        if not current_branch.startswith('ho-patch/'):
+            raise PatchManagerError(
+                f"Must be on a patch branch to close.\n"
+                f"Current branch: {current_branch}\n"
+                f"Expected: ho-patch/PATCH_ID"
+            )
+
+        patch_id = current_branch.replace('ho-patch/', '')
+
+        # 2. Find version from candidates.txt
         version = self._find_version_for_candidate(patch_id)
         if not version:
             raise PatchManagerError(

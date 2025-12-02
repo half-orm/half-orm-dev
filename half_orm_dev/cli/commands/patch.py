@@ -33,7 +33,7 @@ def patch():
     Common workflow:
         1. half_orm dev patch new <patch_id>
         2. half_orm dev patch apply
-        3. half_orm dev patch close <patch_id>
+        3. half_orm dev patch close
     """
     pass
 
@@ -218,56 +218,108 @@ def patch_apply() -> None:
 
 
 @patch.command('close')
-@click.argument('patch_id', type=str)
-def patch_close(patch_id: str) -> None:
+@click.option(
+    '--force', '-f',
+    is_flag=True,
+    default=False,
+    help='Skip confirmation prompt'
+)
+def patch_close(force: bool) -> None:
     """
     Close patch by merging into release branch.
 
-    Integrates developed patch into a release by merging into ho-release/X.Y.Z.
-    This replaces the old 'patch add' workflow with a more intuitive semantic.
-
-    Complete workflow:
-        1. Detect version from X.Y.Z-candidates.txt
-        2. Validate patch branch exists
-        3. Merge ho-patch/PATCH_ID into ho-release/X.Y.Z
-        4. Move patch from candidates.txt to stage.txt
-        5. Delete ho-patch/PATCH_ID branch
-        6. Commit and push changes
-        7. Notify other candidate patches to sync
-
-    Args:
-        patch_id: Patch identifier to close (e.g., "456-user-auth")
+    Automatically detects patch from current branch (must be on ho-patch/PATCH_ID).
+    Displays patch information and asks for confirmation before closing.
 
     Examples:
-        Close patch after development:
-        $ half_orm dev patch close 456-user-auth
+        Close patch (with confirmation):
+        $ half_orm dev patch close
 
-    Output:
-        ✓ Patch closed successfully!
-
-          Version:         0.17.0
-          Stage file:      releases/0.17.0-stage.txt
-          Merged into:     ho-release/0.17.0
-          Notified:        2 active branch(es)
-
-        📝 Next steps:
-          • Other developers: git pull && git merge origin/ho-release/0.17.0
-          • Continue development: half_orm dev patch new <next_patch_id>
-          • Promote to RC: half_orm dev release promote rc
+        Close patch (skip confirmation):
+        $ half_orm dev patch close --force
 
     Raises:
-        click.ClickException: If validation fails or integration errors occur
+        click.ClickException: If not on patch branch or validation fails
     """
     try:
-        # Get repository instance
         repo = Repo()
 
+        # Get all patch information from PatchManager
+        info = repo.patch_manager.get_patch_close_info()
+
         # Display context
-        click.echo(f"Closing patch {utils.Color.bold(patch_id)}...")
+        click.echo(f"Current branch: {utils.Color.bold(info['current_branch'])}")
+        click.echo(f"Patch: {utils.Color.bold(info['patch_id'])}")
         click.echo()
 
-        # Delegate to PatchManager
-        result = repo.patch_manager.close_patch(patch_id)
+        # Display README if exists
+        if info['readme']:
+            click.echo("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            click.echo(f"{utils.Color.bold('README.md:')}")
+            click.echo(info['readme'])
+            click.echo("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            click.echo()
+        else:
+            click.echo("ℹ No README.md found")
+            click.echo()
+
+        # Display files
+        if info['files']:
+            click.echo(f"{utils.Color.bold('Files:')}")
+            for file_info in info['files']:
+                file_type = ""
+                if file_info['is_sql']:
+                    file_type = " (SQL)"
+                elif file_info['is_python']:
+                    file_type = " (Python)"
+                click.echo(f"  • {file_info['name']}{file_type}")
+            click.echo()
+        else:
+            click.echo("ℹ No files in patch")
+            click.echo()
+
+        # Display synchronization status
+        sync = info['sync_status']
+        if sync['status'] == 'synced':
+            click.echo(f"✓ {sync['message']}")
+            click.echo()
+        elif sync['status'] == 'behind':
+            click.echo(f"⚠ {utils.Color.bold(sync['message'])}")
+            if click.confirm("Pull updates from origin?", default=True):
+                try:
+                    repo.hgit.pull(info['current_branch'])
+                    click.echo(f"✓ Pulled updates from origin/{info['current_branch']}")
+                    click.echo()
+                except Exception as e:
+                    raise click.ClickException(f"Failed to pull updates: {e}")
+            else:
+                click.echo("Continuing without pulling updates...")
+                click.echo()
+        elif sync['status'] == 'diverged':
+            click.echo(f"⚠ {utils.Color.bold(sync['message'])}")
+            if not click.confirm("Continue anyway?", default=False):
+                raise click.ClickException("Aborted due to diverged branch")
+            click.echo()
+        elif sync['status'] in ('ahead', 'no_remote', 'fetch_failed', 'check_failed'):
+            click.echo(f"ℹ {sync['message']}")
+            click.echo()
+
+        # Show what will happen
+        click.echo(f"{utils.Color.bold('⚠ This will:')}")
+        for i, action in enumerate(info['actions'], 1):
+            click.echo(f"  {i}. {action}")
+        click.echo()
+
+        # Ask for confirmation (unless --force)
+        if not force:
+            if not click.confirm(f"Close patch {info['patch_id']}?", default=False):
+                click.echo("Cancelled.")
+                return
+
+        # Execute close
+        click.echo()
+        click.echo("Closing patch...")
+        result = repo.patch_manager.close_patch()
 
         # Display success message
         click.echo(f"✓ {utils.Color.green('Patch closed successfully!')}")
