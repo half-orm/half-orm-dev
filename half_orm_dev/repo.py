@@ -719,13 +719,18 @@ class Repo:
                 data = json.loads(response.read().decode())
                 result['latest_version'] = data['info']['version']
 
-                # Compare versions
+                # Compare versions using packaging.version for proper semantic versioning
                 if result['current_version'] and result['latest_version']:
-                    # Normalize version for comparison (remove hyphens)
-                    current_normalized = result['current_version'].replace('-', '')
-                    latest_normalized = result['latest_version'].replace('-', '')
-                    if current_normalized != latest_normalized:
-                        result['update_available'] = True
+                    try:
+                        from packaging import version
+                        current = version.parse(result['current_version'])
+                        latest = version.parse(result['latest_version'])
+                        if current < latest:
+                            result['update_available'] = True
+                    except Exception:
+                        # Fallback to string comparison if packaging fails
+                        if result['current_version'] != result['latest_version']:
+                            result['update_available'] = True
 
         except Exception as e:
             result['error'] = f"Could not check PyPI: {e}"
@@ -829,59 +834,84 @@ class Repo:
 
         # 2. Get active branches status and release files
         try:
-            # Find release files (candidates and stage) from ho-prod
+            # Find release files (candidates and stage) from ho-prod using git show
+            # This avoids checkout issues when there are uncommitted changes
             releases_info = {}
             if hasattr(self, 'release_manager'):
-                # Save current branch
+                from collections import defaultdict
+                by_version = defaultdict(dict)
+
+                # Fetch latest from origin to ensure we have up-to-date refs
                 try:
-                    current_branch = str(self.hgit._HGit__git_repo.active_branch)
-                except:
-                    current_branch = None
+                    self.hgit.fetch_from_origin()
+                except Exception:
+                    pass  # Best effort - may fail if no remote
 
-                # Switch to ho-prod to read release files (source of truth)
+                # List release files from ho-prod using git ls-tree
                 try:
-                    self.hgit.checkout('ho-prod')
+                    result_ls = subprocess.run(
+                        ['git', 'ls-tree', '--name-only', 'ho-prod', 'releases/'],
+                        cwd=self.__base_dir,
+                        capture_output=True,
+                        text=True,
+                        check=False
+                    )
 
-                    # Pull latest changes from origin to ensure we have up-to-date metadata
-                    try:
-                        self.hgit.pull()
-                    except Exception:
-                        pass  # Best effort - may fail if no remote or no changes
+                    if result_ls.returncode == 0:
+                        release_files = result_ls.stdout.strip().split('\n')
 
-                    releases_dir = Path(self.__base_dir) / 'releases'
-                    if releases_dir.exists():
-                        # Group files by version
-                        from collections import defaultdict
-                        by_version = defaultdict(dict)
+                        for file_path in release_files:
+                            if not file_path or not file_path.startswith('releases/'):
+                                continue
 
-                        for candidates_file in releases_dir.glob('*-candidates.txt'):
-                            version = candidates_file.stem.replace('-candidates', '')
-                            by_version[version]['candidates_file'] = str(candidates_file)
-                            # Read candidates (skip comments)
-                            candidates_content = candidates_file.read_text(encoding='utf-8').strip()
-                            by_version[version]['candidates'] = [
-                                c.strip() for c in candidates_content.split('\n')
-                                if c.strip() and not c.startswith('#')
-                            ]
+                            filename = file_path.split('/')[-1]
 
-                        for stage_file in releases_dir.glob('*-stage.txt'):
-                            version = stage_file.stem.replace('-stage', '')
-                            by_version[version]['stage_file'] = str(stage_file)
-                            # Read staged patches (skip comments)
-                            stage_content = stage_file.read_text(encoding='utf-8').strip()
-                            by_version[version]['staged'] = [
-                                s.strip() for s in stage_content.split('\n')
-                                if s.strip() and not s.startswith('#')
-                            ]
+                            # Process candidates files
+                            if filename.endswith('-candidates.txt'):
+                                version = filename.replace('-candidates.txt', '')
+                                by_version[version]['candidates_file'] = file_path
+
+                                # Read file content using git show
+                                result_show = subprocess.run(
+                                    ['git', 'show', f'ho-prod:{file_path}'],
+                                    cwd=self.__base_dir,
+                                    capture_output=True,
+                                    text=True,
+                                    check=False
+                                )
+
+                                if result_show.returncode == 0:
+                                    content = result_show.stdout.strip()
+                                    by_version[version]['candidates'] = [
+                                        c.strip() for c in content.split('\n')
+                                        if c.strip() and not c.startswith('#')
+                                    ]
+
+                            # Process stage files
+                            elif filename.endswith('-stage.txt'):
+                                version = filename.replace('-stage.txt', '')
+                                by_version[version]['stage_file'] = file_path
+
+                                # Read file content using git show
+                                result_show = subprocess.run(
+                                    ['git', 'show', f'ho-prod:{file_path}'],
+                                    cwd=self.__base_dir,
+                                    capture_output=True,
+                                    text=True,
+                                    check=False
+                                )
+
+                                if result_show.returncode == 0:
+                                    content = result_show.stdout.strip()
+                                    by_version[version]['staged'] = [
+                                        s.strip() for s in content.split('\n')
+                                        if s.strip() and not s.startswith('#')
+                                    ]
 
                         releases_info = dict(by_version)
-                finally:
-                    # Return to original branch
-                    if current_branch:
-                        try:
-                            self.hgit.checkout(current_branch)
-                        except:
-                            pass  # Best effort
+
+                except Exception:
+                    pass  # Silent failure - will result in empty releases_info
 
             result['active_branches'] = self.hgit.get_active_branches_status(
                 stage_files=[info.get('stage_file') for info in releases_info.values()
