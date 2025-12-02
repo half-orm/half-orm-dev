@@ -74,6 +74,25 @@ def check(prune_branches: bool, dry_run: bool, verbose: bool) -> None:
 
 def _display_check_results(result: dict, dry_run: bool, prune_branches: bool, verbose: bool):
     """Display check results to user."""
+    # Version check
+    version_info = result.get('version')
+    if version_info:
+        current = version_info.get('current_version')
+        latest = version_info.get('latest_version')
+        update_available = version_info.get('update_available', False)
+        error = version_info.get('error')
+
+        if error:
+            if verbose:
+                click.echo(f"ℹ {utils.Color.blue(f'Version check: {error}')}")
+        elif update_available and latest:
+            click.echo(f"⚠ {utils.Color.bold(f'half_orm_dev: {current}')} {utils.Color.bold(f'(update available: {latest})')}")
+            click.echo(f"  Run: {utils.Color.bold('pip install --upgrade half_orm_dev')}")
+            click.echo()
+        elif current:
+            click.echo(f"✓ {utils.Color.green(f'half_orm_dev: {current} (latest)')}")
+            click.echo()
+
     # Hooks
     hooks = result.get('hooks', {})
     if hooks.get('installed'):

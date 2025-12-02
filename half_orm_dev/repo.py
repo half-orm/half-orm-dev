@@ -676,6 +676,62 @@ class Repo:
             'action': overall_action
         }
 
+    def _check_version_update(self) -> dict:
+        """
+        Check if a new version of half_orm_dev is available on PyPI.
+
+        Returns:
+            dict with keys:
+                - current_version: Current installed version
+                - latest_version: Latest version on PyPI (or None if check failed)
+                - update_available: bool - True if update available
+                - error: Error message if check failed
+
+        Examples:
+            version_info = repo._check_version_update()
+            if version_info['update_available']:
+                print(f"Update available: {version_info['latest_version']}")
+        """
+        import urllib.request
+        import json
+        from pathlib import Path
+
+        result = {
+            'current_version': None,
+            'latest_version': None,
+            'update_available': False,
+            'error': None
+        }
+
+        # Get current version from version.txt
+        try:
+            version_file = Path(__file__).parent / 'version.txt'
+            if version_file.exists():
+                result['current_version'] = version_file.read_text().strip()
+        except Exception as e:
+            result['error'] = f"Could not read current version: {e}"
+            return result
+
+        # Check PyPI for latest version
+        try:
+            url = "https://pypi.org/pypi/half_orm_dev/json"
+            with urllib.request.urlopen(url, timeout=5) as response:
+                data = json.loads(response.read().decode())
+                result['latest_version'] = data['info']['version']
+
+                # Compare versions
+                if result['current_version'] and result['latest_version']:
+                    # Normalize version for comparison (remove hyphens)
+                    current_normalized = result['current_version'].replace('-', '')
+                    latest_normalized = result['latest_version'].replace('-', '')
+                    if current_normalized != latest_normalized:
+                        result['update_available'] = True
+
+        except Exception as e:
+            result['error'] = f"Could not check PyPI: {e}"
+
+        return result
+
     def check_and_update(
         self,
         prune_branches: bool = False,
@@ -849,6 +905,12 @@ class Repo:
             )
         else:
             result['branches'] = {}
+
+        # 3. Check version (only for explicit checks, not silent)
+        if not silent:
+            result['version'] = self._check_version_update()
+        else:
+            result['version'] = None
 
         # Update cache
         if not dry_run and silent:
