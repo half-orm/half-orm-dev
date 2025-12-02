@@ -322,51 +322,6 @@ devel = True
                 mock_db.assert_called_once_with(repo)
                 mock_hgit.assert_called_once_with(repo)
 
-    def test_state_property_includes_version_info(self, temp_hop_repo):
-        """Test state property includes version information."""
-        import half_orm
-        from half_orm_dev.utils import hop_version
-
-        with patch('os.path.abspath') as mock_abspath:
-            mock_abspath.return_value = temp_hop_repo
-
-            with patch('half_orm_dev.repo.Database') as mock_db, \
-                 patch('half_orm_dev.repo.HGit') as mock_hgit, \
-                 patch('half_orm.utils.Color.bold') as mock_color_bold, \
-                 patch('half_orm.utils.Color.red') as mock_color_red, \
-                 patch('half_orm.utils.Color.green') as mock_color_green:
-
-                # Use real versions - no mocking
-                real_ho_version = half_orm.__version__
-                real_hop_version = hop_version()
-
-                mock_color_bold.side_effect = lambda x: f"bold({x})"
-                mock_color_red.side_effect = lambda x: f"red({x})"
-                mock_color_green.side_effect = lambda x: f"green({x})"
-
-                mock_database_instance = Mock()
-                mock_database_instance.production = False
-                mock_database_instance.state = "[Database]\n- name: test_db"
-                mock_db.return_value = mock_database_instance
-
-                mock_hgit_instance = Mock()
-                mock_hgit_instance.__str__ = Mock(return_value="[Git]\n- origin: test")
-                mock_hgit.return_value = mock_hgit_instance
-
-                mock_patch_instance = Mock()
-                mock_patch_instance.state = "[Patch]\n- state: ready"
-
-                with patch('half_orm_dev.repo.Patch') as mock_patch:
-                    mock_patch.return_value = mock_patch_instance
-
-                    repo = Repo()
-                    state = repo.state
-
-                    # Should contain both version information
-                    assert "hop version:" in state
-                    assert "half-orm version:" in state
-                    assert real_ho_version in state  # Real half_orm version
-                    assert real_hop_version in state  # Real hop version
 
     def test_hop_version_mismatch_detection(self, temp_hop_repo):
         """Test detection of hop version mismatch."""

@@ -18,7 +18,6 @@ from half_orm_dev.database import Database
 from half_orm_dev.hgit import HGit
 from half_orm_dev import modules
 from half_orm.model import Model
-from half_orm_dev.patch import Patch
 from half_orm_dev.patch_manager import PatchManager, PatchManagerError
 from half_orm_dev.release_manager import ReleaseManager
 
@@ -273,78 +272,7 @@ class Repo:
             ]
             res.append(self.database.state)
             res.append(str(self.hgit))
-            res.append(Patch(self).state)
         return '\n'.join(res)
-
-    def init(self, package_name, devel):
-        "Create a new hop repository"
-        raise Exception("Deprecated init")
-        Repo.__new = True
-        cur_dir = os.path.abspath(os.path.curdir)
-        self.__base_dir = os.path.join(cur_dir, package_name)
-        self.__config = Config(self.__base_dir, name=package_name, devel=devel)
-        self.database = Database(self, get_release=False).init(self.__config.name)
-        print(f"Installing new hop repo in {self.__base_dir}.")
-
-        if not os.path.exists(self.__base_dir):
-            os.makedirs(self.__base_dir)
-        else:
-            utils.error(f"ERROR! The path '{self.__base_dir}' already exists!\n", exit_code=1)
-        readme = utils.read(os.path.join(TEMPLATE_DIRS, 'README'))
-        pyproject_template = utils.read(os.path.join(TEMPLATE_DIRS, 'pyproject.toml'))
-        git_ignore = utils.read(os.path.join(TEMPLATE_DIRS, '.gitignore'))
-        pipfile = utils.read(os.path.join(TEMPLATE_DIRS, 'Pipfile'))
-
-        pyproject = pyproject_template.format(
-                dbname=self.__config.name,
-                package_name=self.__config.name,
-                half_orm_version=half_orm.__version__)
-        utils.write(os.path.join(self.__base_dir, 'pyproject.toml'), pyproject)
-
-        pipfile = pipfile.format(
-                half_orm_version=half_orm.__version__,
-                hop_version=hop_version())
-        utils.write(os.path.join(self.__base_dir, 'Pipfile'), pipfile)
-
-        os.mkdir(os.path.join(self.__base_dir, '.hop'))
-        self.__config.write()
-        modules.generate(self)
-
-        readme = readme.format(
-            hop_version=hop_version(), dbname=self.__config.name, package_name=self.__config.name)
-        utils.write(os.path.join(self.__base_dir, 'README.md'), readme)
-        utils.write(os.path.join(self.__base_dir, '.gitignore'), git_ignore)
-        self.hgit = HGit().init(self.__base_dir)
-
-        print(f"\nThe hop project '{self.__config.name}' has been created.")
-        print(self.state)
-
-    def sync_package(self):
-        Patch(self).sync_package()
-
-    def upgrade_prod(self):
-        "Upgrade (production)"
-        Patch(self).upgrade_prod()
-
-    def restore(self, release):
-        "Restore package and database to release (production/devel)"
-        Patch(self).restore(release)
-
-    def prepare_release(self, level, message=None):
-        "Prepare a new release (devel)"
-        Patch(self).prep_release(level, message)
-
-    def apply_release(self):
-        "Apply the current release (devel)"
-        Patch(self).apply(self.hgit.current_release, force=True)
-
-    def undo_release(self, database_only=False):
-        "Undo the current release (devel)"
-        Patch(self).undo(database_only=database_only)
-
-    def commit_release(self, push):
-        "Release a 'release' (devel)"
-        Patch(self).release(push)
 
     @property
     def patch_manager(self) -> PatchManager:
@@ -461,8 +389,8 @@ class Repo:
             RuntimeError: If repository not properly initialized
 
         Examples:
-            # Prepare new patch release
-            result = repo.release_manager.prepare_release('patch')
+            # Create new patch release
+            result = repo.release_manager.new_release('patch')
             print(f"Created: {result['version']}")
 
             # Find latest version

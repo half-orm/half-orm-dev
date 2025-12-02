@@ -110,10 +110,10 @@ class ReleaseManager:
     - X.Y.Z-hotfix[N].txt: Emergency hotfix (immutable)
 
     Examples:
-        # Prepare new release
+        # Create new release
         release_mgr = ReleaseManager(repo)
-        result = release_mgr.prepare_release('minor')
-        # Creates releases/1.4.0-stage.txt
+        result = release_mgr.new_release('minor')
+        # Creates branch ho-release/1.4.0
 
         # Find latest version
         version = release_mgr.find_latest_version()
@@ -135,148 +135,6 @@ class ReleaseManager:
         self._base_dir = str(repo.base_dir)
         self._releases_dir = Path(repo.base_dir) / "releases"
 
-    def prepare_release(self, increment_type: str) -> dict:
-        """
-        Prepare next release stage file.
-
-        Creates new releases/X.Y.Z-stage.txt file based on latest version
-        and increment type. Validates repository state, synchronizes with
-        origin, and pushes to reserve version globally.
-
-        Workflow:
-        0. Acquire lock tag
-        1. Validate on ho-prod branch
-        2. Validate repository is clean
-        3. Fetch from origin
-        4. Synchronize with origin/ho-prod (pull if behind)
-        5. Read production version from model/schema.sql
-        6. Calculate next version based on increment type
-        7. Verify stage file doesn't already exist
-        8. Create empty stage file
-        9. Commit with message "Prepare release X.Y.Z-stage"
-        10. Push to origin (global reservation)
-        11. Release lock tag
-
-        Branch requirements:
-        - Must be on ho-prod branch
-        - Repository must be clean (no uncommitted changes)
-        - Must be synced with origin/ho-prod (auto-pull if behind)
-
-        Synchronization behavior:
-        - "synced": Continue
-        - "behind": Auto-pull with message
-        - "ahead": Continue (will push at end)
-        - "diverged": Error - manual merge required
-
-        Args:
-            increment_type: Version increment ("major", "minor", or "patch")
-
-        Returns:
-            dict: Preparation result with keys:
-                - version: New version string (e.g., "1.4.0")
-                - file: Path to created stage file
-                - previous_version: Previous production version
-
-        Raises:
-            ReleaseManagerError: If validation fails
-            ReleaseManagerError: If not on ho-prod branch
-            ReleaseManagerError: If repository not clean
-            ReleaseManagerError: If ho-prod diverged from origin
-            ReleaseFileError: If stage file already exists
-            ReleaseVersionError: If version calculation fails
-
-        Examples:
-            # Prepare minor release
-            result = release_mgr.prepare_release('minor')
-            # Production was 1.3.5 → creates releases/1.4.0-stage.txt
-
-            # Prepare patch release
-            result = release_mgr.prepare_release('patch')
-            # Production was 1.3.5 → creates releases/1.3.6-stage.txt
-
-            # Error handling
-            try:
-                result = release_mgr.prepare_release('major')
-            except ReleaseManagerError as e:
-                print(f"Failed: {e}")
-        """
-        try:
-            # 0. ACQUIRE LOCK on ho-prod (with 30 min timeout for stale locks)
-            lock_tag = self._repo.hgit.acquire_branch_lock("ho-prod", timeout_minutes=30)
-
-            # 1. Validate on ho-prod branch
-            if self._repo.hgit.branch != 'ho-prod':
-                raise ReleaseManagerError(
-                    f"Must be on ho-prod branch to prepare release.\n"
-                    f"Current branch: {self._repo.hgit.branch}\n"
-                    f"Switch to ho-prod: git checkout ho-prod"
-                )
-
-            # 2. Validate repository is clean
-            if not self._repo.hgit.repos_is_clean():
-                raise ReleaseManagerError(
-                    "Repository has uncommitted changes.\n"
-                    "Commit or stash changes before preparing release:\n"
-                    "  git status\n"
-                    "  git add . && git commit"
-                )
-
-            # 3. Fetch from origin
-            self._repo.hgit.fetch_from_origin()
-
-            # 4. Synchronize with origin
-            is_synced, status = self._repo.hgit.is_branch_synced("ho-prod")
-
-            if status == "behind":
-                # Pull automatically
-                self._repo.hgit.pull()
-            elif status == "diverged":
-                raise ReleaseManagerError(
-                    "ho-prod has diverged from origin/ho-prod.\n"
-                    "Manual resolution required:\n"
-                    "  git pull --rebase origin ho-prod\n"
-                    "  or\n"
-                    "  git merge origin/ho-prod"
-                )
-            # If "synced" or "ahead", continue
-
-            # 5. Read production version from model/schema.sql
-            prod_version_str = self._get_production_version()
-
-            # Parse into Version object for calculation
-            prod_version = self.parse_version_from_filename(f"{prod_version_str}.txt")
-
-            # 6. Calculate next version
-            next_version = self.calculate_next_version(prod_version, increment_type)
-
-            # 7. Verify stage file doesn't exist
-            stage_file = self._releases_dir / f"{next_version}-stage.txt"
-            if stage_file.exists():
-                raise ReleaseFileError(
-                    f"Stage file already exists: {stage_file}\n"
-                    f"Version {next_version} is already in development.\n"
-                    f"To continue with this version, use existing stage file."
-                )
-
-            # 8. Create empty stage file
-            stage_file.touch()
-
-            # 9. Commit
-            self._repo.hgit.add(str(stage_file))
-            self._repo.hgit.commit("-m", f"Prepare release {next_version}-stage")
-
-            # 10. Push to origin (global reservation)
-            self._repo.hgit.push()
-            # Return result
-            return {
-                'version': next_version,
-                'file': str(stage_file),
-                'previous_version': prod_version_str
-            }
-
-        finally:
-            # 11. ALWAYS release lock (even on error)
-            self._repo.hgit.release_branch_lock(lock_tag)
 
 
     def _get_production_version(self) -> str:

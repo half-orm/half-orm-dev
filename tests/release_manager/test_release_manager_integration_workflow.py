@@ -31,6 +31,14 @@ def release_manager(tmp_path):
     patches_dir = tmp_path / "Patches"
     patches_dir.mkdir()
 
+    # Create model/ directory with schema-0.0.1.sql and symlink (required for new_release)
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    schema_versioned = model_dir / "schema-0.0.1.sql"
+    schema_versioned.write_text("-- schema for version 0.0.1")
+    schema_symlink = model_dir / "schema.sql"
+    schema_symlink.symlink_to("schema-0.0.1.sql")
+
     # Mock Repo
     mock_repo = Mock()
     mock_repo.base_dir = str(tmp_path)
