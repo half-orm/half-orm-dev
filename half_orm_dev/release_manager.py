@@ -377,6 +377,199 @@ class ReleaseManager:
 
         return version
 
+    def _check_and_init_from_database(self) -> bool:
+        """
+        Check for legacy project and offer to initialize from database.
+
+        For projects migrating from half_orm 0.13.x, this method detects when ALL
+        three required elements are missing (releases/, model/, ho-prod branch) and
+        offers to initialize them from the existing database metadata.
+
+        Workflow:
+        1. Check if releases/, model/, and ho-prod all exist
+        2. If ALL THREE are missing, prompt user to initialize from database
+        3. Create ho-prod branch from current branch
+        4. Read production version from half_orm_meta.view.hop_last_release
+        5. Create releases/ and model/ directories
+        6. Generate schema and metadata files using Database._generate_schema_sql()
+        7. Create releases/X.Y.Z.txt EMPTY (production release)
+        8. Commit the initialization
+
+        Returns:
+            bool: True if initialization was performed, False if skipped
+
+        Raises:
+            ReleaseManagerError: If database not accessible or initialization fails
+            ReleaseManagerError: If project is in inconsistent state (only some parts exist)
+
+        Examples:
+            # Migrating old project
+            if release_mgr._check_and_init_from_database():
+                print("Initialized from database")
+            else:
+                print("Already initialized")
+        """
+        import click
+        from half_orm import utils
+
+        # Check what exists
+        releases_exists = self._releases_dir.exists()
+        model_dir = Path(self._base_dir) / "model"
+        model_exists = model_dir.exists() and (model_dir / "schema.sql").exists()
+        ho_prod_exists = self._repo.hgit.branch_exists("ho-prod")
+
+        # If all three exist, no initialization needed
+        if releases_exists and model_exists and ho_prod_exists:
+            return False
+
+        # If only some exist, the project is in an inconsistent state
+        if releases_exists or model_exists or ho_prod_exists:
+            missing = []
+            if not releases_exists:
+                missing.append("releases/")
+            if not model_exists:
+                missing.append("model/")
+            if not ho_prod_exists:
+                missing.append("ho-prod branch")
+
+            existing = []
+            if releases_exists:
+                existing.append("releases/")
+            if model_exists:
+                existing.append("model/")
+            if ho_prod_exists:
+                existing.append("ho-prod branch")
+
+            raise ReleaseManagerError(
+                f"Project in inconsistent state.\n\n"
+                f"Missing: {', '.join(missing)}\n"
+                f"Present: {', '.join(existing)}\n\n"
+                f"For legacy migration, all three must be missing.\n"
+                f"Please either:\n"
+                f"  • Complete the setup manually, or\n"
+                f"  • Remove existing elements to start fresh initialization"
+            )
+
+        # All three missing - offer to initialize from database
+        click.echo(f"\n{utils.Color.bold('⚠ Legacy project detected')}")
+        click.echo("The releases/ and model/ directories are missing.")
+        click.echo("This appears to be a project from half_orm 0.13.x or earlier.")
+        click.echo()
+        click.echo("I can initialize the workflow from your existing database:")
+        click.echo("  • Create ho-prod branch (if needed)")
+        click.echo("  • Read production version from half_orm_meta.view.hop_last_release")
+        click.echo("  • Create releases/ and model/ directories")
+        click.echo("  • Generate schema and metadata files")
+        click.echo("  • Create initial production release file")
+        click.echo()
+
+        if not click.confirm("Initialize from database?", default=True):
+            raise ReleaseManagerError(
+                "Cannot proceed without releases/ directory.\n"
+                "Run this command again and confirm initialization, or\n"
+                "manually create the releases/ directory structure."
+            )
+
+        try:
+            # Ensure ho-prod branch exists
+            click.echo(f"\n{utils.Color.bold('Checking ho-prod branch...')}")
+            current_branch = self._repo.hgit.branch
+            if not self._repo.hgit.branch_exists("ho-prod"):
+                click.echo(f"  Creating ho-prod branch from {current_branch}...")
+                try:
+                    self._repo.hgit.create_branch("ho-prod", from_branch=current_branch)
+                    click.echo(f"  {utils.Color.green('✓ Created ho-prod branch')}")
+
+                    # Push to remote if exists
+                    if self._repo.hgit.has_remote():
+                        self._repo.hgit.push_branch("ho-prod")
+                        click.echo(f"  {utils.Color.green('✓ Pushed ho-prod to origin')}")
+
+                    # Switch to ho-prod
+                    self._repo.hgit.checkout("ho-prod")
+                except Exception as e:
+                    raise ReleaseManagerError(f"Failed to create ho-prod branch: {e}")
+            else:
+                click.echo(f"  ✓ ho-prod branch already exists")
+                # Switch to ho-prod
+                if current_branch != "ho-prod":
+                    self._repo.hgit.checkout("ho-prod")
+
+            # Read production version from database
+            click.echo(f"\n{utils.Color.bold('Reading version from database...')}")
+            try:
+                version_str = self._repo.database.last_release_s
+                click.echo(f"  Production version: {utils.Color.green(version_str)}")
+            except Exception as e:
+                raise ReleaseManagerError(
+                    f"Failed to read version from database.\n"
+                    f"Error: {e}\n\n"
+                    f"Ensure:\n"
+                    f"  • Database is accessible\n"
+                    f"  • half_orm_meta schema exists\n"
+                    f"  • hop_last_release view is populated"
+                )
+
+            # Create directories
+            click.echo(f"\n{utils.Color.bold('Creating directories...')}")
+            self._releases_dir.mkdir(parents=True, exist_ok=True)
+            click.echo(f"  ✓ Created {self._releases_dir}")
+            model_dir.mkdir(parents=True, exist_ok=True)
+            click.echo(f"  ✓ Created {model_dir}")
+
+            # Generate schema and metadata files using existing method
+            click.echo(f"\n{utils.Color.bold('Generating schema files...')}")
+            try:
+                self._repo.database._generate_schema_sql(version_str, model_dir)
+                click.echo(f"  ✓ Generated schema-{version_str}.sql")
+                click.echo(f"  ✓ Generated metadata-{version_str}.sql")
+                click.echo(f"  ✓ Created symlink: schema.sql -> schema-{version_str}.sql")
+            except Exception as e:
+                raise ReleaseManagerError(f"Failed to generate schema files: {e}")
+
+            # Create empty production release file
+            click.echo(f"\n{utils.Color.bold('Creating release file...')}")
+            release_file = self._releases_dir / f"{version_str}.txt"
+            release_file.touch()
+            click.echo(f"  ✓ Created {release_file.name} (empty - production release)")
+
+            # Commit initialization
+            click.echo(f"\n{utils.Color.bold('Committing initialization...')}")
+            self._repo.hgit.add(str(self._releases_dir))
+            self._repo.hgit.add(str(model_dir))
+            self._repo.hgit.commit(
+                "-m",
+                f"chore: initialize releases/ and model/ from database (version {version_str})"
+            )
+            click.echo(f"  {utils.Color.green('✓ Initialization committed')}")
+
+            # Create production tag for this version
+            click.echo(f"\n{utils.Color.bold('Creating production tag...')}")
+            prod_tag = f"v{version_str}"
+            self._repo.hgit.create_tag(prod_tag, f"Production release {version_str} (migrated from database)")
+            click.echo(f"  {utils.Color.green(f'✓ Created tag {prod_tag}')}")
+
+            # Push if remote exists
+            if self._repo.hgit.has_remote():
+                click.echo(f"\n{utils.Color.bold('Pushing to origin...')}")
+                self._repo.hgit.push()
+                self._repo.hgit.push_tag(prod_tag)
+                click.echo(f"  {utils.Color.green('✓ Pushed to origin')}")
+                click.echo(f"  {utils.Color.green(f'✓ Pushed tag {prod_tag}')}")
+
+            click.echo(f"\n{utils.Color.green('✓ Successfully initialized from database!')}")
+            click.echo()
+
+            return True
+
+        except Exception as e:
+            # Clean up on error
+            if self._releases_dir.exists() and not any(self._releases_dir.iterdir()):
+                self._releases_dir.rmdir()
+            if model_dir.exists() and not any(model_dir.iterdir()):
+                model_dir.rmdir()
+            raise ReleaseManagerError(f"Initialization failed: {e}")
+
     def find_latest_version(self) -> Optional[Version]:
         """
         Find latest version across all release stages.
@@ -2365,6 +2558,7 @@ class ReleaseManager:
         dependencies between patches.
 
         Workflow:
+        0. Check for legacy project migration (auto-initialize if needed)
         1. Calculate next version based on level (major/minor/patch)
         2. Create release branch ho-release/{version} from ho-prod
         3. Push release branch to remote
@@ -2393,15 +2587,19 @@ class ReleaseManager:
             # → Creates empty 0.1.0-stage.txt
             # → Switches to ho-release/0.1.0
         """
+        # 0. Check for legacy project migration
+        was_initialized = self._check_and_init_from_database()
+
         # Calculate next version
         version = self._calculate_next_version(level)
         release_branch = f"ho-release/{version}"
 
-        # Ensure we're on ho-prod
-        try:
-            self._repo.hgit.checkout("ho-prod")
-        except Exception as e:
-            raise ReleaseManagerError(f"Failed to checkout ho-prod: {e}")
+        # Ensure we're on ho-prod (unless we just initialized and are already there)
+        if not was_initialized or self._repo.hgit.branch != "ho-prod":
+            try:
+                self._repo.hgit.checkout("ho-prod")
+            except Exception as e:
+                raise ReleaseManagerError(f"Failed to checkout ho-prod: {e}")
 
         # Create empty candidates file (NEW)
         candidates_file = self._releases_dir / f"{version}-candidates.txt"
