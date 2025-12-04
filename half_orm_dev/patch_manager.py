@@ -2104,13 +2104,13 @@ class PatchManager:
 
         except FileNotFoundError:
             # pytest not installed - warn but don't block
-            click.echo(f"  • {utils.Color.yellow('⚠')} pytest not found (install pytest to run tests)")
+            click.echo(f"  • {utils.Color.bold('⚠')} pytest not found (install pytest to run tests)")
         except PatchManagerError:
             # Re-raise our own exceptions (test failures)
             raise
         except Exception as e:
             # Any other error - warn but don't block (might be environment issue)
-            click.echo(f"  • {utils.Color.yellow('⚠')} Failed to run tests: {e} (continuing anyway)")
+            click.echo(f"  • {utils.Color.bold('⚠')} Failed to run tests: {e} (continuing anyway)")
 
         # Note: KeyboardInterrupt (Ctrl+C) is not caught here - it inherits from
         # BaseException, not Exception, so it will propagate up to the decorator

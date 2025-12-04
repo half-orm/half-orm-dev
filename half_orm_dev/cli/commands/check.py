@@ -264,7 +264,7 @@ def _display_releases_with_patches(releases_info: dict, patch_branches: list, re
         release_status = ""
         if release_branch_info:
             if not release_branch_info.get('exists_on_remote', False) and release_branch_info.get('exists_locally', False):
-                release_status = f" {utils.Color.yellow('⚠️ local only - remote deleted')}"
+                release_status = f" {utils.Color.bold('⚠️ local only - remote deleted')}"
             elif release_branch_info.get('sync_status') == 'remote_only':
                 release_status = f" {utils.Color.blue('☁️ on remote only')}"
         else:
@@ -303,7 +303,7 @@ def _display_releases_with_patches(releases_info: dict, patch_branches: list, re
                     elif sync_status == 'diverged':
                         status = utils.Color.red(f"⚠ diverged (↑{ahead} ↓{behind})")
                     elif sync_status == 'no_remote':
-                        status = utils.Color.yellow("⚠️ local only (remote deleted or not pushed - run: git branch -d " + branch_name + ")")
+                        status = utils.Color.bold("⚠️ local only (remote deleted or not pushed - run: git branch -d " + branch_name + ")")
                     else:
                         status = "?"
 

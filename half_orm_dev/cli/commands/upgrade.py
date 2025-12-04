@@ -132,7 +132,7 @@ def _display_upgrade_results(result):
         final = result['final_version']
         click.echo(f"\nWould upgrade: {current} → {utils.Color.green(final)}")
 
-        click.echo(f"\n{utils.Color.yellow('To apply this upgrade, run without --dry-run')}")
+        click.echo(f"\n{utils.Color.bold('To apply this upgrade, run without --dry-run')}")
         return
 
     # === ACTUAL UPGRADE ===
@@ -147,7 +147,7 @@ def _display_upgrade_results(result):
         # Up to date scenario
         pass
     else:
-        click.echo(f"⚠️  {utils.Color.yellow('No backup created (--skip-backup used)')}")
+        click.echo(f"⚠️  {utils.Color.bold('No backup created (--skip-backup used)')}")
 
     click.echo(f"\nCurrent version: {utils.Color.bold(current)}")
 
