@@ -144,14 +144,6 @@ class Repo:
         self._initialized = True
         self.__check()
 
-        # Automatically check and update hooks/config (if in a repo)
-        if self.__checked and self.devel:
-            try:
-                self.check_and_update(silent=True)
-            except Exception:
-                # Best effort - don't break if check fails
-                pass
-
     @classmethod
     def _find_base_dir(cls):
         """Find the base directory for the current context (same logic as __check)"""
@@ -667,7 +659,6 @@ class Repo:
 
     def check_and_update(
         self,
-        prune_branches: bool = False,
         dry_run: bool = False,
         silent: bool = True,
         force_check: bool = False
@@ -681,8 +672,10 @@ class Repo:
 
         Uses caching to avoid checking too frequently (once per day max unless force_check=True).
 
+        Always detects stale branches (branches that no longer exist on remote).
+        When not in silent mode, prompts user to delete them.
+
         Args:
-            prune_branches: If True, clean up local branches that don't exist on remote
             dry_run: If True, don't make changes, just report what would be done
             silent: If True, don't print messages (for automatic checks)
             force_check: If True, bypass cache and always check
@@ -690,15 +683,15 @@ class Repo:
         Returns:
             dict with keys:
                 'hooks': dict from install_git_hooks()
-                'branches': dict from prune_local_branches() (if prune_branches=True)
+                'stale_branches': dict with 'candidates', 'deleted', 'errors'
                 'cache_hit': bool - True if cache was used
 
         Examples:
             # Automatic check (silent, uses cache)
             result = repo.check_and_update(silent=True)
 
-            # Manual check with branch pruning
-            result = repo.check_and_update(prune_branches=True, silent=False)
+            # Manual check with stale branch detection
+            result = repo.check_and_update(silent=False)
 
             # Force check (bypass cache)
             result = repo.check_and_update(force_check=True)
@@ -769,9 +762,37 @@ class Repo:
                 from collections import defaultdict
                 by_version = defaultdict(dict)
 
-                # Fetch latest from origin to ensure we have up-to-date refs
+                # Fetch latest from origin and update local ho-prod branch
+                # This ensures we read the latest release files
                 try:
                     self.hgit.fetch_from_origin()
+
+                    # Check if we are currently on ho-prod
+                    result_branch = subprocess.run(
+                        ['git', 'branch', '--show-current'],
+                        cwd=self.__base_dir,
+                        capture_output=True,
+                        text=True,
+                        check=False
+                    )
+                    current_branch = result_branch.stdout.strip() if result_branch.returncode == 0 else None
+
+                    if current_branch == 'ho-prod':
+                        # If on ho-prod, do a pull to update it
+                        subprocess.run(
+                            ['git', 'pull', 'origin', 'ho-prod'],
+                            cwd=self.__base_dir,
+                            capture_output=True,
+                            check=False
+                        )
+                    else:
+                        # If not on ho-prod, force update the branch
+                        subprocess.run(
+                            ['git', 'branch', '-f', 'ho-prod', 'origin/ho-prod'],
+                            cwd=self.__base_dir,
+                            capture_output=True,
+                            check=False
+                        )
                 except Exception:
                     pass  # Best effort - may fail if no remote
 
@@ -854,17 +875,26 @@ class Repo:
             }
             result['releases_info'] = {}
 
-        # 3. Optionally prune stale branches
-        if prune_branches:
-            result['branches'] = self.hgit.prune_local_branches(
+        # 3. Detect and optionally prune stale branches
+        # Always detect stale branches (for display), but only prompt/delete when not silent
+        stale_branches_result = {
+            'candidates': [],
+            'deleted': [],
+            'errors': []
+        }
+
+        if not silent:
+            # Detect stale branches (dry_run=True to just get the list)
+            detect_result = self.hgit.prune_local_branches(
                 pattern="ho-*",
-                dry_run=dry_run,
+                dry_run=True,
                 exclude_current=True
             )
-        else:
-            result['branches'] = {}
+            stale_branches_result['candidates'] = detect_result.get('deleted', [])
 
-        # 3. Check version (only for explicit checks, not silent)
+        result['stale_branches'] = stale_branches_result
+
+        # 4. Check version (only for explicit checks, not silent)
         if not silent:
             result['version'] = self._check_version_update()
         else:

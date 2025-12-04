@@ -15,11 +15,6 @@ from half_orm import utils
 
 @click.command()
 @click.option(
-    '--prune-branches', '-p',
-    is_flag=True,
-    help='Also clean up local branches that no longer exist on remote'
-)
-@click.option(
     '--dry-run',
     is_flag=True,
     help='Show what would be done without making changes'
@@ -29,7 +24,7 @@ from half_orm import utils
     is_flag=True,
     help='Show detailed information'
 )
-def check(prune_branches: bool, dry_run: bool, verbose: bool) -> None:
+def check(dry_run: bool, verbose: bool) -> None:
     """
     Verify and update project configuration.
 
@@ -39,14 +34,11 @@ def check(prune_branches: bool, dry_run: bool, verbose: bool) -> None:
     Checks performed:
       • Git hooks are up to date (pre-commit)
       • Repository is properly configured
-      • Optionally: Clean up stale local branches
+      • Detect and prompt to clean up stale local branches
 
     Examples:
         # Basic check and update
         half_orm dev check
-
-        # Check and clean up stale branches
-        half_orm dev check --prune-branches
 
         # Preview what would be done
         half_orm dev check --dry-run
@@ -56,13 +48,12 @@ def check(prune_branches: bool, dry_run: bool, verbose: bool) -> None:
 
         # Perform check (delegates to Repo)
         result = repo.check_and_update(
-            prune_branches=prune_branches,
             dry_run=dry_run,
             silent=False  # Show messages
         )
 
         # Display results
-        _display_check_results(result, dry_run, prune_branches, verbose)
+        _display_check_results(repo, result, dry_run, verbose)
 
     except Exception as e:
         click.echo(utils.Color.red(f"❌ Error: {e}"), err=True)
@@ -72,7 +63,7 @@ def check(prune_branches: bool, dry_run: bool, verbose: bool) -> None:
         raise click.Abort()
 
 
-def _display_check_results(result: dict, dry_run: bool, prune_branches: bool, verbose: bool):
+def _display_check_results(repo, result: dict, dry_run: bool, verbose: bool):
     """Display check results to user."""
     # Version check
     version_info = result.get('version')
@@ -139,30 +130,57 @@ def _display_check_results(result: dict, dry_run: bool, prune_branches: bool, ve
         if len(stale_release) > 5:
             click.echo(f"  ... and {len(stale_release) - 5} more")
 
-    # Prune results
-    if prune_branches:
-        branches = result.get('branches', {})
-        deleted = branches.get('deleted', [])
+    # Stale branches detection and cleanup
+    stale_branches = result.get('stale_branches', {})
+    candidates = stale_branches.get('candidates', [])
 
-        if deleted:
+    if candidates:
+        click.echo()
+        if dry_run:
+            click.echo(f"⚠️  {utils.Color.bold(f'Found {len(candidates)} stale local branch(es)')} (no longer on remote):")
+            for branch in candidates[:10]:
+                click.echo(f"  ○ {branch}")
+            if len(candidates) > 10:
+                click.echo(f"  ... and {len(candidates) - 10} more")
+            click.echo(f"\n  Run without --dry-run to be prompted for deletion")
+        else:
+            # Show stale branches and prompt for deletion
+            click.echo(f"⚠️  {utils.Color.bold(f'Found {len(candidates)} stale local branch(es)')} (no longer on remote):")
+            for branch in candidates[:10]:
+                click.echo(f"  • {branch}")
+            if len(candidates) > 10:
+                click.echo(f"  ... and {len(candidates) - 10} more")
             click.echo()
-            if dry_run:
-                click.echo(f"○ {utils.Color.blue(f'Would delete {len(deleted)} stale branch(es)')}")
-            else:
-                click.echo(f"✓ {utils.Color.green(f'Deleted {len(deleted)} stale branch(es)')}")
 
-            if verbose:
-                for branch in deleted[:10]:
-                    symbol = "○" if dry_run else "✓"
-                    click.echo(f"  {symbol} {branch}")
-                if len(deleted) > 10:
-                    click.echo(f"  ... and {len(deleted) - 10} more")
+            # Prompt for confirmation
+            if click.confirm(f"Delete these {len(candidates)} branch(es)?", default=False):
+                # Get repo instance and actually delete the branches
+                deleted = []
+                errors = []
+                try:
+                    delete_result = repo.hgit.prune_local_branches(
+                        pattern="ho-*",
+                        dry_run=False,
+                        exclude_current=True
+                    )
+                    deleted = delete_result.get('deleted', [])
+                    errors = delete_result.get('errors', [])
 
-        if branches.get('errors'):
-            click.echo(f"⚠ {utils.Color.red('Some errors occurred during cleanup')}")
-            if verbose:
-                for branch, error in branches['errors'][:3]:
-                    click.echo(f"  {branch}: {error}")
+                    if deleted:
+                        click.echo(f"\n✓ {utils.Color.green(f'Deleted {len(deleted)} stale branch(es)')}")
+                        if verbose:
+                            for branch in deleted[:10]:
+                                click.echo(f"  ✓ {branch}")
+                            if len(deleted) > 10:
+                                click.echo(f"  ... and {len(deleted) - 10} more")
+
+                    if errors:
+                        click.echo(f"\n⚠ {utils.Color.red('Some errors occurred during cleanup')}")
+                        if verbose:
+                            for branch, error in errors[:3]:
+                                click.echo(f"  {branch}: {error}")
+                except Exception as e:
+                    click.echo(utils.Color.red(f"\n❌ Error deleting branches: {e}"), err=True)
 
 
 def _display_release_branches_grouped(branches: list, verbose: bool):
@@ -263,10 +281,23 @@ def _display_releases_with_patches(releases_info: dict, patch_branches: list, re
         # Release header with status
         release_status = ""
         if release_branch_info:
-            if not release_branch_info.get('exists_on_remote', False) and release_branch_info.get('exists_locally', False):
+            sync_status = release_branch_info.get('sync_status', 'unknown')
+            ahead = release_branch_info.get('ahead', 0)
+            behind = release_branch_info.get('behind', 0)
+            exists_on_remote = release_branch_info.get('exists_on_remote', False)
+
+            if not exists_on_remote:
                 release_status = f" {utils.Color.bold('⚠️ local only - remote deleted')}"
-            elif release_branch_info.get('sync_status') == 'remote_only':
+            elif sync_status == 'remote_only':
                 release_status = f" {utils.Color.blue('☁️ on remote only')}"
+            elif sync_status == 'synced':
+                release_status = f" {utils.Color.green('✓ synced')}"
+            elif sync_status == 'ahead':
+                release_status = f" {utils.Color.blue(f'↑ {ahead} ahead')}"
+            elif sync_status == 'behind':
+                release_status = f" {utils.Color.blue(f'↓ {behind} behind')}"
+            elif sync_status == 'diverged':
+                release_status = f" {utils.Color.red(f'⚠ diverged (↑{ahead} ↓{behind})')}"
         else:
             # Release files exist but no branch at all
             release_status = f" {utils.Color.red('⚠️ branch not found')}"
