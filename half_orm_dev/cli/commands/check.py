@@ -65,7 +65,7 @@ def check(dry_run: bool, verbose: bool) -> None:
 
 def _display_check_results(repo, result: dict, dry_run: bool, verbose: bool):
     """Display check results to user."""
-    # Version check
+    # Version check - display first and potentially interrupt
     version_info = result.get('version')
     if version_info:
         current = version_info.get('current_version')
@@ -77,8 +77,25 @@ def _display_check_results(repo, result: dict, dry_run: bool, verbose: bool):
             if verbose:
                 click.echo(f"ℹ {utils.Color.blue(f'Version check: {error}')}")
         elif update_available and latest:
-            click.echo(f"⚠ {utils.Color.bold(f'half_orm_dev: {current}')} {utils.Color.bold(f'(update available: {latest})')}")
-            click.echo(f"  Run: {utils.Color.bold('pip install --upgrade half_orm_dev')}")
+            # Critical update notice - display prominently at the top
+            click.echo()
+            click.echo(f"{'='*70}")
+            click.echo(f"⚠️  {utils.Color.bold('UPDATE AVAILABLE')} ⚠️")
+            click.echo(f"{'='*70}")
+            click.echo(f"Current version: {utils.Color.bold(current)}")
+            click.echo(f"Latest version:  {utils.Color.green(utils.Color.bold(latest))}")
+            click.echo()
+            click.echo(f"To update, run: {utils.Color.bold('pip install --upgrade half_orm_dev')}")
+            click.echo(f"{'='*70}")
+            click.echo()
+
+            # Prompt user to update now
+            if click.confirm("Do you want to interrupt and update now?", default=False):
+                click.echo(f"\nℹ️  Please run the following command:")
+                click.echo(f"   {utils.Color.bold('pip install --upgrade half_orm_dev')}")
+                click.echo()
+                raise click.Abort()
+
             click.echo()
         elif current:
             click.echo(f"✓ {utils.Color.green(f'half_orm_dev: {current} (latest)')}")
