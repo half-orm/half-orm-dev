@@ -20,6 +20,7 @@ from half_orm_dev import modules
 from half_orm.model import Model
 from half_orm_dev.patch_manager import PatchManager, PatchManagerError
 from half_orm_dev.release_manager import ReleaseManager
+from half_orm_dev.migration_manager import MigrationManager, MigrationManagerError
 
 from .utils import TEMPLATE_DIRS, hop_version, resolve_database_config_name
 
@@ -258,120 +259,47 @@ class Repo:
             self.__config = Config(base_dir)
             self.__local_config = LocalConfig(base_dir)
             # Perform automatic migration if needed
-            self._migrate_directories_to_hop()
+            self._run_pending_migrations()
             return True
         return False
 
-    def _migrate_directories_to_hop(self):
+    def _run_pending_migrations(self):
         """
-        Automatically migrate legacy directories to .hop/ structure.
+        Run pending migrations using MigrationManager.
 
-        Migrates:
-        - releases/ -> .hop/releases/
-        - model/ -> .hop/model/
-        - backups/ -> .hop/backups/ (only if using default location)
+        Automatically detects and runs migrations based on current
+        half_orm_dev version vs hop_version in .hop/config.
 
-        Returns dict with migration results.
+        Silent by default - only logs errors.
         """
-        import shutil
+        try:
+            # Create migration manager
+            migration_mgr = MigrationManager(self)
 
-        result = {
-            'migrated': [],
-            'skipped': [],
-            'errors': []
-        }
+            # Get current half_orm_dev version
+            current_version = hop_version()
 
-        migrations = [
-            ('releases', os.path.join(self.__base_dir, 'releases'),
-             os.path.join(self.__base_dir, '.hop', 'releases')),
-            ('model', os.path.join(self.__base_dir, 'model'),
-             os.path.join(self.__base_dir, '.hop', 'model')),
-        ]
+            # Check if migration is needed
+            if not migration_mgr.check_migration_needed(current_version):
+                return
 
-        # Only migrate backups if using default location (no custom config)
-        env_backups = os.environ.get('HALF_ORM_BACKUPS_DIR')
-        has_custom_backups = (env_backups or
-                             (self.__local_config and self.__local_config.backups_dir))
-
-        if not has_custom_backups:
-            migrations.append(
-                ('backups', os.path.join(self.__base_dir, 'backups'),
-                 os.path.join(self.__base_dir, '.hop', 'backups'))
+            # Run migrations (with Git commit)
+            result = migration_mgr.run_migrations(
+                target_version=current_version,
+                create_commit=True
             )
 
-        for name, old_path, new_path in migrations:
-            # Skip if old directory doesn't exist
-            if not os.path.exists(old_path):
-                continue
+            # Log errors if any
+            if result.get('errors'):
+                for error in result['errors']:
+                    print(f"Migration error: {error}", file=sys.stderr)
 
-            # Skip if new directory already exists (already migrated)
-            if os.path.exists(new_path):
-                result['skipped'].append({
-                    'name': name,
-                    'reason': 'target already exists',
-                    'old_path': old_path,
-                    'new_path': new_path
-                })
-                continue
-
-            try:
-                # Ensure .hop directory exists
-                hop_dir = os.path.join(self.__base_dir, '.hop')
-                os.makedirs(hop_dir, exist_ok=True)
-
-                # Move directory
-                shutil.move(old_path, new_path)
-                result['migrated'].append({
-                    'name': name,
-                    'old_path': old_path,
-                    'new_path': new_path
-                })
-            except Exception as e:
-                result['errors'].append({
-                    'name': name,
-                    'old_path': old_path,
-                    'new_path': new_path,
-                    'error': str(e)
-                })
-
-        # Update .gitignore for migrated projects
-        self._update_gitignore_for_migration()
-
-        return result
-
-    def _update_gitignore_for_migration(self):
-        """
-        Update .gitignore to include .hop/local_config and .hop/backups/.
-
-        Only adds entries if they don't already exist in the file.
-        Safe to call multiple times (idempotent).
-        """
-        gitignore_path = os.path.join(self.__base_dir, '.gitignore')
-
-        # Skip if .gitignore doesn't exist
-        if not os.path.exists(gitignore_path):
-            return
-
-        # Read current content
-        with open(gitignore_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-
-        # Check what needs to be added
-        entries_to_add = []
-        if '.hop/local_config' not in content:
-            entries_to_add.append('.hop/local_config')
-        if '.hop/backups/' not in content:
-            entries_to_add.append('.hop/backups/')
-
-        # Nothing to add
-        if not entries_to_add:
-            return
-
-        # Add entries at the end
-        new_content = content.rstrip() + '\n' + '\n'.join(entries_to_add) + '\n'
-
-        with open(gitignore_path, 'w', encoding='utf-8') as f:
-            f.write(new_content)
+        except MigrationManagerError as e:
+            # Log migration errors but don't fail repo initialization
+            print(f"Migration failed: {e}", file=sys.stderr)
+        except Exception as e:
+            # Catch any unexpected errors
+            print(f"Unexpected migration error: {e}", file=sys.stderr)
 
     @property
     def base_dir(self):
