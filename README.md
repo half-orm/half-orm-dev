@@ -7,6 +7,7 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![halfORM](https://img.shields.io/badge/halfORM-compatible-green.svg)](https://github.com/halfORM/halfORM)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/half-orm-dev?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/half-orm-dev)
 
 Modern development workflow for PostgreSQL databases with automatic code generation, semantic versioning, and production-ready deployment system.
 
