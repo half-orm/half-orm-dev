@@ -133,7 +133,7 @@ class ReleaseManager:
         """
         self._repo = repo
         self._base_dir = str(repo.base_dir)
-        self._releases_dir = Path(repo.base_dir) / "releases"
+        self._releases_dir = Path(repo.releases_dir)
 
 
 
@@ -272,7 +272,7 @@ class ReleaseManager:
 
         # Check what exists
         releases_exists = self._releases_dir.exists()
-        model_dir = Path(self._base_dir) / "model"
+        model_dir = Path(self._repo.model_dir)
         model_exists = model_dir.exists() and (model_dir / "schema.sql").exists()
         ho_prod_exists = self._repo.hgit.branch_exists("ho-prod")
 
@@ -2867,7 +2867,7 @@ class ReleaseManager:
                 pass
 
             # Generate schema dump for this production version
-            model_dir = Path(self._repo.base_dir) / "model"
+            model_dir = Path(self._repo.model_dir)
             self._repo.database._generate_schema_sql(version, model_dir)
 
             # 3.5. Commit schema files

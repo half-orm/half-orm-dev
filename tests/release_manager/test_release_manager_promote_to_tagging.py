@@ -27,8 +27,8 @@ def release_manager_for_rc_tagging(tmp_path):
     - Mocked Repo and HGit with complete tag operations
     """
     # Create releases directory
-    releases_dir = tmp_path / "releases"
-    releases_dir.mkdir(exist_ok=True)
+    releases_dir = tmp_path / ".hop" / "releases"
+    releases_dir.mkdir(parents=True, exist_ok=True)
 
     # Create stage file
     stage_file = releases_dir / "1.3.6-stage.txt"
@@ -37,6 +37,8 @@ def release_manager_for_rc_tagging(tmp_path):
     # Mock Repo
     mock_repo = Mock()
     mock_repo.base_dir = str(tmp_path)
+    mock_repo.releases_dir = str(releases_dir)
+    mock_repo.model_dir = str(tmp_path / ".hop" / "model")
 
     # Mock HGit
     mock_hgit = Mock()
@@ -74,8 +76,8 @@ def release_manager_for_prod_tagging(tmp_path):
     - Mocked Repo and HGit with complete tag operations
     """
     # Create releases directory
-    releases_dir = tmp_path / "releases"
-    releases_dir.mkdir(exist_ok=True)
+    releases_dir = tmp_path / ".hop" / "releases"
+    releases_dir.mkdir(parents=True, exist_ok=True)
 
     # Create RC file (needed for promote to prod)
     rc_file = releases_dir / "1.3.6-rc1.txt"
@@ -88,6 +90,8 @@ def release_manager_for_prod_tagging(tmp_path):
     # Mock Repo
     mock_repo = Mock()
     mock_repo.base_dir = str(tmp_path)
+    mock_repo.releases_dir = str(releases_dir)
+    mock_repo.model_dir = str(tmp_path / ".hop" / "model")
 
     # Mock HGit
     mock_hgit = Mock()

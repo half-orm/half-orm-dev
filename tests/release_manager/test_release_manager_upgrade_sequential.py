@@ -29,8 +29,8 @@ def release_manager_multi_version(tmp_path):
     - Multiple patches per release
     """
     # Create directories
-    releases_dir = tmp_path / "releases"
-    releases_dir.mkdir(exist_ok=True)
+    releases_dir = tmp_path / ".hop" / "releases"
+    releases_dir.mkdir(parents=True, exist_ok=True)
 
     backups_dir = tmp_path / "backups"
     backups_dir.mkdir()
@@ -44,6 +44,8 @@ def release_manager_multi_version(tmp_path):
     mock_repo = Mock()
     mock_repo.name = "test_db"
     mock_repo.base_dir = tmp_path
+    mock_repo.releases_dir = str(releases_dir)
+    mock_repo.model_dir = str(tmp_path / ".hop" / "model")
 
     # Mock Database
     mock_database = Mock()
@@ -269,8 +271,8 @@ class TestUpgradeProductionComplexScenarios:
     def test_many_sequential_versions(self, tmp_path):
         """Test upgrade through many versions (stress test)."""
         # Create 10 sequential versions: 1.3.5 → 1.3.6 → ... → 1.3.14
-        releases_dir = tmp_path / "releases"
-        releases_dir.mkdir(exist_ok=True)
+        releases_dir = tmp_path / ".hop" / "releases"
+        releases_dir.mkdir(parents=True, exist_ok=True)
 
         for i in range(6, 15):
             (releases_dir / f"1.3.{i}.txt").write_text(f"{i}00-patch\n")
@@ -279,6 +281,8 @@ class TestUpgradeProductionComplexScenarios:
         mock_repo = Mock()
         mock_repo.name = "test_db"
         mock_repo.base_dir = tmp_path
+        mock_repo.releases_dir = str(releases_dir)
+        mock_repo.model_dir = str(tmp_path / ".hop" / "model")
         mock_database = Mock()
         mock_database.name = "test_db"
         mock_database.last_release_s = "1.3.5"

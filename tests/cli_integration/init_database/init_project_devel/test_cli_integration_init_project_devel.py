@@ -60,7 +60,7 @@ class TestInitProjectDevelopmentDirectories:
         assert (patches_dir / "README.md").exists(), "Patches/README.md missing"
 
         # Verify releases/ directory
-        releases_dir = project_dir / "releases"
+        releases_dir = project_dir / ".hop" / "releases"
         assert releases_dir.exists(), "releases/ directory not created"
         assert releases_dir.is_dir(), "releases/ should be a directory"
         assert (releases_dir / "README.md").exists(), "releases/README.md missing"

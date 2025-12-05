@@ -189,14 +189,18 @@ class TestPatchDirectoryInitialization:
             # Create schema patches directories
             (Path(temp_dir1) / "Patches").mkdir()
             (Path(temp_dir2) / "Patches").mkdir()
+            (Path(temp_dir1) / ".hop" / "releases").mkdir(parents=True)
+            (Path(temp_dir2) / ".hop" / "releases").mkdir(parents=True)
 
             repo1 = Mock()
             repo1.base_dir = temp_dir1
+            repo1.releases_dir = str(Path(temp_dir1) / ".hop" / "releases")
             repo1.name = "database1"
             repo1.devel = True
 
             repo2 = Mock()
             repo2.base_dir = temp_dir2
+            repo2.releases_dir = str(Path(temp_dir2) / ".hop" / "releases")
             repo2.name = "database2"
             repo2.devel = True
 

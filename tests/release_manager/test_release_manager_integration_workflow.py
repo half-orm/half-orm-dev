@@ -24,16 +24,16 @@ from half_orm_dev.repo import Repo
 def release_manager(tmp_path):
     """Create ReleaseManager with mocked Repo for testing."""
     # Create releases/ directory
-    releases_dir = tmp_path / "releases"
-    releases_dir.mkdir(exist_ok=True)
+    releases_dir = tmp_path / ".hop" / "releases"
+    releases_dir.mkdir(parents=True, exist_ok=True)
 
     # Create Patches/ directory
     patches_dir = tmp_path / "Patches"
     patches_dir.mkdir()
 
     # Create model/ directory with schema-0.0.1.sql and symlink (required for new_release)
-    model_dir = tmp_path / "model"
-    model_dir.mkdir()
+    model_dir = tmp_path / ".hop" / "model"
+    model_dir.mkdir(parents=True)
     schema_versioned = model_dir / "schema-0.0.1.sql"
     schema_versioned.write_text("-- schema for version 0.0.1")
     schema_symlink = model_dir / "schema.sql"
@@ -42,6 +42,8 @@ def release_manager(tmp_path):
     # Mock Repo
     mock_repo = Mock()
     mock_repo.base_dir = str(tmp_path)
+    mock_repo.releases_dir = str(releases_dir)
+    mock_repo.model_dir = str(model_dir)
 
     # Mock database
     mock_database = Mock()

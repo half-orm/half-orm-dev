@@ -31,8 +31,8 @@ def release_manager_for_upgrade(tmp_path):
     - Mocked HGit on ho-prod branch
     """
     # Create directories
-    releases_dir = tmp_path / "releases"
-    releases_dir.mkdir(exist_ok=True)
+    releases_dir = tmp_path / ".hop" / "releases"
+    releases_dir.mkdir(parents=True, exist_ok=True)
 
     backups_dir = tmp_path / "backups"
     backups_dir.mkdir()
@@ -45,6 +45,8 @@ def release_manager_for_upgrade(tmp_path):
     mock_repo = Mock()
     mock_repo.name = "test_db"
     mock_repo.base_dir = tmp_path
+    mock_repo.releases_dir = str(releases_dir)
+    mock_repo.model_dir = str(tmp_path / ".hop" / "model")
 
     # Mock Database
     mock_database = Mock()
@@ -212,7 +214,7 @@ class TestUpgradeProductionSingleVersion:
         release_mgr, mock_repo, tmp_path, _, _ = release_manager_for_upgrade
 
         # Remove 1.3.7 to have only one upgrade
-        (tmp_path / "releases" / "1.3.7.txt").unlink()
+        (tmp_path /  ".hop" / "releases" / "1.3.7.txt").unlink()
 
         # Update tags to only have v1.3.6
         mock_tag = Mock()
@@ -233,7 +235,7 @@ class TestUpgradeProductionSingleVersion:
         release_mgr, mock_repo, tmp_path, _, _ = release_manager_for_upgrade
 
         # Single version
-        (tmp_path / "releases" / "1.3.7.txt").unlink()
+        (tmp_path /  ".hop" / "releases" / "1.3.7.txt").unlink()
 
         mock_tag = Mock()
         mock_tag.name = "v1.3.6"
@@ -258,7 +260,7 @@ class TestUpgradeProductionSingleVersion:
         release_mgr, mock_repo, tmp_path, _, _ = release_manager_for_upgrade
 
         # Single version
-        (tmp_path / "releases" / "1.3.7.txt").unlink()
+        (tmp_path /  ".hop" / "releases" / "1.3.7.txt").unlink()
 
         mock_tag = Mock()
         mock_tag.name = "v1.3.6"

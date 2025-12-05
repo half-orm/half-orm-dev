@@ -29,8 +29,8 @@ def release_manager_with_releases(tmp_path):
     - Current production version: 1.3.5
     """
     # Create releases directory
-    releases_dir = tmp_path / "releases"
-    releases_dir.mkdir(exist_ok=True)
+    releases_dir = tmp_path / ".hop" / "releases"
+    releases_dir.mkdir(parents=True, exist_ok=True)
 
     # Create release files with patches
     (releases_dir / "1.3.6.txt").write_text("456-user-auth\n789-security\n")
@@ -41,6 +41,8 @@ def release_manager_with_releases(tmp_path):
     mock_repo = Mock()
     mock_repo.name = "test_repo"
     mock_repo.base_dir = tmp_path
+    mock_repo.releases_dir = str(releases_dir)
+    mock_repo.model_dir = str(tmp_path / ".hop" / "model")
 
     # Mock Database
     mock_database = Mock()

@@ -117,7 +117,7 @@ class PatchManager:
         self._repo = repo
         self._base_dir = str(repo.base_dir)
         self._schema_patches_dir = base_path / "Patches"
-        self._releases_dir = base_path / "releases"
+        self._releases_dir = Path(repo.releases_dir)
 
         # Store repository name
         self._repo_name = repo.name
@@ -1961,7 +1961,7 @@ class PatchManager:
             click.echo(f"  • Running patch apply to verify idempotency...")
             try:
                 # Get list of staged patches for this version
-                stage_file = Path(self._repo.base_dir) / "releases" / f"{version}-stage.txt"
+                stage_file = Path(self._repo.releases_dir) / f"{version}-stage.txt"
                 staged_patches = []
                 if stage_file.exists():
                     content = stage_file.read_text(encoding='utf-8').strip()

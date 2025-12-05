@@ -301,7 +301,7 @@ class TestPromoteToRcErrorHandling:
         project_dir, db_name, _ = devel_project
 
         # Ensure no stage files
-        releases_dir = project_dir / "releases"
+        releases_dir = project_dir / ".hop" / "releases"
         stage_files = list(releases_dir.glob("*-stage.txt"))
         for f in stage_files:
             f.unlink()

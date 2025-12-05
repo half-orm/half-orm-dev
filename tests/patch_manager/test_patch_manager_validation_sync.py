@@ -29,6 +29,7 @@ class TestPatchManagerSyncValidation:
         # Mock repo
         mock_repo = Mock()
         mock_repo.base_dir = str(tmp_path)
+        mock_repo.model_dir = str(tmp_path / ".hop" / "model")
         mock_repo.devel = True
         mock_repo.name = "test_repo"
 

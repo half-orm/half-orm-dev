@@ -24,10 +24,12 @@ class TestDetermineRCNumber:
         """Create basic ReleaseManager with releases/ directory."""
         mock_repo = Mock()
         mock_repo.base_dir = str(tmp_path)
+        mock_repo.model_dir = str(tmp_path / ".hop" / "model")
 
         # Create releases/ directory
-        releases_dir = tmp_path / "releases"
-        releases_dir.mkdir(exist_ok=True)
+        releases_dir = tmp_path / ".hop" / "releases"
+        releases_dir.mkdir(parents=True, exist_ok=True)
+        mock_repo.releases_dir = str(releases_dir)
 
         release_mgr = ReleaseManager(mock_repo)
 

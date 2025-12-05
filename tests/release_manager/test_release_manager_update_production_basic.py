@@ -33,13 +33,15 @@ def release_manager_for_update(tmp_path):
     - Default current production version: 1.3.5
     """
     # Create releases directory structure
-    releases_dir = tmp_path / "releases"
-    releases_dir.mkdir(exist_ok=True)
+    releases_dir = tmp_path / ".hop" / "releases"
+    releases_dir.mkdir(parents=True, exist_ok=True)
 
     # Mock Repo
     mock_repo = Mock()
     mock_repo.name = "test_repo"
     mock_repo.base_dir = tmp_path
+    mock_repo.releases_dir = str(releases_dir)
+    mock_repo.model_dir = str(tmp_path / ".hop" / "model")
     mock_repo.allow_rc = False
 
     # Mock Database with last_release_s property

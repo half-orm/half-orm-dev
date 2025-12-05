@@ -21,13 +21,14 @@ def temp_repo():
     patches_dir.mkdir()
 
     # Create releases/ directory with candidates file (for new workflow)
-    releases_dir = Path(temp_dir) / "releases"
-    releases_dir.mkdir(exist_ok=True)
+    releases_dir = Path(temp_dir) / ".hop" / "releases"
+    releases_dir.mkdir(parents=True, exist_ok=True)
     candidates_file = releases_dir / "0.17.0-candidates.txt"
     candidates_file.write_text("", encoding='utf-8')  # Empty file initially
 
     repo = Mock()
     repo.base_dir = temp_dir
+    repo.releases_dir = str(releases_dir)
     repo.devel = True
     repo.name = "test_database"
     repo.git_origin = "https://github.com/test/repo.git"
@@ -216,8 +217,9 @@ def mock_release_manager_basic(tmp_path):
     mock_repo.base_dir = str(tmp_path)
 
     # Create releases/ directory
-    releases_dir = tmp_path / "releases"
-    releases_dir.mkdir(exist_ok=True)
+    releases_dir = tmp_path / ".hop" / "releases"
+    releases_dir.mkdir(parents=True, exist_ok=True)
+    mock_repo.releases_dir = str(releases_dir)
 
     release_mgr = ReleaseManager(mock_repo)
 
@@ -283,8 +285,9 @@ def mock_release_manager_with_production(mock_release_manager_with_hgit):
     release_mgr, mock_repo, mock_hgit, tmp_path = mock_release_manager_with_hgit
 
     # Create model/ directory with schema files (for tests that test _get_production_version directly)
-    model_dir = tmp_path / "model"
-    model_dir.mkdir()
+    model_dir = tmp_path / ".hop" / "model"
+    model_dir.mkdir(parents=True)
+    mock_repo.model_dir = str(model_dir)
 
     # Create versioned schema file
     prod_version = "1.3.5"
@@ -320,8 +323,8 @@ def sample_release_files(tmp_path):
     Returns:
         Tuple of (releases_dir, dict of created files)
     """
-    releases_dir = tmp_path / "releases"
-    releases_dir.mkdir(exist_ok=True)
+    releases_dir = tmp_path / ".hop" / "releases"
+    releases_dir.mkdir(parents=True, exist_ok=True)
 
     files = {
         '1.3.4.txt': '',

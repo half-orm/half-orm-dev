@@ -37,14 +37,15 @@ def mock_workflow_with_release_context(patch_manager):
     patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
     # Create model/schema.sql
-    model_dir = Path(temp_dir) / "model"
-    model_dir.mkdir()
+    model_dir = Path(temp_dir) / ".hop" / "model"
+    model_dir.mkdir(parents=True)
     schema_file = model_dir / "schema.sql"
     schema_file.write_text("CREATE TABLE users (id SERIAL PRIMARY KEY);")
+    repo.model_dir = str(model_dir)
 
     # Create releases/ directory (if not exists - may be created by temp_repo fixture)
-    releases_dir = Path(temp_dir) / "releases"
-    releases_dir.mkdir(exist_ok=True)
+    releases_dir = Path(temp_dir) / ".hop" / "releases"
+    releases_dir.mkdir(parents=True, exist_ok=True)
 
     # Mock Model
     mock_model = Mock()

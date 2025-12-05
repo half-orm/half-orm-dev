@@ -18,9 +18,15 @@ def patch_manager_with_data_files(tmp_path):
     patches_dir = tmp_path / "Patches"
     patches_dir.mkdir()
 
+    # Create releases directory for the new structure
+    releases_dir = tmp_path / ".hop" / "releases"
+    releases_dir.mkdir(parents=True)
+
     # Create mock repo
     mock_repo = Mock()
     mock_repo.base_dir = str(tmp_path)
+    mock_repo.model_dir = str(tmp_path / ".hop" / "model")
+    mock_repo.releases_dir = str(releases_dir)
     mock_repo.devel = True
     mock_repo.name = "test_database"
 

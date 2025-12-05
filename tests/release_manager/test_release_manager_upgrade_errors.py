@@ -27,8 +27,8 @@ def release_manager_for_errors(tmp_path):
     - Releases with multiple patches
     - Mocked dependencies configured for error scenarios
     """
-    releases_dir = tmp_path / "releases"
-    releases_dir.mkdir(exist_ok=True)
+    releases_dir = tmp_path / ".hop" / "releases"
+    releases_dir.mkdir(parents=True, exist_ok=True)
 
     backups_dir = tmp_path / "backups"
     backups_dir.mkdir()
@@ -41,6 +41,8 @@ def release_manager_for_errors(tmp_path):
     mock_repo = Mock()
     mock_repo.name = "test_db"
     mock_repo.base_dir = tmp_path
+    mock_repo.releases_dir = str(releases_dir)
+    mock_repo.model_dir = str(tmp_path / ".hop" / "model")
 
     # Mock Database
     mock_database = Mock()
@@ -204,7 +206,7 @@ class TestUpgradeProductionInvalidConfig:
         release_mgr, mock_repo, tmp_path, _ = release_manager_for_errors
 
         # Delete release file
-        (tmp_path / "releases" / "1.3.6.txt").unlink()
+        (tmp_path /  ".hop" / "releases" / "1.3.6.txt").unlink()
 
         # Execute upgrade
         # Should handle gracefully (empty patch list) or succeed
@@ -229,7 +231,7 @@ class TestUpgradeProductionInvalidConfig:
         release_mgr, mock_repo, tmp_path, _ = release_manager_for_errors
 
         # Make release file empty
-        (tmp_path / "releases" / "1.3.6.txt").write_text("")
+        (tmp_path /  ".hop" / "releases" / "1.3.6.txt").write_text("")
 
         # Execute upgrade
         result = release_mgr.upgrade_production(skip_backup=True)
@@ -301,7 +303,7 @@ class TestUpgradeProductionVersionUpdateFailures:
         release_mgr, mock_repo, tmp_path, _ = release_manager_for_errors
 
         # Create release with invalid version format
-        (tmp_path / "releases" / "invalid.txt").write_text("123-patch\n")
+        (tmp_path /  ".hop" / "releases" / "invalid.txt").write_text("123-patch\n")
 
         # Mock to include invalid version
         mock_tag = Mock()

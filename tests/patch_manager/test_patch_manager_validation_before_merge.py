@@ -36,11 +36,13 @@ class TestValidatePatchBeforeMerge:
         """Create basic PatchManager with mocked dependencies."""
         mock_repo = Mock()
         mock_repo.base_dir = tmp_path
+        mock_repo.model_dir = str(tmp_path / ".hop" / "model")
         mock_repo.model = Mock()
 
         # Create releases/ directory
-        releases_dir = tmp_path / "releases"
-        releases_dir.mkdir(exist_ok=True)
+        releases_dir = tmp_path / ".hop" / "releases"
+        releases_dir.mkdir(parents=True, exist_ok=True)
+        mock_repo.releases_dir = str(releases_dir)
 
         # Create empty stage file
         stage_file = releases_dir / "0.17.0-stage.txt"
@@ -243,7 +245,7 @@ class TestValidatePatchBeforeMerge:
         patch_mgr, mock_hgit, mock_database, tmp_path = patch_manager_basic
 
         # Create stage file with existing patches
-        stage_file = tmp_path / "releases" / "0.17.0-stage.txt"
+        stage_file = tmp_path / ".hop" / "releases" / "0.17.0-stage.txt"
         stage_file.write_text("38-auth\n39-api\n", encoding='utf-8')
 
         # Create patch directories
@@ -271,7 +273,7 @@ class TestValidatePatchBeforeMerge:
         patch_mgr, mock_hgit, mock_database, tmp_path = patch_manager_basic
 
         # Create stage file with comments
-        stage_file = tmp_path / "releases" / "0.17.0-stage.txt"
+        stage_file = tmp_path / ".hop" / "releases" / "0.17.0-stage.txt"
         stage_file.write_text("# HOTFIX\n38-auth\n# Another comment\n39-api\n", encoding='utf-8')
 
         # Create patch directories

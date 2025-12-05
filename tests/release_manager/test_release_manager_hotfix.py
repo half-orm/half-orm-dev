@@ -23,10 +23,12 @@ class TestReopenForHotfix:
         """Create ReleaseManager with mocked Git operations."""
         mock_repo = Mock()
         mock_repo.base_dir = str(tmp_path)
+        mock_repo.model_dir = str(tmp_path / ".hop" / "model")
 
         # Create releases/ directory
-        releases_dir = tmp_path / "releases"
-        releases_dir.mkdir(exist_ok=True)
+        releases_dir = tmp_path / ".hop" / "releases"
+        releases_dir.mkdir(parents=True, exist_ok=True)
+        mock_repo.releases_dir = str(releases_dir)
 
         # Create model/schema-1.3.5.sql and symlink
         model_dir = tmp_path / "model"
@@ -166,10 +168,12 @@ class TestPromoteToHotfix:
         """Create ReleaseManager ready for hotfix promotion."""
         mock_repo = Mock()
         mock_repo.base_dir = str(tmp_path)
+        mock_repo.model_dir = str(tmp_path / ".hop" / "model")
 
         # Create releases/ directory
-        releases_dir = tmp_path / "releases"
-        releases_dir.mkdir(exist_ok=True)
+        releases_dir = tmp_path / ".hop" / "releases"
+        releases_dir.mkdir(parents=True, exist_ok=True)
+        mock_repo.releases_dir = str(releases_dir)
 
         # Create empty candidates.txt with HOTFIX marker
         candidates_file = releases_dir / "1.3.5-candidates.txt"
@@ -271,10 +275,12 @@ class TestDetermineHotfixNumber:
         """Create basic ReleaseManager."""
         mock_repo = Mock()
         mock_repo.base_dir = str(tmp_path)
+        mock_repo.model_dir = str(tmp_path / ".hop" / "model")
 
         # Create releases/ directory
-        releases_dir = tmp_path / "releases"
-        releases_dir.mkdir(exist_ok=True)
+        releases_dir = tmp_path / ".hop" / "releases"
+        releases_dir.mkdir(parents=True, exist_ok=True)
+        mock_repo.releases_dir = str(releases_dir)
 
         # Mock HGit
         mock_hgit = Mock()
@@ -432,10 +438,12 @@ class TestHotfixMarker:
         """Create ReleaseManager for testing marker."""
         mock_repo = Mock()
         mock_repo.base_dir = str(tmp_path)
+        mock_repo.model_dir = str(tmp_path / ".hop" / "model")
 
         # Create releases/ directory
-        releases_dir = tmp_path / "releases"
-        releases_dir.mkdir(exist_ok=True)
+        releases_dir = tmp_path / ".hop" / "releases"
+        releases_dir.mkdir(parents=True, exist_ok=True)
+        mock_repo.releases_dir = str(releases_dir)
 
         # Create model/schema-1.3.5.sql and symlink
         model_dir = tmp_path / "model"

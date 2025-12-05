@@ -41,9 +41,9 @@ class TestGitCentricStructureCreation:
         # Should create all required directories
         expected_calls = [
             call("/test/project/Patches", exist_ok=True),
-            call("/test/project/releases", exist_ok=True),
-            call("/test/project/model", exist_ok=True),
-            call("/test/project/backups", exist_ok=True)
+            call("/test/project/.hop/releases", exist_ok=True),
+            call("/test/project/.hop/model", exist_ok=True),
+            call("/test/project/.hop/backups", exist_ok=True)
         ]
         mock_makedirs.assert_has_calls(expected_calls, any_order=True)
 
@@ -95,7 +95,7 @@ class TestGitCentricStructureCreation:
         repo._create_git_centric_structure()
 
         # Should create releases/README.md
-        expected_path = "/test/project/releases/README.md"
+        expected_path = "/test/project/.hop/releases/README.md"
         mock_file.assert_any_call(expected_path, 'w', encoding='utf-8')
 
         # Verify content mentions release workflow
@@ -135,6 +135,6 @@ class TestGitCentricStructureCreation:
         # Verify all expected directories
         created_dirs = [call[0][0] for call in mock_makedirs.call_args_list]
         assert "/test/project/Patches" in created_dirs
-        assert "/test/project/releases" in created_dirs
-        assert "/test/project/model" in created_dirs
-        assert "/test/project/backups" in created_dirs
+        assert "/test/project/.hop/releases" in created_dirs
+        assert "/test/project/.hop/model" in created_dirs
+        assert "/test/project/.hop/backups" in created_dirs

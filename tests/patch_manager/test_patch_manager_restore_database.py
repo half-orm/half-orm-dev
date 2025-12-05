@@ -35,10 +35,11 @@ def mock_restore_environment(patch_manager):
     patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
     # Create model/schema.sql file
-    model_dir = Path(temp_dir) / "model"
-    model_dir.mkdir()
+    model_dir = Path(temp_dir) / ".hop" / "model"
+    model_dir.mkdir(parents=True)
     schema_file = model_dir / "schema.sql"
     schema_file.write_text("CREATE TABLE users (id SERIAL PRIMARY KEY);")
+    repo.model_dir = str(model_dir)
 
     # Mock Model methods
     mock_model = Mock()
@@ -108,6 +109,7 @@ class TestRestoreDatabaseFromSchema:
         # Mock Model (shouldn't be called)
         mock_model = Mock()
         repo.model = mock_model
+        repo.model_dir = str(Path(temp_dir) / ".hop" / "model")
 
         # Should raise RepoError
         with pytest.raises(RepoError, match="Schema file not found"):
@@ -125,6 +127,7 @@ class TestRestoreDatabaseFromSchema:
         # Mock Model
         mock_model = Mock()
         repo.model = mock_model
+        repo.model_dir = str(Path(temp_dir) / ".hop" / "model")
 
         # Should raise RepoError
         with pytest.raises(RepoError, match="Model.*not found|Schema file not found"):
@@ -199,8 +202,8 @@ class TestRestoreDatabaseFromSchema:
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create model/ directory
-        model_dir = Path(temp_dir) / "model"
-        model_dir.mkdir()
+        model_dir = Path(temp_dir) / ".hop" / "model"
+        model_dir.mkdir(parents=True)
 
         # Create versioned schema file
         versioned_schema = model_dir / "schema-1.2.3.sql"
@@ -219,6 +222,7 @@ class TestRestoreDatabaseFromSchema:
         mock_model.disconnect = Mock()
         mock_model.ping = Mock()
         repo.model = mock_model
+        repo.model_dir = str(model_dir)
 
         # Mock execute_pg_command
         mock_execute = Mock()
@@ -240,8 +244,8 @@ class TestRestoreDatabaseFromSchema:
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create model/schema.sql as regular file (no symlink)
-        model_dir = Path(temp_dir) / "model"
-        model_dir.mkdir()
+        model_dir = Path(temp_dir) / ".hop" / "model"
+        model_dir.mkdir(parents=True)
         schema_file = model_dir / "schema.sql"
         schema_file.write_text("CREATE TABLE test (id SERIAL PRIMARY KEY);")
 
@@ -254,6 +258,7 @@ class TestRestoreDatabaseFromSchema:
         mock_model.disconnect = Mock()
         mock_model.ping = Mock()
         repo.model = mock_model
+        repo.model_dir = str(model_dir)
 
         # Mock execute_pg_command
         mock_execute = Mock()

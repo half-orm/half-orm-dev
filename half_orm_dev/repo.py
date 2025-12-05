@@ -1323,24 +1323,25 @@ class Repo:
 
         Creates directories required for Git-centric workflow:
         - Patches/ for patch development
-        - releases/ for release management
-        - model/ for schema snapshots
-        - backups/ for database backups
+        - .hop/releases/ for release management
+        - .hop/model/ for schema snapshots
+        - .hop/backups/ for database backups (or custom location)
 
         Only created in development mode (devel=True).
 
         Directory Structure:
             Patches/
             ├── README.md          # Patch development guide
-            releases/
-            ├── README.md          # Release workflow guide
-            model/
-            backups/
+            .hop/
+            ├── releases/
+            │   └── README.md      # Release workflow guide
+            ├── model/
+            └── backups/
 
         Examples:
             # Development mode
             _create_git_centric_structure()
-            # Creates: Patches/, releases/, model/, backups/
+            # Creates: Patches/, .hop/releases/, .hop/model/, .hop/backups/
 
             # Sync-only mode
             _create_git_centric_structure()
@@ -1354,9 +1355,9 @@ class Repo:
 
         # Create directories
         patches_dir = os.path.join(self.__base_dir, 'Patches')
-        releases_dir = os.path.join(self.__base_dir, 'releases')
-        model_dir = os.path.join(self.__base_dir, 'model')
-        backups_dir = os.path.join(self.__base_dir, 'backups')
+        releases_dir = self.releases_dir
+        model_dir = self.model_dir
+        backups_dir = self.backups_dir
 
         os.makedirs(patches_dir, exist_ok=True)
         os.makedirs(releases_dir, exist_ok=True)
@@ -1552,7 +1553,7 @@ See docs/half_orm_dev.md for complete documentation.
         utils.write(os.path.join(self.__base_dir, '.gitignore'), git_ignore)
 
     def _dump_initial_schema(self):
-        self.database._generate_schema_sql("0.0.0", Path(f"{self.__base_dir}/model"))
+        self.database._generate_schema_sql("0.0.0", Path(self.model_dir))
 
     def _validate_git_origin_url(self, git_origin_url):
         """
@@ -1758,7 +1759,7 @@ See docs/half_orm_dev.md for complete documentation.
             - Version deduction: schema.sql → schema-1.2.3.sql ⇒ metadata-1.2.3.sql
         """
         # 1. Verify model/schema.sql exists
-        schema_path = Path(self.base_dir) / "model" / "schema.sql"
+        schema_path = Path(self.model_dir) / "schema.sql"
 
         if not schema_path.exists():
             raise RepoError(

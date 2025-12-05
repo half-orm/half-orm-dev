@@ -28,8 +28,8 @@ def release_manager_with_options(tmp_path):
     - Current version: 1.3.5
     - Mocked dependencies
     """
-    releases_dir = tmp_path / "releases"
-    releases_dir.mkdir(exist_ok=True)
+    releases_dir = tmp_path / ".hop" / "releases"
+    releases_dir.mkdir(parents=True, exist_ok=True)
 
     backups_dir = tmp_path / "backups"
     backups_dir.mkdir()
@@ -43,6 +43,8 @@ def release_manager_with_options(tmp_path):
     mock_repo = Mock()
     mock_repo.name = "test_db"
     mock_repo.base_dir = tmp_path
+    mock_repo.releases_dir = str(releases_dir)
+    mock_repo.model_dir = str(tmp_path / ".hop" / "model")
 
     # Mock Database
     mock_database = Mock()

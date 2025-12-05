@@ -15,14 +15,20 @@ from half_orm_dev.release_manager import ReleaseManager
 def release_manager_with_data_patches(tmp_path):
     """Create ReleaseManager with patches containing data files."""
     # Create directories
-    releases_dir = tmp_path / "releases"
-    releases_dir.mkdir()
+    releases_dir = tmp_path / ".hop" / "releases"
+    releases_dir.mkdir(parents=True)
     patches_dir = tmp_path / "Patches"
     patches_dir.mkdir()
+
+    # Create model directory
+    model_dir = tmp_path / ".hop" / "model"
+    model_dir.mkdir(parents=True)
 
     # Create mock repo
     mock_repo = Mock()
     mock_repo.base_dir = str(tmp_path)
+    mock_repo.releases_dir = str(releases_dir)
+    mock_repo.model_dir = str(model_dir)
 
     # Create mock patch_manager
     mock_patch_manager = Mock()
