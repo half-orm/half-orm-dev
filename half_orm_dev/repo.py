@@ -257,8 +257,84 @@ class Repo:
             self.__base_dir = base_dir
             self.__config = Config(base_dir)
             self.__local_config = LocalConfig(base_dir)
+            # Perform automatic migration if needed
+            self._migrate_directories_to_hop()
             return True
         return False
+
+    def _migrate_directories_to_hop(self):
+        """
+        Automatically migrate legacy directories to .hop/ structure.
+
+        Migrates:
+        - releases/ -> .hop/releases/
+        - model/ -> .hop/model/
+        - backups/ -> .hop/backups/ (only if using default location)
+
+        Returns dict with migration results.
+        """
+        import shutil
+
+        result = {
+            'migrated': [],
+            'skipped': [],
+            'errors': []
+        }
+
+        migrations = [
+            ('releases', os.path.join(self.__base_dir, 'releases'),
+             os.path.join(self.__base_dir, '.hop', 'releases')),
+            ('model', os.path.join(self.__base_dir, 'model'),
+             os.path.join(self.__base_dir, '.hop', 'model')),
+        ]
+
+        # Only migrate backups if using default location (no custom config)
+        env_backups = os.environ.get('HALF_ORM_BACKUPS_DIR')
+        has_custom_backups = (env_backups or
+                             (self.__local_config and self.__local_config.backups_dir))
+
+        if not has_custom_backups:
+            migrations.append(
+                ('backups', os.path.join(self.__base_dir, 'backups'),
+                 os.path.join(self.__base_dir, '.hop', 'backups'))
+            )
+
+        for name, old_path, new_path in migrations:
+            # Skip if old directory doesn't exist
+            if not os.path.exists(old_path):
+                continue
+
+            # Skip if new directory already exists (already migrated)
+            if os.path.exists(new_path):
+                result['skipped'].append({
+                    'name': name,
+                    'reason': 'target already exists',
+                    'old_path': old_path,
+                    'new_path': new_path
+                })
+                continue
+
+            try:
+                # Ensure .hop directory exists
+                hop_dir = os.path.join(self.__base_dir, '.hop')
+                os.makedirs(hop_dir, exist_ok=True)
+
+                # Move directory
+                shutil.move(old_path, new_path)
+                result['migrated'].append({
+                    'name': name,
+                    'old_path': old_path,
+                    'new_path': new_path
+                })
+            except Exception as e:
+                result['errors'].append({
+                    'name': name,
+                    'old_path': old_path,
+                    'new_path': new_path,
+                    'error': str(e)
+                })
+
+        return result
 
     @property
     def base_dir(self):
