@@ -334,7 +334,44 @@ class Repo:
                     'error': str(e)
                 })
 
+        # Update .gitignore for migrated projects
+        self._update_gitignore_for_migration()
+
         return result
+
+    def _update_gitignore_for_migration(self):
+        """
+        Update .gitignore to include .hop/local_config and .hop/backups/.
+
+        Only adds entries if they don't already exist in the file.
+        Safe to call multiple times (idempotent).
+        """
+        gitignore_path = os.path.join(self.__base_dir, '.gitignore')
+
+        # Skip if .gitignore doesn't exist
+        if not os.path.exists(gitignore_path):
+            return
+
+        # Read current content
+        with open(gitignore_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        # Check what needs to be added
+        entries_to_add = []
+        if '.hop/local_config' not in content:
+            entries_to_add.append('.hop/local_config')
+        if '.hop/backups/' not in content:
+            entries_to_add.append('.hop/backups/')
+
+        # Nothing to add
+        if not entries_to_add:
+            return
+
+        # Add entries at the end
+        new_content = content.rstrip() + '\n' + '\n'.join(entries_to_add) + '\n'
+
+        with open(gitignore_path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
 
     @property
     def base_dir(self):

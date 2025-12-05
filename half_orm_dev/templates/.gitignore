@@ -13,3 +13,5 @@ dist
 Backups
 __pycache__
 .hop/alt_config
+.hop/local_config
+.hop/backups/
