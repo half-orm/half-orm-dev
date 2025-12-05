@@ -103,6 +103,50 @@ class Config:
         self.__allow_rc = value
         self.write()
 
+class LocalConfig:
+    """
+    Manages local configuration stored in .hop/local_config (not versioned).
+
+    This file contains machine-specific settings that should not be shared
+    via Git, such as custom backup directories.
+    """
+    __backups_dir: Optional[str] = None
+
+    def __init__(self, base_dir):
+        self.__file = os.path.join(base_dir, '.hop', 'local_config')
+        if os.path.exists(self.__file):
+            self.read()
+
+    def read(self):
+        """Read local configuration from .hop/local_config"""
+        config = ConfigParser()
+        config.read(self.__file)
+        if 'local' in config:
+            self.__backups_dir = config['local'].get('backups_dir')
+
+    def write(self):
+        """Write local configuration to .hop/local_config"""
+        config = ConfigParser()
+        data = {}
+        if self.__backups_dir:
+            data['backups_dir'] = self.__backups_dir
+        if data:
+            config['local'] = data
+            os.makedirs(os.path.dirname(self.__file), exist_ok=True)
+            with open(self.__file, 'w', encoding='utf-8') as configfile:
+                config.write(configfile)
+
+    @property
+    def backups_dir(self):
+        """Returns the configured backups directory, or None if not set"""
+        return self.__backups_dir
+
+    @backups_dir.setter
+    def backups_dir(self, path):
+        """Set the backups directory and save to local_config"""
+        self.__backups_dir = path
+        self.write()
+
 class Repo:
     """Reads and writes the hop repo conf file.
 
@@ -117,6 +161,7 @@ class Repo:
     __checked: bool = False
     __base_dir: Optional[str] = None
     __config: Optional[Config] = None
+    __local_config: Optional[LocalConfig] = None
     database: Optional[Database] = None
     hgit: Optional[HGit] = None
     _patch_directory: Optional[PatchManager] = None
@@ -211,6 +256,7 @@ class Repo:
         if os.path.exists(conf_file):
             self.__base_dir = base_dir
             self.__config = Config(base_dir)
+            self.__local_config = LocalConfig(base_dir)
             return True
         return False
 
@@ -246,6 +292,38 @@ class Repo:
     @property
     def devel(self):
         return self.__config.devel
+
+    @property
+    def releases_dir(self):
+        """Returns the path to the releases directory (.hop/releases)."""
+        return os.path.join(self.__base_dir, '.hop', 'releases')
+
+    @property
+    def model_dir(self):
+        """Returns the path to the model directory (.hop/model)."""
+        return os.path.join(self.__base_dir, '.hop', 'model')
+
+    @property
+    def backups_dir(self):
+        """
+        Returns the path to the backups directory.
+
+        Priority order:
+        1. Environment variable HALF_ORM_BACKUPS_DIR
+        2. .hop/local_config backups_dir setting
+        3. Default: .hop/backups
+        """
+        # Check environment variable first
+        env_backups = os.environ.get('HALF_ORM_BACKUPS_DIR')
+        if env_backups:
+            return env_backups
+
+        # Check local_config
+        if self.__local_config and self.__local_config.backups_dir:
+            return self.__local_config.backups_dir
+
+        # Default to .hop/backups
+        return os.path.join(self.__base_dir, '.hop', 'backups')
 
     @property
     def state(self):
