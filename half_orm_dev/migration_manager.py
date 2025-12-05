@@ -87,13 +87,21 @@ class MigrationManager:
         """
         Parse version string to tuple.
 
+        Supports version formats:
+        - "0.17.1"
+        - "0.17.1-a1" (ignores suffix)
+        - "0.17.1-rc2" (ignores suffix)
+
         Args:
-            version_str: Version string like "0.17.1"
+            version_str: Version string like "0.17.1" or "0.17.1-a1"
 
         Returns:
             Tuple of (major, minor, patch)
         """
-        parts = version_str.split('.')
+        # Strip any pre-release suffix (e.g., "-a1", "-rc2")
+        base_version = version_str.split('-')[0]
+
+        parts = base_version.split('.')
         if len(parts) != 3:
             raise MigrationManagerError(f"Invalid version format: {version_str}")
 
