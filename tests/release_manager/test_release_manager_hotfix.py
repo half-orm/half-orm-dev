@@ -23,16 +23,17 @@ class TestReopenForHotfix:
         """Create ReleaseManager with mocked Git operations."""
         mock_repo = Mock()
         mock_repo.base_dir = str(tmp_path)
-        mock_repo.model_dir = str(tmp_path / ".hop" / "model")
 
         # Create releases/ directory
         releases_dir = tmp_path / ".hop" / "releases"
         releases_dir.mkdir(parents=True, exist_ok=True)
         mock_repo.releases_dir = str(releases_dir)
 
-        # Create model/schema-1.3.5.sql and symlink
-        model_dir = tmp_path / "model"
-        model_dir.mkdir(exist_ok=True)
+        # Create model/schema-1.3.5.sql and symlink in .hop/model
+        model_dir = tmp_path / ".hop" / "model"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        mock_repo.model_dir = str(model_dir)
+
         schema_versioned = model_dir / "schema-1.3.5.sql"
         schema_versioned.write_text("-- VERSION: 1.3.5\n")
         schema_file = model_dir / "schema.sql"
@@ -67,20 +68,16 @@ class TestReopenForHotfix:
         mock_hgit.checkout.assert_called_with("ho-release/1.3.5")
         mock_hgit.commit.assert_called_once()
 
-        # Verify files created
-        candidates_file = releases_dir / "1.3.5-candidates.txt"
-        stage_file = releases_dir / "1.3.5-stage.txt"
+        # Verify TOML file created
+        toml_file = releases_dir / "1.3.5-patches.toml"
+        assert toml_file.exists()
 
-        assert candidates_file.exists()
-        assert stage_file.exists()
-
-        # Verify HOTFIX marker in candidates.txt
-        candidates_content = candidates_file.read_text()
-        assert candidates_content == "# HOTFIX\n"
-
-        # Verify stage.txt is empty
-        stage_content = stage_file.read_text()
-        assert stage_content == ""
+        # Verify file contains HOTFIX marker (as a comment or special section)
+        # Note: The new TOML format should have an empty patches section
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.5", releases_dir)
+        patches = release_file.get_patches()
+        assert len(patches) == 0  # No patches yet
 
     def test_reopen_specific_version(self, release_manager_with_tag):
         """Test reopening specific version."""
@@ -98,10 +95,15 @@ class TestReopenForHotfix:
         # Verify tag checked
         mock_hgit.tag_exists.assert_called_with("v1.3.5")
 
-        # Verify files created with HOTFIX marker
-        candidates_file = releases_dir / "1.3.5-candidates.txt"
-        assert candidates_file.exists()
-        assert candidates_file.read_text() == "# HOTFIX\n"
+        # Verify TOML file created
+        toml_file = releases_dir / "1.3.5-patches.toml"
+        assert toml_file.exists()
+
+        # Verify empty patches
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.5", releases_dir)
+        patches = release_file.get_patches()
+        assert len(patches) == 0
 
     def test_reopen_tag_does_not_exist(self, release_manager_with_tag):
         """Test error when production tag doesn't exist."""
@@ -150,14 +152,12 @@ class TestReopenForHotfix:
         # Verify all return keys present
         assert 'version' in result
         assert 'branch' in result
-        assert 'candidates_file' in result
-        assert 'stage_file' in result
+        assert 'patches_file' in result
 
         # Verify values
         assert result['version'] == "1.3.5"
         assert result['branch'] == "ho-release/1.3.5"
-        assert "1.3.5-candidates.txt" in result['candidates_file']
-        assert "1.3.5-stage.txt" in result['stage_file']
+        assert "1.3.5-patches.toml" in result['patches_file']
 
 
 class TestPromoteToHotfix:
@@ -175,9 +175,10 @@ class TestPromoteToHotfix:
         releases_dir.mkdir(parents=True, exist_ok=True)
         mock_repo.releases_dir = str(releases_dir)
 
-        # Create empty candidates.txt with HOTFIX marker
-        candidates_file = releases_dir / "1.3.5-candidates.txt"
-        candidates_file.write_text("# HOTFIX\n")
+        # Create empty TOML patches file
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.5", releases_dir)
+        release_file.create_empty()
 
         # Mock HGit
         mock_hgit = Mock()
@@ -247,12 +248,14 @@ class TestPromoteToHotfix:
             release_mgr.promote_to_hotfix()
 
     def test_promote_error_candidates_not_empty(self, release_manager_hotfix_ready):
-        """Test error when candidates.txt has uncommitted patches."""
+        """Test error when TOML file has uncommitted candidate patches."""
         release_mgr, releases_dir, _ = release_manager_hotfix_ready
 
-        # Add patches to candidates.txt
-        candidates_file = releases_dir / "1.3.5-candidates.txt"
-        candidates_file.write_text("# HOTFIX\npatch-001\npatch-002\n")
+        # Add candidate patches to TOML file
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.5", releases_dir)
+        release_file.add_patch("patch-001")
+        release_file.add_patch("patch-002")
 
         with pytest.raises(ReleaseManagerError, match="Cannot promote hotfix: 2 candidate patch"):
             release_mgr.promote_to_hotfix()
@@ -430,24 +433,25 @@ class TestDetermineHotfixNumber:
         assert release_mgr._determine_hotfix_number("1.5.0") == 1
 
 
-class TestHotfixMarker:
-    """Test HOTFIX marker in candidates.txt distinguishes hotfix releases."""
+class TestHotfixTomlFile:
+    """Test TOML file creation for hotfix releases."""
 
     @pytest.fixture
     def release_manager_with_tag(self, tmp_path):
-        """Create ReleaseManager for testing marker."""
+        """Create ReleaseManager for testing TOML file."""
         mock_repo = Mock()
         mock_repo.base_dir = str(tmp_path)
-        mock_repo.model_dir = str(tmp_path / ".hop" / "model")
 
         # Create releases/ directory
         releases_dir = tmp_path / ".hop" / "releases"
         releases_dir.mkdir(parents=True, exist_ok=True)
         mock_repo.releases_dir = str(releases_dir)
 
-        # Create model/schema-1.3.5.sql and symlink
-        model_dir = tmp_path / "model"
-        model_dir.mkdir(exist_ok=True)
+        # Create model/schema-1.3.5.sql and symlink in .hop/model
+        model_dir = tmp_path / ".hop" / "model"
+        model_dir.mkdir(parents=True, exist_ok=True)
+        mock_repo.model_dir = str(model_dir)
+
         schema_versioned = model_dir / "schema-1.3.5.sql"
         schema_versioned.write_text("-- VERSION: 1.3.5\n")
         schema_file = model_dir / "schema.sql"
@@ -463,40 +467,41 @@ class TestHotfixMarker:
 
         return release_mgr, releases_dir
 
-    def test_hotfix_marker_present_in_candidates(self, release_manager_with_tag):
-        """Test # HOTFIX marker is present in candidates.txt."""
+    def test_toml_file_created(self, release_manager_with_tag):
+        """Test TOML patches file is created for hotfix."""
         release_mgr, releases_dir = release_manager_with_tag
 
         release_mgr.reopen_for_hotfix()
 
-        candidates_file = releases_dir / "1.3.5-candidates.txt"
-        content = candidates_file.read_text()
+        toml_file = releases_dir / "1.3.5-patches.toml"
+        assert toml_file.exists()
 
-        # Verify marker present
-        assert "# HOTFIX" in content
-        assert content.startswith("# HOTFIX")
-
-    def test_hotfix_marker_format(self, release_manager_with_tag):
-        """Test HOTFIX marker format is exactly '# HOTFIX\\n'."""
+    def test_toml_file_empty_patches(self, release_manager_with_tag):
+        """Test TOML file has empty patches section initially."""
         release_mgr, releases_dir = release_manager_with_tag
 
         release_mgr.reopen_for_hotfix()
 
-        candidates_file = releases_dir / "1.3.5-candidates.txt"
-        content = candidates_file.read_text()
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.5", releases_dir)
+        patches = release_file.get_patches()
 
-        # Verify exact format
-        assert content == "# HOTFIX\n"
+        # Verify no patches initially
+        assert len(patches) == 0
 
-    def test_stage_file_no_marker(self, release_manager_with_tag):
-        """Test stage.txt does not have HOTFIX marker."""
+    def test_hotfix_indicated_by_branch_not_marker(self, release_manager_with_tag):
+        """Test hotfix is distinguished by ho-release/X.Y.Z branch, not a marker."""
         release_mgr, releases_dir = release_manager_with_tag
 
-        release_mgr.reopen_for_hotfix()
+        result = release_mgr.reopen_for_hotfix()
 
-        stage_file = releases_dir / "1.3.5-stage.txt"
-        content = stage_file.read_text()
+        # Hotfix development is indicated by being on ho-release/X.Y.Z branch
+        assert result['branch'] == "ho-release/1.3.5"
 
-        # Verify stage is empty (no marker)
-        assert content == ""
-        assert "# HOTFIX" not in content
+        # No special marker needed in TOML file
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.5", releases_dir)
+        patches_data = release_file.get_all_patches_with_status()
+
+        # Just an empty patches dict, no marker
+        assert patches_data == {}

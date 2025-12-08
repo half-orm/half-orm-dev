@@ -144,8 +144,15 @@ class TestPromoteToRCWithDataFiles:
         rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_with_data_patches
 
         # Setup: create stage file
-        stage_file = releases_dir / "1.0.0-stage.txt"
-        stage_file.write_text("456-auth\n")
+        from half_orm_dev.release_file import ReleaseFile
+
+        release_file = ReleaseFile("1.0.0", releases_dir)
+
+        release_file.create_empty()
+
+        release_file.add_patch("456-auth")
+
+        release_file.move_to_staged("456-auth")
 
         # Mock data file
         data_file = patches_dir / "01_roles.sql"
@@ -185,8 +192,15 @@ class TestPromoteToRCWithDataFiles:
         rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_with_data_patches
 
         # Setup: create stage file
-        stage_file = releases_dir / "1.0.0-stage.txt"
-        stage_file.write_text("456-schema\n")
+        from half_orm_dev.release_file import ReleaseFile
+
+        release_file = ReleaseFile("1.0.0", releases_dir)
+
+        release_file.create_empty()
+
+        release_file.add_patch("456-schema")
+
+        release_file.move_to_staged("456-schema")
 
         # Mock dependencies
         mock_hgit = Mock()
@@ -222,8 +236,15 @@ class TestPromoteToProdWithDataFiles:
         rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_with_data_patches
 
         # Setup: create stage file with patches
-        stage_file = releases_dir / "1.0.0-stage.txt"
-        stage_file.write_text("789-data-patch\n")
+        from half_orm_dev.release_file import ReleaseFile
+
+        release_file = ReleaseFile("1.0.0", releases_dir)
+
+        release_file.create_empty()
+
+        release_file.add_patch("789-data-patch")
+
+        release_file.move_to_staged("789-data-patch")
 
         # Mock data file
         data_file = patches_dir / "01_data.sql"
@@ -277,8 +298,15 @@ class TestPromoteToHotfixWithDataFiles:
         rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_with_data_patches
 
         # Setup: create stage file
-        stage_file = releases_dir / "1.0.0-stage.txt"
-        stage_file.write_text("999-hotfix-patch\n")
+        from half_orm_dev.release_file import ReleaseFile
+
+        release_file = ReleaseFile("1.0.0", releases_dir)
+
+        release_file.create_empty()
+
+        release_file.add_patch("999-hotfix-patch")
+
+        release_file.move_to_staged("999-hotfix-patch")
 
         # Mock data file
         data_file = patches_dir / "01_hotfix_data.sql"

@@ -80,8 +80,34 @@ def create_patch_directory(patches_dir: Path, patch_id: str, num_files: int = 2)
     return patch_path
 
 
+def create_release_toml_file(releases_dir: Path, version: str, patches: list):
+    """
+    Helper to create TOML patches file for testing.
+
+    Args:
+        releases_dir: Path to releases directory
+        version: Version string (e.g., "1.3.6")
+        patches: List of patch IDs (all will be staged)
+    """
+    from half_orm_dev.release_file import ReleaseFile
+
+    release_file = ReleaseFile(version, releases_dir)
+    release_file.create_empty()
+
+    # Add all patches as staged (for these tests, all patches are staged)
+    for patch_id in patches:
+        release_file.add_patch(patch_id)
+        release_file.move_to_staged(patch_id)
+
+    return release_file.file_path
+
+
 def create_release_file(releases_dir: Path, filename: str, patch_ids: list):
-    """Helper to create release file with patch IDs."""
+    """
+    Helper to create release TXT snapshot files (RC, prod, hotfix).
+
+    For TOML patches files, use create_release_toml_file() instead.
+    """
     file_path = releases_dir / filename
     content = "\n".join(patch_ids)
     file_path.write_text(content)
@@ -101,12 +127,12 @@ class TestReleaseManagerGetAllReleaseContextPatches:
         assert patches == []
 
     def test_single_stage_file(self, mock_workflow_with_release_context):
-        """Test with single stage file."""
+        """Test with single TOML patches file (staged)."""
         (patch_mgr, repo, schema_file, mock_model, mock_execute,
          mock_generate, release_mgr, releases_dir) = mock_workflow_with_release_context
 
-        # Create 1.3.6-stage.txt
-        create_release_file(releases_dir, "1.3.6-stage.txt", ["123", "456", "789"])
+        # Create 1.3.6-patches.toml with staged patches
+        create_release_toml_file(releases_dir, "1.3.6", ["123", "456", "789"])
 
         patches = release_mgr.get_all_release_context_patches()
 
@@ -140,35 +166,27 @@ class TestReleaseManagerGetAllReleaseContextPatches:
         assert patches == ["123", "456", "789", "999", "888", "777"]
 
     def test_rc_plus_stage(self, mock_workflow_with_release_context):
-        """Test with RC files + stage file."""
+        """Test with RC files + TOML patches file."""
         (patch_mgr, repo, schema_file, mock_model, mock_execute,
          mock_generate, release_mgr, releases_dir) = mock_workflow_with_release_context
 
-        # Create RC and stage
+        # Create RC snapshots and TOML patches file
         create_release_file(releases_dir, "1.3.6-rc1.txt", ["123", "456"])
         create_release_file(releases_dir, "1.3.6-rc2.txt", ["789"])
-        create_release_file(releases_dir, "1.3.6-stage.txt", ["234", "567"])
+        create_release_toml_file(releases_dir, "1.3.6", ["234", "567"])
 
         patches = release_mgr.get_all_release_context_patches()
 
-        # RC first, then stage
+        # RC first, then TOML patches
         assert patches == ["123", "456", "789", "234", "567"]
 
     def test_ignores_comments_and_empty_lines(self, mock_workflow_with_release_context):
-        """Test that comments and empty lines are ignored."""
+        """Test that TOML format handles patches correctly."""
         (patch_mgr, repo, schema_file, mock_model, mock_execute,
          mock_generate, release_mgr, releases_dir) = mock_workflow_with_release_context
 
-        # Create file with comments and empty lines
-        file_path = releases_dir / "1.3.6-stage.txt"
-        file_path.write_text("""# Comment line
-123
-
-456
-# Another comment
-
-789
-""")
+        # Create TOML file with patches
+        create_release_toml_file(releases_dir, "1.3.6", ["123", "456", "789"])
 
         patches = release_mgr.get_all_release_context_patches()
 
@@ -179,10 +197,10 @@ class TestReleaseManagerGetAllReleaseContextPatches:
         (patch_mgr, repo, schema_file, mock_model, mock_execute,
          mock_generate, release_mgr, releases_dir) = mock_workflow_with_release_context
 
-        # Create multiple versions
-        create_release_file(releases_dir, "1.3.6-stage.txt", ["patch-123"])
-        create_release_file(releases_dir, "1.4.0-stage.txt", ["minor-456"])
-        create_release_file(releases_dir, "2.0.0-stage.txt", ["major-789"])
+        # Create multiple versions with TOML files
+        create_release_toml_file(releases_dir, "1.3.6", ["patch-123"])
+        create_release_toml_file(releases_dir, "1.4.0", ["minor-456"])
+        create_release_toml_file(releases_dir, "2.0.0", ["major-789"])
 
         patches = release_mgr.get_all_release_context_patches()
 
@@ -226,8 +244,8 @@ class TestApplyPatchWithReleaseContext:
 
         patches_dir = Path(repo.base_dir) / "Patches"
 
-        # Create release context
-        create_release_file(releases_dir, "1.3.6-stage.txt", ["123", "456", "789", "234"])
+        # Create release context with TOML
+        create_release_toml_file(releases_dir, "1.3.6", ["123", "456", "789", "234"])
 
         # Create patches
         for patch_id in ["123", "456", "789", "234"]:
@@ -256,8 +274,8 @@ class TestApplyPatchWithReleaseContext:
 
         patches_dir = Path(repo.base_dir) / "Patches"
 
-        # Create release context (without 999)
-        create_release_file(releases_dir, "1.3.6-stage.txt", ["123", "456", "789"])
+        # Create release context with TOML (without 999)
+        create_release_toml_file(releases_dir, "1.3.6", ["123", "456", "789"])
 
         # Create patches
         for patch_id in ["123", "456", "789", "999"]:
@@ -286,8 +304,8 @@ class TestApplyPatchWithReleaseContext:
 
         patches_dir = Path(repo.base_dir) / "Patches"
 
-        # Create release with patch at start
-        create_release_file(releases_dir, "1.3.6-stage.txt", ["789", "123", "456"])
+        # Create release with TOML, patch at start
+        create_release_toml_file(releases_dir, "1.3.6", ["789", "123", "456"])
 
         for patch_id in ["789", "123", "456"]:
             create_patch_directory(patches_dir, patch_id)
@@ -313,8 +331,8 @@ class TestApplyPatchWithReleaseContext:
 
         patches_dir = Path(repo.base_dir) / "Patches"
 
-        # Create release with patch at end
-        create_release_file(releases_dir, "1.3.6-stage.txt", ["123", "456", "789"])
+        # Create release with TOML, patch at end
+        create_release_toml_file(releases_dir, "1.3.6", ["123", "456", "789"])
 
         for patch_id in ["123", "456", "789"]:
             create_patch_directory(patches_dir, patch_id)
@@ -334,16 +352,16 @@ class TestApplyPatchWithReleaseContext:
         assert result['patch_was_in_release'] is True
 
     def test_rc_sequence_applied_before_stage(self, mock_workflow_with_release_context):
-        """Test RC files applied before stage file."""
+        """Test RC files applied before TOML patches."""
         (patch_mgr, repo, schema_file, mock_model, mock_execute,
          mock_generate, release_mgr, releases_dir) = mock_workflow_with_release_context
 
         patches_dir = Path(repo.base_dir) / "Patches"
 
-        # Create RC sequence + stage
+        # Create RC snapshots + TOML patches
         create_release_file(releases_dir, "1.3.6-rc1.txt", ["123", "456"])
         create_release_file(releases_dir, "1.3.6-rc2.txt", ["789"])
-        create_release_file(releases_dir, "1.3.6-stage.txt", ["234"])
+        create_release_toml_file(releases_dir, "1.3.6", ["234"])
 
         for patch_id in ["123", "456", "789", "234", "999"]:
             create_patch_directory(patches_dir, patch_id)
@@ -358,7 +376,7 @@ class TestApplyPatchWithReleaseContext:
             with patch('half_orm_dev.modules.generate', mock_generate):
                 result = patch_mgr.apply_patch_complete_workflow("999")
 
-        # Order: rc1 → rc2 → stage → current
+        # Order: rc1 → rc2 → TOML patches → current
         assert execution_order == ["123", "456", "789", "234", "999"]
         assert result['patch_was_in_release'] is False
 
@@ -369,7 +387,7 @@ class TestApplyPatchWithReleaseContext:
 
         patches_dir = Path(repo.base_dir) / "Patches"
 
-        create_release_file(releases_dir, "1.3.6-stage.txt", ["123", "456"])
+        create_release_toml_file(releases_dir, "1.3.6", ["123", "456"])
 
         for patch_id in ["123", "456", "789"]:
             create_patch_directory(patches_dir, patch_id)
@@ -401,7 +419,7 @@ class TestApplyPatchErrorHandlingWithReleaseContext:
 
         patches_dir = Path(repo.base_dir) / "Patches"
 
-        create_release_file(releases_dir, "1.3.6-stage.txt", ["123", "456", "789"])
+        create_release_toml_file(releases_dir, "1.3.6", ["123", "456", "789"])
 
         for patch_id in ["123", "456", "789", "999"]:
             create_patch_directory(patches_dir, patch_id)
@@ -427,7 +445,7 @@ class TestApplyPatchErrorHandlingWithReleaseContext:
 
         patches_dir = Path(repo.base_dir) / "Patches"
 
-        create_release_file(releases_dir, "1.3.6-stage.txt", ["123", "456"])
+        create_release_toml_file(releases_dir, "1.3.6", ["123", "456"])
 
         for patch_id in ["123", "456", "789"]:
             create_patch_directory(patches_dir, patch_id)

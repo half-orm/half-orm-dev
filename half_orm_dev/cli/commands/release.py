@@ -110,14 +110,14 @@ def release_new(level: str) -> None:
         # Extract result info
         version = result['version']
         branch = result['branch']
-        stage_file = result['stage_file']
+        patches_file = result['patches_file']
 
         # Success message
         click.echo(f"✅ {utils.Color.bold('Release created successfully!')}")
         click.echo()
         click.echo(f"  Version:          {utils.Color.bold(version)}")
         click.echo(f"  Release branch:   {utils.Color.bold(branch)}")
-        click.echo(f"  Stage file:       {utils.Color.bold(stage_file)}")
+        click.echo(f"  Patches file:     {utils.Color.bold(patches_file)}")
         click.echo()
         click.echo(f"📝 Next steps:")
         click.echo(f"  1. Switch to release branch: {utils.Color.bold(f'git checkout {branch}')}")
@@ -357,8 +357,7 @@ def release_hotfix(version: Optional[str] = None) -> None:
         click.echo()
         click.echo(f"  Version:          {utils.Color.bold(result['version'])}")
         click.echo(f"  Branch:           {utils.Color.bold(result['branch'])}")
-        click.echo(f"  Candidates file:  {utils.Color.bold(result['candidates_file'])}")
-        click.echo(f"  Stage file:       {utils.Color.bold(result['stage_file'])}")
+        click.echo(f"  Patches file:     {utils.Color.bold(result['patches_file'])}")
         click.echo()
         click.echo("📝 Next steps:")
         click.echo(f"  • Create patches: {utils.Color.bold('half_orm dev patch new <patch_id>')}")

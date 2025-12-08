@@ -1390,8 +1390,8 @@ class PatchManager:
                 # Directory deletion may fail (permissions, etc.) - continue
                 pass
 
-    @with_dynamic_branch_lock(lambda self, patch_id, description=None: "ho-prod")
-    def create_patch(self, patch_id: str, description: Optional[str] = None) -> dict:
+    @with_dynamic_branch_lock(lambda self, patch_id, description=None, before=None: "ho-prod")
+    def create_patch(self, patch_id: str, description: Optional[str] = None, before: Optional[str] = None) -> dict:
         """
         Create new patch with atomic tag-first reservation strategy.
 
@@ -1491,7 +1491,7 @@ class PatchManager:
                 self._update_readme_with_description(patch_dir, normalized_id, description)
 
             # Step 8: Add patch to candidates.txt (NEW)
-            self._add_patch_to_candidates(normalized_id, release_version)
+            self._add_patch_to_candidates(normalized_id, release_version, before=before)
 
             # Step 9: Commit patch directory and candidates file ON HO-RELEASE
             self._commit_patch_to_candidates(normalized_id, release_version, description)
@@ -1568,20 +1568,44 @@ class PatchManager:
             PatchManagerError: If critical=True and sync fails
 
         Examples:
-            # After modifying candidates.txt on ho-release/0.17.0
+            # After modifying patches.toml on ho-release/0.17.0
             self._sync_release_files_to_ho_prod("0.17.0", "ho-release/0.17.0")
         """
         try:
             # Save current branch
             current_branch = release_branch
 
+            # Check which files exist in the release branch
+            # We need to check before attempting git checkout to avoid errors
+            from pathlib import Path
+
+            # Build list of files to sync
+            paths_to_sync = []
+
+            # Check for TOML patches file (dev tracking)
+            toml_path = f".hop/releases/{version}-patches.toml"
+            toml_file = Path(self._repo.base_dir) / toml_path
+            if toml_file.exists():
+                paths_to_sync.append(toml_path)
+
+            # Check for TXT snapshot files (RC, prod, hotfix)
+            # List all matching files using glob
+            releases_dir = Path(self._repo.releases_dir)
+            txt_files = list(releases_dir.glob(f"{version}*.txt"))
+            for txt_file in txt_files:
+                # Convert to relative path from repo root
+                rel_path = f".hop/releases/{txt_file.name}"
+                paths_to_sync.append(rel_path)
+
+            # If no files to sync, nothing to do
+            if not paths_to_sync:
+                return
+
             # Checkout ho-prod
             self._repo.hgit.checkout("ho-prod")
 
-            # Copy ALL files for this specific version from release branch
-            # This includes: -candidates.txt, -stage.txt, -rc*.txt, .txt, -hotfix*.txt
-            # Using wildcard pattern to get all files matching the version
-            self._repo.hgit.checkout_paths_from_branch(release_branch, [f"releases/{version}*.txt"])
+            # Copy files from release branch
+            self._repo.hgit.checkout_paths_from_branch(release_branch, paths_to_sync)
 
             # Commit on ho-prod
             self._repo.hgit.commit("-m", f"[HOP] sync release {version} files from {release_branch}")
@@ -1602,7 +1626,7 @@ class PatchManager:
                 # Non-critical - just warn
                 import click
                 click.echo(f"⚠️  Warning: Failed to sync release files to ho-prod: {e}")
-                click.echo(f"⚠️  You may need to manually sync releases/ to ho-prod")
+                click.echo(f"⚠️  You may need to manually sync .hop/releases/ to ho-prod")
 
     def _get_release_branch_for_patch(self, patch_id: str, *args, **kwargs) -> str:
         """
@@ -1892,7 +1916,7 @@ class PatchManager:
         return {
             'version': version,
             'patch_id': patch_id,
-            'stage_file': f"releases/{version}-stage.txt",
+            'patches_file': f"releases/{version}-patches.toml",
             'merged_into': release_branch,
             'notified_branches': other_candidates
         }
@@ -1960,17 +1984,12 @@ class PatchManager:
             # 3. Run patch apply and verify no modifications
             click.echo(f"  • Running patch apply to verify idempotency...")
             try:
-                # Get list of staged patches for this version
-                stage_file = Path(self._repo.releases_dir) / f"{version}-stage.txt"
+                # Get list of staged patches for this version from TOML file
+                from half_orm_dev.release_file import ReleaseFile
+                release_file = ReleaseFile(version, Path(self._repo.releases_dir))
                 staged_patches = []
-                if stage_file.exists():
-                    content = stage_file.read_text(encoding='utf-8').strip()
-                    if content:
-                        staged_patches = [
-                            line.strip()
-                            for line in content.split('\n')
-                            if line.strip() and not line.strip().startswith('#')
-                        ]
+                if release_file.exists():
+                    staged_patches = release_file.get_patches(status="staged")
 
                 # Apply all staged patches + current patch
                 all_patches = staged_patches + [patch_id]
@@ -2429,40 +2448,35 @@ class PatchManager:
             )
 
 
-    def _add_patch_to_candidates(self, patch_id: str, version: str) -> None:
+    def _add_patch_to_candidates(self, patch_id: str, version: str, before: str = None) -> None:
         """
-        Add patch ID to X.Y.Z-candidates.txt file.
+        Add patch ID to X.Y.Z-patches.toml file as candidate.
 
-        Automatically tracks patches in development by appending to the candidates file.
-        Creates one line per patch: "PATCH_ID # Optional comment"
+        Automatically tracks patches in development by adding to the patches file.
 
         Args:
             patch_id: Normalized patch identifier (e.g., "456-user-auth")
             version: Release version (e.g., "0.17.0")
+            before: Optional patch ID to insert before
 
         Raises:
-            PatchManagerError: If candidates file doesn't exist or write fails
+            PatchManagerError: If patches file doesn't exist or write fails
 
         Examples:
             self._add_patch_to_candidates("456-user-auth", "0.17.0")
-            # Appends "456-user-auth\n" to releases/0.17.0-candidates.txt
-        """
-        candidates_file = self._releases_dir / f"{version}-candidates.txt"
+            # Adds "456-user-auth" = "candidate" to releases/0.17.0-patches.toml
 
-        if not candidates_file.exists():
-            raise PatchManagerError(
-                f"Candidates file not found: {candidates_file}\n"
-                f"Hint: Run 'half_orm dev release new <level>' first"
-            )
+            self._add_patch_to_candidates("456-user-auth", "0.17.0", before="457-feature")
+            # Inserts before "457-feature"
+        """
+        from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
+
+        release_file = ReleaseFile(version, self._releases_dir)
 
         try:
-            # Append patch ID to candidates file
-            with candidates_file.open('a', encoding='utf-8') as f:
-                f.write(f"{patch_id}\n")
-        except Exception as e:
-            raise PatchManagerError(
-                f"Failed to add patch to candidates file: {e}"
-            )
+            release_file.add_patch(patch_id, before=before)
+        except ReleaseFileError as e:
+            raise PatchManagerError(str(e))
 
     def _commit_patch_to_candidates(
         self,
@@ -2471,10 +2485,9 @@ class PatchManager:
         description: Optional[str] = None
     ) -> None:
         """
-        Commit patch directory and candidates file to release branch.
+        Commit patch directory and patches file to release branch.
 
-        Replaces _commit_patch_directory for the new workflow. Commits both
-        the Patches/PATCH_ID directory and the updated X.Y.Z-candidates.txt file.
+        Commits both the Patches/PATCH_ID directory and the updated X.Y.Z-patches.toml file.
 
         Args:
             patch_id: Normalized patch identifier
@@ -2488,14 +2501,18 @@ class PatchManager:
             self._commit_patch_to_candidates("456-user-auth", "0.17.0", "Add auth")
             # Commits with message: "[HOP] Add patch 456-user-auth to 0.17.0 candidates"
         """
+        from half_orm_dev.release_file import ReleaseFile
+
         try:
-            self._repo.hgit.add(self._releases_dir / f"{version}-candidates.txt")
+            release_file = ReleaseFile(version, self._releases_dir)
+            self._repo.hgit.add(str(release_file.file_path))
+
             # Construct commit message
             msg = f"[HOP] Add patch #{patch_id} to %{version} candidates"
             if description:
                 msg += f"\n\n{description}"
 
-            # Commit both Patches/ directory and candidates file
+            # Commit both Patches/ directory and patches file
             self._repo.hgit.commit("-m", msg)
 
         except Exception as e:
@@ -2505,9 +2522,9 @@ class PatchManager:
 
     def _find_version_for_candidate(self, patch_id: str) -> Optional[str]:
         """
-        Find which release version a patch belongs to from candidates files.
+        Find which release version a patch belongs to from patches files.
 
-        Searches all X.Y.Z-candidates.txt files in releases/ directory to find
+        Searches all X.Y.Z-patches.toml files in releases/ directory to find
         which release the patch is assigned to.
 
         Args:
@@ -2518,19 +2535,19 @@ class PatchManager:
 
         Examples:
             version = self._find_version_for_candidate("456-user-auth")
-            # Returns "0.17.0" if found in 0.17.0-candidates.txt
+            # Returns "0.17.0" if found in 0.17.0-patches.toml
         """
-        candidates_files = self._releases_dir.glob("*-candidates.txt")
+        from half_orm_dev.release_file import ReleaseFile
 
-        for candidates_file in candidates_files:
-            content = candidates_file.read_text(encoding='utf-8').strip()
-            if not content:
-                continue
+        patches_files = self._releases_dir.glob("*-patches.toml")
 
-            patches = [line.strip() for line in content.split('\n') if line.strip()]
-            if patch_id in patches:
-                # Extract version from filename (X.Y.Z-candidates.txt → X.Y.Z)
-                version = candidates_file.stem.replace('-candidates', '')
+        for patches_file in patches_files:
+            # Extract version from filename (X.Y.Z-patches.toml → X.Y.Z)
+            version = patches_file.stem.replace('-patches', '')
+            release_file = ReleaseFile(version, self._releases_dir)
+
+            status = release_file.get_patch_status(patch_id)
+            if status is not None:
                 return version
 
         return None
@@ -2547,20 +2564,23 @@ class PatchManager:
             # Returns:
             # "Release 0.17.0:\n  - 456-user-auth\n  - 457-feature-x"
         """
-        candidates_files = sorted(self._releases_dir.glob("*-candidates.txt"))
+        from half_orm_dev.release_file import ReleaseFile
 
-        if not candidates_files:
+        patches_files = sorted(self._releases_dir.glob("*-patches.toml"))
+
+        if not patches_files:
             return "No releases with candidates found."
 
         lines = []
-        for candidates_file in candidates_files:
-            version = candidates_file.stem.replace('-candidates', '')
-            content = candidates_file.read_text(encoding='utf-8').strip()
+        for patches_file in patches_files:
+            version = patches_file.stem.replace('-patches', '')
+            release_file = ReleaseFile(version, self._releases_dir)
 
-            if content:
-                patches = [line.strip() for line in content.split('\n') if line.strip()]
+            candidates = release_file.get_patches(status="candidate")
+
+            if candidates:
                 lines.append(f"Release {version}:")
-                for patch in patches:
+                for patch in candidates:
                     lines.append(f"  - {patch}")
             else:
                 lines.append(f"Release {version}: (no candidates)")
@@ -2569,53 +2589,38 @@ class PatchManager:
 
     def _move_patch_to_stage(self, patch_id: str, version: str) -> None:
         """
-        Move patch from candidates.txt to stage.txt.
+        Move patch from candidate to staged status.
 
-        Removes the patch from X.Y.Z-candidates.txt and appends it to
-        X.Y.Z-stage.txt, indicating it has been integrated.
+        Changes the patch status from "candidate" to "staged" in the TOML file,
+        preserving its position (order) in the file.
 
         Args:
             patch_id: Patch identifier to move
             version: Release version
 
         Raises:
-            PatchManagerError: If file operations fail
+            PatchManagerError: If operation fails
 
         Examples:
             self._move_patch_to_stage("456-user-auth", "0.17.0")
-            # Removes from 0.17.0-candidates.txt, adds to 0.17.0-stage.txt
+            # Changes "456-user-auth" = "candidate" to "456-user-auth" = "staged"
+            # Order is preserved!
         """
-        candidates_file = self._releases_dir / f"{version}-candidates.txt"
-        stage_file = self._releases_dir / f"{version}-stage.txt"
+        from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
+
+        release_file = ReleaseFile(version, self._releases_dir)
 
         try:
-            # Read candidates
-            candidates_content = candidates_file.read_text(encoding='utf-8').strip()
-            candidates = [line.strip() for line in candidates_content.split('\n') if line.strip()]
+            release_file.move_to_staged(patch_id)
 
-            # Remove patch from candidates
-            if patch_id not in candidates:
-                raise PatchManagerError(
-                    f"Patch {patch_id} not found in {candidates_file.name}"
-                )
-            candidates.remove(patch_id)
+            # Stage file for commit
+            self._repo.hgit.add(str(release_file.file_path))
 
-            # Write back candidates (empty or updated list)
-            candidates_file.write_text('\n'.join(candidates) + '\n' if candidates else '', encoding='utf-8')
-
-            # Append to stage
-            with stage_file.open('a', encoding='utf-8') as f:
-                f.write(f"{patch_id}\n")
-
-            # Stage both files for commit
-            self._repo.hgit.add(str(candidates_file))
-            self._repo.hgit.add(str(stage_file))
-
-        except PatchManagerError:
-            raise
+        except ReleaseFileError as e:
+            raise PatchManagerError(str(e))
         except Exception as e:
             raise PatchManagerError(
-                f"Failed to move patch from candidates to stage: {e}"
+                f"Failed to move patch to staged: {e}"
             )
 
     def _get_other_candidates(self, version: str, exclude_patch: str) -> List[str]:
@@ -2636,14 +2641,12 @@ class PatchManager:
             others = self._get_other_candidates("0.17.0", "456-user-auth")
             # Returns ["457-feature-x", "458-bugfix"] if they exist
         """
-        candidates_file = self._releases_dir / f"{version}-candidates.txt"
+        from half_orm_dev.release_file import ReleaseFile
 
-        if not candidates_file.exists():
+        release_file = ReleaseFile(version, self._releases_dir)
+
+        if not release_file.exists():
             return []
 
-        content = candidates_file.read_text(encoding='utf-8').strip()
-        if not content:
-            return []
-
-        patches = [line.strip() for line in content.split('\n') if line.strip()]
-        return [p for p in patches if p != exclude_patch]
+        candidates = release_file.get_patches(status="candidate")
+        return [p for p in candidates if p != exclude_patch]

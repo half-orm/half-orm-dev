@@ -31,8 +31,19 @@ def release_manager_for_rc_tagging(tmp_path):
     releases_dir.mkdir(parents=True, exist_ok=True)
 
     # Create stage file
-    stage_file = releases_dir / "1.3.6-stage.txt"
-    stage_file.write_text("456-user-auth\n789-security\n")
+    from half_orm_dev.release_file import ReleaseFile
+
+    release_file = ReleaseFile("1.3.6", releases_dir)
+
+    release_file.create_empty()
+
+    release_file.add_patch("456-user-auth")
+
+    release_file.move_to_staged("456-user-auth")
+
+    release_file.add_patch("789-security")
+
+    release_file.move_to_staged("789-security")
 
     # Mock Repo
     mock_repo = Mock()
@@ -84,8 +95,19 @@ def release_manager_for_prod_tagging(tmp_path):
     rc_file.write_text("456-user-auth\n789-security\n")
 
     # Create stage file (automatically created after promote_to_rc)
-    stage_file = releases_dir / "1.3.6-stage.txt"
-    stage_file.write_text("456-user-auth\n789-security\n")
+    from half_orm_dev.release_file import ReleaseFile
+
+    release_file = ReleaseFile("1.3.6", releases_dir)
+
+    release_file.create_empty()
+
+    release_file.add_patch("456-user-auth")
+
+    release_file.move_to_staged("456-user-auth")
+
+    release_file.add_patch("789-security")
+
+    release_file.move_to_staged("789-security")
 
     # Mock Repo
     mock_repo = Mock()

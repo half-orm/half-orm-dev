@@ -42,7 +42,7 @@ class TestDetectTargetStageFile:
 
         # Empty releases/ directory (no stage files)
 
-        with pytest.raises(ReleaseManagerError, match="No stage release found|prepare-release"):
+        with pytest.raises(ReleaseManagerError, match="No development release found|prepare-release"):
             release_mgr._detect_target_stage_file()
 
     def test_single_stage_file_auto_detected(self, release_manager_with_files):
@@ -50,35 +50,45 @@ class TestDetectTargetStageFile:
         release_mgr, releases_dir = release_manager_with_files
 
         # Create single stage file
-        (releases_dir / "1.3.6-stage.txt").touch()
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()
 
         version, filename = release_mgr._detect_target_stage_file()
 
         assert version == "1.3.6"
-        assert filename == "1.3.6-stage.txt"
+        assert filename == "1.3.6-patches.toml"
 
     def test_single_stage_with_explicit_version(self, release_manager_with_files):
         """Test explicit version matches existing stage."""
         release_mgr, releases_dir = release_manager_with_files
 
         # Create single stage file
-        (releases_dir / "1.3.6-stage.txt").touch()
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()
 
         version, filename = release_mgr._detect_target_stage_file(to_version="1.3.6")
 
         assert version == "1.3.6"
-        assert filename == "1.3.6-stage.txt"
+        assert filename == "1.3.6-patches.toml"
 
     def test_multiple_stages_without_version_raises_error(self, release_manager_with_files):
         """Test error when multiple stages exist without explicit version."""
         release_mgr, releases_dir = release_manager_with_files
 
         # Create multiple stage files
-        (releases_dir / "1.3.6-stage.txt").touch()
-        (releases_dir / "1.4.0-stage.txt").touch()
-        (releases_dir / "2.0.0-stage.txt").touch()
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.4.0", releases_dir)
+        release_file.create_empty()
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("2.0.0", releases_dir)
+        release_file.create_empty()
 
-        with pytest.raises(ReleaseManagerError, match="Multiple.*stage|--to-version"):
+        with pytest.raises(ReleaseManagerError, match="Multiple.*development.*release|--to-version"):
             release_mgr._detect_target_stage_file()
 
     def test_multiple_stages_with_explicit_version_first(self, release_manager_with_files):
@@ -86,36 +96,46 @@ class TestDetectTargetStageFile:
         release_mgr, releases_dir = release_manager_with_files
 
         # Create multiple stage files
-        (releases_dir / "1.3.6-stage.txt").touch()
-        (releases_dir / "1.4.0-stage.txt").touch()
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.4.0", releases_dir)
+        release_file.create_empty()
 
         version, filename = release_mgr._detect_target_stage_file(to_version="1.3.6")
 
         assert version == "1.3.6"
-        assert filename == "1.3.6-stage.txt"
+        assert filename == "1.3.6-patches.toml"
 
     def test_multiple_stages_with_explicit_version_second(self, release_manager_with_files):
         """Test explicit version selects second stage."""
         release_mgr, releases_dir = release_manager_with_files
 
         # Create multiple stage files
-        (releases_dir / "1.3.6-stage.txt").touch()
-        (releases_dir / "1.4.0-stage.txt").touch()
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.4.0", releases_dir)
+        release_file.create_empty()
 
         version, filename = release_mgr._detect_target_stage_file(to_version="1.4.0")
 
         assert version == "1.4.0"
-        assert filename == "1.4.0-stage.txt"
+        assert filename == "1.4.0-patches.toml"
 
     def test_explicit_version_not_found_raises_error(self, release_manager_with_files):
         """Test error when specified stage doesn't exist."""
         release_mgr, releases_dir = release_manager_with_files
 
         # Create stage file
-        (releases_dir / "1.3.6-stage.txt").touch()
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()
 
         # Try to use non-existent version
-        with pytest.raises(ReleaseManagerError, match="Stage release.*1.9.9.*not found"):
+        with pytest.raises(ReleaseManagerError, match="Development release.*1.9.9.*not found"):
             release_mgr._detect_target_stage_file(to_version="1.9.9")
 
     def test_ignores_rc_files(self, release_manager_with_files):
@@ -125,13 +145,15 @@ class TestDetectTargetStageFile:
         # Create RC and stage files
         (releases_dir / "1.3.5-rc1.txt").touch()
         (releases_dir / "1.3.5-rc2.txt").touch()
-        (releases_dir / "1.3.6-stage.txt").touch()  # Only this should count
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()  # Only this should count
 
         # Should auto-detect the single stage (ignoring RCs)
         version, filename = release_mgr._detect_target_stage_file()
 
         assert version == "1.3.6"
-        assert filename == "1.3.6-stage.txt"
+        assert filename == "1.3.6-patches.toml"
 
     def test_ignores_production_files(self, release_manager_with_files):
         """Test that production files are ignored (only stage counted)."""
@@ -139,13 +161,15 @@ class TestDetectTargetStageFile:
 
         # Create production and stage files
         (releases_dir / "1.3.5.txt").touch()
-        (releases_dir / "1.3.6-stage.txt").touch()  # Only this should count
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()  # Only this should count
 
         # Should auto-detect the single stage (ignoring production)
         version, filename = release_mgr._detect_target_stage_file()
 
         assert version == "1.3.6"
-        assert filename == "1.3.6-stage.txt"
+        assert filename == "1.3.6-patches.toml"
 
     def test_ignores_hotfix_files(self, release_manager_with_files):
         """Test that hotfix files are ignored (only stage counted)."""
@@ -153,13 +177,15 @@ class TestDetectTargetStageFile:
 
         # Create hotfix and stage files
         (releases_dir / "1.3.5-hotfix1.txt").touch()
-        (releases_dir / "1.3.6-stage.txt").touch()  # Only this should count
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()  # Only this should count
 
         # Should auto-detect the single stage (ignoring hotfix)
         version, filename = release_mgr._detect_target_stage_file()
 
         assert version == "1.3.6"
-        assert filename == "1.3.6-stage.txt"
+        assert filename == "1.3.6-patches.toml"
 
     def test_complex_scenario_multiple_types(self, release_manager_with_files):
         """Test with multiple file types (stage, RC, prod, hotfix)."""
@@ -170,27 +196,33 @@ class TestDetectTargetStageFile:
         (releases_dir / "1.3.4-hotfix1.txt").touch()   # Hotfix
         (releases_dir / "1.3.5-rc1.txt").touch()       # RC
         (releases_dir / "1.3.5-rc2.txt").touch()       # RC
-        (releases_dir / "1.3.6-stage.txt").touch()     # Stage 1
-        (releases_dir / "1.4.0-stage.txt").touch()     # Stage 2
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()     # Stage 1
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.4.0", releases_dir)
+        release_file.create_empty()     # Stage 2
 
         # Should detect 2 stages (ignoring all others)
-        with pytest.raises(ReleaseManagerError, match="Multiple.*stage"):
+        with pytest.raises(ReleaseManagerError, match="Multiple.*development"):
             release_mgr._detect_target_stage_file()
 
         # Explicit version should work
         version, filename = release_mgr._detect_target_stage_file(to_version="1.4.0")
         assert version == "1.4.0"
-        assert filename == "1.4.0-stage.txt"
+        assert filename == "1.4.0-patches.toml"
 
     def test_case_sensitivity(self, release_manager_with_files):
         """Test that stage detection is case-insensitive for version."""
         release_mgr, releases_dir = release_manager_with_files
 
         # Create stage file
-        (releases_dir / "1.3.6-stage.txt").touch()
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()
 
         # Explicit version with different case (should still work)
         version, filename = release_mgr._detect_target_stage_file(to_version="1.3.6")
 
         assert version == "1.3.6"
-        assert filename == "1.3.6-stage.txt"
+        assert filename == "1.3.6-patches.toml"

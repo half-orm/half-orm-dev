@@ -44,9 +44,10 @@ class TestValidatePatchBeforeMerge:
         releases_dir.mkdir(parents=True, exist_ok=True)
         mock_repo.releases_dir = str(releases_dir)
 
-        # Create empty stage file
-        stage_file = releases_dir / "0.17.0-stage.txt"
-        stage_file.write_text("", encoding='utf-8')
+        # Create empty TOML patches file
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile("0.17.0", releases_dir)
+        release_file.create_empty()
 
         # Create Patches directory
         patches_dir = tmp_path / "Patches"
@@ -244,9 +245,15 @@ class TestValidatePatchBeforeMerge:
         """Test applies already staged patches before current patch."""
         patch_mgr, mock_hgit, mock_database, tmp_path = patch_manager_basic
 
-        # Create stage file with existing patches
-        stage_file = tmp_path / ".hop" / "releases" / "0.17.0-stage.txt"
-        stage_file.write_text("38-auth\n39-api\n", encoding='utf-8')
+        # Create TOML patches file with existing patches
+        from half_orm_dev.release_file import ReleaseFile
+        releases_dir = tmp_path / ".hop" / "releases"
+        release_file = ReleaseFile("0.17.0", releases_dir)
+        release_file.create_empty()
+        release_file.add_patch("38-auth")
+        release_file.move_to_staged("38-auth")
+        release_file.add_patch("39-api")
+        release_file.move_to_staged("39-api")
 
         # Create patch directories
         for pid in ["38-auth", "39-api", "42-feature"]:
@@ -269,12 +276,18 @@ class TestValidatePatchBeforeMerge:
         assert apply_calls[2][0][0] == "42-feature"
 
     def test_validation_ignores_comments_in_stage_file(self, patch_manager_basic):
-        """Test ignores comment lines in stage file."""
+        """Test handles patches in TOML file correctly."""
         patch_mgr, mock_hgit, mock_database, tmp_path = patch_manager_basic
 
-        # Create stage file with comments
-        stage_file = tmp_path / ".hop" / "releases" / "0.17.0-stage.txt"
-        stage_file.write_text("# HOTFIX\n38-auth\n# Another comment\n39-api\n", encoding='utf-8')
+        # Create TOML patches file with patches (TOML doesn't have inline comments like TXT)
+        from half_orm_dev.release_file import ReleaseFile
+        releases_dir = tmp_path / ".hop" / "releases"
+        release_file = ReleaseFile("0.17.0", releases_dir)
+        release_file.create_empty()
+        release_file.add_patch("38-auth")
+        release_file.move_to_staged("38-auth")
+        release_file.add_patch("39-api")
+        release_file.move_to_staged("39-api")
 
         # Create patch directories
         for pid in ["38-auth", "39-api", "42-feature"]:
@@ -289,7 +302,7 @@ class TestValidatePatchBeforeMerge:
                 "ho-patch/42-feature"
             )
 
-        # Verify only non-comment patches were applied
+        # Verify all patches were applied
         apply_calls = patch_mgr.apply_patch_files.call_args_list
         assert len(apply_calls) == 3
         patch_ids = [call[0][0] for call in apply_calls]

@@ -46,7 +46,13 @@ def patch():
     default=None,
     help='Optional description for the patch'
 )
-def patch_new(patch_id: str, description: Optional[str] = None) -> None:
+@click.option(
+    '--before',
+    type=str,
+    default=None,
+    help='Insert patch before this patch ID in the application order'
+)
+def patch_new(patch_id: str, description: Optional[str] = None, before: Optional[str] = None) -> None:
     """
     Create new patch branch and directory structure.
 
@@ -60,6 +66,7 @@ def patch_new(patch_id: str, description: Optional[str] = None) -> None:
     Args:
         patch_id: Patch identifier (e.g., "456" or "456-user-authentication")
         description: Optional description to include in patch README
+        before: Optional patch ID to insert before in application order
 
     \b
     Examples:
@@ -68,6 +75,9 @@ def patch_new(patch_id: str, description: Optional[str] = None) -> None:
 
         Create patch with full ID and description:
         $ half_orm dev patch new 456-user-auth -d "Add user authentication"
+
+        Insert patch before another patch (to control application order):
+        $ half_orm dev patch new 457-hotfix --before 456-user-auth
 
     \b
     Raises:
@@ -78,7 +88,7 @@ def patch_new(patch_id: str, description: Optional[str] = None) -> None:
         repo = Repo()
 
         # Delegate to PatchManager
-        result = repo.patch_manager.create_patch(patch_id, description)
+        result = repo.patch_manager.create_patch(patch_id, description, before=before)
 
         # Display success message
         click.echo(f"✓ Created patch branch: {utils.Color.bold(result['branch_name'])}")
@@ -325,7 +335,7 @@ def patch_close(force: bool) -> None:
         click.echo(f"✓ {utils.Color.green('Patch closed successfully!')}")
         click.echo()
         click.echo(f"  Version:         {utils.Color.bold(result['version'])}")
-        click.echo(f"  Stage file:      {utils.Color.bold(result['stage_file'])}")
+        click.echo(f"  Patches file:    {utils.Color.bold(result['patches_file'])}")
         click.echo(f"  Merged into:     {utils.Color.bold(result['merged_into'])}")
 
         if result.get('notified_branches'):

@@ -156,7 +156,7 @@ class ReleaseManager:
             version = mgr._get_production_version()
             # Returns: "1.3.5"
         """
-        schema_path = Path(self._base_dir) / "model" / "schema.sql"
+        schema_path = Path(self._base_dir) / ".hop" / "model" / "schema.sql"
 
         # Parse version from symlink
         version_from_file = self._parse_version_from_symlink(schema_path)
@@ -656,11 +656,11 @@ class ReleaseManager:
             next_version = self.calculate_next_version(
                 self.parse_version_from_filename(f"{production_str}.txt"), level)
 
-            # Cherche RC ou stage pour cette version
+            # Cherche RC ou patches TOML pour cette version
             rc_pattern = f"{next_version}-rc*.txt"
-            stage_file = self._releases_dir / f"{next_version}-stage.txt"
+            patches_file = self._releases_dir / f"{next_version}-patches.toml"
 
-            if list(self._releases_dir.glob(rc_pattern)) or stage_file.exists():
+            if list(self._releases_dir.glob(rc_pattern)) or patches_file.exists():
                 return next_version
 
         return None
@@ -726,8 +726,24 @@ class ReleaseManager:
                 for patch_id in rc_patches:
                     self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
 
-        # Apply stage patches
-        stage_patches = self.read_release_patches(f"{version}-stage.txt")
+        # Apply staged patches from TOML file (if in development) or from snapshot (if released)
+        # Try TOML file first (development)
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile(version, self._releases_dir)
+        if release_file.exists():
+            # Development: read from TOML
+            stage_patches = release_file.get_patches(status="staged")
+        else:
+            # Production: read from hotfix snapshot if it exists
+            # This handles the case where we're applying a hotfix release
+            hotfix_files = sorted(self._releases_dir.glob(f"{version}-hotfix*.txt"))
+            if hotfix_files:
+                # Apply the latest hotfix
+                stage_patches = self.read_release_patches(hotfix_files[-1].name)
+            else:
+                # No patches to apply
+                stage_patches = []
+
         for patch_id in stage_patches:
             self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
 
@@ -805,23 +821,25 @@ class ReleaseManager:
         """
         Récupère TOUS les patches du contexte de la prochaine release.
 
-        IMPORTANT: Application séquentielle des RC incrémentaux.
+        IMPORTANT: Application séquentielle des RC incrémentaux + TOML patches.
         - rc1: patches initiaux (ex: 123, 456, 789)
         - rc2: patches nouveaux (ex: 999)
         - rc3: patches nouveaux (ex: 888, 777)
+        - TOML: TOUS les patches (candidates + staged) dans l'ordre
 
-        Résultat: [123, 456, 789, 999, 888, 777]
+        Résultat: [123, 456, 789, 999, 888, 777, ...]
 
         Pas de déduplication car chaque RC est incrémental.
 
         Returns:
             Liste ordonnée des patch IDs (séquence complète)
+            Inclut RC files + TOUS les patches du TOML (candidates + staged)
 
         Examples:
             # Production: 1.3.5
             # 1.3.6-rc1.txt: 123, 456, 789
             # 1.3.6-rc2.txt: 999
-            # 1.3.6-stage.txt: 234, 567
+            # 1.3.6-patches.toml: {"234": "candidate", "567": "staged"}
 
             patches = mgr.get_all_release_context_patches()
             # → ["123", "456", "789", "999", "234", "567"]
@@ -830,7 +848,7 @@ class ReleaseManager:
             # 1. Restore DB (1.3.5)
             # 2. Apply 123, 456, 789 (rc1)
             # 3. Apply 999 (rc2)
-            # 4. Apply 234, 567 (stage)
+            # 4. Apply 234, 567 (from TOML, all patches)
             # 5. Apply 888 (patch courant)
         """
         next_version = self.get_next_release_version()
@@ -847,10 +865,14 @@ class ReleaseManager:
             # Chaque RC est incrémental, pas besoin de déduplication
             all_patches.extend(patches)
 
-        # 2. Appliquer stage (nouveaux patches en développement)
-        stage_file = f"{next_version}-stage.txt"
-        stage_patches = self.read_release_patches(stage_file)
-        all_patches.extend(stage_patches)
+        # 2. Appliquer TOUS les patches du TOML (candidates + staged)
+        # Pour les tests et la synchronisation, on veut tous les patches dans l'ordre
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile(next_version, self._releases_dir)
+        if release_file.exists():
+            # get_patches() sans argument retourne TOUS les patches dans l'ordre d'insertion
+            all_toml_patches = release_file.get_patches()
+            all_patches.extend(all_toml_patches)
 
         return all_patches
 
@@ -1155,82 +1177,81 @@ class ReleaseManager:
 
     def _detect_target_stage_file(self, to_version: Optional[str] = None) -> Tuple[str, str]:
         """
-        Detect target stage file (auto-detect or explicit).
+        Detect target patches file (auto-detect or explicit).
 
         Logic:
         - If to_version provided: validate it exists
-        - If no to_version: auto-detect (error if 0 or multiple stages)
+        - If no to_version: auto-detect (error if 0 or multiple in development)
 
         Args:
             to_version: Optional explicit version (e.g., "1.3.6")
 
         Returns:
             Tuple of (version, filename)
-            Example: ("1.3.6", "1.3.6-stage.txt")
+            Example: ("1.3.6", "1.3.6-patches.toml")
 
         Raises:
             ReleaseManagerError:
-                - No stage release found (need prepare-release first)
-                - Multiple stages without explicit version
-                - Specified stage doesn't exist
+                - No development release found (need prepare-release first)
+                - Multiple releases without explicit version
+                - Specified release doesn't exist
 
         Examples:
-            # Auto-detect (one stage exists)
+            # Auto-detect (one release exists)
             version, filename = self._detect_target_stage_file()
-            # Returns: ("1.3.6", "1.3.6-stage.txt")
+            # Returns: ("1.3.6", "1.3.6-patches.toml")
 
             # Explicit version
             version, filename = self._detect_target_stage_file("1.4.0")
-            # Returns: ("1.4.0", "1.4.0-stage.txt")
+            # Returns: ("1.4.0", "1.4.0-patches.toml")
 
             # Error cases
-            # No stage: "No stage release found. Run 'prepare-release' first."
-            # Multiple stages: "Multiple stages found. Use --to-version."
-            # Invalid: "Stage release 1.9.9 not found"
+            # No release: "No development release found. Run 'prepare-release' first."
+            # Multiple releases: "Multiple releases found. Use --to-version."
+            # Invalid: "Release 1.9.9 not found"
         """
-        # Find all stage files
-        stage_files = list(self._releases_dir.glob("*-stage.txt"))
+        # Find all TOML patches files (development releases)
+        patches_files = list(self._releases_dir.glob("*-patches.toml"))
 
-        # Multiple stages: require explicit version
-        if len(stage_files) > 1 and not to_version:
-            versions = sorted([str(self.parse_version_from_filename(f.name)).replace('-stage', '') for f in stage_files])
-            err_msg = "\n".join([f"Multiple stage releases found: {', '.join(versions)}",
+        # Multiple releases: require explicit version
+        if len(patches_files) > 1 and not to_version:
+            versions = sorted([f.stem.replace('-patches', '') for f in patches_files])
+            err_msg = "\n".join([f"Multiple development releases found: {', '.join(versions)}",
                 f"Specify target version:",
                 f"  half_orm dev promote-to rc --to-version=<version>"])
             raise ReleaseManagerError(err_msg)
 
-
         # If explicit version provided
         if to_version:
-            stage_file = self._releases_dir / f"{to_version}-stage.txt"
+            patches_file = self._releases_dir / f"{to_version}-patches.toml"
 
-            if not stage_file.exists():
+            if not patches_file.exists():
                 raise ReleaseManagerError(
-                    f"Stage release {to_version} not found.\n"
-                    f"Available stages: {[f.stem for f in stage_files]}"
+                    f"Development release {to_version} not found.\n"
+                    f"Available releases: {[f.stem.replace('-patches', '') for f in patches_files]}"
                 )
 
-            return (to_version, f"{to_version}-stage.txt")
+            return (to_version, f"{to_version}-patches.toml")
 
         # Auto-detect
-        if len(stage_files) == 0:
+        if len(patches_files) == 0:
             raise ReleaseManagerError(
-                "No stage release found.\n"
+                "No development release found.\n"
                 "Run 'half_orm dev prepare-release <type>' first."
             )
 
-        if len(stage_files) > 1:
-            versions = [f.stem.replace('-stage', '') for f in stage_files]
+        if len(patches_files) > 1:
+            versions = [f.stem.replace('-patches', '') for f in patches_files]
             raise ReleaseManagerError(
-                f"Multiple stage releases found: {versions}\n"
+                f"Multiple development releases found: {versions}\n"
                 f"Use --to-version to specify target release."
             )
 
-        # Single stage file
-        stage_file = stage_files[0]
-        version = stage_file.stem.replace('-stage', '')
+        # Single patches file
+        patches_file = patches_files[0]
+        version = patches_file.stem.replace('-patches', '')
 
-        return (version, stage_file.name)
+        return (version, patches_file.name)
 
 
     def _get_active_patch_branches(self) -> List[str]:
@@ -2459,28 +2480,21 @@ class ReleaseManager:
             except Exception as e:
                 raise ReleaseManagerError(f"Failed to checkout ho-prod: {e}")
 
-        # Create empty candidates file (NEW)
-        candidates_file = self._releases_dir / f"{version}-candidates.txt"
+        # Create empty patches file (TOML format)
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile(version, self._releases_dir)
         try:
-            candidates_file.write_text("", encoding='utf-8')
+            release_file.create_empty()
         except Exception as e:
-            raise ReleaseManagerError(f"Failed to create candidates file: {e}")
+            raise ReleaseManagerError(f"Failed to create patches file: {e}")
 
-        # Create empty stage file
-        stage_file = self._releases_dir / f"{version}-stage.txt"
+        # Commit patches file on ho-prod
         try:
-            stage_file.write_text("", encoding='utf-8')
-        except Exception as e:
-            raise ReleaseManagerError(f"Failed to create stage file: {e}")
-
-        # Commit both files on ho-prod
-        try:
-            self._repo.hgit.add(str(candidates_file))
-            self._repo.hgit.add(str(stage_file))
-            self._repo.hgit.commit("-m", f"[HOP] Create release %{version} branch and release files")
+            self._repo.hgit.add(str(release_file.file_path))
+            self._repo.hgit.commit("-m", f"[HOP] Create release %{version} branch and patches file")
             self._repo.hgit.push_branch("ho-prod")
         except Exception as e:
-            raise ReleaseManagerError(f"Failed to commit release files: {e}")
+            raise ReleaseManagerError(f"Failed to commit patches file: {e}")
 
         # Create release branch from ho-prod
         try:
@@ -2503,7 +2517,7 @@ class ReleaseManager:
         return {
             'version': version,
             'branch': release_branch,
-            'stage_file': str(stage_file)
+            'patches_file': str(release_file.file_path)
         }
 
     @with_dynamic_branch_lock(lambda self, patch_id, version: "ho-prod")
@@ -2542,13 +2556,14 @@ class ReleaseManager:
         # Save current branch to return to it later
         original_branch = self._repo.hgit.branch
 
-        # Ensure we're on ho-prod to access stage file
+        # Ensure we're on ho-prod to access patches file
         self._repo.hgit.checkout("ho-prod")
 
-        # Validate release exists (stage file must be on ho-prod)
-        stage_file = self._releases_dir / f"{version}-stage.txt"
-        if not stage_file.exists():
-            raise ReleaseManagerError(f"Release {version} not found (no stage file)")
+        # Validate release exists (TOML patches file must be on ho-prod)
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile(version, self._releases_dir)
+        if not release_file.exists():
+            raise ReleaseManagerError(f"Release {version} not found (no patches file)")
 
         # Validate patch branch exists
         patch_branch = f"ho-patch/{patch_id}"
@@ -2584,15 +2599,24 @@ class ReleaseManager:
             # 5. Push release branch with merge
             self._repo.hgit.push_branch(release_branch)
 
-            # 6. Add patch to stage file
-            current_content = stage_file.read_text(encoding='utf-8')
-            if patch_id not in current_content.split('\n'):
-                with stage_file.open('a', encoding='utf-8') as f:
-                    f.write(f"{patch_id}\n")
+            # 6. Add patch to TOML file as staged
+            # Check if patch already staged
+            current_status = release_file.get_patch_status(patch_id)
+            if current_status != "staged":
+                # Mark as staged if it's a candidate, or add as staged if new
+                if current_status == "candidate":
+                    release_file.move_to_staged(patch_id)
+                else:
+                    # This shouldn't happen in normal workflow, but handle it
+                    raise ReleaseManagerError(
+                        f"Patch {patch_id} not found in release {version}. "
+                        f"Expected it to be a candidate patch."
+                    )
 
-            # 7. Commit stage file update (on ho-prod)
+            # 7. Commit patches file update (on ho-prod)
             self._repo.hgit.checkout("ho-prod")
-            self._repo.hgit.add(str(stage_file))
+            toml_file = self._releases_dir / f"{version}-patches.toml"
+            self._repo.hgit.add(str(toml_file))
             self._repo.hgit.commit("-m", f"[HOP] Add patch #{patch_id} to release %{version} stage. Closes #{patch_id}")
             self._repo.hgit.push_branch("ho-prod")
 
@@ -2605,7 +2629,7 @@ class ReleaseManager:
             return {
                 'patch_id': patch_id,
                 'merged': True,
-                'stage_file': stage_file                
+                'patches_file': str(toml_file)
             }
 
         except ReleaseManagerError:
@@ -2632,9 +2656,9 @@ class ReleaseManager:
         Raises:
             ReleaseManagerError: If no release found to promote
         """
-        # Find stage files
-        stage_files = list(self._releases_dir.glob("*-stage.txt"))
-        if not stage_files:
+        # Find TOML patches files
+        patches_files = list(self._releases_dir.glob("*-patches.toml"))
+        if not patches_files:
             raise ReleaseManagerError(
                 "No stage release found. "
                 "Create a stage release first with: half_orm dev release new"
@@ -2642,15 +2666,15 @@ class ReleaseManager:
 
         # Sort by version to get the smallest (oldest) one first
         def version_key(path):
-            version_str = path.stem.replace('-stage', '')
+            version_str = path.stem.replace('-patches', '')
             parts = version_str.split('.')
             try:
                 return (int(parts[0]), int(parts[1]), int(parts[2]))
             except (ValueError, IndexError):
                 return (0, 0, 0)
 
-        stage_files.sort(key=version_key)
-        return stage_files[0].stem.replace('-stage', '')
+        patches_files.sort(key=version_key)
+        return patches_files[0].stem.replace('-patches', '')
 
     @with_dynamic_branch_lock(lambda self: "ho-prod")
     def promote_to_rc(self) -> dict:
@@ -2684,9 +2708,11 @@ class ReleaseManager:
         # Auto-detect version if not provided
         version = self._detect_version_to_promote('rc')
 
-        stage_file = self._releases_dir / f"{version}-stage.txt"
-        if not stage_file.exists():
-            raise ReleaseManagerError(f"Release {version} not found (no stage file)")
+        # Check TOML patches file exists
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile(version, self._releases_dir)
+        if not release_file.exists():
+            raise ReleaseManagerError(f"Release {version} not found (no patches file)")
 
         release_branch = f"ho-release/{version}"
         rc_number = self._determine_rc_number(version)
@@ -2708,13 +2734,12 @@ class ReleaseManager:
             # Stay on release branch for rename operations
             # (allows continued development on this release)
 
-            # Rename stage file to rc file
+            # Create RC snapshot from staged patches
             rc_file = self._releases_dir / f"{version}-rc{rc_number}.txt"
-            stage_file.rename(rc_file)
-            try:
-                stage_file.write_text("", encoding='utf-8')
-            except Exception as e:
-                raise ReleaseManagerError(f"Failed to create stage file: {e}")
+            staged_patches = release_file.get_patches(status="staged")
+            rc_file.write_text("\n".join(staged_patches) + "\n" if staged_patches else "", encoding='utf-8')
+
+            # Keep TOML file for continued development (don't delete it)
 
             # Generate data-X.Y.Z-rcN.sql if any patches have @HOP:data files
             rc_patches = self.read_release_patches(rc_file.name)
@@ -2723,9 +2748,8 @@ class ReleaseManager:
                 f"data-{version}-rc{rc_number}.sql"
             )
 
-            # Commit rename on release branch (and data file if generated)
-            self._repo.hgit.add(str(stage_file))  # Old path (deleted)
-            self._repo.hgit.add(str(rc_file))     # New path
+            # Commit RC snapshot on release branch (and data file if generated)
+            self._repo.hgit.add(str(rc_file))     # RC snapshot file
             if data_file:
                 self._repo.hgit.add(str(data_file))  # Data file if generated
             self._repo.hgit.commit("-m", f"[HOP] Promote release %{version} to RC {rc_number}")
@@ -2788,32 +2812,29 @@ class ReleaseManager:
         # Auto-detect version
         version = self._detect_version_to_promote('prod')
 
-        stage_file = self._releases_dir / f"{version}-stage.txt"
-        if not stage_file.exists():
+        # Check TOML patches file exists
+        from half_orm_dev.release_file import ReleaseFile
+        release_file = ReleaseFile(version, self._releases_dir)
+        if not release_file.exists():
             raise ReleaseManagerError(f"RC release {version} not found")
 
-        # Verify that candidates.txt is empty before promoting to production
-        candidates_file = self._releases_dir / f"{version}-candidates.txt"
-        if candidates_file.exists():
-            candidates_content = candidates_file.read_text(encoding='utf-8').strip()
-            if candidates_content:
-                candidates = [c.strip() for c in candidates_content.split('\n') if c.strip() and not c.strip().startswith('#')]
-                if candidates:
-                    raise ReleaseManagerError(
-                        f"Cannot promote {version} to production: {len(candidates)} candidate patch(es) remain:\n"
-                        f"  • " + "\n  • ".join(candidates) + "\n\n"
-                        f"Actions required:\n"
-                        f"  1. Close patches: half_orm dev patch close <patch_id>\n"
-                        f"  2. OR delete branches: git branch -D ho-patch/<patch_id>\n"
-                        f"  3. OR move to another release (edit candidates file manually)"
-                    )
+        # Verify that no candidate patches remain before promoting to production
+        candidates = release_file.get_patches(status="candidate")
+        if candidates:
+            raise ReleaseManagerError(
+                f"Cannot promote {version} to production: {len(candidates)} candidate patch(es) remain:\n"
+                f"  • " + "\n  • ".join(candidates) + "\n\n"
+                f"Actions required:\n"
+                f"  1. Close patches: half_orm dev patch close <patch_id>\n"
+                f"  2. OR delete branches: git branch -D ho-patch/<patch_id>\n"
+                f"  3. OR move to another release (edit patches file manually)"
+            )
 
         release_branch = f"ho-release/{version}"
 
         try:
-            # Read patches from rc file
-            patches = stage_file.read_text(encoding='utf-8').strip().split('\n')
-            patches = [p.strip() for p in patches if p.strip()]
+            # Read staged patches from TOML file
+            patches = release_file.get_patches(status="staged")
 
             # 1. Checkout ho-prod
             self._repo.hgit.checkout("ho-prod")
@@ -2842,9 +2863,9 @@ class ReleaseManager:
                         "ho-prod has been restored to its previous state."
                     )
 
-            # 3. Apply only NEW patches from stage (if any) and generate schema
+            # 3. Apply only NEW patches from TOML file (if any) and generate schema
             # Note: RC patches have already been applied during promote_to_rc
-            stage_patches = self.read_release_patches(f"{version}-stage.txt")
+            stage_patches = release_file.get_patches(status="staged")
 
             if stage_patches:
                 # There are new patches after RC - apply them
@@ -2875,18 +2896,18 @@ class ReleaseManager:
             self._repo.hgit.add(str(model_dir / f"metadata-{version}.sql"))
             self._repo.hgit.add(str(model_dir / "schema.sql"))  # symlink
 
-            # 4. Rename stage file to prod and delete candidates
+            # 4. Create production snapshot and delete TOML patches file
             prod_file = self._releases_dir / f"{version}.txt"
-            candidates_file = self._releases_dir / f"{version}-candidates.txt"
+            toml_file = self._releases_dir / f"{version}-patches.toml"
 
-            stage_file.rename(prod_file)
-            self._repo.hgit.add(str(stage_file))   # Old path (deleted)
-            self._repo.hgit.add(str(prod_file))    # New path (created)
+            # Write all staged patches to production snapshot
+            prod_file.write_text("\n".join(patches) + "\n" if patches else "", encoding='utf-8')
+            self._repo.hgit.add(str(prod_file))    # New production file
 
-            # Delete candidates file if it exists
-            if candidates_file.exists():
-                candidates_file.unlink()
-                self._repo.hgit.add(str(candidates_file))  # Mark as deleted
+            # Delete TOML patches file (no longer needed)
+            if toml_file.exists():
+                toml_file.unlink()
+                self._repo.hgit.add(str(toml_file))  # Mark as deleted
 
             # Generate data-X.Y.Z.sql if any patches have @HOP:data files
             # This includes patches from stage (incremental after last RC)
@@ -3110,17 +3131,17 @@ class ReleaseManager:
             self._repo.hgit.push_branch(release_branch, set_upstream=True)
             self._repo.hgit.checkout(release_branch)
 
-            # 5. Create candidates.txt file with HOTFIX marker
-            candidates_file = self._releases_dir / f"{version}-candidates.txt"
-            candidates_file.write_text("# HOTFIX\n", encoding='utf-8')
+            # 5. Create TOML patches file for hotfix development
+            from half_orm_dev.release_file import ReleaseFile
+            release_file = ReleaseFile(version, self._releases_dir)
+            release_file.create_empty()
 
-            # 6. Create empty stage.txt file
-            stage_file = self._releases_dir / f"{version}-stage.txt"
-            stage_file.write_text("", encoding='utf-8')
+            # Note: HOTFIX marker is no longer needed in TOML format
+            # The fact that we're on ho-release/X.Y.Z indicates hotfix development
 
             # 7. Commit and push
-            self._repo.hgit.add(str(candidates_file))
-            self._repo.hgit.add(str(stage_file))
+            toml_file = self._releases_dir / f"{version}-patches.toml"
+            self._repo.hgit.add(str(toml_file))
 
             commit_msg = f"[release] Reopen %{version} for hotfix development"
             self._repo.hgit.commit(message=commit_msg)
@@ -3129,8 +3150,7 @@ class ReleaseManager:
             return {
                 'version': version,
                 'branch': release_branch,
-                'candidates_file': str(candidates_file),
-                'stage_file': str(stage_file)
+                'patches_file': str(toml_file)
             }
 
         except ReleaseManagerError:
@@ -3185,26 +3205,20 @@ class ReleaseManager:
             # Extract version from branch name
             version = current_branch.replace('ho-release/', '')
 
-            # 2. Verify candidates.txt is empty (ignoring comments)
-            candidates_file = self._releases_dir / f"{version}-candidates.txt"
-            if candidates_file.exists():
-                candidates_content = candidates_file.read_text(encoding='utf-8').strip()
-                if candidates_content:
-                    # Filter out comment lines (starting with #)
-                    candidates = [
-                        c.strip()
-                        for c in candidates_content.split('\n')
-                        if c.strip() and not c.strip().startswith('#')
-                    ]
-                    if candidates:
-                        raise ReleaseManagerError(
-                            f"Cannot promote hotfix: {len(candidates)} candidate patch(es) remain:\n"
-                            f"  • " + "\n  • ".join(candidates) + "\n\n"
-                            f"Actions required:\n"
-                            f"  1. Close patches: half_orm dev patch close <patch_id>\n"
-                            f"  2. OR delete branches: git branch -D ho-patch/<patch_id>\n"
-                            f"  3. OR move to another release (edit candidates file manually)"
-                        )
+            # 2. Verify no candidate patches remain (check TOML file)
+            from half_orm_dev.release_file import ReleaseFile
+            release_file = ReleaseFile(version, self._releases_dir)
+            if release_file.exists():
+                candidates = release_file.get_patches(status="candidate")
+                if candidates:
+                    raise ReleaseManagerError(
+                        f"Cannot promote hotfix: {len(candidates)} candidate patch(es) remain:\n"
+                        f"  • " + "\n  • ".join(candidates) + "\n\n"
+                        f"Actions required:\n"
+                        f"  1. Close patches: half_orm dev patch close <patch_id>\n"
+                        f"  2. OR delete branches: git branch -D ho-patch/<patch_id>\n"
+                        f"  3. OR move to another release (edit patches file manually)"
+                    )
 
             # 3. Determine next hotfix number
             hotfix_num = self._determine_hotfix_number(version)
@@ -3217,20 +3231,21 @@ class ReleaseManager:
             merge_msg = f"[release] Merge hotfix %{version}-hotfix{hotfix_num}"
             self._repo.hgit.merge(current_branch, message=merge_msg)
 
-            # 5. Rename stage file to hotfix file and delete candidates
-            stage_file = self._releases_dir / f"{version}-stage.txt"
+            # 5. Create hotfix snapshot file from staged patches
+            toml_file = self._releases_dir / f"{version}-patches.toml"
             hotfix_file = self._releases_dir / f"{version}-hotfix{hotfix_num}.txt"
-            candidates_file = self._releases_dir / f"{version}-candidates.txt"
 
-            if stage_file.exists():
-                stage_file.rename(hotfix_file)
-                self._repo.hgit.add(str(stage_file))   # Old path (deleted)
-                self._repo.hgit.add(str(hotfix_file))   # New path (created)
+            if release_file.exists():
+                # Get staged patches from TOML file
+                staged_patches = release_file.get_patches(status="staged")
 
-            # Delete candidates file if it exists
-            if candidates_file.exists():
-                candidates_file.unlink()
-                self._repo.hgit.add(str(candidates_file))  # Mark as deleted
+                # Write snapshot to hotfix TXT file (production format)
+                hotfix_file.write_text("\n".join(staged_patches) + "\n" if staged_patches else "", encoding='utf-8')
+                self._repo.hgit.add(str(hotfix_file))
+
+                # Delete TOML patches file
+                toml_file.unlink()
+                self._repo.hgit.add(str(toml_file))  # Mark as deleted
 
             # Generate data-X.Y.Z-hotfixN.sql if any patches have @HOP:data files
             hotfix_patches = self.read_release_patches(hotfix_file.name)

@@ -18,6 +18,31 @@ from git.exc import GitCommandError
 
 from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 from half_orm_dev.repo import Repo
+from half_orm_dev.release_file import ReleaseFile
+
+
+def create_patches_file(releases_dir: Path, version: str, patches: list = None, as_staged: bool = True, as_candidates: bool = False):
+    """
+    Helper to create TOML patches file for testing.
+
+    Args:
+        releases_dir: Path to releases directory
+        version: Version string (e.g., "0.1.0")
+        patches: List of patch IDs, or None for empty file
+        as_staged: If True, patches will be marked as staged (default)
+        as_candidates: If True, patches will be marked as candidates
+    """
+    release_file = ReleaseFile(version, releases_dir)
+    release_file.create_empty()
+
+    if patches:
+        for patch_id in patches:
+            release_file.add_patch(patch_id)
+            if as_staged and not as_candidates:
+                release_file.move_to_staged(patch_id)
+            # If as_candidates is True, leave as candidates
+
+    return release_file.file_path
 
 
 @pytest.fixture
@@ -84,9 +109,9 @@ class TestReleaseIntegrationWorkflow:
         # Should push the branch
         assert call("ho-release/0.1.0") in mock_hgit_complete.push_branch.call_args_list
 
-        # Should create empty stage file
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        assert stage_file.exists()
+        # Should create empty TOML patches file
+        patches_file = releases_dir / "0.1.0-patches.toml"
+        assert patches_file.exists()
 
         # Should return version
         assert result['version'] == "0.1.0"
@@ -97,9 +122,8 @@ class TestReleaseIntegrationWorkflow:
         rel_mgr, repo, temp_dir, releases_dir = release_manager
         repo.hgit = mock_hgit_complete
 
-        # Setup: create stage file
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("")
+        # Setup: create TOML patches file with patch as candidate
+        patches_file = create_patches_file(releases_dir, "0.1.0", ["1-first"], as_staged=False, as_candidates=True)
 
         # Mock: patch branch exists
         mock_hgit_complete.branch_exists.return_value = True
@@ -124,8 +148,10 @@ class TestReleaseIntegrationWorkflow:
             message="[HOP] Merge patch #1-first into release %0.1.0"
         )
 
-        # Should update stage file
-        assert "1-first" in stage_file.read_text()
+        # Should update TOML patches file
+        release_file = ReleaseFile("0.1.0", releases_dir)
+        patches = release_file.get_patches()
+        assert "1-first" in patches
 
         # Should push release branch
         assert call("ho-release/0.1.0") in mock_hgit_complete.push_branch.call_args_list
@@ -135,9 +161,8 @@ class TestReleaseIntegrationWorkflow:
         rel_mgr, repo, temp_dir, releases_dir = release_manager
         repo.hgit = mock_hgit_complete
 
-        # Setup: create stage file
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("")
+        # Setup: create TOML patches file
+        create_patches_file(releases_dir, "0.1.0")
 
         # Mock: merge fails with conflict
         mock_hgit_complete.branch_exists.return_value = True
@@ -157,9 +182,8 @@ class TestReleaseIntegrationWorkflow:
         rel_mgr, repo, temp_dir, releases_dir = release_manager
         repo.hgit = mock_hgit_complete
 
-        # Setup: create stage file
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("")
+        # Setup: create TOML patches file with patches as candidates
+        create_patches_file(releases_dir, "0.1.0", ["1-first", "2-second"], as_staged=False, as_candidates=True)
 
         mock_hgit_complete.branch_exists.return_value = True
 
@@ -183,19 +207,29 @@ class TestReleaseIntegrationWorkflow:
             message="[HOP] Merge patch #2-second into release %0.1.0"
         )
 
-        # Stage file should contain both
-        content = stage_file.read_text()
-        assert "1-first" in content
-        assert "2-second" in content
+        # TOML patches file should contain both
+
+
+        release_file = ReleaseFile("0.1.0", releases_dir)
+
+
+        patches = release_file.get_patches()
+
+
+        assert "1-first" in patches
+
+
+        assert "2-second" in patches
 
     def test_promote_rc_tags_release_branch(self, release_manager, mock_hgit_complete):
         """Test that 'promote rc' creates tag on release branch."""
         rel_mgr, repo, temp_dir, releases_dir = release_manager
         repo.hgit = mock_hgit_complete
 
-        # Setup: create stage file
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("001-first\n")
+        # Setup: create TOML patches file
+
+
+        create_patches_file(releases_dir, "0.1.0", ["001-first"])
 
         # Promote to RC
         result = rel_mgr.promote_to_rc()
@@ -209,10 +243,11 @@ class TestReleaseIntegrationWorkflow:
         # Should push tag
         mock_hgit_complete.push_tag.assert_called_once_with('v0.1.0-rc1')
 
-        # Should rename stage file to rc
+        # Should create RC snapshot and keep TOML patches file
         rc_file = releases_dir / "0.1.0-rc1.txt"
         assert rc_file.exists()
-        assert stage_file.exists()
+        patches_file = releases_dir / "0.1.0-patches.toml"
+        assert patches_file.exists()
 
     def test_promote_prod_merges_release_into_ho_prod(self, release_manager, mock_hgit_complete):
         """Test that 'promote prod' merges release branch into ho-prod."""
@@ -223,9 +258,10 @@ class TestReleaseIntegrationWorkflow:
         rc_file = releases_dir / "0.1.0-rc1.txt"
         rc_file.write_text("001-first\n002-second\n")
 
-        # Setup: create stage file (automatically created after promote_to_rc)
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("001-first\n002-second\n")
+        # Setup: create TOML patches file
+
+
+        create_patches_file(releases_dir, "0.1.0", ["001-first", "002-second"])
 
         # Promote to prod
         result = rel_mgr.promote_to_prod()
@@ -247,19 +283,22 @@ class TestReleaseIntegrationWorkflow:
         assert call("ho-prod") in mock_hgit_complete.push_branch.call_args_list
         mock_hgit_complete.push_tag.assert_called_once_with("v0.1.0")
 
-        # Should rename rc file to prod
+        # Should create production file
         prod_file = releases_dir / "0.1.0.txt"
         assert prod_file.exists()
-        assert not stage_file.exists()
+        # TOML patches file should be deleted after promote_to_prod
+        patches_file = releases_dir / "0.1.0-patches.toml"
+        assert not patches_file.exists()
 
     def test_promote_prod_cleans_up_branches(self, release_manager, mock_hgit_complete):
         """Test that 'promote prod' deletes patch and release branches."""
         rel_mgr, repo, temp_dir, releases_dir = release_manager
         repo.hgit = mock_hgit_complete
 
-        # Setup: create rc file with patches
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("1-first\n2-second\n")
+        # Setup: create TOML patches file
+
+
+        create_patches_file(releases_dir, "0.1.0", ["1-first", "2-second"])
 
         # Promote to prod
         rel_mgr.promote_to_prod()
@@ -288,12 +327,31 @@ class TestReleaseIntegrationWorkflow:
         mock_hgit_complete.branch_exists.return_value = True
 
         # Step 1: Create new release
+
+
         rel_mgr.new_release("minor")
+
+
         assert mock_hgit_complete.create_branch.call_args == call(
+
+
             "ho-release/0.1.0", from_branch="ho-prod"
+
+
         )
 
+
+
+        # Add patches as candidates
+
+
+        create_patches_file(releases_dir, "0.1.0", ["001-create-table-a", "002-add-foreign-key-to-a"], as_staged=False, as_candidates=True)
+
+
+
         # Step 2: Add patch 001 (creates table A)
+
+
         rel_mgr.add_patch_to_release("001-create-table-a", "0.1.0")
 
         # Verify: 001 is merged into release branch
@@ -336,14 +394,23 @@ class TestReleaseIntegrationWorkflow:
         rel_mgr, repo, temp_dir, releases_dir = release_manager
         repo.hgit = mock_hgit_complete
 
-        # Create stage file
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("")
+        # Create TOML patches file with missing patch as candidate
 
-        # Mock: patch branch doesn't exist
+
+        create_patches_file(releases_dir, "0.1.0", ["999-missing"], as_staged=False, as_candidates=True)
+
+
+
+        # Mock: patch branch doesn\'t exist
+
+
         mock_hgit_complete.branch_exists.return_value = False
 
+
+
         with pytest.raises(ReleaseManagerError, match="Patch branch.*not found"):
+
+
             rel_mgr.add_patch_to_release("999-missing", "0.1.0")
 
     def test_returns_to_original_branch_after_operations(self, release_manager, mock_hgit_complete):
@@ -352,12 +419,21 @@ class TestReleaseIntegrationWorkflow:
         repo.hgit = mock_hgit_complete
 
         # Setup
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("")
+
+
+        create_patches_file(releases_dir, "0.1.0", ["001-first"], as_staged=False, as_candidates=True)
+
+
         mock_hgit_complete.branch_exists.return_value = True
+
+
         mock_hgit_complete.branch = "ho-patch/003-my-work"
 
+
+
         # Add patch to release
+
+
         rel_mgr.add_patch_to_release("001-first", "0.1.0")
 
         # Should return to original branch
@@ -370,18 +446,17 @@ class TestApplyReleasePatches:
     """Test the _apply_release_patches() method for correct patch application order."""
 
     def test_applies_patches_in_correct_order(self, release_manager):
-        """Test that patches are applied in order: restore → RC patches → stage patches."""
+        """Test that patches are applied in order: restore → RC patches → TOML patches."""
         rel_mgr, repo, temp_dir, releases_dir = release_manager
 
-        # Setup: create RC files and stage file
+        # Setup: create RC files and TOML patches file
         rc1_file = releases_dir / "0.1.0-rc1.txt"
         rc1_file.write_text("001-first\n002-second\n")
 
         rc2_file = releases_dir / "0.1.0-rc2.txt"
         rc2_file.write_text("003-third\n")
 
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("004-fourth\n005-fifth\n")
+        create_patches_file(releases_dir, "0.1.0", ["004-fourth", "005-fifth"])
 
         # Mock patch_manager
         mock_patch_manager = Mock()
@@ -405,7 +480,7 @@ class TestApplyReleasePatches:
         # RC2 patches second
         assert apply_calls[2] == call("003-third", repo.model)
 
-        # Stage patches last
+        # TOML patches last
         assert apply_calls[3] == call("004-fourth", repo.model)
         assert apply_calls[4] == call("005-fifth", repo.model)
 
@@ -414,8 +489,7 @@ class TestApplyReleasePatches:
         rel_mgr, repo, temp_dir, releases_dir = release_manager
 
         # Setup: create stage file only
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("001-first\n")
+        create_patches_file(releases_dir, "0.1.0", ["001-first"])
 
         # Track call order
         call_order = []
@@ -440,12 +514,11 @@ class TestApplyReleasePatches:
         assert call_order[1] == 'apply:001-first'
 
     def test_no_rc_files_applies_only_stage(self, release_manager):
-        """Test that when no RC files exist, only stage patches are applied."""
+        """Test that when no RC files exist, only TOML patches are applied."""
         rel_mgr, repo, temp_dir, releases_dir = release_manager
 
-        # Setup: create only stage file
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("001-first\n002-second\n")
+        # Setup: create only TOML patches file
+        create_patches_file(releases_dir, "0.1.0", ["001-first", "002-second"])
 
         mock_patch_manager = Mock()
         repo.patch_manager = mock_patch_manager
@@ -454,22 +527,21 @@ class TestApplyReleasePatches:
         # Execute
         rel_mgr._apply_release_patches("0.1.0")
 
-        # Verify only stage patches applied
+        # Verify only TOML patches applied
         apply_calls = mock_patch_manager.apply_patch_files.call_args_list
         assert len(apply_calls) == 2
         assert apply_calls[0] == call("001-first", repo.model)
         assert apply_calls[1] == call("002-second", repo.model)
 
     def test_empty_stage_file_applies_only_rc_patches(self, release_manager):
-        """Test that empty stage file still applies RC patches."""
+        """Test that empty TOML file still applies RC patches."""
         rel_mgr, repo, temp_dir, releases_dir = release_manager
 
-        # Setup: create RC file and empty stage
+        # Setup: create RC file and empty TOML
         rc1_file = releases_dir / "0.1.0-rc1.txt"
         rc1_file.write_text("001-first\n")
 
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("")
+        create_patches_file(releases_dir, "0.1.0")  # Empty TOML file
 
         mock_patch_manager = Mock()
         repo.patch_manager = mock_patch_manager
@@ -497,8 +569,7 @@ class TestApplyReleasePatches:
         rc2_file = releases_dir / "0.1.0-rc2.txt"
         rc2_file.write_text("002-second\n")
 
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("")
+        create_patches_file(releases_dir, "0.1.0")  # Empty TOML file
 
         mock_patch_manager = Mock()
         repo.patch_manager = mock_patch_manager
@@ -515,12 +586,11 @@ class TestApplyReleasePatches:
         assert apply_calls[2] == call("003-third", repo.model)
 
     def test_handles_comments_and_empty_lines(self, release_manager):
-        """Test that comments and empty lines in release files are ignored."""
+        """Test that TOML format properly handles patches (no comments in TOML patch IDs)."""
         rel_mgr, repo, temp_dir, releases_dir = release_manager
 
-        # Setup: create stage file with comments and empty lines
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("# This is a comment\n001-first\n\n002-second\n# Another comment\n")
+        # Setup: create TOML patches file (TOML doesn't have inline comments)
+        create_patches_file(releases_dir, "0.1.0", ["001-first", "002-second"])
 
         mock_patch_manager = Mock()
         repo.patch_manager = mock_patch_manager
@@ -529,7 +599,7 @@ class TestApplyReleasePatches:
         # Execute
         rel_mgr._apply_release_patches("0.1.0")
 
-        # Verify only actual patches applied
+        # Verify patches applied
         apply_calls = mock_patch_manager.apply_patch_files.call_args_list
         assert len(apply_calls) == 2
         assert apply_calls[0] == call("001-first", repo.model)
@@ -539,9 +609,8 @@ class TestApplyReleasePatches:
         """Test that database is restored even when there are no patches."""
         rel_mgr, repo, temp_dir, releases_dir = release_manager
 
-        # Setup: create empty stage file
-        stage_file = releases_dir / "0.1.0-stage.txt"
-        stage_file.write_text("")
+        # Setup: create empty TOML patches file
+        create_patches_file(releases_dir, "0.1.0")
 
         mock_patch_manager = Mock()
         repo.patch_manager = mock_patch_manager

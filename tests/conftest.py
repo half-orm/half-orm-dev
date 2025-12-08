@@ -20,11 +20,14 @@ def temp_repo():
     patches_dir = Path(temp_dir) / "Patches"
     patches_dir.mkdir()
 
-    # Create releases/ directory with candidates file (for new workflow)
+    # Create releases/ directory with TOML patches file
     releases_dir = Path(temp_dir) / ".hop" / "releases"
     releases_dir.mkdir(parents=True, exist_ok=True)
-    candidates_file = releases_dir / "0.17.0-candidates.txt"
-    candidates_file.write_text("", encoding='utf-8')  # Empty file initially
+
+    # Create empty TOML patches file
+    from half_orm_dev.release_file import ReleaseFile
+    release_file = ReleaseFile("0.17.0", releases_dir)
+    release_file.create_empty()
 
     repo = Mock()
     repo.base_dir = temp_dir
@@ -336,3 +339,53 @@ def sample_release_files(tmp_path):
         (releases_dir / filename).write_text(content)
 
     return releases_dir, files
+
+
+@pytest.fixture
+def create_toml_patches_file():
+    """
+    Helper to create TOML patches files for testing.
+
+    Usage:
+        def test_something(create_toml_patches_file, tmp_path):
+            releases_dir = tmp_path / ".hop" / "releases"
+            releases_dir.mkdir(parents=True)
+
+            # Create TOML with candidates and staged patches
+            create_toml_patches_file(
+                releases_dir,
+                "1.3.6",
+                candidates=["001-first", "002-second"],
+                staged=["003-third"]
+            )
+    """
+    def _create_toml(releases_dir, version: str, candidates=None, staged=None):
+        """
+        Create a TOML patches file for testing.
+
+        Args:
+            releases_dir: Path to releases directory
+            version: Version string (e.g., "1.3.6")
+            candidates: List of candidate patch IDs (added first)
+            staged: List of staged patch IDs (added after candidates)
+        """
+        from half_orm_dev.release_file import ReleaseFile
+
+        release_file = ReleaseFile(version, Path(releases_dir))
+        release_file.create_empty()
+
+        # Add candidates first
+        if candidates:
+            for patch_id in candidates:
+                release_file.add_patch(patch_id)
+
+        # Move staged patches to staged status
+        if staged:
+            for patch_id in staged:
+                # First add as candidate, then move to staged
+                release_file.add_patch(patch_id)
+                release_file.move_to_staged(patch_id)
+
+        return release_file
+
+    return _create_toml
