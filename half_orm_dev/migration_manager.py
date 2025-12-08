@@ -21,10 +21,12 @@ Each migration file must define:
 """
 
 import os
+import sys
 import importlib.util
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from half_orm import utils
+from half_orm_dev.decorators import with_dynamic_branch_lock
 
 
 class MigrationManagerError(Exception):
@@ -55,33 +57,6 @@ class MigrationManager:
 
         # Path to migrations directory (in half_orm_dev package)
         self._migrations_root = Path(__file__).parent / 'migrations'
-
-        # Path to log file
-        self._log_file = self._migrations_root / 'log'
-
-    def get_applied_migrations(self) -> List[str]:
-        """
-        Read list of applied migrations from log file.
-
-        Returns:
-            List of version strings (e.g., ['0.17.0', '0.17.1'])
-        """
-        if not self._log_file.exists():
-            return []
-
-        with open(self._log_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-
-        # Parse version strings (ignore empty lines and comments)
-        versions = []
-        for line in lines:
-            line = line.strip()
-            if line and not line.startswith('#'):
-                # Support format like "0.17.1" or "0.17.1 <git-hash>"
-                version = line.split()[0]
-                versions.append(version)
-
-        return versions
 
     def _parse_version(self, version_str: str) -> Tuple[int, int, int]:
         """
@@ -123,23 +98,27 @@ class MigrationManager:
         major, minor, patch = version
         return self._migrations_root / str(major) / str(minor) / str(patch)
 
-    def get_pending_migrations(self, target_version: str) -> List[Tuple[str, Path]]:
+    def get_pending_migrations(self, current_version: str, target_version: str) -> List[Tuple[str, Path]]:
         """
         Get list of migrations that need to be applied.
 
+        Compares current version (from .hop/config) with target version (from hop_version())
+        and returns all migrations in between.
+
         Args:
-            target_version: Target version string (e.g., "0.17.1")
+            current_version: Current version from .hop/config (e.g., "0.17.0")
+            target_version: Target version from hop_version() (e.g., "0.17.1")
 
         Returns:
             List of (version_str, migration_dir_path) tuples in order
         """
-        applied = set(self.get_applied_migrations())
+        current = self._parse_version(current_version)
         target = self._parse_version(target_version)
 
         pending = []
 
-        # Walk through version directories to find unapplied migrations
-        # Start from 0.0.0 up to target version
+        # Walk through version directories to find migrations between current and target
+        # Start from current version + 1 up to target version
         for major in range(0, target[0] + 1):
             major_dir = self._migrations_root / str(major)
             if not major_dir.exists():
@@ -157,11 +136,17 @@ class MigrationManager:
                     if not patch_dir.exists():
                         continue
 
-                    version_str = f"{major}.{minor}.{patch}"
+                    version_tuple = (major, minor, patch)
 
-                    # Skip if already applied
-                    if version_str in applied:
+                    # Skip if this version is <= current version
+                    if version_tuple <= current:
                         continue
+
+                    # Skip if this version is > target version
+                    if version_tuple > target:
+                        continue
+
+                    version_str = f"{major}.{minor}.{patch}"
 
                     # Check if this version has any migration files
                     migration_files = list(patch_dir.glob('*.py'))
@@ -243,58 +228,82 @@ class MigrationManager:
 
         return result
 
-    def mark_migration_applied(self, version_str: str):
-        """
-        Mark a migration as applied in the log file.
-
-        Args:
-            version_str: Version string (e.g., "0.17.1")
-        """
-        # Ensure migrations directory exists
-        self._migrations_root.mkdir(parents=True, exist_ok=True)
-
-        # Append to log file
-        with open(self._log_file, 'a', encoding='utf-8') as f:
-            f.write(f"{version_str}\n")
-
-    def run_migrations(self, target_version: str, create_commit: bool = True) -> Dict:
+    @with_dynamic_branch_lock(lambda self, *args, **kwargs: 'ho-prod')
+    def run_migrations(self, target_version: str, create_commit: bool = True, notify_branches: bool = True) -> Dict:
         """
         Run all pending migrations up to target version.
+
+        IMPORTANT: This method acquires a lock on ho-prod branch via decorator.
+        Should only be called when on ho-prod branch.
 
         Args:
             target_version: Target version string (e.g., "0.17.1")
             create_commit: Whether to create Git commit after migration
+            notify_branches: Whether to create empty commits on active branches
 
         Returns:
-            Dict with migration results
+            Dict with migration results including:
+                - migrations_applied: List of applied migrations
+                - commit_created: Whether migration commit was created
+                - notified_branches: List of branches that were notified
         """
         result = {
             'target_version': target_version,
             'migrations_applied': [],
             'errors': [],
-            'commit_created': False
+            'commit_created': False,
+            'notified_branches': []
         }
 
-        # Get pending migrations
-        pending = self.get_pending_migrations(target_version)
+        # Fetch from origin to ensure we have latest refs
+        try:
+            self._repo.hgit.fetch_from_origin()
+        except Exception as e:
+            result['errors'].append(f"Failed to fetch from origin: {e}")
+            raise MigrationManagerError(f"Cannot run migration: failed to fetch from origin: {e}")
 
-        if not pending:
-            # No migrations to apply
-            return result
+        # Verify ho-prod is up to date with origin/ho-prod
+        current_branch = self._repo.hgit.branch
+        if current_branch == 'ho-prod':
+            try:
+                # Check if ho-prod is synced with origin/ho-prod
+                import subprocess
+                result_check = subprocess.run(
+                    ['git', 'rev-list', '--left-right', '--count', 'ho-prod...origin/ho-prod'],
+                    cwd=self._repo.base_dir,
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                ahead, behind = map(int, result_check.stdout.strip().split())
+                if behind > 0:
+                    raise MigrationManagerError(
+                        f"ho-prod is {behind} commits behind origin/ho-prod. "
+                        f"Please pull changes first: git pull origin ho-prod"
+                    )
+                if ahead > 0:
+                    result['errors'].append(f"Warning: ho-prod is {ahead} commits ahead of origin/ho-prod")
+            except subprocess.CalledProcessError as e:
+                # Could not compare - maybe origin/ho-prod doesn't exist yet
+                pass
 
         # Get current version from .hop/config
         current_version = self._repo._Repo__config.hop_version if hasattr(
             self._repo, '_Repo__config'
         ) else "0.0.0"
 
+        # Get pending migrations
+        pending = self.get_pending_migrations(current_version, target_version)
+
+        if not pending:
+            # No migrations to apply
+            return result
+
         # Apply each migration
         for version_str, migration_dir in pending:
             try:
                 migration_result = self.apply_migration(version_str, migration_dir)
                 result['migrations_applied'].append(migration_result)
-
-                # Mark as applied
-                self.mark_migration_applied(version_str)
 
             except MigrationManagerError as e:
                 result['errors'].append(str(e))
@@ -317,15 +326,32 @@ class MigrationManager:
                 # Add all changes
                 self._repo.hgit.add('.')
 
-                # Commit
-                self._repo.hgit.commit(commit_msg)
+                # Commit with -m flag
+                self._repo.hgit.commit('-m', commit_msg)
 
                 result['commit_created'] = True
                 result['commit_message'] = commit_msg
 
+                # Push to remote
+                try:
+                    self._repo.hgit.push()
+                    result['commit_pushed'] = True
+                except Exception as e:
+                    result['errors'].append(f"Failed to push commit: {e}")
+                    result['commit_pushed'] = False
+
             except Exception as e:
                 # Don't fail migration if commit fails
                 result['errors'].append(f"Failed to create commit: {e}")
+
+        # Notify active branches if requested
+        if notify_branches and create_commit and result['commit_created']:
+            try:
+                notified = self._notify_active_branches(current_version, target_version)
+                result['notified_branches'] = notified
+            except Exception as e:
+                # Don't fail migration if notification fails
+                result['errors'].append(f"Failed to notify branches: {e}")
 
         return result
 
@@ -358,6 +384,93 @@ class MigrationManager:
             lines.append(f"  - {version}: {', '.join(files)}")
 
         return '\n'.join(lines)
+
+    def _notify_active_branches(self, from_version: str, to_version: str) -> List[str]:
+        """
+        Apply migration to active branches (ho-patch/*, ho-release/*).
+
+        Applies the same migrations on all active branches, creates commits,
+        and pushes them to origin. This prevents merge conflicts when branches
+        merge ho-prod later.
+
+        Args:
+            from_version: Starting version
+            to_version: Target version
+
+        Returns:
+            List of branch names that were migrated
+        """
+        migrated_branches = []
+
+        # Get active branches from origin using hgit method
+        branches_status = self._repo.hgit.get_active_branches_status()
+
+        # Extract branch names from patch_branches and release_branches
+        patch_branches = [b['name'] for b in branches_status.get('patch_branches', [])]
+        release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
+
+        # Combine all active branches (excluding ho-prod)
+        active_branches = [b for b in patch_branches + release_branches if b != 'ho-prod']
+
+        # Current branch (should be ho-prod)
+        current_branch = self._repo.hgit.branch
+
+        # Apply migration on each active branch
+        for branch in active_branches:
+            try:
+                # Checkout branch
+                self._repo.hgit.checkout(branch)
+
+                # Reload config for this branch
+                from half_orm_dev.repo import Config
+                self._repo._Repo__config = Config(self._repo.base_dir)
+
+                # Get pending migrations for this branch
+                branch_version = self._repo._Repo__config.hop_version
+                pending = self.get_pending_migrations(branch_version, to_version)
+
+                if not pending:
+                    # Already migrated or no migration needed
+                    continue
+
+                # Apply each migration
+                for version_str, migration_dir in pending:
+                    self.apply_migration(version_str, migration_dir)
+
+                # Update hop_version in .hop/config
+                self._repo._Repo__config.hop_version = to_version
+                self._repo._Repo__config.write()
+
+                # Create commit message
+                commit_msg = self._create_migration_commit_message(
+                    branch_version,
+                    to_version,
+                    [{'version': v, 'applied_files': []} for v, _ in pending]
+                )
+
+                # Add all changes and commit
+                self._repo.hgit.add('.')
+                self._repo.hgit.commit('-m', commit_msg)
+
+                # Push the commit
+                self._repo.hgit.push_branch(branch)
+
+                migrated_branches.append(branch)
+
+            except Exception as e:
+                print(f"Warning: Failed to migrate branch {branch}: {e}", file=sys.stderr)
+
+        # Return to original branch (ho-prod)
+        if current_branch:
+            try:
+                self._repo.hgit.checkout(current_branch)
+                # Reload config for original branch
+                from half_orm_dev.repo import Config
+                self._repo._Repo__config = Config(self._repo.base_dir)
+            except Exception:
+                pass
+
+        return migrated_branches
 
     def check_migration_needed(self, current_tool_version: str) -> bool:
         """

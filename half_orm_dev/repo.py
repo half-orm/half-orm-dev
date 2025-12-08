@@ -247,6 +247,8 @@ class Repo:
                 if self.devel:
                     self.hgit = HGit(self)
                 self.__checked = True
+                # Perform automatic migration if needed (after hgit is initialized)
+                self._run_pending_migrations()
             par_dir = os.path.split(base_dir)[0]
             if par_dir == base_dir:
                 break
@@ -258,8 +260,6 @@ class Repo:
             self.__base_dir = base_dir
             self.__config = Config(base_dir)
             self.__local_config = LocalConfig(base_dir)
-            # Perform automatic migration if needed
-            self._run_pending_migrations()
             return True
         return False
 
@@ -269,6 +269,10 @@ class Repo:
 
         Automatically detects and runs migrations based on current
         half_orm_dev version vs hop_version in .hop/config.
+
+        Behavior:
+        - On ho-prod: Runs migration with lock, creates commit, notifies active branches
+        - On other branches: Warns user to merge ho-prod to get migration
 
         Silent by default - only logs errors.
         """
@@ -283,10 +287,23 @@ class Repo:
             if not migration_mgr.check_migration_needed(current_version):
                 return
 
-            # Run migrations (with Git commit)
+            # Only run migrations on ho-prod branch
+            if not self.hgit or self.hgit.branch != 'ho-prod':
+                # Warn user to merge ho-prod to get migration
+                current_branch = self.hgit.branch if self.hgit else 'unknown'
+                config_version = self.__config.hop_version if hasattr(self, '_Repo__config') else '0.0.0'
+                print(f"\n{utils.Color.bold('⚠️  Migration needed:')}", file=sys.stderr)
+                print(f"  half_orm_dev {config_version} → {current_version}", file=sys.stderr)
+                print(f"  Current branch: {current_branch}", file=sys.stderr)
+                print(f"\n  To apply migration, merge ho-prod into your branch:", file=sys.stderr)
+                print(f"    git merge origin/ho-prod\n", file=sys.stderr)
+                return
+
+            # Run migrations on ho-prod with lock and branch notifications
             result = migration_mgr.run_migrations(
                 target_version=current_version,
-                create_commit=True
+                create_commit=True,
+                notify_branches=True
             )
 
             # Log errors if any

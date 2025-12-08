@@ -48,38 +48,6 @@ class TestMigrationManagerBasic:
 
         assert mgr._repo == mock_repo
         assert mgr._migrations_root.name == 'migrations'
-        assert mgr._log_file.name == 'log'
-
-    def test_get_applied_migrations_empty(self, mock_repo_for_migration, tmp_path):
-        """Test get_applied_migrations() with no log file."""
-        mock_repo, _ = mock_repo_for_migration
-
-        # Override migrations_root to use tmp_path (empty location)
-        mgr = MigrationManager(mock_repo)
-        mgr._migrations_root = tmp_path / "test_migrations"
-        mgr._log_file = mgr._migrations_root / "log"
-
-        applied = mgr.get_applied_migrations()
-
-        assert applied == []
-
-    def test_get_applied_migrations_with_log(self, mock_repo_for_migration, tmp_path):
-        """Test get_applied_migrations() with existing log file."""
-        mock_repo, _ = mock_repo_for_migration
-
-        # Create migrations/log file in tmp_path
-        migrations_root = tmp_path / "test_migrations"
-        log_file = migrations_root / 'log'
-        log_file.parent.mkdir(parents=True, exist_ok=True)
-        log_file.write_text("0.17.0\n0.17.1 abc123\n")
-
-        mgr = MigrationManager(mock_repo)
-        mgr._migrations_root = migrations_root
-        mgr._log_file = log_file
-
-        applied = mgr.get_applied_migrations()
-
-        assert applied == ['0.17.0', '0.17.1']
 
     def test_parse_version(self, mock_repo_for_migration):
         """Test version parsing."""
@@ -111,23 +79,6 @@ class TestMigrationManagerBasic:
 
         path = mgr._version_to_path((0, 17, 1))
         assert path.parts[-3:] == ('0', '17', '1')
-
-    def test_mark_migration_applied(self, mock_repo_for_migration, tmp_path):
-        """Test marking migration as applied."""
-        mock_repo, _ = mock_repo_for_migration
-
-        # Override migrations_root to use tmp_path
-        mgr = MigrationManager(mock_repo)
-        mgr._migrations_root = tmp_path / "migrations"
-        mgr._log_file = mgr._migrations_root / "log"
-
-        # Mark migration as applied
-        mgr.mark_migration_applied("0.17.1")
-
-        # Check log file
-        assert mgr._log_file.exists()
-        content = mgr._log_file.read_text()
-        assert "0.17.1" in content
 
     def test_check_migration_needed_yes(self, mock_repo_for_migration):
         """Test check_migration_needed() when migration is needed."""

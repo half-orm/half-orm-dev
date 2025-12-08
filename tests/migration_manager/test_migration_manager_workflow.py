@@ -58,10 +58,6 @@ def get_description():
     return 'Test migration'
 """)
 
-    # Create log file
-    log_file = migrations_root / "log"
-    log_file.write_text("0.17.0\n")
-
     return mock_repo, tmp_path, migrations_root
 
 
@@ -75,7 +71,6 @@ class TestMigrationWorkflow:
         mgr = MigrationManager(mock_repo)
         # Override migrations_root for testing
         mgr._migrations_root = migrations_root
-        mgr._log_file = migrations_root / "log"
 
         migration_dir = migrations_root / "0" / "17" / "1"
         result = mgr.apply_migration("0.17.1", migration_dir)
@@ -131,10 +126,9 @@ def get_description():
 
         mgr = MigrationManager(mock_repo)
         mgr._migrations_root = migrations_root
-        mgr._log_file = migrations_root / "log"
 
-        # Get pending migrations (0.17.1 not in log yet)
-        pending = mgr.get_pending_migrations("0.17.1")
+        # Get pending migrations from 0.17.0 to 0.17.1
+        pending = mgr.get_pending_migrations("0.17.0", "0.17.1")
 
         assert len(pending) == 1
         assert pending[0][0] == "0.17.1"
@@ -146,14 +140,9 @@ def get_description():
 
         mgr = MigrationManager(mock_repo)
         mgr._migrations_root = migrations_root
-        mgr._log_file = migrations_root / "log"
 
-        # Mark 0.17.1 as applied
-        with open(mgr._log_file, 'a') as f:
-            f.write("0.17.1\n")
-
-        # Get pending migrations (should be empty)
-        pending = mgr.get_pending_migrations("0.17.1")
+        # Get pending migrations from 0.17.1 to 0.17.1 (same version - should be empty)
+        pending = mgr.get_pending_migrations("0.17.1", "0.17.1")
 
         assert len(pending) == 0
 
@@ -163,7 +152,6 @@ def get_description():
 
         mgr = MigrationManager(mock_repo)
         mgr._migrations_root = migrations_root
-        mgr._log_file = migrations_root / "log"
 
         # Run migrations
         result = mgr.run_migrations(
@@ -186,7 +174,7 @@ def get_description():
         mock_repo.hgit.commit.assert_called_once()
 
         # Check commit message
-        commit_msg = mock_repo.hgit.commit.call_args[0][0]
+        commit_msg = mock_repo.hgit.commit.call_args[0][1]
         assert "[HOP] Migration from 0.17.0 to 0.17.1" in commit_msg
 
     def test_run_migrations_no_pending(self, mock_repo_with_migration_files):
@@ -195,11 +183,9 @@ def get_description():
 
         mgr = MigrationManager(mock_repo)
         mgr._migrations_root = migrations_root
-        mgr._log_file = migrations_root / "log"
 
-        # Mark all migrations as applied
-        with open(mgr._log_file, 'a') as f:
-            f.write("0.17.1\n")
+        # Set config version to same as target (no migrations needed)
+        mock_repo._Repo__config.hop_version = "0.17.1"
 
         # Run migrations (should do nothing)
         result = mgr.run_migrations(
@@ -220,7 +206,6 @@ def get_description():
 
         mgr = MigrationManager(mock_repo)
         mgr._migrations_root = migrations_root
-        mgr._log_file = migrations_root / "log"
 
         # Run migrations without commit
         result = mgr.run_migrations(
