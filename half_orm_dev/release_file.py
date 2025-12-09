@@ -289,3 +289,50 @@ class ReleaseFile:
         """
         data = self._read()
         return data.get("patches", {})
+
+    def set_metadata(self, metadata: Dict) -> None:
+        """
+        Set metadata for the release file.
+
+        Metadata is stored in a [metadata] section and can include migration info.
+
+        Args:
+            metadata: Dict of metadata key-value pairs
+
+        Examples:
+            release_file.set_metadata({
+                "created_from_promotion": True,
+                "source_version": "0.17.1",
+                "migrated_at": "2025-12-09T14:23:45Z",
+                "rebased_commits": {"42-feature": "a1b2c3d4"}
+            })
+        """
+        data = self._read()
+        data["metadata"] = metadata
+        self._write(data)
+
+    def get_metadata(self) -> Dict:
+        """
+        Get metadata from the release file.
+
+        Returns:
+            Dict of metadata, or empty dict if no metadata exists
+
+        Examples:
+            metadata = release_file.get_metadata()
+            if metadata.get("created_from_promotion"):
+                print("This release was created from promotion")
+        """
+        data = self._read()
+        return data.get("metadata", {})
+
+    def clear_metadata(self) -> None:
+        """
+        Remove metadata section from the release file.
+
+        Used for cleanup after all developers have synced.
+        """
+        data = self._read()
+        if "metadata" in data:
+            del data["metadata"]
+            self._write(data)
