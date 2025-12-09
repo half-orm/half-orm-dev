@@ -921,6 +921,17 @@ class Repo:
                 stage_files=[]  # No longer used with TOML format
             )
             result['releases_info'] = releases_info
+
+            # Get production version from model/schema.sql symlink
+            production_version = None
+            if hasattr(self, 'release_manager'):
+                try:
+                    production_version = self.release_manager._get_production_version()
+                except Exception:
+                    # No production version available (e.g., model/ doesn't exist yet)
+                    pass
+            result['production_version'] = production_version
+
         except Exception:
             result['active_branches'] = {
                 'current_branch': None,
@@ -928,6 +939,7 @@ class Repo:
                 'release_branches': []
             }
             result['releases_info'] = {}
+            result['production_version'] = None
 
         # 3. Detect and optionally prune stale branches
         # Always detect stale branches (for display), but only prompt/delete when not silent

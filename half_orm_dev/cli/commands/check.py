@@ -101,6 +101,12 @@ def _display_check_results(repo, result: dict, dry_run: bool, verbose: bool):
             click.echo(f"✓ {utils.Color.green(f'half_orm_dev: {current} (latest)')}")
             click.echo()
 
+    # Production version
+    production_version = result.get('production_version')
+    if production_version:
+        click.echo(f"📦 {utils.Color.bold('Production version:')} {utils.Color.green(production_version)}")
+        click.echo()
+
     # Hooks
     hooks = result.get('hooks', {})
     if hooks.get('installed'):
