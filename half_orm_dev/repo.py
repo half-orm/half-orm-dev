@@ -21,6 +21,7 @@ from half_orm.model import Model
 from half_orm_dev.patch_manager import PatchManager, PatchManagerError
 from half_orm_dev.release_manager import ReleaseManager
 from half_orm_dev.migration_manager import MigrationManager, MigrationManagerError
+from half_orm_dev.release_file import ReleaseFile
 
 from .utils import TEMPLATE_DIRS, hop_version, resolve_database_config_name
 
@@ -891,116 +892,33 @@ class Repo:
 
         # 2. Get active branches status and release files
         try:
-            # Find release files (candidates and stage) from ho-prod using git show
-            # This avoids checkout issues when there are uncommitted changes
+            # Read release files directly from local filesystem (.hop/releases/)
             releases_info = {}
             if hasattr(self, 'release_manager'):
-                from collections import defaultdict
-                by_version = defaultdict(dict)
+                releases_dir = Path(self.releases_dir)
 
-                # Fetch latest from origin and update local ho-prod branch
-                # This ensures we read the latest release files
+                # Read TOML patches files from local filesystem
                 try:
-                    self.hgit.fetch_from_origin()
+                    for toml_file in releases_dir.glob('*-patches.toml'):
+                        version = toml_file.stem.replace('-patches', '')
 
-                    # Check if we are currently on ho-prod
-                    result_branch = subprocess.run(
-                        ['git', 'branch', '--show-current'],
-                        cwd=self.__base_dir,
-                        capture_output=True,
-                        text=True,
-                        check=False
-                    )
-                    current_branch = result_branch.stdout.strip() if result_branch.returncode == 0 else None
-
-                    if current_branch == 'ho-prod':
-                        # If on ho-prod, do a pull to update it
-                        subprocess.run(
-                            ['git', 'pull', 'origin', 'ho-prod'],
-                            cwd=self.__base_dir,
-                            capture_output=True,
-                            check=False
-                        )
-                    else:
-                        # If not on ho-prod, force update the branch
-                        subprocess.run(
-                            ['git', 'branch', '-f', 'ho-prod', 'origin/ho-prod'],
-                            cwd=self.__base_dir,
-                            capture_output=True,
-                            check=False
-                        )
-                except Exception:
-                    pass  # Best effort - may fail if no remote
-
-                # List release files from ho-prod using git ls-tree
-                try:
-                    result_ls = subprocess.run(
-                        ['git', 'ls-tree', '--name-only', 'ho-prod', 'releases/'],
-                        cwd=self.__base_dir,
-                        capture_output=True,
-                        text=True,
-                        check=False
-                    )
-
-                    if result_ls.returncode == 0:
-                        release_files = result_ls.stdout.strip().split('\n')
-
-                        for file_path in release_files:
-                            if not file_path or not file_path.startswith('releases/'):
-                                continue
-
-                            filename = file_path.split('/')[-1]
-
-                            # Process candidates files
-                            if filename.endswith('-candidates.txt'):
-                                version = filename.replace('-candidates.txt', '')
-                                by_version[version]['candidates_file'] = file_path
-
-                                # Read file content using git show
-                                result_show = subprocess.run(
-                                    ['git', 'show', f'ho-prod:{file_path}'],
-                                    cwd=self.__base_dir,
-                                    capture_output=True,
-                                    text=True,
-                                    check=False
-                                )
-
-                                if result_show.returncode == 0:
-                                    content = result_show.stdout.strip()
-                                    by_version[version]['candidates'] = [
-                                        c.strip() for c in content.split('\n')
-                                        if c.strip() and not c.startswith('#')
-                                    ]
-
-                            # Process stage files
-                            elif filename.endswith('-stage.txt'):
-                                version = filename.replace('-stage.txt', '')
-                                by_version[version]['stage_file'] = file_path
-
-                                # Read file content using git show
-                                result_show = subprocess.run(
-                                    ['git', 'show', f'ho-prod:{file_path}'],
-                                    cwd=self.__base_dir,
-                                    capture_output=True,
-                                    text=True,
-                                    check=False
-                                )
-
-                                if result_show.returncode == 0:
-                                    content = result_show.stdout.strip()
-                                    by_version[version]['staged'] = [
-                                        s.strip() for s in content.split('\n')
-                                        if s.strip() and not s.startswith('#')
-                                    ]
-
-                        releases_info = dict(by_version)
+                        try:
+                            # Use ReleaseFile to parse directly from filesystem
+                            release_file = ReleaseFile(version, releases_dir)
+                            releases_info[version] = {
+                                'patches_file': str(toml_file.relative_to(self.__base_dir)),
+                                'candidates': release_file.get_patches(status='candidate'),
+                                'staged': release_file.get_patches(status='staged')
+                            }
+                        except Exception:
+                            # Failed to parse TOML - skip this file
+                            pass
 
                 except Exception:
                     pass  # Silent failure - will result in empty releases_info
 
             result['active_branches'] = self.hgit.get_active_branches_status(
-                stage_files=[info.get('stage_file') for info in releases_info.values()
-                            if 'stage_file' in info]
+                stage_files=[]  # No longer used with TOML format
             )
             result['releases_info'] = releases_info
         except Exception:
