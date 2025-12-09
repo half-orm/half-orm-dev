@@ -8,6 +8,9 @@ import subprocess
 import git
 from git.exc import GitCommandError
 from typing import List, Optional
+import time
+import re
+from datetime import datetime, timedelta, UTC
 
 from half_orm import utils
 from half_orm_dev.manifest import Manifest
@@ -372,7 +375,6 @@ class HGit:
             origin = self.__git_repo.remote('origin')
             origin.fetch(tags=True)
         except Exception as e:
-            from git.exc import GitCommandError
             if isinstance(e, GitCommandError):
                 raise
             raise GitCommandError(f"git fetch --tags", 1, stderr=str(e))
@@ -414,7 +416,6 @@ class HGit:
         try:
             self.__git_repo.create_tag(tag_name, message=message)
         except Exception as e:
-            from git.exc import GitCommandError
             if isinstance(e, GitCommandError):
                 raise
             raise GitCommandError(f"git tag", 1, stderr=str(e))
@@ -460,7 +461,6 @@ class HGit:
             origin = self.__git_repo.remote('origin')
             origin.fetch(prune=True)
         except Exception as e:
-            from git.exc import GitCommandError
             if isinstance(e, GitCommandError):
                 raise
             raise GitCommandError(f"git fetch origin", 1, stderr=str(e))
@@ -482,7 +482,6 @@ class HGit:
         try:
             self.__git_repo.git.branch('-D', branch_name)
         except Exception as e:
-            from git.exc import GitCommandError
             if isinstance(e, GitCommandError):
                 raise
             raise GitCommandError(f"git branch -D {branch_name}", 1, stderr=str(e))
@@ -505,7 +504,6 @@ class HGit:
         try:
             self.__git_repo.git.tag('-d', tag_name)
         except Exception as e:
-            from git.exc import GitCommandError
             if isinstance(e, GitCommandError):
                 raise
             raise GitCommandError(f"git tag -d {tag_name}", 1, stderr=str(e))
@@ -529,7 +527,6 @@ class HGit:
             flag = '-D' if force else '-d'
             self.__git_repo.git.branch(flag, branch_name)
         except Exception as e:
-            from git.exc import GitCommandError
             if isinstance(e, GitCommandError):
                 raise
             raise GitCommandError(f"git branch {flag} {branch_name}", 1, stderr=str(e))
@@ -553,7 +550,6 @@ class HGit:
             origin = self.__git_repo.remote(remote)
             origin.push(refspec=f":{branch_name}")
         except Exception as e:
-            from git.exc import GitCommandError
             if isinstance(e, GitCommandError):
                 raise
             raise GitCommandError(f"git push {remote} --delete {branch_name}", 1, stderr=str(e))
@@ -579,7 +575,6 @@ class HGit:
             else:
                 self.__git_repo.git.branch(branch_name)
         except Exception as e:
-            from git.exc import GitCommandError
             if isinstance(e, GitCommandError):
                 raise
             raise GitCommandError(f"git branch {branch_name}", 1, stderr=str(e))
@@ -602,7 +597,6 @@ class HGit:
         try:
             self.__git_repo.git.branch(branch_name, tag_name)
         except Exception as e:
-            from git.exc import GitCommandError
             if isinstance(e, GitCommandError):
                 raise
             raise GitCommandError(f"git branch {branch_name} {tag_name}", 1, stderr=str(e))
@@ -625,7 +619,6 @@ class HGit:
         try:
             self.__git_repo.git.branch('-m', old_name, new_name)
         except Exception as e:
-            from git.exc import GitCommandError
             if isinstance(e, GitCommandError):
                 raise
             raise GitCommandError(f"git branch -m {old_name} {new_name}", 1, stderr=str(e))
@@ -664,7 +657,6 @@ class HGit:
 
             self.__git_repo.git.merge(*args)
         except Exception as e:
-            from git.exc import GitCommandError
             if isinstance(e, GitCommandError):
                 raise
             raise GitCommandError(f"git merge {branch_name}", 1, stderr=str(e))
@@ -908,9 +900,6 @@ class HGit:
             # Lock with custom timeout
             lock_tag = hgit.acquire_branch_lock("ho-prod", timeout_minutes=60)
         """
-        import time
-        import re
-        from datetime import datetime, timedelta
 
         # Sanitize branch name for tag (replace / with -)
         safe_branch_name = branch_name.replace('/', '-')
@@ -928,7 +917,7 @@ class HGit:
             if match:
                 lock_timestamp_ms = int(match.group(1))
                 lock_time = datetime.utcfromtimestamp(lock_timestamp_ms / 1000.0)
-                current_time = datetime.utcnow()
+                current_time = datetime.now(UTC)
 
                 # Check if lock is stale
                 age_minutes = (current_time - lock_time).total_seconds() / 60
@@ -958,7 +947,7 @@ class HGit:
         lock_tag = f"lock-{safe_branch_name}-{timestamp_ms}"
 
         # Create local tag
-        self.create_tag(lock_tag, message=f"Lock on {branch_name} at {datetime.utcnow().isoformat()}")
+        self.create_tag(lock_tag, message=f"Lock on {branch_name} at {datetime.now(UTC).isoformat()}")
 
         # Push tag (ATOMIC - this is the lock acquisition)
         try:
