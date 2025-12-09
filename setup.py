@@ -45,5 +45,7 @@ setup(
         "pydash",
         "pytest",
         get_half_orm_version_constraint(),
+        'tomli>=2.0.0; python_version < "3.11"',
+        "tomli_w>=1.0.0",
     ]
 )
