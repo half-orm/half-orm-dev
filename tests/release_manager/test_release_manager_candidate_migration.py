@@ -12,7 +12,7 @@ a release to production. The workflow:
 import pytest
 from pathlib import Path
 from unittest.mock import Mock, MagicMock, patch, call
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 
 from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 from half_orm_dev.release_file import ReleaseFile
@@ -377,7 +377,7 @@ class TestMetadataFormat:
         metadata = {
             "created_from_promotion": True,
             "source_version": "0.17.1",
-            "migrated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ") if hasattr(datetime, 'UTC') else datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "migrated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "rebased_commits": {
                 "42-feature": "a1b2c3d4",
                 "43-bugfix": "f6e5d4c3"
@@ -405,7 +405,7 @@ class TestMetadataFormat:
         metadata = {
             "created_from_promotion": True,
             "source_version": "0.17.1",
-            "migrated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ") if hasattr(datetime, 'UTC') else datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "migrated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "rebased_commits": {
                 "42-feature": "a1b2c3d4"
             }
