@@ -296,6 +296,7 @@ def _display_releases_with_patches(releases_info: dict, patch_branches: list, re
         info = releases_info[version]
         candidates = info.get('candidates', [])
         staged = info.get('staged', [])
+        metadata = info.get('metadata', {})
 
         # Check if release branch exists
         release_branch_name = f"ho-release/{version}"
@@ -334,6 +335,9 @@ def _display_releases_with_patches(releases_info: dict, patch_branches: list, re
                 click.echo(f"    • {patch_id} {utils.Color.green('✓')}")
 
         # Show candidate patches with sync status
+        needs_sync = []  # Track patches that need synchronization
+        rebased_commits = metadata.get('rebased_commits', {})
+
         if candidates:
             click.echo(f"\n  {utils.Color.bold('Candidates')} ({len(candidates)} in development):")
             for patch_id in candidates:
@@ -346,25 +350,59 @@ def _display_releases_with_patches(releases_info: dict, patch_branches: list, re
                     behind = branch_info.get('behind', 0)
                     ahead = branch_info.get('ahead', 0)
 
-                    if sync_status == 'synced':
-                        status = utils.Color.green("✓ synced")
-                    elif sync_status == 'remote_only':
-                        status = utils.Color.blue("☁️ on remote only (run: git checkout -b ho-patch/" + patch_id + " origin/ho-patch/" + patch_id + ")")
-                    elif sync_status == 'behind':
-                        status = utils.Color.blue(f"⚠️ {behind} commits behind")
-                    elif sync_status == 'ahead':
-                        status = utils.Color.blue(f"↑ {ahead} ahead")
-                    elif sync_status == 'diverged':
-                        status = utils.Color.red(f"⚠ diverged (↑{ahead} ↓{behind})")
-                    elif sync_status == 'no_remote':
-                        status = utils.Color.bold("⚠️ local only (remote deleted or not pushed - run: git branch -d " + branch_name + ")")
+                    # Check if this patch was rebased and needs sync
+                    expected_sha = rebased_commits.get(patch_id)
+                    if expected_sha:
+                        # Get local SHA (first 8 chars to match expected format)
+                        import git
+                        try:
+                            repo = git.Repo('.')
+                            if branch_name in [b.name for b in repo.branches]:
+                                local_sha = repo.branches[branch_name].commit.hexsha[:8]
+                                if local_sha != expected_sha:
+                                    needs_sync.append(patch_id)
+                                    status = utils.Color.red(f"⚠️ NEEDS SYNC (rebased to {expected_sha}, local: {local_sha})")
+                                else:
+                                    status = utils.Color.green(f"✓ synced (rebased: {expected_sha})")
+                            else:
+                                # Branch doesn't exist locally but was rebased
+                                needs_sync.append(patch_id)
+                                status = utils.Color.red(f"⚠️ NEEDS CHECKOUT (rebased: {expected_sha})")
+                        except Exception:
+                            status = utils.Color.blue("? (cannot check SHA)")
                     else:
-                        status = "?"
+                        # Normal sync status (not rebased)
+                        if sync_status == 'synced':
+                            status = utils.Color.green("✓ synced")
+                        elif sync_status == 'remote_only':
+                            status = utils.Color.blue("☁️ on remote only (run: git checkout -b ho-patch/" + patch_id + " origin/ho-patch/" + patch_id + ")")
+                        elif sync_status == 'behind':
+                            status = utils.Color.blue(f"⚠️ {behind} commits behind")
+                        elif sync_status == 'ahead':
+                            status = utils.Color.blue(f"↑ {ahead} ahead")
+                        elif sync_status == 'diverged':
+                            status = utils.Color.red(f"⚠ diverged (↑{ahead} ↓{behind})")
+                        elif sync_status == 'no_remote':
+                            status = utils.Color.bold("⚠️ local only (remote deleted or not pushed - run: git branch -d " + branch_name + ")")
+                        else:
+                            status = "?"
 
                     click.echo(f"    • {patch_id} - {status}")
                 else:
                     # Branch doesn't exist anywhere
                     click.echo(f"    • {patch_id} {utils.Color.red('⚠ branch not found')}")
+
+        # Show migration sync warning if needed
+        if needs_sync:
+            click.echo(f"\n  {utils.Color.bold(utils.Color.red('⚠️  MIGRATION DETECTED:'))}")
+            click.echo(f"    {len(needs_sync)} patch(es) were rebased during promotion to production")
+            click.echo(f"    You must sync your local branches:")
+            click.echo()
+            for patch_id in needs_sync:
+                click.echo(f"      git checkout ho-patch/{patch_id}")
+                click.echo(f"      git fetch origin")
+                click.echo(f"      git reset --hard origin/ho-patch/{patch_id}")
+                click.echo()
 
         if not staged and not candidates:
             click.echo(f"    {utils.Color.blue('(empty - no patches yet)')}")
