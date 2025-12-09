@@ -60,6 +60,7 @@ class TestMigrationManagerBasic:
         assert mgr._parse_version("0.17.1-a1") == (0, 17, 1)
         assert mgr._parse_version("0.17.1-rc2") == (0, 17, 1)
         assert mgr._parse_version("1.0.0-beta3") == (1, 0, 0)
+        assert mgr._parse_version("0.1.0a11") == (0, 1, 0)
 
     def test_parse_version_invalid(self, mock_repo_for_migration):
         """Test version parsing with invalid format."""

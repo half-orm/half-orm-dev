@@ -21,6 +21,7 @@ Each migration file must define:
 """
 
 import os
+import re
 import subprocess
 import sys
 import importlib.util
@@ -32,8 +33,6 @@ from half_orm_dev.decorators import with_dynamic_branch_lock
 
 class MigrationManagerError(Exception):
     """Base exception for MigrationManager operations."""
-    pass
-
 
 class MigrationManager:
     """
@@ -65,6 +64,7 @@ class MigrationManager:
 
         Supports version formats:
         - "0.17.1"
+        - "0.1.0a1" (ignores suffix)
         - "0.17.1-a1" (ignores suffix)
         - "0.17.1-rc2" (ignores suffix)
 
@@ -76,6 +76,10 @@ class MigrationManager:
         """
         # Strip any pre-release suffix (e.g., "-a1", "-rc2")
         base_version = version_str.split('-')[0]
+        if not re.match(r"^\d+\.\d+\.\d+$", base_version):
+            match = re.match(r"^(\d+\.\d+\.\d+)", base_version)
+            if match:
+                base_version = match.group(1)
 
         parts = base_version.split('.')
         if len(parts) != 3:
