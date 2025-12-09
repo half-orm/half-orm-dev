@@ -325,7 +325,7 @@ def _display_releases_with_patches(releases_info: dict, patch_branches: list, re
             # Release files exist but no branch at all
             release_status = f" {utils.Color.red('⚠️ branch not found')}"
 
-        click.echo(f"\n📦 {utils.Color.bold(f'Release {version}')} (ho-release/{version}):{release_status}")
+        click.echo(f"\n🚧 {utils.Color.bold(f'Release {version}')} (ho-release/{version}):{release_status}")
 
         # Show staged patches
         if staged:
