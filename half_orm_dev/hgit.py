@@ -10,7 +10,7 @@ from git.exc import GitCommandError
 from typing import List, Optional
 import time
 import re
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta, timezone
 
 from half_orm import utils
 from half_orm_dev.manifest import Manifest
@@ -917,7 +917,7 @@ class HGit:
             if match:
                 lock_timestamp_ms = int(match.group(1))
                 lock_time = datetime.utcfromtimestamp(lock_timestamp_ms / 1000.0)
-                current_time = datetime.now(UTC)
+                current_time = datetime.now(timezone.utc)
 
                 # Check if lock is stale
                 age_minutes = (current_time - lock_time).total_seconds() / 60
@@ -947,7 +947,7 @@ class HGit:
         lock_tag = f"lock-{safe_branch_name}-{timestamp_ms}"
 
         # Create local tag
-        self.create_tag(lock_tag, message=f"Lock on {branch_name} at {datetime.now(UTC).isoformat()}")
+        self.create_tag(lock_tag, message=f"Lock on {branch_name} at {datetime.now(timezone.utc).isoformat()}")
 
         # Push tag (ATOMIC - this is the lock acquisition)
         try:

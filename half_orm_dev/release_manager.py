@@ -14,7 +14,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict
 from dataclasses import dataclass
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 
 import click
 
@@ -3066,7 +3066,7 @@ class ReleaseManager:
             metadata = {
                 "created_from_promotion": True,
                 "source_version": source_version,
-                "migrated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ") if hasattr(datetime, 'UTC') else datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "migrated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "rebased_commits": rebased_commits
             }
             target_release_file.set_metadata(metadata)
