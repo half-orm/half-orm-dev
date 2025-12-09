@@ -905,10 +905,13 @@ class Repo:
                         try:
                             # Use ReleaseFile to parse directly from filesystem
                             release_file = ReleaseFile(version, releases_dir)
+                            metadata = release_file.get_metadata()
+
                             releases_info[version] = {
                                 'patches_file': str(toml_file.relative_to(self.__base_dir)),
                                 'candidates': release_file.get_patches(status='candidate'),
-                                'staged': release_file.get_patches(status='staged')
+                                'staged': release_file.get_patches(status='staged'),
+                                'metadata': metadata
                             }
                         except Exception:
                             # Failed to parse TOML - skip this file
