@@ -14,9 +14,14 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict
 from dataclasses import dataclass
+from datetime import datetime, UTC
+
+import click
 
 from git.exc import GitCommandError
 from half_orm_dev.decorators import with_dynamic_branch_lock
+from half_orm import utils
+from half_orm_dev.release_file import ReleaseFile
 
 class ReleaseManagerError(Exception):
     """Base exception for ReleaseManager operations."""
@@ -193,8 +198,6 @@ class ReleaseManager:
             version = mgr._parse_version_from_symlink(Path("model/schema.sql"))
             # Returns: "1.3.5"
         """
-        import re
-
         # Check model/ directory exists
         model_dir = schema_path.parent
         if not model_dir.exists():
@@ -267,9 +270,6 @@ class ReleaseManager:
             else:
                 print("Already initialized")
         """
-        import click
-        from half_orm import utils
-
         # Check what exists
         releases_exists = self._releases_dir.exists()
         model_dir = Path(self._repo.model_dir)
@@ -600,9 +600,6 @@ class ReleaseManager:
             ver = release_mgr.parse_version_from_filename("1.3.5-rc2.txt")
             # Version(1, 3, 5, stage="rc2")
         """
-        import re
-        from pathlib import Path
-
         # Extract just filename if path provided
         filename = Path(filename).name
 
@@ -728,7 +725,6 @@ class ReleaseManager:
 
         # Apply staged patches from TOML file (if in development) or from snapshot (if released)
         # Try TOML file first (development)
-        from half_orm_dev.release_file import ReleaseFile
         release_file = ReleaseFile(version, self._releases_dir)
         if release_file.exists():
             # Development: read from TOML
@@ -867,7 +863,6 @@ class ReleaseManager:
 
         # 2. Appliquer TOUS les patches du TOML (candidates + staged)
         # Pour les tests et la synchronisation, on veut tous les patches dans l'ordre
-        from half_orm_dev.release_file import ReleaseFile
         release_file = ReleaseFile(next_version, self._releases_dir)
         if release_file.exists():
             # get_patches() sans argument retourne TOUS les patches dans l'ordre d'insertion
@@ -1044,7 +1039,6 @@ class ReleaseManager:
 
             if sync_result['strategy'] != 'already-synced':
                 # Log successful auto-sync
-                import sys
                 print(
                     f"✓ Auto-synced {sync_result['branch_name']} with ho-prod "
                     f"({sync_result['strategy']})",
@@ -1078,7 +1072,6 @@ class ReleaseManager:
                         )
                 else:
                     # Branch not found - might be an old patch before archiving system
-                    import sys
                     sys.stderr.write(
                         f"Warning: Branch {archived_branch} not found. "
                         f"Patch {existing_patch_id} might be from old workflow.\n"
@@ -2022,8 +2015,6 @@ class ReleaseManager:
             #   'message': 'Production already at latest version'
             # }
         """
-        from half_orm_dev.release_manager import ReleaseManagerError
-
         # Get current version
         current_version = self._repo.database.last_release_s
 
@@ -2172,8 +2163,6 @@ class ReleaseManager:
             # → User enters 'n'
             # → Raises: "Backup exists and user declined overwrite"
         """
-        from half_orm_dev.release_manager import ReleaseManagerError
-
         # Create backups directory if doesn't exist
         backups_dir = Path(self._repo.base_dir) / "backups"
         backups_dir.mkdir(exist_ok=True)
@@ -2238,8 +2227,6 @@ class ReleaseManager:
             mgr._validate_production_upgrade()
             # → Raises: "Repository has uncommitted changes"
         """
-        from half_orm_dev.release_manager import ReleaseManagerError
-
         # Check branch
         if self._repo.hgit.branch != "ho-prod":
             raise ReleaseManagerError(
@@ -2296,8 +2283,6 @@ class ReleaseManager:
             # → 789-security fails
             # → Raises exception with error details
         """
-        from half_orm_dev.release_manager import ReleaseManagerError
-
         # Read patches from release file
         release_file = f"{version}.txt"
         patches = self.read_release_patches(release_file)
@@ -2481,7 +2466,6 @@ class ReleaseManager:
                 raise ReleaseManagerError(f"Failed to checkout ho-prod: {e}")
 
         # Create empty patches file (TOML format)
-        from half_orm_dev.release_file import ReleaseFile
         release_file = ReleaseFile(version, self._releases_dir)
         try:
             release_file.create_empty()
@@ -2560,7 +2544,6 @@ class ReleaseManager:
         self._repo.hgit.checkout("ho-prod")
 
         # Validate release exists (TOML patches file must be on ho-prod)
-        from half_orm_dev.release_file import ReleaseFile
         release_file = ReleaseFile(version, self._releases_dir)
         if not release_file.exists():
             raise ReleaseManagerError(f"Release {version} not found (no patches file)")
@@ -2709,7 +2692,6 @@ class ReleaseManager:
         version = self._detect_version_to_promote('rc')
 
         # Check TOML patches file exists
-        from half_orm_dev.release_file import ReleaseFile
         release_file = ReleaseFile(version, self._releases_dir)
         if not release_file.exists():
             raise ReleaseManagerError(f"Release {version} not found (no patches file)")
@@ -2833,7 +2815,6 @@ class ReleaseManager:
             next_patch_version = f"{major}.{minor}.{patch + 1}"
 
             # Prompt user for migration
-            from half_orm import utils
             print(f"\n{utils.Color.bold('⚠️  Candidate patches detected:')}")
             print(f"  Release {version} has {len(candidates)} candidate patch(es):")
             for patch_id in candidates:
@@ -2967,7 +2948,6 @@ class ReleaseManager:
                 deleted_branches.append(release_branch)
             except Exception as e:
                 # Log error for debugging
-                import sys
                 print(f"Warning: Failed to delete release branch {release_branch}: {e}", file=sys.stderr)
 
             # 8. If candidate migration was requested, create new release and migrate patches
@@ -3016,9 +2996,6 @@ class ReleaseManager:
         Raises:
             ReleaseManagerError: If migration fails
         """
-        from half_orm import utils
-        from half_orm_dev.release_file import ReleaseFile
-        from datetime import datetime
 
         source_release_branch = f"ho-release/{source_version}"
         target_release_branch = f"ho-release/{target_version}"
@@ -3089,7 +3066,7 @@ class ReleaseManager:
             metadata = {
                 "created_from_promotion": True,
                 "source_version": source_version,
-                "migrated_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "migrated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ") if hasattr(datetime, 'UTC') else datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "rebased_commits": rebased_commits
             }
             target_release_file.set_metadata(metadata)
@@ -3304,7 +3281,6 @@ class ReleaseManager:
             self._repo.hgit.checkout(release_branch)
 
             # 5. Create TOML patches file for hotfix development
-            from half_orm_dev.release_file import ReleaseFile
             release_file = ReleaseFile(version, self._releases_dir)
             release_file.create_empty()
 
@@ -3378,7 +3354,6 @@ class ReleaseManager:
             version = current_branch.replace('ho-release/', '')
 
             # 2. Verify no candidate patches remain (check TOML file)
-            from half_orm_dev.release_file import ReleaseFile
             release_file = ReleaseFile(version, self._releases_dir)
             if release_file.exists():
                 candidates = release_file.get_patches(status="candidate")
@@ -3450,7 +3425,6 @@ class ReleaseManager:
                 deleted_branches.append(current_branch)
             except Exception as e:
                 # Log error for debugging
-                import sys
                 print(f"Warning: Failed to delete release branch {current_branch}: {e}", file=sys.stderr)
 
             return {
