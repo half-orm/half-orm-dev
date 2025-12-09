@@ -21,6 +21,7 @@ Each migration file must define:
 """
 
 import os
+import subprocess
 import sys
 import importlib.util
 from pathlib import Path
@@ -267,7 +268,6 @@ class MigrationManager:
         if current_branch == 'ho-prod':
             try:
                 # Check if ho-prod is synced with origin/ho-prod
-                import subprocess
                 result_check = subprocess.run(
                     ['git', 'rev-list', '--left-right', '--count', 'ho-prod...origin/ho-prod'],
                     cwd=self._repo.base_dir,

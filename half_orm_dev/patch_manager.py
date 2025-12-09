@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import shutil
 import subprocess
 import time
@@ -20,6 +21,7 @@ from git.exc import GitCommandError
 
 from half_orm import utils
 from half_orm_dev import modules
+from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
 from .patch_validator import PatchValidator, PatchInfo
 from .decorators import with_dynamic_branch_lock
 
@@ -968,7 +970,6 @@ class PatchManager:
 
         # Show warnings if any
         if all_warnings:
-            import click
             click.echo(f"\n{utils.Color.bold('⚠ Data file idempotency warnings:')}")
             for warning in all_warnings:
                 click.echo(f"  {warning}")
@@ -1018,10 +1019,6 @@ class PatchManager:
             PatchManagerError: If Python execution fails
         """
         try:
-            # Setup Python execution environment
-            import subprocess
-            import sys
-
             # Execute Python script as subprocess
             result = subprocess.run(
                 [sys.executable, str(file_path)],
@@ -1384,7 +1381,6 @@ class PatchManager:
         # 5. Delete patch directory (if created)
         if patch_dir and patch_dir.exists():
             try:
-                import shutil
                 shutil.rmtree(patch_dir)
             except Exception:
                 # Directory deletion may fail (permissions, etc.) - continue
@@ -1521,7 +1517,6 @@ class PatchManager:
                 self._push_branch_to_remote(branch_name)
             except PatchManagerError as e:
                 # Tag already pushed = success, just warn about branch
-                import click
                 click.echo(f"⚠️  Warning: Branch push failed after 3 attempts")
                 click.echo(f"⚠️  Patch {normalized_id} is reserved (tag pushed successfully)")
                 click.echo(f"⚠️  Push branch manually: git push -u origin {branch_name}")
@@ -1577,7 +1572,6 @@ class PatchManager:
 
             # Check which files exist in the release branch
             # We need to check before attempting git checkout to avoid errors
-            from pathlib import Path
 
             # Build list of files to sync
             paths_to_sync = []
@@ -1624,7 +1618,6 @@ class PatchManager:
                 raise PatchManagerError(f"Failed to sync release files to ho-prod: {e}")
             else:
                 # Non-critical - just warn
-                import click
                 click.echo(f"⚠️  Warning: Failed to sync release files to ho-prod: {e}")
                 click.echo(f"⚠️  You may need to manually sync .hop/releases/ to ho-prod")
 
@@ -1907,7 +1900,6 @@ class PatchManager:
             self._repo.hgit.delete_remote_branch(patch_branch)
         except Exception as e:
             # Non-critical - branch deletion can fail
-            import click
             click.echo(f"⚠️  Warning: Failed to delete branch {patch_branch}: {e}")
 
         # 9. Get other candidates for notification
@@ -1957,7 +1949,6 @@ class PatchManager:
             self._validate_patch_before_merge("456", "0.17.0", "ho-release/0.17.0", "ho-patch/456")
             # Creates temp branch, validates, cleans up
         """
-        import click
 
         # Save current branch
         original_branch = self._repo.hgit.branch
@@ -1985,7 +1976,6 @@ class PatchManager:
             click.echo(f"  • Running patch apply to verify idempotency...")
             try:
                 # Get list of staged patches for this version from TOML file
-                from half_orm_dev.release_file import ReleaseFile
                 release_file = ReleaseFile(version, Path(self._repo.releases_dir))
                 staged_patches = []
                 if release_file.exists():
@@ -2469,8 +2459,6 @@ class PatchManager:
             self._add_patch_to_candidates("456-user-auth", "0.17.0", before="457-feature")
             # Inserts before "457-feature"
         """
-        from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
-
         release_file = ReleaseFile(version, self._releases_dir)
 
         try:
@@ -2501,8 +2489,6 @@ class PatchManager:
             self._commit_patch_to_candidates("456-user-auth", "0.17.0", "Add auth")
             # Commits with message: "[HOP] Add patch 456-user-auth to 0.17.0 candidates"
         """
-        from half_orm_dev.release_file import ReleaseFile
-
         try:
             release_file = ReleaseFile(version, self._releases_dir)
             self._repo.hgit.add(str(release_file.file_path))
@@ -2537,8 +2523,6 @@ class PatchManager:
             version = self._find_version_for_candidate("456-user-auth")
             # Returns "0.17.0" if found in 0.17.0-patches.toml
         """
-        from half_orm_dev.release_file import ReleaseFile
-
         patches_files = self._releases_dir.glob("*-patches.toml")
 
         for patches_file in patches_files:
@@ -2564,8 +2548,6 @@ class PatchManager:
             # Returns:
             # "Release 0.17.0:\n  - 456-user-auth\n  - 457-feature-x"
         """
-        from half_orm_dev.release_file import ReleaseFile
-
         patches_files = sorted(self._releases_dir.glob("*-patches.toml"))
 
         if not patches_files:
@@ -2606,8 +2588,6 @@ class PatchManager:
             # Changes "456-user-auth" = "candidate" to "456-user-auth" = "staged"
             # Order is preserved!
         """
-        from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
-
         release_file = ReleaseFile(version, self._releases_dir)
 
         try:
@@ -2641,8 +2621,6 @@ class PatchManager:
             others = self._get_other_candidates("0.17.0", "456-user-auth")
             # Returns ["457-feature-x", "458-bugfix"] if they exist
         """
-        from half_orm_dev.release_file import ReleaseFile
-
         release_file = ReleaseFile(version, self._releases_dir)
 
         if not release_file.exists():

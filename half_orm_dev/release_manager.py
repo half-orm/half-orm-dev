@@ -2795,7 +2795,6 @@ class ReleaseManager:
         version = self._detect_version_to_promote('prod')
 
         # Check TOML patches file exists
-        from half_orm_dev.release_file import ReleaseFile
         release_file = ReleaseFile(version, self._releases_dir)
         if not release_file.exists():
             raise ReleaseManagerError(f"RC release {version} not found")

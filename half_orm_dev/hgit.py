@@ -5,15 +5,16 @@ from __future__ import annotations
 import os
 import sys
 import subprocess
+import fnmatch
 import git
 from git.exc import GitCommandError
 from typing import List, Optional
 import time
 import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from half_orm import utils
-from half_orm_dev.manifest import Manifest
 
 class HGit:
     "Manages the git operations on the repo."
@@ -933,7 +934,6 @@ class HGit:
                     # Continue to create new lock
                 else:
                     # Recent lock - respect it
-                    from git.exc import GitCommandError
                     raise GitCommandError(
                         f"Branch '{branch_name}' is locked by another process.\n"
                         f"Lock: {existing_locks[0]}\n"
@@ -957,7 +957,6 @@ class HGit:
             # Cleanup local tag
             self.delete_local_tag(lock_tag)
 
-            from git.exc import GitCommandError
             raise GitCommandError(
                 f"Failed to acquire lock on '{branch_name}'.\n"
                 f"Another process acquired it first.\n"
@@ -1016,8 +1015,6 @@ class HGit:
             # List locks on specific branch
             ho_prod_locks = hgit.list_tags("lock-ho-prod-*")
         """
-        import fnmatch
-
         all_tags = [tag.name for tag in self.__git_repo.tags]
 
         if pattern:
@@ -1181,7 +1178,6 @@ class HGit:
             except GitCommandError as e:
                 # Non-fatal: log warning but continue
                 # New branch is already on remote, which is the main goal
-                import sys
                 print(
                     f"Warning: Failed to delete old remote branch '{old_name}': {e}",
                     file=sys.stderr
@@ -1205,7 +1201,6 @@ class HGit:
                 self.__git_repo.git.branch("-D", old_name)
             except GitCommandError as e:
                 # Non-fatal: new branch exists, which is the main goal
-                import sys
                 print(
                     f"Warning: Failed to delete old local branch '{old_name}': {e}",
                     file=sys.stderr
@@ -1293,7 +1288,6 @@ class HGit:
                         branches.append(branch)
                     else:
                         # Simple glob pattern matching
-                        import fnmatch
                         if fnmatch.fnmatch(branch, pattern):
                             branches.append(branch)
 
@@ -1484,7 +1478,6 @@ class HGit:
         if stage_files:
             for stage_file_path in stage_files:
                 try:
-                    from pathlib import Path
                     # Extract version from filename (e.g., "0.1.0-stage.txt" -> "0.1.0")
                     filename = Path(stage_file_path).name
                     version = filename.replace('-stage.txt', '')

@@ -1,14 +1,16 @@
 """Provides the Database class
 """
 
+import getpass
 import os
 import re
 import subprocess
 import sys
+from configparser import ConfigParser
 
 from pathlib import Path
 from psycopg2 import OperationalError
-from half_orm.model import Model
+from half_orm.model import Model, CONF_DIR
 from half_orm.model_errors import UnknownRelation
 from half_orm import utils
 from .utils import HOP_PATH
@@ -337,8 +339,7 @@ class Database:
         Raises:
             OSError: If configuration directory is not writable
         """
-        from configparser import ConfigParser
-        from half_orm.model import CONF_DIR
+        # from half_orm.model import CONF_DIR
 
         # Ensure configuration directory exists and is writable
         if not os.path.exists(CONF_DIR):
@@ -1097,8 +1098,6 @@ class Database:
             # Prompts: "Production environment (True): " for confirmation
             # Returns: dict with confirmed production setting
         """
-        import getpass
-        import os
 
         # Create a copy to avoid modifying the original
         complete_params = connection_options.copy()
@@ -1209,8 +1208,6 @@ class Database:
             - Integrates PostgreSQL trust mode defaults directly into Database class
             - Eliminates external DbConn dependency while preserving all functionality
         """
-        import os
-        from configparser import ConfigParser
         from half_orm.model import CONF_DIR
 
         # Check if configuration directory exists

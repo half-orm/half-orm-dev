@@ -5,12 +5,21 @@ from __future__ import annotations
 
 import os
 import sys
-from configparser import ConfigParser
-from pathlib import Path
 import shutil
 import subprocess
+import filecmp
+import json
+import urllib.request
+import time
+import keyword
+import re
+import warnings
+
 from typing import Optional
+from pathlib import Path
+from configparser import ConfigParser
 from psycopg2 import OperationalError
+from packaging import version
 
 import half_orm
 from half_orm import utils
@@ -688,7 +697,6 @@ class Repo:
             result = repo.install_git_hooks(force=True)
             # → {'installed': True, 'action': 'installed'}
         """
-        import filecmp
 
         hooks_source_dir = os.path.join(TEMPLATE_DIRS, 'git-hooks')
         hooks_dest_dir = os.path.join(self.__base_dir, '.git', 'hooks')
@@ -749,10 +757,6 @@ class Repo:
             if version_info['update_available']:
                 print(f"Update available: {version_info['latest_version']}")
         """
-        import urllib.request
-        import json
-        from pathlib import Path
-
         result = {
             'current_version': None,
             'latest_version': None,
@@ -779,7 +783,6 @@ class Repo:
                 # Compare versions using packaging.version for proper semantic versioning
                 if result['current_version'] and result['latest_version']:
                     try:
-                        from packaging import version
                         current = version.parse(result['current_version'])
                         latest = version.parse(result['latest_version'])
                         if current < latest:
@@ -833,8 +836,6 @@ class Repo:
             # Force check (bypass cache)
             result = repo.check_and_update(force_check=True)
         """
-        import time
-        from pathlib import Path
 
         # Check cache (only if not forced and silent mode)
         cache_file = Path(self.__base_dir) / '.git' / '.half_orm_check_cache'
@@ -864,7 +865,6 @@ class Repo:
             result['hooks'] = self.install_git_hooks()
         else:
             # Dry run: just check if update would be needed
-            import filecmp
             hooks_source_dir = os.path.join(TEMPLATE_DIRS, 'git-hooks')
             hooks_dest_dir = os.path.join(self.__base_dir, '.git', 'hooks')
 
@@ -1000,8 +1000,6 @@ class Repo:
             _validate_package_name("9invalid")     # Raises ValueError
             _validate_package_name("my blog")      # Raises ValueError
         """
-        import keyword
-
         # Check for None
         if package_name is None:
             raise ValueError("Package name cannot be None")
@@ -1118,7 +1116,7 @@ class Repo:
             mode = _detect_development_mode("legacy_db")
             assert mode is False  # Sync-only mode
         """
-        from half_orm.model import Model
+        from half_orm.model import Model # Needed here for tests ?
 
         # Check if we already have a Model instance (from _verify_database_configured)
         if hasattr(self, 'database') and self.database and hasattr(self.database, 'model'):
@@ -1156,8 +1154,6 @@ class Repo:
             _create_project_directory("existing_dir")
             # Raises: FileExistsError
         """
-        import os
-
         # Build absolute path
         cur_dir = os.path.abspath(os.path.curdir)
         project_path = os.path.join(cur_dir, package_name)
@@ -1216,9 +1212,6 @@ class Repo:
             # devel = True
             # git_origin = https://github.com/user/my_blog.git
         """
-        import os
-        from half_orm_dev.utils import hop_version
-
         # Create .hop directory
         hop_dir = os.path.join(self.__base_dir, '.hop')
         os.makedirs(hop_dir, exist_ok=True)
@@ -1262,8 +1255,6 @@ class Repo:
             _create_git_centric_structure()
             # Skips creation (not needed for sync-only)
         """
-        import os
-
         # Only create structure in development mode
         if not self.__config.devel:
             return
@@ -1388,8 +1379,6 @@ See docs/half_orm_dev.md for complete documentation.
             _generate_python_package()
             # Generates complete package structure from database
         """
-        from half_orm_dev import modules
-
         # Delegate to existing modules.generate()
         modules.generate(self)
 
@@ -1432,9 +1421,6 @@ See docs/half_orm_dev.md for complete documentation.
             _generate_template_files()
             # Creates: README.md, .gitignore, pyproject.toml, Pipfile
         """
-        import half_orm
-        from half_orm_dev.utils import TEMPLATE_DIRS, hop_version
-
         # Read templates
         readme_template = utils.read(os.path.join(TEMPLATE_DIRS, 'README'))
         pyproject_template = utils.read(os.path.join(TEMPLATE_DIRS, 'pyproject.toml'))
@@ -1507,9 +1493,6 @@ See docs/half_orm_dev.md for complete documentation.
             - Leading/trailing whitespace is automatically stripped
             - .git extension is optional
         """
-        import re
-        import warnings
-
         # Type validation
         if git_origin_url is None:
             raise ValueError("Git origin URL cannot be None")
@@ -1758,8 +1741,6 @@ See docs/half_orm_dev.md for complete documentation.
             metadata_path = _deduce_metadata_path(Path("model/schema.sql"))
             # Returns: None
         """
-        import re
-
         # Check if schema.sql is a symlink
         if not schema_path.is_symlink():
             return None
@@ -1907,8 +1888,6 @@ See docs/half_orm_dev.md for complete documentation.
 
         # Step 7: Load config and setup database
         from half_orm_dev.repo import Config  # Import here to avoid circular imports
-        from half_orm_dev.database import Database
-
         config = Config(dest_path)
 
         connection_options = {

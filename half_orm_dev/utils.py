@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+from configparser import ConfigParser
 
 PWD = os.path.dirname(__file__)
 HOP_PATH = os.path.join(PWD)
@@ -20,8 +22,6 @@ def resolve_database_config_name(base_dir):
     2. .hop/config[halfORM][package_name] if exists → use it (backward compat)
     3. Otherwise → use directory name
     """
-    from pathlib import Path
-    from configparser import ConfigParser
 
     base_path = Path(base_dir)
 
