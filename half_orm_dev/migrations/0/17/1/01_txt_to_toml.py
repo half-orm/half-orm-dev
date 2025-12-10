@@ -65,12 +65,13 @@ def migrate(repo):
     2. Read X.Y.Z-candidates.txt (if exists)
     3. Read X.Y.Z-stage.txt (if exists)
     4. Create X.Y.Z-patches.toml with:
-       - All candidates first (status="candidate")
-       - All staged second (status="staged")
+       - All staged first (status="staged")
+       - All candidates second (status="candidate")
     5. Delete old TXT files
 
-    Note: The order will be candidates first, then staged.
-    This is an acceptable limitation for the initial migration.
+    Note: Staged patches are placed first, then candidates.
+    This maintains the correct application order where staged patches
+    (already integrated) come before candidates (still in development).
 
     Args:
         repo: Repo instance
@@ -112,17 +113,18 @@ def migrate(repo):
             # Create TOML structure
             toml_data = {"patches": {}}
 
-            # Add candidates first
-            for patch_id in candidates:
-                toml_data["patches"][patch_id] = "candidate"
-
-            # Add staged second
+            # Add staged FIRST (they should appear before candidates in application order)
             for patch_id in staged:
+                toml_data["patches"][patch_id] = "staged"
+
+            # Add candidates SECOND (they come after staged patches)
+            for patch_id in candidates:
                 # If a patch appears in both files (shouldn't happen, but handle it)
                 if patch_id in toml_data["patches"]:
                     print(f"    Warning: Patch {patch_id} found in both candidates and stage, "
-                          f"marking as staged", file=sys.stderr)
-                toml_data["patches"][patch_id] = "staged"
+                          f"keeping as staged", file=sys.stderr)
+                else:
+                    toml_data["patches"][patch_id] = "candidate"
 
             # Write TOML file
             with toml_file.open('wb') as f:
