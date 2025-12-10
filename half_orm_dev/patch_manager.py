@@ -1538,13 +1538,18 @@ class PatchManager:
                 )
             raise PatchManagerError(f"Patch creation failed: {e}")
 
+        # Step 13: Synchronize other candidate branches with updated TOML
+        other_candidates = self._get_other_candidates(release_version, normalized_id)
+        self._sync_candidate_branches_with_release(release_branch, other_candidates)
+
         # Return result
         return {
             'patch_id': normalized_id,
             'branch_name': branch_name,
             'patch_dir': patch_dir,
             'on_branch': branch_name,
-            'version': release_version  # NEW: include release version
+            'version': release_version,  # NEW: include release version
+            'synced_branches': other_candidates  # Branches that were synced
         }
 
     def _sync_release_files_to_ho_prod(self, version: str, release_branch: str, critical: bool = False) -> None:
@@ -1902,15 +1907,16 @@ class PatchManager:
             # Non-critical - branch deletion can fail
             click.echo(f"⚠️  Warning: Failed to delete branch {patch_branch}: {e}")
 
-        # 9. Get other candidates for notification
+        # 9. Synchronize other candidate branches with updated TOML
         other_candidates = self._get_other_candidates(version, patch_id)
+        self._sync_candidate_branches_with_release(release_branch, other_candidates)
 
         return {
             'version': version,
             'patch_id': patch_id,
             'patches_file': f"releases/{version}-patches.toml",
             'merged_into': release_branch,
-            'notified_branches': other_candidates
+            'synced_branches': other_candidates
         }
 
     def _validate_patch_before_merge(
@@ -2629,3 +2635,78 @@ class PatchManager:
 
         candidates = release_file.get_patches(status="candidate")
         return [p for p in candidates if p != exclude_patch]
+
+    def _sync_candidate_branches_with_release(self, release_branch: str, candidate_patches: List[str]) -> None:
+        """
+        Synchronize candidate patch branches with updated release branch.
+
+        After creating a new patch or closing a patch, the TOML file on ho-release/X.Y.Z
+        is updated. All existing candidate branches need to merge these changes to avoid
+        conflicts when they are closed later.
+
+        This method merges ho-release/X.Y.Z into each candidate branch and pushes the result.
+
+        Args:
+            release_branch: Release branch name (e.g., "ho-release/0.17.0")
+            candidate_patches: List of patch IDs to synchronize
+
+        Examples:
+            # After creating patch 43-et-demi, sync patch 42-la-question
+            self._sync_candidate_branches_with_release(
+                "ho-release/0.2.0",
+                ["42-la-question"]
+            )
+        """
+        if not candidate_patches:
+            return
+
+        current_branch = self._repo.hgit.branch
+
+        for patch_id in candidate_patches:
+            patch_branch = f"ho-patch/{patch_id}"
+
+            # Check if branch exists locally or remotely
+            if not self._repo.hgit.branch_exists(patch_branch):
+                # Branch doesn't exist locally, skip (might be remote-only)
+                continue
+
+            try:
+                # Checkout to patch branch
+                self._repo.hgit.checkout(patch_branch)
+
+                # Merge release branch into patch branch
+                try:
+                    self._repo.hgit.merge(
+                        release_branch,
+                        message=f"[HOP] Sync with {release_branch} (TOML update)"
+                    )
+                except Exception as merge_error:
+                    # Merge failed - likely a conflict
+                    # Abort merge and warn user
+                    try:
+                        self._repo.hgit.git_repo.git.merge('--abort')
+                    except Exception:
+                        pass
+
+                    click.echo(f"⚠️  Warning: Could not auto-sync {patch_branch}")
+                    click.echo(f"   Merge conflict detected. Please sync manually:")
+                    click.echo(f"   git checkout {patch_branch}")
+                    click.echo(f"   git merge {release_branch}")
+                    continue
+
+                # Push the synchronized branch
+                try:
+                    self._repo.hgit.push_branch(patch_branch)
+                except Exception as push_error:
+                    click.echo(f"⚠️  Warning: Could not push {patch_branch}: {push_error}")
+                    click.echo(f"   Please push manually: git push origin {patch_branch}")
+
+            except Exception as e:
+                click.echo(f"⚠️  Warning: Could not sync {patch_branch}: {e}")
+                continue
+
+        # Return to original branch
+        try:
+            self._repo.hgit.checkout(current_branch)
+        except Exception:
+            pass
