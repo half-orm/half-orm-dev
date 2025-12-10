@@ -89,6 +89,10 @@ def migrate(repo):
 
     # Update .gitignore
     _update_gitignore(base_dir)
+    repo.hgit.add('.gitignore')
+    repo.hgit.add('.hop')
+    repo.hgit.add('model')
+    repo.hgit.add('releases')
 
     return result
 

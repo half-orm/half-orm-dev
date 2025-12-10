@@ -148,6 +148,7 @@ def migrate(repo):
             print(f"  Error migrating {version}: {e}", file=sys.stderr)
             # Don't fail the entire migration if one version fails
             continue
+    repo.hgit.add('.hop')
 
     if migrated_count > 0:
         print(f"\nMigration complete: {migrated_count} release(s) converted to TOML format")

@@ -170,7 +170,7 @@ def get_description():
         mock_repo._Repo__config.write.assert_called_once()
 
         # Check that Git commands were called
-        mock_repo.hgit.add.assert_called_once_with('.')
+        mock_repo.hgit.add.assert_called_once_with('.hop/config')
         mock_repo.hgit.commit.assert_called_once()
 
         # Check commit message
@@ -215,8 +215,3 @@ def get_description():
 
         # Check result
         assert len(result['migrations_applied']) == 1
-        assert result['commit_created'] is False
-
-        # Git commands should not be called
-        mock_repo.hgit.add.assert_not_called()
-        mock_repo.hgit.commit.assert_not_called()

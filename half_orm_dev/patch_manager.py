@@ -2146,9 +2146,10 @@ class PatchManager:
         current_branch = self._repo.hgit.branch
         if not current_branch.startswith("ho-release/"):
             raise PatchManagerError(
-                f"Must be on ho-release/X.Y.Z branch to create patch. "
+                "Must be on ho-release/X.Y.Z branch to create patch. "
                 f"Current branch: {current_branch}\n"
-                f"Hint: Run 'half_orm dev release new <level>' first to create a release"
+                "Hint: Run 'half_orm dev release new <level>' first to create a release "
+                "or switch to a release branch."
             )
 
         return current_branch

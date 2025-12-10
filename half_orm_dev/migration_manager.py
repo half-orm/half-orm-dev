@@ -317,6 +317,7 @@ class MigrationManager:
         if hasattr(self._repo, '_Repo__config'):
             self._repo._Repo__config.hop_version = target_version
             self._repo._Repo__config.write()
+            self._repo.hgit.add(str(Path('.hop') / 'config'))
 
         # Create Git commit if requested
         if create_commit and self._repo.hgit:
@@ -327,10 +328,7 @@ class MigrationManager:
                     result['migrations_applied']
                 )
 
-                # Add all changes
-                self._repo.hgit.add('.')
-
-                # Commit with -m flag
+                # Commit the changes added by the script
                 self._repo.hgit.commit('-m', commit_msg)
 
                 result['commit_created'] = True
@@ -444,6 +442,7 @@ class MigrationManager:
                 # Update hop_version in .hop/config
                 self._repo._Repo__config.hop_version = to_version
                 self._repo._Repo__config.write()
+                self._repo.hgit.add(Path('.hop') / 'config')
 
                 # Create commit message
                 commit_msg = self._create_migration_commit_message(
@@ -452,8 +451,7 @@ class MigrationManager:
                     [{'version': v, 'applied_files': []} for v, _ in pending]
                 )
 
-                # Add all changes and commit
-                self._repo.hgit.add('.')
+                # commit the changes added by the script
                 self._repo.hgit.commit('-m', commit_msg)
 
                 # Push the commit
