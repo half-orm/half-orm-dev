@@ -4,6 +4,8 @@ Decorators for half-orm-dev.
 Provides common decorators for ReleaseManager and PatchManager.
 """
 
+import sys
+import inspect
 from functools import wraps
 
 
@@ -49,6 +51,63 @@ def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
                 # Always release lock (even on error)
                 if lock_tag:
                     self._repo.hgit.release_branch_lock(lock_tag)
+
+        return wrapper
+    return decorator
+
+class Node:
+    def __init__(self, name):
+        self.name = name
+        self.children = []
+
+class Node:
+    def __init__(self, name):
+        self.name = name
+        self.children = []
+
+def print_tree(node, depth=0):
+    print("  " * depth + node.name)
+    for child in node.children:
+        print_tree(child, depth + 1)
+
+
+def trace_package(package_root: str):
+    def decorator(func):
+
+        def wrapper(*args, **kwargs):
+            root = Node(func.__qualname__)
+            stack = [root]
+
+            def tracer(frame, event, arg):
+                filename = frame.f_code.co_filename
+
+                # On garde uniquement les appels venant du package
+                if package_root not in filename:
+                    return tracer
+
+                if event == 'call':
+                    name = frame.f_code.co_qualname
+                    node = Node(name)
+                    stack[-1].children.append(node)
+                    stack.append(node)
+
+                elif event == 'return':
+                    if len(stack) > 1:
+                        stack.pop()
+
+                return tracer
+
+            sys.settrace(tracer)
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                sys.settrace(None)
+
+                print("\n=== Arbre d'exécution ===")
+                print_tree(root)
+                print("=========================\n")
+
+            return result   # 🔥 retour normal, aucune modification
 
         return wrapper
     return decorator

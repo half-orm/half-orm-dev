@@ -299,14 +299,15 @@ class Repo:
 
             # Only run migrations on ho-prod branch
             if not self.hgit or self.hgit.branch != 'ho-prod':
-                # Warn user to merge ho-prod to get migration
+                # Warn user to switch to ho-prod to run migration
                 current_branch = self.hgit.branch if self.hgit else 'unknown'
                 config_version = self.__config.hop_version if hasattr(self, '_Repo__config') else '0.0.0'
                 print(f"\n{utils.Color.bold('⚠️  Migration needed:')}", file=sys.stderr)
                 print(f"  half_orm_dev {config_version} → {current_version}", file=sys.stderr)
                 print(f"  Current branch: {current_branch}", file=sys.stderr)
-                print(f"\n  To apply migration, merge ho-prod into your branch:", file=sys.stderr)
-                print(f"    git merge origin/ho-prod\n", file=sys.stderr)
+                print(f"\n  To apply migration, checkout to ho-prod branch and rerun:", file=sys.stderr)
+                print(f"    git checkout ho-prod", file=sys.stderr)
+                print(f"    half_orm dev check\n", file=sys.stderr)
                 return
 
             # Run migrations on ho-prod with lock and branch notifications

@@ -1302,57 +1302,67 @@ class PatchManager:
         when an error occurs BEFORE the tag is pushed to remote. This ensures a
         clean repository state for retry.
 
-        UPDATED FOR NEW WORKFLOW: Now handles commit on ho-prod (not on branch).
+        UPDATED FOR NEW WORKFLOW (v0.17.2+): Patches/ directories are now created
+        on patch branches only, not on ho-release. The rollback must handle:
+        - Commit on ho-release (only patches file metadata)
+        - Potential commit on patch branch (Patches/ directory)
+        - Potential branch not yet created
 
         Rollback operations (best-effort, continues on individual failures):
-        1. Ensure we're on initial branch (ho-prod)
-        2. Reset commit if it was created (git reset --hard HEAD~1)
-        3. Delete patch branch if it was created (may not exist in new workflow)
-        4. Delete patch tag (local)
-        5. Delete patch directory (if created)
+        1. Try to checkout patch branch if exists and remove Patches/ directory
+        2. Return to initial branch (ho-release)
+        3. Reset commit if it was created (git reset --hard HEAD~1)
+        4. Delete patch branch if it was created
+        5. Delete patch tag (local)
 
         Note: This method is only called when tag push has NOT succeeded yet.
         Once tag is pushed, rollback is not performed as the patch number is
         already globally reserved.
 
         Args:
-            initial_branch: Branch to return to (usually "ho-prod")
+            initial_branch: Branch to return to (usually "ho-release/X.Y.Z")
             branch_name: Patch branch name (e.g., "ho-patch/456-user-auth")
             patch_id: Patch identifier for tag/directory cleanup
-            patch_dir: Path to patch directory if it was created
-            commit_created: Whether commit was created on ho-prod (NEW)
+            patch_dir: Path to patch directory if it was created (may be on branch)
+            commit_created: Whether commit was created on ho-release (metadata)
 
         Examples:
-            # NEW WORKFLOW: Rollback with commit on ho-prod
+            # NEW WORKFLOW (v0.17.2+): Rollback with metadata commit on ho-release
             self._rollback_patch_creation(
-                "ho-prod",
+                "ho-release/0.17.0",
                 "ho-patch/456-user-auth",
                 "456-user-auth",
-                Path("Patches/456-user-auth"),
-                commit_created=True  # NEW: commit was made on ho-prod
+                Path("Patches/456-user-auth"),  # Created on branch
+                commit_created=True  # Metadata commit on ho-release
             )
-            # Reverts commit, deletes tag/directory, returns to clean state
-
-            # OLD WORKFLOW (still supported): Rollback with commit on branch
-            self._rollback_patch_creation(
-                "ho-prod",
-                "ho-patch/456-user-auth",
-                "456-user-auth",
-                Path("Patches/456-user-auth"),
-                commit_created=False  # No commit on ho-prod
-            )
+            # Cleans patch branch, reverts metadata commit on ho-release
         """
         # Best-effort cleanup - continue even if individual operations fail
 
-        # 1. Ensure we're on initial branch (usually ho-prod)
-        # ALWAYS checkout to ensure we're on the right branch for reset
+        # Track which branch we're currently on for cleanup
+        current_branch = None
+        try:
+            current_branch = self._repo.hgit.branch
+        except Exception:
+            pass
+
+        # 1. If patch directory exists, delete it (wherever it is)
+        # In new workflow, it may be on patch branch or not created yet
+        if patch_dir and patch_dir.exists():
+            try:
+                shutil.rmtree(patch_dir)
+            except Exception:
+                # Directory deletion may fail (permissions, etc.) - continue
+                pass
+
+        # 2. Ensure we're on initial branch (ho-release)
         try:
             self._repo.hgit.checkout(initial_branch)
         except Exception:
             # Continue cleanup even if checkout fails
             pass
 
-        # 2. Reset commit if it was created on ho-prod (NEW WORKFLOW)
+        # 3. Reset commit if it was created on ho-release (metadata commit)
         if commit_created:
             try:
                 # Hard reset to remove the commit
@@ -1362,14 +1372,14 @@ class PatchManager:
                 # Continue cleanup even if reset fails
                 pass
 
-        # 3. Delete patch branch (may not exist if failure before branch creation)
+        # 4. Delete patch branch (may not exist if failure before branch creation)
         try:
             self._repo.hgit.delete_local_branch(branch_name)
         except Exception:
             # Branch may not exist yet or deletion may fail - continue
             pass
 
-        # 4. Delete local tag
+        # 5. Delete local tag
         patch_number = patch_id.split('-')[0]
         tag_name = f"ho-patch/{patch_number}"
         try:
@@ -1378,18 +1388,12 @@ class PatchManager:
             # Tag may not exist yet or deletion may fail - continue
             pass
 
-        # 5. Delete patch directory (if created)
-        if patch_dir and patch_dir.exists():
-            try:
-                shutil.rmtree(patch_dir)
-            except Exception:
-                # Directory deletion may fail (permissions, etc.) - continue
-                pass
-
     @with_dynamic_branch_lock(lambda self, patch_id, description=None, before=None: "ho-prod")
     def create_patch(self, patch_id: str, description: Optional[str] = None, before: Optional[str] = None) -> dict:
         """
         Create new patch with atomic tag-first reservation strategy.
+
+        UPDATED WORKFLOW (v0.17.2+): Patches/ directories are now isolated to patch branches!
 
         Orchestrates the full patch creation workflow with transactional guarantees:
         1. Validates we're on ho-release/X.Y.Z branch
@@ -1398,21 +1402,26 @@ class PatchManager:
         4. Validates and normalizes patch ID format
         5. **ACQUIRES DISTRIBUTED LOCK on ho-release/X.Y.Z** (30min timeout)
         6. Fetches all references from remote (branches + tags) - with lock
-        6.5 Validates ho-release is synced with origin
-        7. Checks patch number available via tag lookup (with up-to-date state)
-        8. Creates Patches/PATCH_ID/ directory (on ho-release/X.Y.Z)
-        8.5. **Adds PATCH_ID to X.Y.Z-candidates.txt** (NEW)
-        9. Commits changes on ho-release/X.Y.Z "[HOP] Add patch {patch_id} to candidates"
-        10. Creates local tag ho-patch/{number} (points to commit on ho-release)
-        11. **Pushes tag to reserve number globally** ← POINT OF NO RETURN
-        12. Creates ho-patch/PATCH_ID branch from current commit
-        13. Pushes branch to remote (with retry)
-        14. **RELEASES LOCK** (always, even on error)
-        15. Checkouts to new patch branch
+        7. Validates ho-release is synced with origin
+        8. Checks patch number available via tag lookup (with up-to-date state)
+        9. **Adds PATCH_ID to X.Y.Z-patches.toml** (metadata only)
+        10. Commits metadata on ho-release/X.Y.Z "[HOP] Add patch #{patch_id} to %X.Y.Z candidates"
+        11. Creates local tag ho-patch/{number} (points to metadata commit on ho-release)
+        12. **Pushes tag to reserve number globally** ← POINT OF NO RETURN
+        13. Pushes ho-release branch
+        14. Syncs release files to ho-prod (non-critical)
+        15. Creates ho-patch/PATCH_ID branch from current commit
+        16. **Creates Patches/PATCH_ID/ directory ON PATCH BRANCH** (isolation!)
+        17. Commits Patches/ directory on ho-patch/PATCH_ID "[HOP] Create patch directory for {patch_id}"
+        18. Pushes branch to remote (with retry)
+        19. **RELEASES LOCK** (always, even on error)
+
+        Key improvement: Patches/ directories are now isolated to their patch branches,
+        preventing pollution of ho-release with all patch directories.
 
         Transactional guarantees:
-        - Failure before step 10 (tag push): Complete rollback to initial state
-        - Success at step 10 (tag push): Patch reserved, no rollback even if branch push fails
+        - Failure before step 12 (tag push): Complete rollback to initial state
+        - Success at step 12 (tag push): Patch reserved, no rollback even if branch push fails
         - Tag-first strategy prevents race conditions between developers
         - Remote fetch + sync validation ensures up-to-date base
 
@@ -1425,12 +1434,13 @@ class PatchManager:
         Args:
             patch_id: Patch identifier (e.g., "456-user-auth")
             description: Optional description for README and commit message
+            before: Optional patch ID to insert before in application order
 
         Returns:
             dict: Creation result with keys:
                 - patch_id: Normalized patch identifier
                 - branch_name: Created branch name
-                - patch_dir: Path to patch directory
+                - patch_dir: Path to patch directory (on patch branch)
                 - on_branch: Current branch after checkout
                 - version: Release version (e.g., "0.17.0")
 
@@ -1440,7 +1450,7 @@ class PatchManager:
         Examples:
             # On branch ho-release/0.17.0:
             result = patch_mgr.create_patch("456-user-auth")
-            # Creates patch, adds to 0.17.0-candidates.txt
+            # Creates metadata on ho-release, Patches/ on ho-patch/456-user-auth
 
             result = patch_mgr.create_patch("456", "Add authentication")
             # With description for README and commits
@@ -1478,22 +1488,14 @@ class PatchManager:
             # === LOCAL OPERATIONS ON HO-RELEASE (rollback on failure) ===
             modifications_started = True  # From here, rollback is needed on failure
 
-            # Step 7: Create patch directory (on ho-release/X.Y.Z, not on branch!)
-            patch_dir = self.create_patch_directory(normalized_id)
-            self._repo.hgit.add(patch_dir)
-
-            # Step 7b: Update README if description provided
-            if description:
-                self._update_readme_with_description(patch_dir, normalized_id, description)
-
-            # Step 8: Add patch to candidates.txt (NEW)
+            # Step 8: Add patch to candidates.txt (only metadata on ho-release)
             self._add_patch_to_candidates(normalized_id, release_version, before=before)
 
-            # Step 9: Commit patch directory and candidates file ON HO-RELEASE
-            self._commit_patch_to_candidates(normalized_id, release_version, description)
+            # Step 9: Commit patches file ON HO-RELEASE (without Patches/ directory)
+            self._commit_patch_metadata_to_candidates(normalized_id, release_version, description)
             commit_created = True  # Track that commit was made
 
-            # Step 10: Create local tag (points to commit on ho-release with Patches/)
+            # Step 10: Create local tag (points to commit on ho-release without Patches/)
             self._create_local_tag(normalized_id, description)
 
             # === REMOTE OPERATIONS (point of no return) ===
@@ -1509,10 +1511,11 @@ class PatchManager:
 
             # === BRANCH CREATION (after reservation) ===
 
-            # Step 11: Create branch FROM current commit (after tag push)
+            # Step 12: Create branch FROM current commit (after tag push)
             self._create_git_branch(branch_name)
 
-            # Step 12: Push branch (with retry)
+            # Step 13: Push empty branch to remote FIRST (required by git hooks)
+            # This allows the pre-commit hook to verify the branch exists on origin
             try:
                 self._push_branch_to_remote(branch_name)
             except PatchManagerError as e:
@@ -1522,7 +1525,30 @@ class PatchManager:
                 click.echo(f"⚠️  Push branch manually: git push -u origin {branch_name}")
                 # Don't raise - tag pushed means success
 
-            # Note: No need to checkout - already on branch after _create_git_branch()
+            # Step 14: Create patch directory ON PATCH BRANCH ONLY (isolation!)
+            patch_dir = self.create_patch_directory(normalized_id)
+            self._repo.hgit.add(patch_dir)
+
+            # Step 14b: Update README if description provided
+            if description:
+                self._update_readme_with_description(patch_dir, normalized_id, description)
+                # Add the updated README to staging
+                readme_path = patch_dir / "README.md"
+                self._repo.hgit.add(readme_path)
+
+            # Step 14c: Commit patch directory ON PATCH BRANCH
+            # Now the pre-commit hook will find the branch on origin
+            self._commit_patch_directory_to_branch(normalized_id, description)
+
+            # Step 15: Push the commit
+            try:
+                self._repo.hgit.push()
+            except Exception as e:
+                # Commit was created, just warn about push failure
+                click.echo(f"⚠️  Warning: Failed to push commit: {e}")
+                click.echo(f"⚠️  Push manually: git push")
+
+            # Note: Already on branch after _create_git_branch()
 
         except Exception as e:
             # Only rollback if tag NOT pushed yet AND modifications started
@@ -2473,16 +2499,18 @@ class PatchManager:
         except ReleaseFileError as e:
             raise PatchManagerError(str(e))
 
-    def _commit_patch_to_candidates(
+    def _commit_patch_metadata_to_candidates(
         self,
         patch_id: str,
         version: str,
         description: Optional[str] = None
     ) -> None:
         """
-        Commit patch directory and patches file to release branch.
+        Commit only patches file metadata to release branch (without Patches/ directory).
 
-        Commits both the Patches/PATCH_ID directory and the updated X.Y.Z-patches.toml file.
+        This is the first commit on ho-release/X.Y.Z that reserves the patch ID
+        in the patches file, but doesn't include the Patches/PATCH_ID directory yet.
+        The directory will be created later on the patch branch.
 
         Args:
             patch_id: Normalized patch identifier
@@ -2493,8 +2521,8 @@ class PatchManager:
             PatchManagerError: If commit fails
 
         Examples:
-            self._commit_patch_to_candidates("456-user-auth", "0.17.0", "Add auth")
-            # Commits with message: "[HOP] Add patch 456-user-auth to 0.17.0 candidates"
+            self._commit_patch_metadata_to_candidates("456-user-auth", "0.17.0", "Add auth")
+            # Commits with message: "[HOP] Add patch #456-user-auth to %0.17.0 candidates"
         """
         try:
             release_file = ReleaseFile(version, self._releases_dir)
@@ -2505,12 +2533,48 @@ class PatchManager:
             if description:
                 msg += f"\n\n{description}"
 
-            # Commit both Patches/ directory and patches file
+            # Commit only the patches file (no Patches/ directory)
             self._repo.hgit.commit("-m", msg)
 
         except Exception as e:
             raise PatchManagerError(
-                f"Failed to commit patch to candidates: {e}"
+                f"Failed to commit patch metadata to candidates: {e}"
+            )
+
+    def _commit_patch_directory_to_branch(
+        self,
+        patch_id: str,
+        description: Optional[str] = None
+    ) -> None:
+        """
+        Commit Patches/PATCH_ID directory on patch branch.
+
+        This is the second commit that happens on the ho-patch/PATCH_ID branch,
+        creating the actual Patches/PATCH_ID directory structure isolated to this branch.
+
+        Args:
+            patch_id: Normalized patch identifier
+            description: Optional description for commit message
+
+        Raises:
+            PatchManagerError: If commit fails
+
+        Examples:
+            self._commit_patch_directory_to_branch("456-user-auth", "Add auth")
+            # Commits with message: "[HOP] Create patch directory for 456-user-auth"
+        """
+        try:
+            # Construct commit message
+            msg = f"[HOP] Create patch directory for {patch_id}"
+            if description:
+                msg += f"\n\n{description}"
+
+            # Commit the Patches/ directory on patch branch
+            self._repo.hgit.commit("-m", msg)
+
+        except Exception as e:
+            raise PatchManagerError(
+                f"Failed to commit patch directory to branch: {e}"
             )
 
     def _find_version_for_candidate(self, patch_id: str) -> Optional[str]:

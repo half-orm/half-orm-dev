@@ -296,24 +296,27 @@ class MigrationManager:
             self._repo, '_Repo__config'
         ) else "0.0.0"
 
+        # If already at target version, nothing to do
+        if current_version == target_version:
+            return result
+
         # Get pending migrations
         pending = self.get_pending_migrations(current_version, target_version)
 
-        if not pending:
-            # No migrations to apply
-            return result
+        # Apply each migration if there are any
+        if pending:
+            for version_str, migration_dir in pending:
+                try:
+                    migration_result = self.apply_migration(version_str, migration_dir)
+                    result['migrations_applied'].append(migration_result)
 
-        # Apply each migration
-        for version_str, migration_dir in pending:
-            try:
-                migration_result = self.apply_migration(version_str, migration_dir)
-                result['migrations_applied'].append(migration_result)
+                except MigrationManagerError as e:
+                    result['errors'].append(str(e))
+                    raise
 
-            except MigrationManagerError as e:
-                result['errors'].append(str(e))
-                raise
-
-        # Update hop_version in .hop/config
+        # Update hop_version in .hop/config (current_version != target_version)
+        # This ensures the version is updated even when upgrading between versions
+        # that have no migration scripts (e.g., 0.17.1-a2 → 0.17.2-a3)
         if hasattr(self._repo, '_Repo__config'):
             self._repo._Repo__config.hop_version = target_version
             self._repo._Repo__config.write()
@@ -369,21 +372,25 @@ class MigrationManager:
         Args:
             from_version: Starting version
             to_version: Target version
-            migrations: List of migration result dicts
+            migrations: List of migration result dicts (can be empty)
 
         Returns:
             Commit message string
         """
         lines = [
-            f"[HOP] Migration from {from_version} to {to_version}",
-            "",
-            "Applied migrations:"
+            f"[HOP] Migration from {from_version} to {to_version}"
         ]
 
-        for migration in migrations:
-            version = migration['version']
-            files = migration['applied_files']
-            lines.append(f"  - {version}: {', '.join(files)}")
+        if migrations:
+            lines.append("")
+            lines.append("Applied migrations:")
+            for migration in migrations:
+                version = migration['version']
+                files = migration['applied_files']
+                lines.append(f"  - {version}: {', '.join(files)}")
+        else:
+            lines.append("")
+            lines.append("No migration scripts needed (version update only)")
 
         return '\n'.join(lines)
 
@@ -427,37 +434,36 @@ class MigrationManager:
                 from half_orm_dev.repo import Config
                 self._repo._Repo__config = Config(self._repo.base_dir)
 
-                # Get pending migrations for this branch
-                branch_version = self._repo._Repo__config.hop_version
-                pending = self.get_pending_migrations(branch_version, to_version)
+                # Sync .hop/ directory from ho-prod
+                # This uses git checkout to copy all files from .hop/ on ho-prod
+                # to the current branch, ensuring consistency
+                try:
+                    # Use git checkout to get .hop/ from ho-prod
+                    self._repo.hgit._HGit__git_repo.git.checkout('ho-prod', '--', '.hop/')
 
-                if not pending:
-                    # Already migrated or no migration needed
-                    continue
+                    # Stage all changes in .hop/
+                    self._repo.hgit.add('.hop/')
 
-                # Apply each migration
-                for version_str, migration_dir in pending:
-                    self.apply_migration(version_str, migration_dir)
+                    # Check if there are changes to commit
+                    status = self._repo.hgit._HGit__git_repo.git.status('--porcelain')
+                    if not status.strip():
+                        # No changes, already up to date
+                        continue
 
-                # Update hop_version in .hop/config
-                self._repo._Repo__config.hop_version = to_version
-                self._repo._Repo__config.write()
-                self._repo.hgit.add(Path('.hop') / 'config')
+                    # Create commit message
+                    commit_msg = f"[HOP] Sync .hop/ from ho-prod (migration {from_version} → {to_version})"
 
-                # Create commit message
-                commit_msg = self._create_migration_commit_message(
-                    branch_version,
-                    to_version,
-                    [{'version': v, 'applied_files': []} for v, _ in pending]
-                )
+                    # Commit the changes
+                    self._repo.hgit.commit('-m', commit_msg)
 
-                # commit the changes added by the script
-                self._repo.hgit.commit('-m', commit_msg)
+                    # Push the commit
+                    self._repo.hgit.push_branch(branch)
 
-                # Push the commit
-                self._repo.hgit.push_branch(branch)
+                    migrated_branches.append(branch)
 
-                migrated_branches.append(branch)
+                except Exception as sync_error:
+                    # Log error but continue with other branches
+                    print(f"Warning: Failed to sync .hop/ to {branch}: {sync_error}", file=sys.stderr)
 
             except Exception as e:
                 print(f"Warning: Failed to migrate branch {branch}: {e}", file=sys.stderr)
