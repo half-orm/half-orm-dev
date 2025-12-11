@@ -2180,8 +2180,7 @@ class ReleaseManager:
         try:
             sync_result = self._repo.commit_and_sync_to_active_branches(
                 message=f"[HOP] Create release %{version} branch and patches file",
-                reason=f"new release {version}",
-                files=[str(release_file.file_path)]
+                reason=f"new release {version}"
             )
         except Exception as e:
             raise ReleaseManagerError(f"Failed to commit patches file: {e}")
@@ -2484,44 +2483,34 @@ class ReleaseManager:
             model_dir = Path(self._repo.model_dir)
             self._repo.database._generate_schema_sql(version, model_dir)
 
-            # 3.5. Commit schema files
-            self._repo.hgit.add(str(model_dir / f"schema-{version}.sql"))
-            self._repo.hgit.add(str(model_dir / f"metadata-{version}.sql"))
-            self._repo.hgit.add(str(model_dir / "schema.sql"))  # symlink
-
             # 4. Create production snapshot and delete TOML patches file
             prod_file = self._releases_dir / f"{version}.txt"
             toml_file = self._releases_dir / f"{version}-patches.toml"
 
             # Write all staged patches to production snapshot
             prod_file.write_text("\n".join(patches) + "\n" if patches else "", encoding='utf-8')
-            self._repo.hgit.add(str(prod_file))    # New production file
 
             # Delete TOML patches file (no longer needed)
             if toml_file.exists():
                 toml_file.unlink()
-                self._repo.hgit.add(str(toml_file))  # Mark as deleted
 
             # Generate data-X.Y.Z.sql if any patches have @HOP:data files
             # This includes patches from stage (incremental after last RC)
             prod_patches = self.read_release_patches(prod_file.name)
-            data_file = self._generate_data_sql_file(
+            self._generate_data_sql_file(
                 prod_patches,
                 f"data-{version}.sql"
             )
-            if data_file:
-                self._repo.hgit.add(str(data_file))  # Add data file if generated
 
-            self._repo.hgit.commit("-m", f"[HOP] Promote release %{version} to production")
-            self._repo.hgit.push_branch("ho-prod")
+            self._repo.commit_and_sync_to_active_branches(
+                message=f"[HOP] Promote release %{version} to production",
+                reason=f"promote {version} to production"
+            )
 
             # 4. Create production tag on ho-prod
             prod_tag = f"v{version}"  # Use v prefix to match existing convention
             self._repo.hgit.create_tag(prod_tag, f"Production release %{version}")
             self._repo.hgit.push_tag(prod_tag)
-
-            # 5. Push ho-prod
-            self._repo.hgit.push_branch("ho-prod")
 
             deleted_branches = []
 

@@ -321,7 +321,6 @@ class MigrationManager:
         if hasattr(self._repo, '_Repo__config'):
             self._repo._Repo__config.hop_version = target_version
             self._repo._Repo__config.write()
-            self._repo.hgit.add(str(Path('.hop') / 'config'))
 
         # Create Git commit if requested
         if create_commit and self._repo.hgit:

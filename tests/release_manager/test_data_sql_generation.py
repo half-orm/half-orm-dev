@@ -30,6 +30,13 @@ def release_manager_with_data_patches(tmp_path):
     mock_repo.releases_dir = str(releases_dir)
     mock_repo.model_dir = str(model_dir)
 
+    # Mock commit_and_sync_to_active_branches
+    mock_repo.commit_and_sync_to_active_branches = Mock(return_value={
+        'commit_hash': 'abc123',
+        'pushed_branch': 'test-branch',
+        'sync_result': {'synced_branches': [], 'skipped_branches': [], 'errors': []}
+    })
+
     # Create mock patch_manager
     mock_patch_manager = Mock()
     mock_repo.patch_manager = mock_patch_manager
@@ -285,9 +292,8 @@ class TestPromoteToProdWithDataFiles:
         data_file_path = releases_dir / "data-1.0.0.sql"
         assert data_file_path.exists()
 
-        # Verify data file was added to git
-        add_calls = [str(call[0][0]) for call in mock_hgit.add.call_args_list]
-        assert any("data-1.0.0.sql" in call for call in add_calls)
+        # Verify commit_and_sync was called (data file is in .hop/releases/)
+        mock_repo.commit_and_sync_to_active_branches.assert_called_once()
 
 
 class TestPromoteToHotfixWithDataFiles:

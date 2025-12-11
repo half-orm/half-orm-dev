@@ -70,6 +70,13 @@ def release_manager(tmp_path):
     mock_repo.releases_dir = str(releases_dir)
     mock_repo.model_dir = str(model_dir)
 
+    # Mock commit_and_sync_to_active_branches
+    mock_repo.commit_and_sync_to_active_branches = Mock(return_value={
+        'commit_hash': 'abc123',
+        'pushed_branch': 'ho-prod',
+        'sync_result': {'synced_branches': [], 'skipped_branches': [], 'errors': []}
+    })
+
     # Mock database
     mock_database = Mock()
     mock_repo.database = mock_database
@@ -175,8 +182,7 @@ class TestReleaseIntegrationWorkflow:
         # Should create prod tag on ho-prod
         mock_hgit_complete.create_tag.assert_called_once_with('v0.1.0', 'Production release %0.1.0')
 
-        # Should push ho-prod and tag
-        assert call("ho-prod") in mock_hgit_complete.push_branch.call_args_list
+        # Push is handled by commit_and_sync_to_active_branches
         mock_hgit_complete.push_tag.assert_called_once_with("v0.1.0")
 
         # Should create production file
