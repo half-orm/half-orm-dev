@@ -234,23 +234,24 @@ class MigrationManager:
         return result
 
     @with_dynamic_branch_lock(lambda self, *args, **kwargs: 'ho-prod')
-    def run_migrations(self, target_version: str, create_commit: bool = True, notify_branches: bool = True) -> Dict:
+    def run_migrations(self, target_version: str, create_commit: bool = True) -> Dict:
         """
         Run all pending migrations up to target version.
 
         IMPORTANT: This method acquires a lock on ho-prod branch via decorator.
         Should only be called when on ho-prod branch.
 
+        After successful completion, the decorator automatically syncs .hop/
+        directory to all active branches (ho-patch/*, ho-release/*).
+
         Args:
             target_version: Target version string (e.g., "0.17.1")
             create_commit: Whether to create Git commit after migration
-            notify_branches: Whether to create empty commits on active branches
 
         Returns:
             Dict with migration results including:
                 - migrations_applied: List of applied migrations
                 - commit_created: Whether migration commit was created
-                - notified_branches: List of branches that were notified
         """
         result = {
             'target_version': target_version,
@@ -349,14 +350,10 @@ class MigrationManager:
                 # Don't fail migration if commit fails
                 result['errors'].append(f"Failed to create commit: {e}")
 
-        # Notify active branches if requested
-        if notify_branches and create_commit and result['commit_created']:
-            try:
-                notified = self._notify_active_branches(current_version, target_version)
-                result['notified_branches'] = notified
-            except Exception as e:
-                # Don't fail migration if notification fails
-                result['errors'].append(f"Failed to notify branches: {e}")
+        # Note: Branch synchronization is now handled automatically by the
+        # @with_dynamic_branch_lock decorator when the method completes.
+        # The decorator calls repo.sync_hop_to_active_branches() for all
+        # operations on ho-prod, ensuring .hop/ is always synced.
 
         return result
 
@@ -393,92 +390,6 @@ class MigrationManager:
             lines.append("No migration scripts needed (version update only)")
 
         return '\n'.join(lines)
-
-    def _notify_active_branches(self, from_version: str, to_version: str) -> List[str]:
-        """
-        Apply migration to active branches (ho-patch/*, ho-release/*).
-
-        Applies the same migrations on all active branches, creates commits,
-        and pushes them to origin. This prevents merge conflicts when branches
-        merge ho-prod later.
-
-        Args:
-            from_version: Starting version
-            to_version: Target version
-
-        Returns:
-            List of branch names that were migrated
-        """
-        migrated_branches = []
-
-        # Get active branches from origin using hgit method
-        branches_status = self._repo.hgit.get_active_branches_status()
-
-        # Extract branch names from patch_branches and release_branches
-        patch_branches = [b['name'] for b in branches_status.get('patch_branches', [])]
-        release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
-
-        # Combine all active branches (excluding ho-prod)
-        active_branches = [b for b in patch_branches + release_branches if b != 'ho-prod']
-
-        # Current branch (should be ho-prod)
-        current_branch = self._repo.hgit.branch
-
-        # Apply migration on each active branch
-        for branch in active_branches:
-            try:
-                # Checkout branch
-                self._repo.hgit.checkout(branch)
-
-                # Reload config for this branch
-                from half_orm_dev.repo import Config
-                self._repo._Repo__config = Config(self._repo.base_dir)
-
-                # Sync .hop/ directory from ho-prod
-                # This uses git checkout to copy all files from .hop/ on ho-prod
-                # to the current branch, ensuring consistency
-                try:
-                    # Use git checkout to get .hop/ from ho-prod
-                    self._repo.hgit._HGit__git_repo.git.checkout('ho-prod', '--', '.hop/')
-
-                    # Stage all changes in .hop/
-                    self._repo.hgit.add('.hop/')
-
-                    # Check if there are changes to commit
-                    status = self._repo.hgit._HGit__git_repo.git.status('--porcelain')
-                    if not status.strip():
-                        # No changes, already up to date
-                        continue
-
-                    # Create commit message
-                    commit_msg = f"[HOP] Sync .hop/ from ho-prod (migration {from_version} → {to_version})"
-
-                    # Commit the changes
-                    self._repo.hgit.commit('-m', commit_msg)
-
-                    # Push the commit
-                    self._repo.hgit.push_branch(branch)
-
-                    migrated_branches.append(branch)
-
-                except Exception as sync_error:
-                    # Log error but continue with other branches
-                    print(f"Warning: Failed to sync .hop/ to {branch}: {sync_error}", file=sys.stderr)
-
-            except Exception as e:
-                print(f"Warning: Failed to migrate branch {branch}: {e}", file=sys.stderr)
-
-        # Return to original branch (ho-prod)
-        if current_branch:
-            try:
-                self._repo.hgit.checkout(current_branch)
-                # Reload config for original branch
-                from half_orm_dev.repo import Config
-                self._repo._Repo__config = Config(self._repo.base_dir)
-            except Exception:
-                pass
-
-        return migrated_branches
 
     def check_migration_needed(self, current_tool_version: str) -> bool:
         """

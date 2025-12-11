@@ -310,11 +310,11 @@ class Repo:
                 print(f"    half_orm dev check\n", file=sys.stderr)
                 return
 
-            # Run migrations on ho-prod with lock and branch notifications
+            # Run migrations on ho-prod
+            # Branch sync is handled automatically by the decorator
             result = migration_mgr.run_migrations(
                 target_version=current_version,
-                create_commit=True,
-                notify_branches=True
+                create_commit=True
             )
 
             # Log errors if any
@@ -328,6 +328,109 @@ class Repo:
         except Exception as e:
             # Catch any unexpected errors
             print(f"Unexpected migration error: {e}", file=sys.stderr)
+
+    def sync_hop_to_active_branches(self, reason: str = "update") -> dict:
+        """
+        Synchronize .hop/ directory from current branch to all other active branches.
+
+        This method ensures that any changes made to .hop/ on the current branch
+        are propagated to all other active branches (ho-patch/*, ho-release/*, ho-prod).
+
+        The sync logic is:
+        - Source: current branch
+        - Targets: all active branches + ho-prod - current branch
+
+        Uses git checkout to copy the entire .hop/ directory from current branch,
+        ensuring perfect consistency across all branches.
+
+        Args:
+            reason: Description of why sync is happening (for commit message)
+
+        Returns:
+            dict with keys:
+                - synced_branches: List of branch names that were synced
+                - skipped_branches: List of branches that were skipped (no changes)
+                - errors: List of error messages for failed syncs
+
+        Examples:
+            # After modifying .hop/config on ho-prod
+            result = repo.sync_hop_to_active_branches("migration 0.17.1 → 0.17.2")
+            print(f"Synced {len(result['synced_branches'])} branches")
+
+            # After modifying .hop/ on ho-release/0.17.0
+            result = repo.sync_hop_to_active_branches("new patch")
+        """
+        result = {
+            'synced_branches': [],
+            'skipped_branches': [],
+            'errors': []
+        }
+
+        if not self.hgit:
+            result['errors'].append("No git repository available")
+            return result
+
+        # Source branch is the current branch
+        source_branch = self.hgit.branch
+
+        # Get all active branches (including ho-prod, release branches, and patch branches)
+        try:
+            branches_status = self.hgit.get_active_branches_status()
+            patch_branches = [b['name'] for b in branches_status.get('patch_branches', [])]
+            release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
+
+            # All branches = ho-prod + release branches + patch branches
+            all_branches = ['ho-prod'] + release_branches + patch_branches
+
+            # Target branches = all branches - source branch
+            target_branches = [b for b in all_branches if b != source_branch]
+        except Exception as e:
+            result['errors'].append(f"Failed to get active branches: {e}")
+            return result
+
+        # Sync each target branch
+        for branch in target_branches:
+            try:
+                # Checkout to target branch
+                self.hgit.checkout(branch)
+
+                # Reload config for this branch
+                self.__config = Config(self.base_dir)
+
+                # Use git checkout to copy .hop/ from source branch
+                self.hgit._HGit__git_repo.git.checkout(source_branch, '--', '.hop/')
+
+                # Stage all changes
+                self.hgit.add('.hop/')
+
+                # Check if there are changes
+                status = self.hgit._HGit__git_repo.git.status('--porcelain')
+                if not status.strip():
+                    # No changes, skip
+                    result['skipped_branches'].append(branch)
+                    continue
+
+                # Commit changes
+                commit_msg = f"[HOP] Sync .hop/ from {source_branch} ({reason})"
+                self.hgit.commit('-m', commit_msg)
+
+                # Push to remote
+                self.hgit.push_branch(branch)
+
+                result['synced_branches'].append(branch)
+
+            except Exception as e:
+                result['errors'].append(f"{branch}: {str(e)}")
+
+        # Return to source branch
+        try:
+            self.hgit.checkout(source_branch)
+            # Reload config for source branch
+            self.__config = Config(self.base_dir)
+        except Exception as e:
+            result['errors'].append(f"Failed to return to {source_branch}: {e}")
+
+        return result
 
     @property
     def base_dir(self):

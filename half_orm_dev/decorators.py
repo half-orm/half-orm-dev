@@ -16,6 +16,9 @@ def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
     Unlike with_branch_lock which uses a static branch name, this decorator
     calls a function to determine the branch name at runtime.
 
+    IMPORTANT: Automatically syncs .hop/ directory to all other active branches
+    after the decorated method completes (from locked branch to all others).
+
     Args:
         branch_getter: Callable that takes (self, *args, **kwargs) and returns branch name
         timeout_minutes: Lock timeout in minutes (default: 30)
@@ -33,20 +36,37 @@ def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
     Notes:
         - branch_getter is called with the same arguments as the decorated function
         - The lock is ALWAYS released in the finally block, even on error
+        - After success, .hop/ is automatically synced from locked branch to all others
     """
     def decorator(func):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             lock_tag = None
+            locked_branch = None
             try:
                 # Determine branch name dynamically
-                branch = branch_getter(self, *args, **kwargs)
+                locked_branch = branch_getter(self, *args, **kwargs)
 
                 # Acquire lock
-                lock_tag = self._repo.hgit.acquire_branch_lock(branch, timeout_minutes=timeout_minutes)
+                lock_tag = self._repo.hgit.acquire_branch_lock(locked_branch, timeout_minutes=timeout_minutes)
 
                 # Execute the method
-                return func(self, *args, **kwargs)
+                result = func(self, *args, **kwargs)
+
+                # After success, sync .hop/ from current branch to all other active branches
+                try:
+                    sync_result = self._repo.sync_hop_to_active_branches(
+                        reason=f"{func.__name__}"
+                    )
+                    # Log sync errors but don't fail the operation
+                    if sync_result.get('errors'):
+                        for error in sync_result['errors']:
+                            print(f"Warning: .hop/ sync error: {error}", file=sys.stderr)
+                except Exception as e:
+                    # Don't fail the decorated method if sync fails
+                    print(f"Warning: Failed to sync .hop/ to active branches: {e}", file=sys.stderr)
+
+                return result
             finally:
                 # Always release lock (even on error)
                 if lock_tag:
