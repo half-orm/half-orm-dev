@@ -662,18 +662,19 @@ class ReleaseManager:
 
         return None
 
-    def get_rc_files(self, version: str) -> List[str]:
+    def _get_label_files(self, version: str, label: str) -> List[str]:
         """
-        Liste tous les fichiers RC pour une version, triés par numéro.
+        Liste tous les fichiers <label> pour une version, triés par numéro.
 
         Returns:
             Liste triée (ex: ["1.3.6-rc1.txt", "1.3.6-rc2.txt"])
         """
-        pattern = f"{version}-rc*.txt"
-        rc_pattern = re.compile(r'-rc(\d+)\.txt$')
-        rc_files = list(self._releases_dir.glob(pattern))
+        pattern = f"{version}-{label}*.txt"
+        reg_ex = rf'-{label}(\d+)\.txt$'
+        label_pattern = re.compile(reg_ex)
+        files = list(self._releases_dir.glob(pattern))
 
-        return sorted(rc_files, key=lambda f: int(re.search(rc_pattern, f.name).group(1)))
+        return sorted(files, key=lambda f: int(re.search(label_pattern, f.name).group(1)))
 
     def read_release_patches(self, filename: str) -> List[str]:
         """
@@ -717,7 +718,7 @@ class ReleaseManager:
 
         # Apply all RC patches in order
         if not hotfix:
-            rc_files = self.get_rc_files(version)
+            rc_files = self._get_label_files(version, 'rc')
             for rc_file in rc_files:
                 rc_patches = self.read_release_patches(rc_file.name)
                 for patch_id in rc_patches:
@@ -855,7 +856,7 @@ class ReleaseManager:
         all_patches = []
 
         # 1. Appliquer tous les RC dans l'ordre (incrémentaux)
-        rc_files = self.get_rc_files(next_version)
+        rc_files = self._get_label_files(next_version, 'rc')
         for rc_file in rc_files:
             patches = self.read_release_patches(rc_file)
             # Chaque RC est incrémental, pas besoin de déduplication
@@ -2273,7 +2274,8 @@ class ReleaseManager:
             # → Promotes the smallest stage release
         """
         # Auto-detect version if not provided
-        version = self._detect_version_to_promote('rc')
+        label = 'rc'
+        version = self._detect_version_to_promote(label)
 
         # Check TOML patches file exists
         release_file = ReleaseFile(version, self._releases_dir)
@@ -2281,7 +2283,7 @@ class ReleaseManager:
             raise ReleaseManagerError(f"Release {version} not found (no patches file)")
 
         release_branch = f"ho-release/{version}"
-        rc_number = self._determine_rc_number(version)
+        rc_number = self._get_latest_label_number(version, label)
         rc_tag = f"v{version}-rc{rc_number}"  # Use v prefix and rc1 for first RC
 
         try:
@@ -2462,7 +2464,7 @@ class ReleaseManager:
             if stage_patches:
                 # There are new patches after RC - apply them
                 # First, restore from latest RC schema
-                latest_rc = self._get_latest_rc_number(version)
+                latest_rc = self._get_latest_label_number(version, "rc")
                 rc_schema_version = f"{version}-rc{latest_rc}" if latest_rc > 0 else "0.0.0"
 
                 # Restore from RC schema if it exists, otherwise from baseline
@@ -2675,89 +2677,39 @@ class ReleaseManager:
         except Exception as e:
             raise ReleaseManagerError(f"Failed to migrate candidates: {e}")
 
-    def _get_latest_rc_number(self, version: str) -> int:
+    def _get_latest_label_number(self, version: str, label: str) -> int:
         """
-        Get the latest (highest) RC number for a version.
+        Determine next <label> number for version.
+
+        Finds all existing <label> files for the version and returns next number.
+        If label is rc and no RCs exist, returns 1. If rc1, rc2 exist, returns 3.
 
         Args:
             version: Version string (e.g., "1.3.5")
 
         Returns:
-            Latest RC number (0 if no RCs exist, 1 for rc1, 2 for rc2, etc.)
-
-        Examples:
-            # No RCs
-            latest = mgr._get_latest_rc_number("1.3.5")
-            # → 0
-
-            # rc1, rc2 exist
-            latest = mgr._get_latest_rc_number("1.3.5")
-            # → 2
-        """
-        rc_files = self.get_rc_files(version)
-        if not rc_files:
-            return 0
-
-        # Extract RC numbers from filenames
-        rc_numbers = []
-        for rc_file in rc_files:
-            # Format: "1.3.5-rc2.txt" → extract "2"
-            match = re.search(r'-rc(\d+)\.txt$', rc_file.name)
-            if match:
-                rc_numbers.append(int(match.group(1)))
-
-        return max(rc_numbers) if rc_numbers else 0
-
-    def _determine_rc_number(self, version: str) -> int:
-        """
-        Determine next RC number for version.
-
-        Finds all existing RC files for the version and returns next number.
-        If no RCs exist, returns 1. If rc1, rc2 exist, returns 3.
-
-        Args:
-            version: Version string (e.g., "1.3.5")
-
-        Returns:
-            Next RC number (1, 2, 3, etc.)
+            Next <label> number (1, 2, 3, etc.)
 
         Examples:
             # No existing RCs
             version = "1.3.5"
-            rc_num = mgr._determine_rc_number(version)
+            rc_num = mgr._get_latest_label_number(version, 'rc')
             # → 1
-
-            # rc1 exists
-            releases/1.3.5-rc1.txt exists
-            rc_num = mgr._determine_rc_number(version)
-            # → 2
-
-            # rc1, rc2, rc3 exist
-            releases/1.3.5-rc1.txt, 1.3.5-rc2.txt, 1.3.5-rc3.txt exist
-            rc_num = mgr._determine_rc_number(version)
-            # → 4
-
-        Note:
-            Uses get_rc_files() which returns sorted RC files for version.
         """
-        # Use existing get_rc_files() method which returns sorted list
-        rc_files = self.get_rc_files(version)
+        files = self._get_label_files(version, label)
 
-        if not rc_files:
+        if not files:
             # No RCs exist, this will be rc1
             return 1
 
-        # get_rc_files() returns sorted list, so last file has highest number
-        # Extract RC number from last filename (e.g., "1.3.5-rc3.txt" → 3)
-        last_rc_file = rc_files[-1].name
-        # Extract number after "-rc" (e.g., "1.3.5-rc3.txt" → "3")
-        match = re.search(r'-rc(\d+)\.txt', last_rc_file)
+        last_file = files[-1].name
+        reg_ex = rf'-{label}(\d+)\.txt'
+        match = re.search(reg_ex, last_file)
         if match:
-            last_rc_num = int(match.group(1))
-            return last_rc_num + 1
+            last_num = int(match.group(1))
+            return last_num + 1
 
-        # Fallback (shouldn't happen with valid RC files)
-        return len(rc_files) + 1
+        raise Exception("Unable to determine next release number")
 
     @with_dynamic_branch_lock(lambda self: "ho-prod")
     def reopen_for_hotfix(self) -> dict:
@@ -2879,6 +2831,8 @@ class ReleaseManager:
         except Exception as e:
             raise ReleaseManagerError(f"Failed to reopen version for hotfix: {e}")
 
+    # from half_orm_dev.decorators import trace_package
+    # @trace_package("half_orm_dev")
     @with_dynamic_branch_lock(lambda self: "ho-prod")
     def promote_to_hotfix(self) -> dict:
         """
@@ -2941,7 +2895,7 @@ class ReleaseManager:
                     )
 
             # 3. Determine next hotfix number
-            hotfix_num = self._determine_hotfix_number(version)
+            hotfix_num = self._get_latest_label_number(version, 'hotfix')
             hotfix_tag = f"v{version}-hotfix{hotfix_num}"
 
             # 4. Switch to ho-prod and merge
@@ -2961,11 +2915,9 @@ class ReleaseManager:
 
                 # Write snapshot to hotfix TXT file (production format)
                 hotfix_file.write_text("\n".join(staged_patches) + "\n" if staged_patches else "", encoding='utf-8')
-                self._repo.hgit.add(str(hotfix_file))
-
-                # Delete TOML patches file
-                toml_file.unlink()
-                self._repo.hgit.add(str(toml_file))  # Mark as deleted
+                # Delete TOML patches file (no longer needed)
+                if toml_file.exists():
+                    self._repo.hgit.rm(str(toml_file))
 
             # Generate data-X.Y.Z-hotfixN.sql if any patches have @HOP:data files
             hotfix_patches = self.read_release_patches(hotfix_file.name)
@@ -3011,47 +2963,3 @@ class ReleaseManager:
             raise
         except Exception as e:
             raise ReleaseManagerError(f"Failed to promote hotfix: {e}")
-
-    def _determine_hotfix_number(self, version: str) -> int:
-        """
-        Determine next hotfix number for version.
-
-        Finds all existing hotfix tags for the version and returns next number.
-        If no hotfixes exist, returns 1. If hotfix1, hotfix2 exist, returns 3.
-
-        Args:
-            version: Version string (e.g., "1.3.5")
-
-        Returns:
-            Next hotfix number (1, 2, 3, etc.)
-
-        Examples:
-            # No existing hotfixes
-            version = "1.3.5"
-            hotfix_num = mgr._determine_hotfix_number(version)
-            # → 1
-
-            # v1.3.5-hotfix1 exists
-            hotfix_num = mgr._determine_hotfix_number(version)
-            # → 2
-
-            # v1.3.5-hotfix1, v1.3.5-hotfix2 exist
-            hotfix_num = mgr._determine_hotfix_number(version)
-            # → 3
-        """
-        # Get all tags
-        all_tags = self._repo.hgit.list_tags()
-
-        # Filter hotfix tags for this version
-        hotfix_pattern = re.compile(rf'^v{re.escape(version)}-hotfix(\d+)$')
-        hotfix_numbers = []
-
-        for tag in all_tags:
-            match = hotfix_pattern.match(tag)
-            if match:
-                hotfix_numbers.append(int(match.group(1)))
-
-        if not hotfix_numbers:
-            return 1
-
-        return max(hotfix_numbers) + 1

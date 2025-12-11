@@ -382,8 +382,38 @@ class Repo:
             # All branches = ho-prod + release branches + patch branches
             all_branches = ['ho-prod'] + release_branches + patch_branches
 
-            # Target branches = all branches - source branch
-            target_branches = [b for b in all_branches if b != source_branch]
+            # Filter release branches to avoid syncing to future versions
+            # Extract version from source branch if it's a release branch
+            source_version = None
+            if source_branch.startswith('ho-release/'):
+                source_version_str = source_branch.replace('ho-release/', '')
+                try:
+                    source_version = version.parse(source_version_str)
+                except Exception:
+                    pass  # Invalid version, skip filtering
+
+            # If source is a release branch, filter out release branches with higher versions
+            filtered_branches = []
+            for branch in all_branches:
+                if branch == source_branch:
+                    continue  # Skip source branch
+
+                # Check if target is a release branch with higher version than source
+                if source_version and branch.startswith('ho-release/'):
+                    target_version_str = branch.replace('ho-release/', '')
+                    try:
+                        target_version = version.parse(target_version_str)
+                        if target_version > source_version:
+                            # Skip branches with higher version
+                            result['skipped_branches'].append(f"{branch} (version > {source_version_str})")
+                            continue
+                    except Exception:
+                        pass  # Invalid version, include it
+
+                filtered_branches.append(branch)
+
+            # Target branches = filtered branches
+            target_branches = filtered_branches
         except Exception as e:
             result['errors'].append(f"Failed to get active branches: {e}")
             return result
@@ -398,7 +428,64 @@ class Repo:
                 self.__config = Config(self.base_dir)
 
                 # Use git checkout to copy .hop/ from source branch
+                # This updates/adds files but doesn't remove deleted files
                 self.hgit._HGit__git_repo.git.checkout(source_branch, '--', '.hop/')
+
+                # Find files that exist in target but not in source and remove them
+                # IMPORTANT: Only remove files for versions that exist in source
+                # Don't remove release files (*-patches.toml, *.txt) for other versions
+                try:
+                    # Get list of files in .hop/ on current branch (target)
+                    target_files_output = self.hgit._HGit__git_repo.git.ls_files('.hop/')
+                    target_files = set(f for f in target_files_output.split('\n') if f.strip())
+
+                    # Get list of files in .hop/ on source branch
+                    source_files_output = self.hgit._HGit__git_repo.git.ls_tree('-r', '--name-only', source_branch, '.hop/')
+                    source_files = set(f for f in source_files_output.split('\n') if f.strip())
+
+                    # Get versions present in source (from .toml and .txt release files)
+                    source_versions = set()
+                    for file_path in source_files:
+                        # Extract version from release files
+                        if file_path.startswith('.hop/releases/'):
+                            filename = file_path.replace('.hop/releases/', '')
+                            # Match patterns: X.Y.Z-patches.toml, X.Y.Z.txt, X.Y.Z-rcN.txt, X.Y.Z-hotfixN.txt
+                            match = re.match(r'^(\d+\.\d+\.\d+)[-.]', filename)
+                            if match:
+                                source_versions.add(match.group(1))
+
+                    # Files to delete = in target but not in source
+                    files_to_delete = target_files - source_files
+
+                    # Filter: only delete files for versions present in source
+                    # This prevents deleting release files for unrelated versions
+                    safe_to_delete = []
+                    for file_path in files_to_delete:
+                        if not file_path:
+                            continue
+                        # Check if it's a release file
+                        if file_path.startswith('.hop/releases/'):
+                            filename = file_path.replace('.hop/releases/', '')
+                            match = re.match(r'^(\d+\.\d+\.\d+)[-.]', filename)
+                            if match:
+                                file_version = match.group(1)
+                                # Only delete if this version exists in source
+                                if file_version in source_versions:
+                                    safe_to_delete.append(file_path)
+                            else:
+                                # Not a versioned file, safe to delete
+                                safe_to_delete.append(file_path)
+                        else:
+                            # Not in releases/, safe to delete
+                            safe_to_delete.append(file_path)
+
+                    # Remove files
+                    for file_path in safe_to_delete:
+                        self.hgit._HGit__git_repo.git.rm(file_path)
+                except Exception as e:
+                    # If something fails in deletion detection, log but continue
+                    # The checkout already happened, so we have the updates
+                    pass
 
                 # Stage all changes
                 self.hgit.add('.hop/')

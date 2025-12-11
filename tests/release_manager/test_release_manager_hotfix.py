@@ -4,7 +4,7 @@ Tests for ReleaseManager hotfix workflow.
 Focused on testing:
 - reopen_for_hotfix(): Reopening production versions
 - promote_to_hotfix(): Promoting hotfix to production
-- _determine_hotfix_number(): Calculating next hotfix number
+- _get_latest_label_number(): Calc, "hotfix"ulating next hotfix number
 - HOTFIX marker in candidates.txt
 """
 
@@ -225,10 +225,10 @@ class TestPromoteToHotfix:
 
     def test_promote_second_hotfix(self, release_manager_hotfix_ready):
         """Test promoting second hotfix for same version."""
-        release_mgr, _, mock_hgit = release_manager_hotfix_ready
+        release_mgr, releases_dir, mock_hgit = release_manager_hotfix_ready
 
         # First hotfix already exists
-        mock_hgit.list_tags.return_value = ["v1.3.5", "v1.3.5-hotfix1"]
+        (releases_dir / "1.3.5-hotfix1.txt").touch()
 
         result = release_mgr.promote_to_hotfix()
 
@@ -274,7 +274,7 @@ class TestPromoteToHotfix:
 
 
 class TestDetermineHotfixNumber:
-    """Test _determine_hotfix_number() method."""
+    """Test _get_latest_label_number() metho, "hotfix"d."""
 
     @pytest.fixture
     def release_manager_basic(self, tmp_path):
@@ -286,7 +286,7 @@ class TestDetermineHotfixNumber:
         # Create releases/ directory
         releases_dir = tmp_path / ".hop" / "releases"
         releases_dir.mkdir(parents=True, exist_ok=True)
-        mock_repo.releases_dir = str(releases_dir)
+        mock_repo.releases_dir = releases_dir
 
         # Mock HGit
         mock_hgit = Mock()
@@ -294,32 +294,33 @@ class TestDetermineHotfixNumber:
 
         release_mgr = ReleaseManager(mock_repo)
 
-        return release_mgr, mock_hgit
+        return release_mgr, mock_hgit, mock_repo
 
     def test_no_existing_hotfix_returns_one(self, release_manager_basic):
         """Test returns 1 when no hotfix exists for version."""
-        release_mgr, mock_hgit = release_manager_basic
+        release_mgr, mock_hgit, mock_repo = release_manager_basic
 
         # No hotfix tags
         mock_hgit.list_tags.return_value = ["v1.3.5", "v1.3.4"]
 
-        hotfix_num = release_mgr._determine_hotfix_number("1.3.5")
+        hotfix_num = release_mgr._get_latest_label_number("1.3.5", "hotfix")
 
         assert hotfix_num == 1
 
     def test_hotfix1_exists_returns_two(self, release_manager_basic):
         """Test returns 2 when hotfix1 exists."""
-        release_mgr, mock_hgit = release_manager_basic
+        release_mgr, mock_hgit, mock_repo = release_manager_basic
 
         mock_hgit.list_tags.return_value = ["v1.3.5", "v1.3.5-hotfix1"]
+        (mock_repo.releases_dir / "1.3.5-hotfix1.txt").touch()
 
-        hotfix_num = release_mgr._determine_hotfix_number("1.3.5")
+        hotfix_num = release_mgr._get_latest_label_number("1.3.5", "hotfix")
 
         assert hotfix_num == 2
 
     def test_multiple_hotfixes_returns_max_plus_one(self, release_manager_basic):
         """Test returns max hotfix number + 1."""
-        release_mgr, mock_hgit = release_manager_basic
+        release_mgr, mock_hgit, mock_repo = release_manager_basic
 
         mock_hgit.list_tags.return_value = [
             "v1.3.5",
@@ -327,89 +328,54 @@ class TestDetermineHotfixNumber:
             "v1.3.5-hotfix2",
             "v1.3.5-hotfix3"
         ]
+        (mock_repo.releases_dir / "1.3.5-hotfix3.txt").touch()
 
-        hotfix_num = release_mgr._determine_hotfix_number("1.3.5")
+        hotfix_num = release_mgr._get_latest_label_number("1.3.5", "hotfix")
 
         assert hotfix_num == 4
 
     def test_ignores_different_version_hotfixes(self, release_manager_basic):
         """Test ignores hotfix tags of different versions."""
-        release_mgr, mock_hgit = release_manager_basic
+        release_mgr, mock_hgit, mock_repo = release_manager_basic
 
-        mock_hgit.list_tags.return_value = [
-            "v1.3.4-hotfix1",
-            "v1.3.4-hotfix2",
-            "v1.4.0-hotfix1",
-            "v1.3.5"
-        ]
+        (mock_repo.releases_dir / "1.3.4-hotfix1.txt").touch()
+        (mock_repo.releases_dir / "1.3.4-hotfix2.txt").touch()
+        (mock_repo.releases_dir / "1.4.0-hotfix1.txt").touch()
+        (mock_repo.releases_dir / "1.3.5.txt").touch()
 
-        hotfix_num = release_mgr._determine_hotfix_number("1.3.5")
+        hotfix_num = release_mgr._get_latest_label_number("1.3.5", "hotfix")
 
         # Should return 1 (other versions ignored)
         assert hotfix_num == 1
 
     def test_handles_double_digit_hotfix_numbers(self, release_manager_basic):
         """Test handles hotfix numbers >= 10."""
-        release_mgr, mock_hgit = release_manager_basic
+        release_mgr, mock_hgit, mock_repo = release_manager_basic
 
         # Create many hotfixes
-        tags = ["v1.3.5"] + [f"v1.3.5-hotfix{i}" for i in range(1, 15)]
-        mock_hgit.list_tags.return_value = tags
+        _ = [(mock_repo.releases_dir / f"1.3.5-hotfix{i}.txt").touch() for i in range(1, 15)]
 
-        hotfix_num = release_mgr._determine_hotfix_number("1.3.5")
+        hotfix_num = release_mgr._get_latest_label_number("1.3.5", "hotfix")
 
         assert hotfix_num == 15
 
-    def test_out_of_order_hotfix_tags(self, release_manager_basic):
-        """Test handles hotfix tags in non-sequential order."""
-        release_mgr, mock_hgit = release_manager_basic
+    def test_ignores_non_hotfix_files(self, release_manager_basic):
+        """Test ignores RC and other files."""
+        release_mgr, mock_hgit, mock_repo = release_manager_basic
 
-        mock_hgit.list_tags.return_value = [
-            "v1.3.5-hotfix3",
-            "v1.3.5-hotfix1",
-            "v1.3.5-hotfix5",
-            "v1.3.5-hotfix2"
-        ]
+        (mock_repo.releases_dir / "1.3.5.txt").touch()
+        (mock_repo.releases_dir / "1.3.5-rc1.txt").touch()
+        (mock_repo.releases_dir / "1.3.5-rc2.txt").touch()
+        (mock_repo.releases_dir / "1.3.4.txt").touch()
 
-        hotfix_num = release_mgr._determine_hotfix_number("1.3.5")
-
-        # Should return 6 (max=5, +1)
-        assert hotfix_num == 6
-
-    def test_gap_in_hotfix_numbering(self, release_manager_basic):
-        """Test handles gaps in hotfix numbering."""
-        release_mgr, mock_hgit = release_manager_basic
-
-        mock_hgit.list_tags.return_value = [
-            "v1.3.5-hotfix1",
-            "v1.3.5-hotfix3",
-            "v1.3.5-hotfix5"
-        ]
-
-        hotfix_num = release_mgr._determine_hotfix_number("1.3.5")
-
-        # Should return 6 (max=5, +1, doesn't fill gaps)
-        assert hotfix_num == 6
-
-    def test_ignores_non_hotfix_tags(self, release_manager_basic):
-        """Test ignores RC and other tags."""
-        release_mgr, mock_hgit = release_manager_basic
-
-        mock_hgit.list_tags.return_value = [
-            "v1.3.5",
-            "v1.3.5-rc1",
-            "v1.3.5-rc2",
-            "v1.3.4"
-        ]
-
-        hotfix_num = release_mgr._determine_hotfix_number("1.3.5")
+        hotfix_num = release_mgr._get_latest_label_number("1.3.5", "hotfix")
 
         # Should return 1 (no hotfixes found)
         assert hotfix_num == 1
 
     def test_different_versions_independent(self, release_manager_basic):
         """Test hotfix numbering is independent per version."""
-        release_mgr, mock_hgit = release_manager_basic
+        release_mgr, mock_hgit, mock_repo = release_manager_basic
 
         # Version 1.3.5 has hotfix1, hotfix2
         # Version 1.4.0 has hotfix1
@@ -420,7 +386,10 @@ class TestDetermineHotfixNumber:
         ]
 
         # Check 1.3.5 → should be 3
-        assert release_mgr._determine_hotfix_number("1.3.5") == 3
+        (mock_repo.releases_dir / "1.3.5-hotfix1.txt").touch()
+        (mock_repo.releases_dir / "1.3.5-hotfix2.txt").touch()
+        (mock_repo.releases_dir / "1.4.0-hotfix1.txt").touch()
+        assert release_mgr._get_latest_label_number("1.3.5", "hotfix") == 3
 
         # Mock different tag list for 1.4.0
         mock_hgit.list_tags.return_value = [
@@ -430,10 +399,10 @@ class TestDetermineHotfixNumber:
         ]
 
         # Check 1.4.0 → should be 2
-        assert release_mgr._determine_hotfix_number("1.4.0") == 2
+        assert release_mgr._get_latest_label_number("1.4.0", "hotfix") == 2
 
         # Check new version → should be 1
-        assert release_mgr._determine_hotfix_number("1.5.0") == 1
+        assert release_mgr._get_latest_label_number("1.5.0", "hotfix") == 1
 
 
 class TestHotfixTomlFile:

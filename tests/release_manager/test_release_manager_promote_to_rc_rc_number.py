@@ -42,7 +42,7 @@ class TestDetermineRCNumber:
         # No RC files exist
         version = "1.3.5"
 
-        rc_number = release_mgr._determine_rc_number(version)
+        rc_number = release_mgr._get_latest_label_number(version, "rc")
 
         assert rc_number == 1
 
@@ -55,7 +55,7 @@ class TestDetermineRCNumber:
 
         version = "1.3.5"
 
-        rc_number = release_mgr._determine_rc_number(version)
+        rc_number = release_mgr._get_latest_label_number(version, "rc")
 
         assert rc_number == 2
 
@@ -69,7 +69,7 @@ class TestDetermineRCNumber:
 
         version = "1.3.5"
 
-        rc_number = release_mgr._determine_rc_number(version)
+        rc_number = release_mgr._get_latest_label_number(version, "rc")
 
         assert rc_number == 3
 
@@ -85,7 +85,7 @@ class TestDetermineRCNumber:
 
         version = "1.3.5"
 
-        rc_number = release_mgr._determine_rc_number(version)
+        rc_number = release_mgr._get_latest_label_number(version, "rc")
 
         assert rc_number == 5
 
@@ -101,7 +101,7 @@ class TestDetermineRCNumber:
         # Check version with no RCs
         version = "1.3.5"
 
-        rc_number = release_mgr._determine_rc_number(version)
+        rc_number = release_mgr._get_latest_label_number(version, "rc")
 
         # Should return 1 (other versions ignored)
         assert rc_number == 1
@@ -116,7 +116,7 @@ class TestDetermineRCNumber:
 
         version = "1.3.5"
 
-        rc_number = release_mgr._determine_rc_number(version)
+        rc_number = release_mgr._get_latest_label_number(version, "rc")
 
         # Should return 2 (only count 1.3.5-rc1)
         assert rc_number == 2
@@ -131,7 +131,7 @@ class TestDetermineRCNumber:
 
         version = "1.3.5"
 
-        rc_number = release_mgr._determine_rc_number(version)
+        rc_number = release_mgr._get_latest_label_number(version, "rc")
 
         assert rc_number == 15
 
@@ -147,7 +147,7 @@ class TestDetermineRCNumber:
 
         version = "1.3.5"
 
-        rc_number = release_mgr._determine_rc_number(version)
+        rc_number = release_mgr._get_latest_label_number(version, "rc")
 
         # Should return 6 (max=5, +1)
         assert rc_number == 6
@@ -163,7 +163,7 @@ class TestDetermineRCNumber:
 
         version = "1.3.5"
 
-        rc_number = release_mgr._determine_rc_number(version)
+        rc_number = release_mgr._get_latest_label_number(version, "rc")
 
         # Should return 6 (max=5, +1, doesn't fill gaps)
         assert rc_number == 6
@@ -180,7 +180,7 @@ class TestDetermineRCNumber:
 
         version = "1.3.5"
 
-        rc_number = release_mgr._determine_rc_number(version)
+        rc_number = release_mgr._get_latest_label_number(version, "rc")
 
         # Should return 1 (no RCs found)
         assert rc_number == 1
@@ -197,16 +197,16 @@ class TestDetermineRCNumber:
         (releases_dir / "1.4.0-rc1.txt").touch()
 
         # Check 1.3.5 → should be 3
-        assert release_mgr._determine_rc_number("1.3.5") == 3
+        assert release_mgr._get_latest_label_number("1.3.5", "rc") == 3
 
         # Check 1.4.0 → should be 2
-        assert release_mgr._determine_rc_number("1.4.0") == 2
+        assert release_mgr._get_latest_label_number("1.4.0", "rc") == 2
 
         # Check new version → should be 1
-        assert release_mgr._determine_rc_number("1.5.0") == 1
+        assert release_mgr._get_latest_label_number("1.5.0", "rc") == 1
 
     def test_uses_get_rc_files_method(self, release_manager_basic):
-        """Test uses existing get_rc_files() method."""
+        """Test uses existing _get_label_files() method."""
         release_mgr, releases_dir = release_manager_basic
 
         # Create RCs
@@ -215,12 +215,12 @@ class TestDetermineRCNumber:
 
         version = "1.3.5"
 
-        # Should use get_rc_files() which returns sorted list
-        rc_files = release_mgr.get_rc_files(version)
+        # Should use _get_label_files() which returns sorted list
+        rc_files = release_mgr._get_label_files(version, "rc")
 
-        # get_rc_files() returns Path objects sorted by RC number
+        # _get_label_files() returns Path objects sorted by RC number
         assert len(rc_files) == 2
 
         # _determine_rc_number should return len + 1
-        rc_number = release_mgr._determine_rc_number(version)
+        rc_number = release_mgr._get_latest_label_number(version, "rc")
         assert rc_number == 3

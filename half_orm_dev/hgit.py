@@ -247,6 +247,10 @@ class HGit:
         "Proxy to git.add method"
         return self.__git_repo.git.add(*args, **kwargs)
 
+    def rm(self, *args, **kwargs):
+        "Proxy to git.rm method"
+        return self.__git_repo.git.rm(*args, **kwargs)
+
     def commit(self, *args, **kwargs):
         "Proxy to git.commit method"
         return self.__git_repo.git.commit(*args, **kwargs)
