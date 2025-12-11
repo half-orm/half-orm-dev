@@ -34,6 +34,13 @@ def mock_repo_with_migration_files(tmp_path):
     mock_hgit.commit = Mock()
     mock_repo.hgit = mock_hgit
 
+    # Mock commit_and_sync_to_active_branches
+    mock_repo.commit_and_sync_to_active_branches = Mock(return_value={
+        'commit_hash': 'abc123',
+        'pushed_branch': 'test-branch',
+        'sync_result': {'synced_branches': [], 'skipped_branches': [], 'errors': []}
+    })
+
     # Create .hop directory structure
     hop_dir = tmp_path / ".hop"
     hop_dir.mkdir()
@@ -169,13 +176,17 @@ def get_description():
         assert mock_repo._Repo__config.hop_version == "0.17.1"
         mock_repo._Repo__config.write.assert_called_once()
 
-        # Check that Git commands were called
-        mock_repo.hgit.add.assert_called_once_with('.hop/config')
-        mock_repo.hgit.commit.assert_called_once()
+        # Check that Git commands were called via commit_and_sync
+        mock_repo.commit_and_sync_to_active_branches.assert_called_once()
 
         # Check commit message
-        commit_msg = mock_repo.hgit.commit.call_args[0][1]
+        call_args = mock_repo.commit_and_sync_to_active_branches.call_args
+        commit_msg = call_args[1]['message']  # keyword argument
         assert "[HOP] Migration from 0.17.0 to 0.17.1" in commit_msg
+
+        # Check reason parameter
+        reason = call_args[1]['reason']
+        assert "migration 0.17.0 → 0.17.1" == reason
 
     def test_run_migrations_no_pending(self, mock_repo_with_migration_files):
         """Test run_migrations() with no pending migrations."""

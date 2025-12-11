@@ -332,19 +332,16 @@ class MigrationManager:
                     result['migrations_applied']
                 )
 
-                # Commit the changes added by the script
-                self._repo.hgit.commit('-m', commit_msg)
+                # Commit and sync to active branches
+                sync_result = self._repo.commit_and_sync_to_active_branches(
+                    message=commit_msg,
+                    reason=f"migration {current_version} → {target_version}"
+                )
 
                 result['commit_created'] = True
                 result['commit_message'] = commit_msg
-
-                # Push to remote
-                try:
-                    self._repo.hgit.push()
-                    result['commit_pushed'] = True
-                except Exception as e:
-                    result['errors'].append(f"Failed to push commit: {e}")
-                    result['commit_pushed'] = False
+                result['commit_pushed'] = True
+                result['sync_result'] = sync_result
 
             except Exception as e:
                 # Don't fail migration if commit fails

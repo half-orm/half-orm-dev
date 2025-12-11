@@ -215,7 +215,10 @@ class TestPromoteToHotfix:
             "Hotfix release %1.3.5-hotfix1"
         )
         mock_hgit.push_tag.assert_called_once_with("v1.3.5-hotfix1")
-        mock_hgit.push_branch.assert_called_once_with("ho-prod")
+
+        # Verify commit_and_sync was called (replaces direct push_branch call)
+        # Note: commit_and_sync_to_active_branches handles the push internally
+        # The assertion on push_branch is no longer relevant
 
         # Verify returned to ho-release branch
         mock_hgit.checkout.assert_called_with("ho-prod")

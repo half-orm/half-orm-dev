@@ -483,7 +483,7 @@ class Repo:
             self.hgit.add(file_path)
 
         # 2. Commit on current branch
-        commit_hash = self.hgit.commit(None, message)
+        commit_hash = self.hgit.commit("-m", message)
         result['commit_hash'] = commit_hash
 
         # 3. Push current branch

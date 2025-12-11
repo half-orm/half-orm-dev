@@ -58,7 +58,7 @@ class TestRepoCommitAndSync:
         repo.hgit.add.assert_called_once_with('.hop/')
 
         # Verify commit was created
-        repo.hgit.commit.assert_called_once_with(None, "[HOP] Test commit")
+        repo.hgit.commit.assert_called_once_with("-m", "[HOP] Test commit")
         assert result['commit_hash'] == 'abc123'
 
         # Verify push
@@ -90,7 +90,7 @@ class TestRepoCommitAndSync:
         repo.hgit.add.assert_any_call('README.md')
 
         # Verify commit
-        repo.hgit.commit.assert_called_once_with(None, "[HOP] Create release branch")
+        repo.hgit.commit.assert_called_once_with("-m", "[HOP] Create release branch")
         assert result['commit_hash'] == 'abc123'
 
         # Verify sync
