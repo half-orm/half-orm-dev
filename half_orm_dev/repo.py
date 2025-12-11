@@ -432,6 +432,81 @@ class Repo:
 
         return result
 
+    def commit_and_sync_to_active_branches(
+        self,
+        message: str,
+        reason: str = None,
+        files: list = None
+    ) -> dict:
+        """
+        Commit files on current branch, push it, and sync .hop/ to all other active branches.
+
+        This is a unified method that combines:
+        1. Stage files (always includes .hop/)
+        2. Commit on current branch with provided message
+        3. Push current branch
+        4. Sync .hop/ to all other active branches
+
+        Args:
+            message: Commit message
+            reason: Optional reason for sync (if not provided, extracts from message)
+            files: Optional list of additional files to stage (beyond .hop/)
+
+        Returns:
+            dict: {
+                'commit_hash': str,
+                'pushed_branch': str,
+                'sync_result': dict from sync_hop_to_active_branches()
+            }
+
+        Example:
+            result = repo.commit_and_sync_to_active_branches(
+                message="[HOP] Create release 0.2.0 branch and patches file",
+                files=['Patches/0.2.0-candidates.txt']
+            )
+        """
+        result = {
+            'commit_hash': None,
+            'pushed_branch': None,
+            'sync_result': None
+        }
+
+        current_branch = self.hgit.branch
+
+        # Always include .hop/ + any additional files
+        all_files = ['.hop/']
+        if files:
+            all_files.extend(files)
+
+        # 1. Stage files
+        for file_path in all_files:
+            self.hgit.add(file_path)
+
+        # 2. Commit on current branch
+        commit_hash = self.hgit.commit(None, message)
+        result['commit_hash'] = commit_hash
+
+        # 3. Push current branch
+        self.hgit.push_branch(current_branch)
+        result['pushed_branch'] = current_branch
+
+        # 4. Extract reason from message if not provided
+        if reason is None:
+            # Try to extract a short reason from commit message
+            # Remove common prefixes like "[HOP]" and take first part
+            reason_text = message.replace('[HOP]', '').strip()
+            # Take first sentence or first 50 chars
+            if '.' in reason_text:
+                reason = reason_text.split('.')[0]
+            else:
+                reason = reason_text[:50]
+
+        # 5. Sync .hop/ to all other active branches
+        sync_result = self.sync_hop_to_active_branches(reason=reason)
+        result['sync_result'] = sync_result
+
+        return result
+
     @property
     def base_dir(self):
         "Returns the base dir of the repository"
