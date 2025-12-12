@@ -57,6 +57,8 @@ class TestRepoSingleton:
             yield temp_dir
 
         finally:
+            # Clear Repo singleton instances before cleanup
+            Repo.clear_instances()
             shutil.rmtree(parent_temp, ignore_errors=True)
 
     @pytest.fixture
@@ -93,6 +95,9 @@ devel = True
             yield str(project_dir), str(sub_dir)
 
         finally:
+            # Clear Repo singleton instances before cleanup
+            from half_orm_dev.repo import Repo
+            Repo.clear_instances()
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_singleton_same_directory_returns_same_instance(self, temp_hop_repo):
@@ -373,7 +378,7 @@ devel = True
         # This test documents that thread safety is not guaranteed
         assert len(unique_instances) >= 1
 
-    def test_singleton_with_different_working_directories(self, nested_hop_repo):
+    def test_singleton_diff_work_dirs(self, nested_hop_repo):
         """Test singleton behavior when changing working directories."""
         project_dir, sub_dir = nested_hop_repo
 
