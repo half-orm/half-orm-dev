@@ -190,9 +190,8 @@ class TestPromoteToRCWithDataFiles:
         data_file_path = releases_dir / "data-1.0.0-rc1.sql"
         assert data_file_path.exists()
 
-        # Verify data file was added to git
-        add_calls = [str(call[0][0]) for call in mock_hgit.add.call_args_list]
-        assert any("data-1.0.0-rc1.sql" in call for call in add_calls)
+        # Verify commit_and_sync was called (data file is in .hop/releases/)
+        mock_repo.commit_and_sync_to_active_branches.assert_called()
 
     def test_promote_rc_no_data_file_when_no_data(self, release_manager_with_data_patches):
         """Test that promote_to_rc doesn't generate data file if no data exists."""

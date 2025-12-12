@@ -162,13 +162,10 @@ class TestClosePatch:
                 result = pm.close_patch()
 
         # Verify commit with correct message
-        repo.hgit.commit.assert_called_once()
-        commit_call = repo.hgit.commit.call_args
+        repo.commit_and_sync_to_active_branches.assert_called_once()
+        commit_call = repo.commit_and_sync_to_active_branches.call_args
         assert '123-test' in str(commit_call)
         assert 'candidate to stage' in str(commit_call)
-
-        # Verify push
-        repo.hgit.push_branch.assert_called_with('ho-release/0.17.0')
 
     def test_close_patch_deletes_branch(self, patch_manager):
         """Test that close_patch deletes patch branch locally and remotely."""
@@ -191,8 +188,8 @@ class TestClosePatch:
         repo.hgit.delete_local_branch.assert_called_once_with('ho-patch/123-test')
         repo.hgit.delete_remote_branch.assert_called_once_with('ho-patch/123-test')
 
-    def test_close_patch_syncs_to_ho_prod(self, patch_manager):
-        """Test that close_patch syncs release files to ho-prod."""
+    def test_close_patch_uses_commit_and_sync(self, patch_manager):
+        """Test that close_patch uses commit_and_sync_to_active_branches."""
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # Setup
@@ -205,12 +202,10 @@ class TestClosePatch:
 
         # Mock validation
         with patch.object(pm, '_validate_patch_before_merge'):
-            # Mock sync but verify it's called
-            with patch.object(pm, '_sync_release_files_to_ho_prod') as mock_sync:
-                result = pm.close_patch()
+            result = pm.close_patch()
 
-        # Verify sync was called
-        mock_sync.assert_called_once_with('0.17.0', 'ho-release/0.17.0', critical=True)
+        # Verify commit_and_sync was called (sync is automatic via decorator)
+        repo.commit_and_sync_to_active_branches.assert_called_once()
 
     def test_close_patch_fails_if_patch_not_in_candidates(self, patch_manager):
         """Test that close_patch fails if patch not found in any candidates file."""

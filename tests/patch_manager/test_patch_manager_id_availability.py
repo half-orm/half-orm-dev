@@ -222,8 +222,8 @@ class TestPatchManagerTagReservation:
         mock_hgit_complete.fetch_tags.assert_called_once()
         mock_hgit_complete.tag_exists.assert_called_with("ho-patch/456")
 
-        # 2. Branch creation
-        assert mock_hgit_complete.checkout.call_count >= 2  # create + checkout
+        # 2. Branch creation (only one checkout now, sync handled by commit_and_sync)
+        assert mock_hgit_complete.checkout.call_count >= 1  # create branch
 
         # 3. Tag creation with description
         mock_hgit_complete.create_tag.assert_called_once_with(

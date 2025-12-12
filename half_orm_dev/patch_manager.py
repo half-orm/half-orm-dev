@@ -1492,7 +1492,13 @@ class PatchManager:
             self._add_patch_to_candidates(normalized_id, release_version, before=before)
 
             # Step 9: Commit patches file ON HO-RELEASE (without Patches/ directory)
-            self._commit_patch_metadata_to_candidates(normalized_id, release_version, description)
+            # Build commit message
+            msg = f"[HOP] Add patch #{normalized_id} to %{release_version} candidates"
+            if description:
+                msg += f"\n\n{description}"
+
+            # Commit using unified commit and sync (TOML file is in .hop/releases/)
+            self._repo.commit_and_sync_to_active_branches(message=msg)
             commit_created = True  # Track that commit was made
 
             # Step 10: Create local tag (points to commit on ho-release without Patches/)
@@ -1502,12 +1508,8 @@ class PatchManager:
 
             # Step 11: Push tag FIRST → ATOMIC RESERVATION
             self._push_tag_to_reserve_number(normalized_id)
-            self._repo.hgit.push_branch(release_branch)
             tag_pushed = True  # Tag pushed = point of no return
             # ✅ If we reach here: patch number globally reserved!
-
-            # Step 11b: Sync release files to ho-prod (non-critical)
-            self._sync_release_files_to_ho_prod(release_version, release_branch, critical=False)
 
             # === BRANCH CREATION (after reservation) ===
 
@@ -1910,15 +1912,14 @@ class PatchManager:
         # 6. Move from candidates to stage
         self._move_patch_to_stage(patch_id, version)
 
-        # 7. Commit changes on release branch
+        # 7. Commit changes on release branch (TOML file is in .hop/releases/)
+        # This also syncs .hop/ to all active branches automatically via decorator
         try:
-            self._repo.hgit.commit("-m", f"[HOP] move patch #{patch_id} from candidate to stage %{version}")
-            self._repo.hgit.push_branch(release_branch)
+            self._repo.commit_and_sync_to_active_branches(
+                message=f"[HOP] move patch #{patch_id} from candidate to stage %{version}"
+            )
         except Exception as e:
             raise PatchManagerError(f"Failed to commit/push changes: {e}")
-
-        # 7b. Sync release files to ho-prod (metadata only, not code)
-        self._sync_release_files_to_ho_prod(version, release_branch, critical=True)
 
         # 8. Delete patch branch (local and remote)
         try:

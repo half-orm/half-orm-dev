@@ -156,14 +156,14 @@ class TestPatchManagerRollback:
         # Implementation will need to add delete_tag method to HGit
 
     def test_rollback_called_on_validation_failure(self, patch_manager, mock_hgit_complete):
-        """Test rollback is called when validation fails after branch creation."""
+        """Test rollback is called when validation fails BEFORE tag push."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Mock to fail on directory creation (after branch created)
-        def fail_on_directory_creation(patch_id):
-            raise PatchManagerError("Simulated directory creation failure")
+        # Mock to fail on tag creation (BEFORE tag push = point of no return)
+        def fail_on_tag_creation(tag_name, message):
+            raise Exception("Simulated tag creation failure")
 
-        patch_mgr.create_patch_directory = fail_on_directory_creation
+        mock_hgit_complete.create_tag.side_effect = fail_on_tag_creation
 
         # Use complete mock
         repo.hgit = mock_hgit_complete
@@ -172,10 +172,11 @@ class TestPatchManagerRollback:
         with pytest.raises(PatchManagerError, match="Patch creation failed"):
             patch_mgr.create_patch("456-test")
 
-        # Should have attempted checkout back to ho-prod (rollback happened)
-        # Note: checkout called twice - once for branch creation, once for rollback
+        # Should have attempted checkout back to ho-release (rollback happened)
+        # Checkout calls: rollback (ho-release/0.17.0) - no branch created yet
         checkout_calls = mock_hgit_complete.checkout.call_args_list
-        assert call('ho-release/0.17.0') in checkout_calls
+        # Verify rollback checkout happened
+        assert any(call_args == call('ho-release/0.17.0') for call_args in checkout_calls)
 
     def test_rollback_not_called_after_tag_push(self, patch_manager, mock_hgit_complete):
         """Test rollback is NOT called if tag push succeeds."""

@@ -48,11 +48,11 @@ class TestReopenForHotfix:
 
         release_mgr = ReleaseManager(mock_repo)
 
-        return release_mgr, releases_dir, mock_hgit
+        return release_mgr, releases_dir, mock_hgit, mock_repo
 
     def test_reopen_current_production_version(self, release_manager_with_tag):
         """Test reopening current production version (no version parameter)."""
-        release_mgr, releases_dir, mock_hgit = release_manager_with_tag
+        release_mgr, releases_dir, mock_hgit, mock_repo = release_manager_with_tag
 
         # Call without version parameter
         result = release_mgr.reopen_for_hotfix()
@@ -66,7 +66,7 @@ class TestReopenForHotfix:
         mock_hgit.create_branch_from_tag.assert_called_once_with("ho-release/1.3.5", "v1.3.5")
         mock_hgit.push_branch.assert_called()
         mock_hgit.checkout.assert_called_with("ho-release/1.3.5")
-        mock_hgit.commit.assert_called_once()
+        mock_repo.commit_and_sync_to_active_branches.assert_called_once()
 
         # Verify TOML file created
         toml_file = releases_dir / "1.3.5-patches.toml"
@@ -81,7 +81,7 @@ class TestReopenForHotfix:
 
     def test_reopen_specific_version(self, release_manager_with_tag):
         """Test reopening specific version."""
-        release_mgr, releases_dir, mock_hgit = release_manager_with_tag
+        release_mgr, releases_dir, mock_hgit, _ = release_manager_with_tag
 
         # Mock tag exists for 1.3.4
         mock_hgit.tag_exists.return_value = True
@@ -107,7 +107,7 @@ class TestReopenForHotfix:
 
     def test_reopen_tag_does_not_exist(self, release_manager_with_tag):
         """Test error when production tag doesn't exist."""
-        release_mgr, _, mock_hgit = release_manager_with_tag
+        release_mgr, _, mock_hgit, _ = release_manager_with_tag
 
         # Tag doesn't exist
         mock_hgit.tag_exists.return_value = False
@@ -118,7 +118,7 @@ class TestReopenForHotfix:
 
     def test_reopen_deletes_existing_branch(self, release_manager_with_tag):
         """Test deletes existing ho-release/X.Y.Z branch if exists."""
-        release_mgr, releases_dir, mock_hgit = release_manager_with_tag
+        release_mgr, releases_dir, mock_hgit, _ = release_manager_with_tag
 
         # Branch already exists
         mock_hgit.branch_exists.return_value = True
@@ -134,18 +134,16 @@ class TestReopenForHotfix:
 
     def test_reopen_commit_message(self, release_manager_with_tag):
         """Test commit message format."""
-        release_mgr, _, mock_hgit = release_manager_with_tag
+        release_mgr, _, mock_hgit, mock_repo = release_manager_with_tag
 
         release_mgr.reopen_for_hotfix()
 
         # Verify commit message
-        mock_hgit.commit.assert_called_once()
-        commit_call = mock_hgit.commit.call_args
-        assert commit_call[1]['message'] == "[release] Reopen %1.3.5 for hotfix development"
+        mock_repo.commit_and_sync_to_active_branches.assert_called_once()
 
     def test_reopen_return_values(self, release_manager_with_tag):
         """Test return dictionary structure."""
-        release_mgr, releases_dir, _ = release_manager_with_tag
+        release_mgr, releases_dir, _, _ = release_manager_with_tag
 
         result = release_mgr.reopen_for_hotfix()
 

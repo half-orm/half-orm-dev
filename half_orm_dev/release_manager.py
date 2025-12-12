@@ -2316,18 +2316,10 @@ class ReleaseManager:
                 f"data-{version}-rc{rc_number}.sql"
             )
 
-            # Commit RC snapshot on release branch (and data file if generated)
-            self._repo.hgit.add(str(rc_file))     # RC snapshot file
-            if data_file:
-                self._repo.hgit.add(str(data_file))  # Data file if generated
-            self._repo.hgit.commit("-m", f"[HOP] Promote release %{version} to RC {rc_number}")
-            self._repo.hgit.push_branch(release_branch)
-
-            # Sync RC and stage files to ho-prod (single source of truth)
-            self._repo.patch_manager._sync_release_files_to_ho_prod(
-                version,
-                release_branch,
-                critical=False
+            # Commit RC snapshot and data file (both in .hop/releases/)
+            # This also syncs .hop/ to all active branches automatically
+            self._repo.commit_and_sync_to_active_branches(
+                message=f"[HOP] Promote release %{version} to RC {rc_number}"
             )
 
             return {
@@ -2812,13 +2804,11 @@ class ReleaseManager:
             # Note: HOTFIX marker is no longer needed in TOML format
             # The fact that we're on ho-release/X.Y.Z indicates hotfix development
 
-            # 7. Commit and push
+            # 7. Commit and push (TOML file is in .hop/releases/)
+            # This also syncs .hop/ to all active branches automatically
             toml_file = self._releases_dir / f"{version}-patches.toml"
-            self._repo.hgit.add(str(toml_file))
-
             commit_msg = f"[release] Reopen %{version} for hotfix development"
-            self._repo.hgit.commit(message=commit_msg)
-            self._repo.hgit.push_branch(release_branch, set_upstream=True)
+            self._repo.commit_and_sync_to_active_branches(message=commit_msg)
 
             return {
                 'version': version,

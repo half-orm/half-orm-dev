@@ -157,8 +157,8 @@ class TestPatchManagerRemoteValidation:
         # Tag should have been pushed (reservation complete)
         mock_hgit_complete.push_tag.assert_called_once_with("ho-patch/456")
 
-        # Should have attempted branch push 3 times
-        assert mock_hgit_complete.push_branch.call_count == 5
+        # Should have attempted branch push 3 times (no ho-prod push, handled by commit_and_sync)
+        assert mock_hgit_complete.push_branch.call_count == 3
 
         # Should display warning about branch push failure
         captured = capsys.readouterr()
@@ -184,8 +184,8 @@ class TestPatchManagerRemoteValidation:
         mock_hgit_complete.fetch_tags.assert_called_once()
         mock_hgit_complete.tag_exists.assert_called_with("ho-patch/456")
 
-        # 3. Branch created
-        assert mock_hgit_complete.checkout.call_count >= 2  # create + checkout
+        # 3. Branch created (only one checkout, sync handled by commit_and_sync)
+        assert mock_hgit_complete.checkout.call_count >= 1  # create branch
 
         # 4. Reservation tag created and pushed
         mock_hgit_complete.create_tag.assert_called_once_with(
@@ -195,9 +195,8 @@ class TestPatchManagerRemoteValidation:
         mock_hgit_complete.push_tag.assert_called_once_with("ho-patch/456")
 
         # 5. Branch pushed for tracking
+        # Note: ho-release push is handled by commit_and_sync_to_active_branches
         calls = mock_hgit_complete.push_branch.call_args_list
-        # Verify ho-release was pushed
-        assert any('ho-release/0.17.0' in str(c) for c in calls)
         # Verify patch branch was pushed with set_upstream
         patch_branch_pushes = [c for c in calls if 'ho-patch/456-user-auth' in str(c)]
         assert len(patch_branch_pushes) >= 1

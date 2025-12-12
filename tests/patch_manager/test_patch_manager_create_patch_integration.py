@@ -32,8 +32,8 @@ class TestCreatePatchIntegration:
         # Verify all steps executed
         # 1. Validations passed (no exceptions)
         # 2. Branch created
-        # Note: checkout count includes sync to ho-prod (2 checkouts) + final checkout to patch branch
-        assert mock_hgit_complete.checkout.call_count >= 2  # At least create + checkout (may include ho-prod sync)
+        # Note: Only one checkout now (create branch), sync is handled by commit_and_sync_to_active_branches
+        assert mock_hgit_complete.checkout.call_count >= 1  # Create branch
 
         # 3. Directory created
         expected_dir = patches_dir / "456-user-auth"
@@ -228,15 +228,9 @@ class TestCreatePatchIntegration:
         # Create patch
         result = patch_mgr.create_patch("456-user-auth", None)
 
-        # Verify call order: sync to ho-prod, return to release, create patch branch
+        # Verify call order: only create patch branch (sync handled by commit_and_sync)
         calls = mock_hgit_complete.checkout.call_args_list
-        assert len(calls) == 3
+        assert len(calls) == 1
 
-        # First call: checkout ho-prod (for sync)
-        assert calls[0] == call('ho-prod')
-
-        # Second call: return to release branch (after sync)
-        assert calls[1] == call('ho-release/0.17.0')
-
-        # Third call: create patch branch (git checkout -b)
-        assert calls[2] == call('-b', 'ho-patch/456-user-auth')
+        # Only call: create patch branch (git checkout -b)
+        assert calls[0] == call('-b', 'ho-patch/456-user-auth')
