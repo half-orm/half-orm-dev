@@ -4,42 +4,43 @@ Tests for Repo.sync_hop_to_active_branches() method.
 Tests the automatic synchronization of .hop/ directory from ho-prod to active branches.
 """
 
+import re
 import pytest
 from pathlib import Path
 from unittest.mock import Mock, MagicMock, patch, call
 from half_orm_dev.repo import Repo
 
+@pytest.fixture
+def mock_repo(tmp_path):
+    """Create a mock Repo with necessary structure."""
+    # Create .hop directory
+    hop_dir = tmp_path / '.hop'
+    hop_dir.mkdir()
+    (hop_dir / 'config').write_text('[halfORM]\nhop_version = "0.17.0"\n')
+
+    # Mock Repo instance
+    repo = Mock(spec=Repo)
+    repo.base_dir = str(tmp_path)
+    repo._Repo__config = Mock()
+    repo._Repo__config.hop_version = "0.17.0"
+
+    # Mock HGit
+    repo.hgit = Mock()
+    repo.hgit.branch = 'ho-prod'
+    repo.hgit._HGit__git_repo = Mock()
+
+    # Bind the real method to the mock
+    repo.sync_hop_to_active_branches = Repo.sync_hop_to_active_branches.__get__(repo, Repo)
+
+    return repo
+
 
 class TestRepoSyncHop:
     """Test Repo.sync_hop_to_active_branches() method."""
 
-    @pytest.fixture
-    def mock_repo(self, tmp_path):
-        """Create a mock Repo with necessary structure."""
-        # Create .hop directory
-        hop_dir = tmp_path / '.hop'
-        hop_dir.mkdir()
-        (hop_dir / 'config').write_text('[halfORM]\nhop_version = "0.17.0"\n')
-
-        # Mock Repo instance
-        repo = Mock(spec=Repo)
-        repo.base_dir = str(tmp_path)
-        repo._Repo__config = Mock()
-        repo._Repo__config.hop_version = "0.17.0"
-
-        # Mock HGit
-        repo.hgit = Mock()
-        repo.hgit.branch = 'ho-prod'
-        repo.hgit._HGit__git_repo = Mock()
-
-        # Bind the real method to the mock
-        repo.sync_hop_to_active_branches = Repo.sync_hop_to_active_branches.__get__(repo, Repo)
-
-        return repo, tmp_path
-
     def test_sync_from_patch_branch(self, mock_repo):
         """Test sync works from any branch (e.g., patch branch)."""
-        repo, tmp_path = mock_repo
+        repo = mock_repo
         repo.hgit.branch = 'ho-patch/123-test'
 
         # Mock get_active_branches_status
@@ -55,6 +56,7 @@ class TestRepoSyncHop:
         repo.hgit.push_branch = Mock()
         repo.hgit._HGit__git_repo.git.checkout = Mock()
         repo.hgit._HGit__git_repo.git.status = Mock(return_value='M .hop/config\n')
+        repo.sync_hop_to_active_branches = Repo.sync_hop_to_active_branches.__get__(repo, Repo)
 
         # Mock Config reload
         with patch('half_orm_dev.repo.Config') as MockConfig:
@@ -71,7 +73,7 @@ class TestRepoSyncHop:
 
     def test_sync_no_active_branches(self, mock_repo):
         """Test sync with no active branches."""
-        repo, tmp_path = mock_repo
+        repo = mock_repo
 
         # Mock get_active_branches_status to return empty lists
         repo.hgit.get_active_branches_status.return_value = {
@@ -86,7 +88,7 @@ class TestRepoSyncHop:
 
     def test_sync_single_branch_with_changes(self, mock_repo):
         """Test sync to single branch with changes."""
-        repo, tmp_path = mock_repo
+        repo = mock_repo
 
         # Mock get_active_branches_status
         repo.hgit.get_active_branches_status.return_value = {
@@ -122,7 +124,7 @@ class TestRepoSyncHop:
 
     def test_sync_branch_no_changes(self, mock_repo):
         """Test sync to branch with no changes."""
-        repo, tmp_path = mock_repo
+        repo = mock_repo
 
         # Mock get_active_branches_status
         repo.hgit.get_active_branches_status.return_value = {
@@ -149,7 +151,7 @@ class TestRepoSyncHop:
 
     def test_sync_multiple_branches(self, mock_repo):
         """Test sync to multiple branches."""
-        repo, tmp_path = mock_repo
+        repo = mock_repo
 
         # Mock get_active_branches_status
         repo.hgit.get_active_branches_status.return_value = {
@@ -184,7 +186,7 @@ class TestRepoSyncHop:
 
     def test_sync_branch_error_continues(self, mock_repo):
         """Test sync continues on error for one branch."""
-        repo, tmp_path = mock_repo
+        repo = mock_repo
 
         # Mock get_active_branches_status
         repo.hgit.get_active_branches_status.return_value = {
@@ -224,7 +226,7 @@ class TestRepoSyncHop:
 
     def test_sync_returns_to_original_branch(self, mock_repo):
         """Test sync returns to original branch after completion."""
-        repo, tmp_path = mock_repo
+        repo = mock_repo
         repo.hgit.branch = 'ho-prod'
 
         # Mock get_active_branches_status
@@ -254,7 +256,7 @@ class TestRepoSyncHop:
 
     def test_sync_commit_message_format(self, mock_repo):
         """Test sync commit message includes reason."""
-        repo, tmp_path = mock_repo
+        repo = mock_repo
 
         # Mock get_active_branches_status
         repo.hgit.get_active_branches_status.return_value = {
