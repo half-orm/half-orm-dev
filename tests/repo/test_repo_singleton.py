@@ -373,7 +373,7 @@ devel = True
         # This test documents that thread safety is not guaranteed
         assert len(unique_instances) >= 1
 
-    def test_singleton_with_different_working_directories(self, nested_hop_repo):
+    def test_singleton_diff_work_dirs(self, nested_hop_repo):
         """Test singleton behavior when changing working directories."""
         project_dir, sub_dir = nested_hop_repo
 

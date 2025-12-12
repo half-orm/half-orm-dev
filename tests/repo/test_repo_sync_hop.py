@@ -257,7 +257,7 @@ class TestRepoSyncHop:
         # Should be called twice: once for branch, once to return
         assert repo.hgit.checkout.call_count == 2
 
-    def test_sync_commit_message_format(self, mock_repo):
+    def test_sync_commit_msg_fmt(self, mock_repo):
         """Test sync commit message includes reason."""
         repo = mock_repo
 
