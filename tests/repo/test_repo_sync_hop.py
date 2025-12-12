@@ -11,8 +11,11 @@ from unittest.mock import Mock, MagicMock, patch, call
 from half_orm_dev.repo import Repo
 
 @pytest.fixture
-def mock_repo(tmp_path):
+def mock_repo(tmp_path_factory):
     """Create a mock Repo with necessary structure."""
+    # Create unique temp directory for this test
+    tmp_path = tmp_path_factory.mktemp("sync_hop_test")
+
     # Create .hop directory
     hop_dir = tmp_path / '.hop'
     hop_dir.mkdir()
