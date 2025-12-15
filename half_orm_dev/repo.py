@@ -250,7 +250,7 @@ class Repo:
         This method is called when no hop config file is provided.
         Returns True if we are in a repo, False otherwise.
         """
-        base_dir = os.path.abspath(os.path.curdir)
+        base_dir = self._find_base_dir()
         while base_dir:
             if self.__set_base_dir(base_dir):
                 self.database = Database(self)
@@ -259,6 +259,7 @@ class Repo:
                 self.__checked = True
                 # Perform automatic migration if needed (after hgit is initialized)
                 self._run_pending_migrations()
+                return
             par_dir = os.path.split(base_dir)[0]
             if par_dir == base_dir:
                 break
@@ -270,8 +271,38 @@ class Repo:
             self.__base_dir = base_dir
             self.__config = Config(base_dir)
             self.__local_config = LocalConfig(base_dir)
+            self._validate_version()
             return True
         return False
+
+    def _validate_version(self):
+        """
+        Validate that installed half_orm_dev version meets repository requirement.
+
+        Raises:
+            RepoError: If installed version is lower than required hop_version
+        """
+        required_version = self.__config.hop_version
+        if not required_version:
+            # No version requirement in .hop/config, skip validation
+            return
+
+        installed_version = hop_version()
+
+        try:
+            if version.parse(installed_version) < version.parse(required_version):
+                raise RepoError(
+                    f"Repository requires half_orm_dev >= {required_version} "
+                    f"but {installed_version} is installed.\n"
+                    f"Please upgrade: pip install --upgrade half_orm_dev"
+                )
+        except version.InvalidVersion as e:
+            # If version parsing fails, log warning but don't block
+            warnings.warn(
+                f"Could not parse version: installed={installed_version}, "
+                f"required={required_version}. Error: {e}",
+                UserWarning
+            )
 
     def _run_pending_migrations(self):
         """
