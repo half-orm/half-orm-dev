@@ -210,3 +210,56 @@ devel = True
                 with pytest.warns(UserWarning, match="Could not parse version"):
                     repo = Repo()
                     assert repo.checked
+
+
+class TestCompareVersions:
+    """Test compare_versions() method."""
+
+    def setup_method(self):
+        """Clear singleton instances before each test."""
+        Repo.clear_instances()
+
+    def teardown_method(self):
+        """Clear singleton instances after each test."""
+        Repo.clear_instances()
+
+    def test_compare_versions_alpha_increment(self):
+        """Test comparing alpha version increments."""
+        repo = Repo()
+
+        # 0.17.2-a5 > 0.17.2-a3
+        assert repo.compare_versions("0.17.2-a5", "0.17.2-a3") == 1
+        assert repo.compare_versions("0.17.2-a3", "0.17.2-a5") == -1
+
+    def test_compare_versions_alpha_to_release(self):
+        """Test comparing alpha to release version."""
+        repo = Repo()
+
+        # 0.17.2 > 0.17.2-a5 (release > pre-release)
+        assert repo.compare_versions("0.17.2", "0.17.2-a5") == 1
+        assert repo.compare_versions("0.17.2-a5", "0.17.2") == -1
+
+    def test_compare_versions_equal(self):
+        """Test comparing equal versions."""
+        repo = Repo()
+
+        assert repo.compare_versions("0.17.2-a5", "0.17.2-a5") == 0
+        assert repo.compare_versions("0.17.2", "0.17.2") == 0
+
+    def test_compare_versions_semantic(self):
+        """Test comparing semantic versions."""
+        repo = Repo()
+
+        assert repo.compare_versions("0.17.2", "0.17.1") == 1
+        assert repo.compare_versions("0.18.0", "0.17.2") == 1
+        assert repo.compare_versions("0.17.1", "0.17.2") == -1
+
+    def test_compare_versions_invalid_format(self):
+        """Test error handling for invalid version strings."""
+        repo = Repo()
+
+        with pytest.raises(RepoError):
+            repo.compare_versions("invalid", "0.17.2")
+
+        with pytest.raises(RepoError):
+            repo.compare_versions("0.17.2", "x.y.z")

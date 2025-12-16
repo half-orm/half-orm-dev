@@ -41,6 +41,19 @@ def mock_repo_with_migration_files(tmp_path):
         'sync_result': {'synced_branches': [], 'skipped_branches': [], 'errors': []}
     })
 
+    # Mock compare_versions method (uses packaging.version)
+    from packaging import version
+    def compare_versions(v1, v2):
+        parsed_v1 = version.parse(v1)
+        parsed_v2 = version.parse(v2)
+        if parsed_v1 < parsed_v2:
+            return -1
+        elif parsed_v1 > parsed_v2:
+            return 1
+        else:
+            return 0
+    mock_repo.compare_versions = compare_versions
+
     # Create .hop directory structure
     hop_dir = tmp_path / ".hop"
     hop_dir.mkdir()

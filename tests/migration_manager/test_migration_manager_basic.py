@@ -30,6 +30,19 @@ def mock_repo_for_migration(tmp_path):
     mock_hgit.commit = Mock()
     mock_repo.hgit = mock_hgit
 
+    # Mock compare_versions method (uses packaging.version)
+    from packaging import version
+    def compare_versions(v1, v2):
+        parsed_v1 = version.parse(v1)
+        parsed_v2 = version.parse(v2)
+        if parsed_v1 < parsed_v2:
+            return -1
+        elif parsed_v1 > parsed_v2:
+            return 1
+        else:
+            return 0
+    mock_repo.compare_versions = compare_versions
+
     # Create .hop directory
     hop_dir = tmp_path / ".hop"
     hop_dir.mkdir()
@@ -48,30 +61,6 @@ class TestMigrationManagerBasic:
 
         assert mgr._repo == mock_repo
         assert mgr._migrations_root.name == 'migrations'
-
-    def test_parse_version(self, mock_repo_for_migration):
-        """Test version parsing."""
-        mock_repo, tmp_path = mock_repo_for_migration
-        mgr = MigrationManager(mock_repo)
-
-        assert mgr._parse_version("0.17.0") == (0, 17, 0)
-        assert mgr._parse_version("1.2.3") == (1, 2, 3)
-        # Test with pre-release suffixes
-        assert mgr._parse_version("0.17.1-a1") == (0, 17, 1)
-        assert mgr._parse_version("0.17.1-rc2") == (0, 17, 1)
-        assert mgr._parse_version("1.0.0-beta3") == (1, 0, 0)
-        assert mgr._parse_version("0.1.0a11") == (0, 1, 0)
-
-    def test_parse_version_invalid(self, mock_repo_for_migration):
-        """Test version parsing with invalid format."""
-        mock_repo, tmp_path = mock_repo_for_migration
-        mgr = MigrationManager(mock_repo)
-
-        with pytest.raises(MigrationManagerError, match="Invalid version format"):
-            mgr._parse_version("0.17")
-
-        with pytest.raises(MigrationManagerError, match="Invalid version format"):
-            mgr._parse_version("abc")
 
     def test_version_to_path(self, mock_repo_for_migration):
         """Test version tuple to path conversion."""

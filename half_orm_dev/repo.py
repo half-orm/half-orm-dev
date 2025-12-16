@@ -290,19 +290,67 @@ class Repo:
         installed_version = hop_version()
 
         try:
-            if version.parse(installed_version) < version.parse(required_version):
+            # Use centralized comparison method
+            if self.compare_versions(installed_version, required_version) < 0:
                 raise RepoError(
                     f"Repository requires half_orm_dev >= {required_version} "
                     f"but {installed_version} is installed.\n"
                     f"Please upgrade: pip install --upgrade half_orm_dev"
                 )
-        except version.InvalidVersion as e:
+        except RepoError as e:
+            # If it's a version validation error (not comparison error), re-raise it
+            if "requires half_orm_dev" in str(e):
+                raise
             # If version parsing fails, log warning but don't block
             warnings.warn(
                 f"Could not parse version: installed={installed_version}, "
                 f"required={required_version}. Error: {e}",
                 UserWarning
             )
+
+    def compare_versions(self, version1: str, version2: str) -> int:
+        """
+        Compare two version strings using packaging.version.
+
+        Properly handles pre-release versions (alpha, beta, rc) according to PEP 440.
+
+        Args:
+            version1: First version string (e.g., "0.17.2-a5")
+            version2: Second version string (e.g., "0.17.2-a3")
+
+        Returns:
+            -1 if version1 < version2
+             0 if version1 == version2
+             1 if version1 > version2
+
+        Raises:
+            RepoError: If either version string is invalid
+
+        Examples:
+            >>> repo.compare_versions("0.17.2-a5", "0.17.2-a3")
+            1  # 0.17.2a5 > 0.17.2a3
+            >>> repo.compare_versions("0.17.2", "0.17.2-a5")
+            1  # 0.17.2 > 0.17.2a5 (release > pre-release)
+            >>> repo.compare_versions("0.17.1", "0.17.2")
+            -1  # 0.17.1 < 0.17.2
+            >>> repo.compare_versions("0.17.2", "0.17.2")
+            0  # Equal
+        """
+        try:
+            v1 = version.parse(version1)
+            v2 = version.parse(version2)
+
+            if v1 < v2:
+                return -1
+            elif v1 > v2:
+                return 1
+            else:
+                return 0
+
+        except version.InvalidVersion as e:
+            raise RepoError(
+                f"Invalid version format: {e}"
+            ) from e
 
     def _run_pending_migrations(self):
         """

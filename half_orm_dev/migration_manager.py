@@ -25,6 +25,7 @@ import re
 import subprocess
 import sys
 import importlib.util
+from packaging import version
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from half_orm import utils
@@ -58,38 +59,6 @@ class MigrationManager:
         # Path to migrations directory (in half_orm_dev package)
         self._migrations_root = Path(__file__).parent / 'migrations'
 
-    def _parse_version(self, version_str: str) -> Tuple[int, int, int]:
-        """
-        Parse version string to tuple.
-
-        Supports version formats:
-        - "0.17.1"
-        - "0.1.0a1" (ignores suffix)
-        - "0.17.1-a1" (ignores suffix)
-        - "0.17.1-rc2" (ignores suffix)
-
-        Args:
-            version_str: Version string like "0.17.1" or "0.17.1-a1"
-
-        Returns:
-            Tuple of (major, minor, patch)
-        """
-        # Strip any pre-release suffix (e.g., "-a1", "-rc2")
-        base_version = version_str.split('-')[0]
-        if not re.match(r"^\d+\.\d+\.\d+$", base_version):
-            match = re.match(r"^(\d+\.\d+\.\d+)", base_version)
-            if match:
-                base_version = match.group(1)
-
-        parts = base_version.split('.')
-        if len(parts) != 3:
-            raise MigrationManagerError(f"Invalid version format: {version_str}")
-
-        try:
-            return (int(parts[0]), int(parts[1]), int(parts[2]))
-        except ValueError as e:
-            raise MigrationManagerError(f"Invalid version format: {version_str}") from e
-
     def _version_to_path(self, version: Tuple[int, int, int]) -> Path:
         """
         Convert version tuple to migration directory path.
@@ -117,8 +86,8 @@ class MigrationManager:
         Returns:
             List of (version_str, migration_dir_path) tuples in order
         """
-        current = self._parse_version(current_version)
-        target = self._parse_version(target_version)
+        current = version.parse(current_version).release
+        target = version.parse(target_version).release
 
         pending = []
 
@@ -298,8 +267,19 @@ class MigrationManager:
         ) else "0.0.0"
 
         # If already at target version, nothing to do
-        if current_version == target_version:
-            return result
+        try:
+            comparison = self._repo.compare_versions(current_version, target_version)
+
+            if comparison >= 0:
+                # Already at or past target version (0 = equal, 1 = higher)
+                return result
+        except Exception as e:
+            # If version comparison fails (invalid format), log and continue
+            # This allows migration to proceed even if version format is unexpected
+            result['errors'].append(
+                f"Could not compare versions {current_version} and {target_version}: {e}. "
+                f"Continuing with migration attempt."
+            )
 
         # Get pending migrations
         pending = self.get_pending_migrations(current_version, target_version)
@@ -392,21 +372,39 @@ class MigrationManager:
         Check if migration is needed.
 
         Compares current tool version with hop_version in .hop/config.
+        Properly handles pre-release versions (alpha, beta, rc).
 
         Args:
-            current_tool_version: Current half_orm_dev version
+            current_tool_version: Current half_orm_dev version (e.g., "0.17.2-a5")
 
         Returns:
-            True if migration is needed
+            True if migration/update is needed
         """
         if not hasattr(self._repo, '_Repo__config'):
             return False
 
         config_version = self._repo._Repo__config.hop_version
 
-        # Parse versions
-        current = self._parse_version(current_tool_version)
-        config = self._parse_version(config_version)
+        # If no hop_version is configured, no migration needed
+        if not config_version:
+            return False
 
-        # Migration needed if current version is higher
-        return current > config
+        try:
+            # Use Repo's centralized comparison method
+            # Returns: 1 if current > config, 0 if equal, -1 if current < config
+            comparison = self._repo.compare_versions(current_tool_version, config_version)
+
+            # Migration needed if current version is higher
+            # This now properly compares: 0.17.2a5 > 0.17.2a3 → returns 1 ✓
+            return comparison > 0
+
+        except Exception as e:
+            # If version parsing fails, log warning and don't block
+            import warnings
+            warnings.warn(
+                f"Could not parse versions for migration check: "
+                f"current={current_tool_version}, config={config_version}. "
+                f"Error: {e}",
+                UserWarning
+            )
+            return False
