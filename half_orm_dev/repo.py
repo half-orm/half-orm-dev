@@ -257,8 +257,8 @@ class Repo:
                 if self.devel:
                     self.hgit = HGit(self)
                 self.__checked = True
-                # Perform automatic migration if needed (after hgit is initialized)
-                self._run_pending_migrations()
+                # NOTE: Migration is no longer automatic - user must run `half_orm dev migrate`
+                # This prevents implicit changes and gives user control over when migration happens
                 return
             par_dir = os.path.split(base_dir)[0]
             if par_dir == base_dir:
@@ -352,61 +352,135 @@ class Repo:
                 f"Invalid version format: {e}"
             ) from e
 
-    def _run_pending_migrations(self):
+    def needs_migration(self) -> bool:
+        """
+        Check if repository needs migration.
+
+        Compares installed half_orm_dev version with repository's hop_version.
+
+        Returns:
+            True if installed version > repository version (migration needed)
+            False otherwise
+
+        Examples:
+            >>> repo.needs_migration()
+            True  # Installed 0.18.0, repo at 0.17.2
+        """
+        if not hasattr(self, '_Repo__config') or not self.__config:
+            return False
+
+        installed_version = hop_version()
+        config_version = self.__config.hop_version
+
+        if not config_version:
+            return False
+
+        try:
+            return self.compare_versions(installed_version, config_version) > 0
+        except RepoError:
+            # If version comparison fails, assume no migration needed
+            return False
+
+    def run_migrations_if_needed(self, silent: bool = False) -> dict:
         """
         Run pending migrations using MigrationManager.
 
-        Automatically detects and runs migrations based on current
-        half_orm_dev version vs hop_version in .hop/config.
+        Detects and runs migrations based on current half_orm_dev version
+        vs hop_version in .hop/config.
 
         Behavior:
-        - On ho-prod: Runs migration with lock, creates commit, notifies active branches
-        - On other branches: Warns user to merge ho-prod to get migration
+        - On ho-prod: Runs migration with lock, creates commit, syncs to active branches
+        - On other branches: Raises RepoError directing user to checkout ho-prod
 
-        Silent by default - only logs errors.
+        Args:
+            silent: If True, suppress informational messages (only show errors)
+
+        Returns:
+            dict with keys:
+                - migration_needed: bool - True if migration was needed
+                - migration_run: bool - True if migration was executed
+                - target_version: str - Target version migrated to
+                - errors: list - Any errors encountered
+
+        Raises:
+            RepoError: If not on ho-prod branch and migration is needed
+
+        Examples:
+            # Run migration (raises if not on ho-prod)
+            result = repo.run_migrations_if_needed()
+
+            # Check result
+            if result['migration_run']:
+                print(f"Migrated to {result['target_version']}")
         """
+        result = {
+            'migration_needed': False,
+            'migration_run': False,
+            'target_version': None,
+            'errors': []
+        }
+
         try:
             # Create migration manager
             migration_mgr = MigrationManager(self)
 
             # Get current half_orm_dev version
             current_version = hop_version()
+            result['target_version'] = current_version
 
             # Check if migration is needed
             if not migration_mgr.check_migration_needed(current_version):
-                return
+                return result
+
+            result['migration_needed'] = True
 
             # Only run migrations on ho-prod branch
             if not self.hgit or self.hgit.branch != 'ho-prod':
-                # Warn user to switch to ho-prod to run migration
+                # Raise error directing user to checkout ho-prod
                 current_branch = self.hgit.branch if self.hgit else 'unknown'
                 config_version = self.__config.hop_version if hasattr(self, '_Repo__config') else '0.0.0'
-                print(f"\n{utils.Color.bold('⚠️  Migration needed:')}", file=sys.stderr)
-                print(f"  half_orm_dev {config_version} → {current_version}", file=sys.stderr)
-                print(f"  Current branch: {current_branch}", file=sys.stderr)
-                print(f"\n  To apply migration, checkout to ho-prod branch and rerun:", file=sys.stderr)
-                print(f"    git checkout ho-prod", file=sys.stderr)
-                print(f"    half_orm dev check\n", file=sys.stderr)
-                return
+                raise RepoError(
+                    f"Repository migration required\n\n"
+                    f"  Repository version: {config_version}\n"
+                    f"  Installed version:  {current_version}\n"
+                    f"  Current branch:     {current_branch}\n\n"
+                    f"  Please checkout to ho-prod branch and run:\n"
+                    f"    git checkout ho-prod\n"
+                    f"    half_orm dev migrate\n"
+                )
 
             # Run migrations on ho-prod
             # Branch sync is handled automatically by the decorator
-            result = migration_mgr.run_migrations(
+            migration_result = migration_mgr.run_migrations(
                 target_version=current_version,
                 create_commit=True
             )
 
-            # Log errors if any
-            if result.get('errors'):
-                for error in result['errors']:
-                    print(f"Migration error: {error}", file=sys.stderr)
+            result['migration_run'] = True
+            result['errors'] = migration_result.get('errors', [])
 
+            # Log success if not silent
+            if not silent:
+                if migration_result.get('migrations_applied'):
+                    print(f"✓ Applied {len(migration_result['migrations_applied'])} migration(s)")
+                else:
+                    print(f"✓ Updated repository version to {current_version}")
+
+        except RepoError:
+            # Re-raise RepoError (for branch check)
+            raise
         except MigrationManagerError as e:
-            # Log migration errors but don't fail repo initialization
-            print(f"Migration failed: {e}", file=sys.stderr)
+            # Log migration errors
+            error_msg = f"Migration failed: {e}"
+            result['errors'].append(error_msg)
+            raise RepoError(error_msg) from e
         except Exception as e:
             # Catch any unexpected errors
-            print(f"Unexpected migration error: {e}", file=sys.stderr)
+            error_msg = f"Unexpected migration error: {e}"
+            result['errors'].append(error_msg)
+            raise RepoError(error_msg) from e
+
+        return result
 
     def sync_hop_to_active_branches(self, reason: str = "update") -> dict:
         """

@@ -28,6 +28,9 @@ class Hop:
             # Outside hop repository - commands for project initialization
             return ['init', 'clone']
 
+        if self.__repo.needs_migration():
+            return ['migrate']
+
         # Inside hop repository
         if not self.__repo.devel:
             # Sync-only mode (no metadata)
@@ -73,21 +76,41 @@ def create_cli_group():
         if ctx.invoked_subcommand is None:
             # Show repo state when no subcommand is provided
             if hop.repo_checked:
-                click.echo(hop.state)
-                click.echo(f"\n{utils.Color.bold('Available commands:')}")
+                # Check if migration is needed
+                if hop._Hop__repo.needs_migration():
+                    # Display migration warning
+                    from half_orm_dev.utils import hop_version
+                    installed_version = hop_version()
+                    config_version = hop._Hop__repo._Repo__config.hop_version
+                    current_branch = hop._Hop__repo.hgit.branch if hop._Hop__repo.hgit else 'unknown'
 
-                # Adapt displayed commands based on environment
-                if hop.__repo.database.production:
-                    # Production commands
-                    click.echo(f"  • {utils.Color.bold('update')} - Fetch and list available releases")
-                    click.echo(f"  • {utils.Color.bold('upgrade [--to-release=X.Y.Z]')} - Apply releases to production")
+                    click.echo(f"\n{'='*70}")
+                    click.echo(f"⚠️  {utils.Color.bold(utils.Color.red('REPOSITORY MIGRATION REQUIRED'))} ⚠️")
+                    click.echo(f"{'='*70}")
+                    click.echo(f"\n  Repository version: {utils.Color.red(config_version)}")
+                    click.echo(f"  Installed version:  {utils.Color.green(installed_version)}")
+                    click.echo(f"  Current branch:     {current_branch}")
+                    click.echo(f"\n  {utils.Color.bold('All commands are blocked until migration is complete.')}")
+                    click.echo(f"\n  To apply migration, run:")
+                    click.echo(f"    {utils.Color.bold('half_orm dev migrate')}")
+                    click.echo(f"\n{'='*70}\n")
                 else:
-                    # Development commands
-                    click.echo(f"  • {utils.Color.bold('patch')}")
-                    click.echo(f"  • {utils.Color.bold('prepare-release <level>')} - Prepare next release stage file (patch/minor/major)")
-                    click.echo(f"  • {utils.Color.bold('promote-to <target>')} - Promote stage to rc or prod")
+                    # Normal display
+                    click.echo(hop.state)
+                    click.echo(f"\n{utils.Color.bold('Available commands:')}")
 
-                click.echo(f"\nTry {utils.Color.bold('half_orm dev <command> --help')} for more information.\n")
+                    # Adapt displayed commands based on environment
+                    if hop._Hop__repo.database.production:
+                        # Production commands
+                        click.echo(f"  • {utils.Color.bold('update')} - Fetch and list available releases")
+                        click.echo(f"  • {utils.Color.bold('upgrade [--to-release=X.Y.Z]')} - Apply releases to production")
+                    else:
+                        # Development commands
+                        click.echo(f"  • {utils.Color.bold('patch')}")
+                        click.echo(f"  • {utils.Color.bold('prepare-release <level>')} - Prepare next release stage file (patch/minor/major)")
+                        click.echo(f"  • {utils.Color.bold('promote-to <target>')} - Promote stage to rc or prod")
+
+                    click.echo(f"\nTry {utils.Color.bold('half_orm dev <command> --help')} for more information.\n")
             else:
                 click.echo(hop.state)
                 click.echo("\nNot in a hop repository.")

@@ -13,6 +13,7 @@ from .release import release
 from .update import update
 from .upgrade import upgrade
 from .check import check
+from .migrate import migrate
 from .todo import apply_release
 from .todo import rollback
 
@@ -30,6 +31,7 @@ ALL_COMMANDS = {
     'update': update,          # Adapted for production
     'upgrade': upgrade,          # Adapted for production
     'check': check,            # Project health check and updates
+    'migrate': migrate,        # Repository migration after upgrade
     # 🚧 (stubs)
     'apply_release': apply_release,
 
@@ -49,6 +51,7 @@ __all__ = [
     'release',
     'upgrade',
     'check',
+    'migrate',
     'rollback',
     # Adapted commands
     'sync_package',
