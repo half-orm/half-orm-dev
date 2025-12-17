@@ -37,6 +37,17 @@ from .utils import TEMPLATE_DIRS, hop_version, resolve_database_config_name
 class RepoError(Exception):
     pass
 
+class OutdatedHalfORMDevError(RepoError):
+    """Raised when installed half_orm_dev version is older than repository requirement."""
+    def __init__(self, required_version: str, installed_version: str):
+        self.required_version = required_version
+        self.installed_version = installed_version
+        super().__init__(
+            f"Repository requires half_orm_dev >= {required_version} "
+            f"but {installed_version} is installed.\n"
+            f"Please upgrade: pip install --upgrade half_orm_dev"
+        )
+
 class Config:
     """
     """
@@ -292,15 +303,11 @@ class Repo:
         try:
             # Use centralized comparison method
             if self.compare_versions(installed_version, required_version) < 0:
-                raise RepoError(
-                    f"Repository requires half_orm_dev >= {required_version} "
-                    f"but {installed_version} is installed.\n"
-                    f"Please upgrade: pip install --upgrade half_orm_dev"
-                )
+                raise OutdatedHalfORMDevError(required_version, installed_version)
+        except OutdatedHalfORMDevError:
+            # Re-raise downgrade errors immediately
+            raise
         except RepoError as e:
-            # If it's a version validation error (not comparison error), re-raise it
-            if "requires half_orm_dev" in str(e):
-                raise
             # If version parsing fails, log warning but don't block
             warnings.warn(
                 f"Could not parse version: installed={installed_version}, "

@@ -12,7 +12,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import patch
 
-from half_orm_dev.repo import Repo, RepoError
+from half_orm_dev.repo import Repo, RepoError, OutdatedHalfORMDevError
 
 
 @pytest.fixture
@@ -75,9 +75,14 @@ class TestVersionValidation:
         with patch('half_orm_dev.repo.Repo._find_base_dir', return_value=str(temp_hop_dir)):
             with patch('half_orm_dev.repo.hop_version', return_value='0.17.2'):
                 Repo.clear_instances()
-                with pytest.raises(RepoError) as exc_info:
+                with pytest.raises(OutdatedHalfORMDevError) as exc_info:
                     Repo()
 
+                # Check exception attributes
+                assert exc_info.value.required_version == '0.18.0'
+                assert exc_info.value.installed_version == '0.17.2'
+
+                # Check error message
                 error_message = str(exc_info.value)
                 assert "0.18.0" in error_message
                 assert "0.17.2" in error_message
@@ -146,7 +151,7 @@ devel = True
             # Installed version 0.17.2 < required 1.0.0
             with patch('half_orm_dev.repo.hop_version', return_value='0.17.2'):
                 Repo.clear_instances()
-                with pytest.raises(RepoError) as exc_info:
+                with pytest.raises(OutdatedHalfORMDevError) as exc_info:
                     Repo()
 
                 error_message = str(exc_info.value)
@@ -162,7 +167,7 @@ devel = True
             with patch('half_orm_dev.repo.hop_version', return_value='0.17.2-a1'):
                 Repo.clear_instances()
                 # Alpha 0.17.2-a1 < 0.17.2, should raise error
-                with pytest.raises(RepoError):
+                with pytest.raises(OutdatedHalfORMDevError):
                     Repo()
 
     @patch('half_orm_dev.repo.Database')
@@ -185,8 +190,12 @@ devel = True
         with patch('half_orm_dev.repo.Repo._find_base_dir', return_value=str(temp_hop_dir)):
             with patch('half_orm_dev.repo.hop_version', return_value='0.17.2'):
                 Repo.clear_instances()
-                with pytest.raises(RepoError) as exc_info:
+                with pytest.raises(OutdatedHalfORMDevError) as exc_info:
                     Repo()
+
+                # Check exception attributes
+                assert exc_info.value.required_version == '0.18.5'
+                assert exc_info.value.installed_version == '0.17.2'
 
                 error_message = str(exc_info.value)
 

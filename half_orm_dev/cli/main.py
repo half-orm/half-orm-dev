@@ -3,7 +3,8 @@ Main CLI module - Creates and configures the CLI group
 """
 
 import click
-from half_orm_dev.repo import Repo
+import functools
+from half_orm_dev.repo import Repo, OutdatedHalfORMDevError
 from half_orm import utils
 from .commands import ALL_COMMANDS
 
@@ -12,7 +13,16 @@ class Hop:
     """Sets the options available to the hop command"""
 
     def __init__(self):
-        self.__repo: Repo = Repo()  # Utilise le singleton
+        self.__repo: Repo = None
+        self.__hop_upgrade_error: OutdatedHalfORMDevError = None
+
+        # Try to initialize Repo, catch version errors
+        try:
+            self.__repo = Repo()  # Utilise le singleton
+        except OutdatedHalfORMDevError as e:
+            # Capture the error but don't raise it yet
+            self.__hop_upgrade_error = e
+
         self.__available_cmds = self._determine_available_commands()
 
     def _determine_available_commands(self):
@@ -23,7 +33,16 @@ class Hop:
         - Repository status (checked/unchecked)
         - Development mode (devel flag - metadata presence)
         - Environment (production flag)
+
+        Note: When needs_hop_upgrade is true, commands will still be added
+        but will be blocked by the decorator at execution time.
         """
+        if self.needs_hop_upgrade:
+            # Version downgrade detected - return a minimal set of commands
+            # Commands will be blocked by decorator, but we need them in the list
+            # so Click doesn't show "No such command" error
+            return ['check', 'migrate']
+
         if not self.repo_checked:
             # Outside hop repository - commands for project initialization
             return ['init', 'clone']
@@ -47,12 +66,22 @@ class Hop:
     @property
     def repo_checked(self):
         """Returns whether we are in a repo or not."""
-        return self.__repo.checked
+        return self.__repo and self.__repo.checked
+
+    @property
+    def needs_hop_upgrade(self):
+        """Returns whether half_orm_dev needs to be upgraded."""
+        return self.__hop_upgrade_error is not None
+
+    @property
+    def hop_upgrade_error(self):
+        """Returns the upgrade error if any."""
+        return self.__hop_upgrade_error
 
     @property
     def state(self):
         """Returns the state of the repo."""
-        return self.__repo.state
+        return self.__repo.state if self.__repo else "Not in a repository"
 
     @property
     def available_commands(self):
@@ -69,8 +98,43 @@ def create_cli_group():
     """
     hop = Hop()
 
-    @click.group(invoke_without_command=True)
+    def check_version_before_invoke(f, allow_on_downgrade=False):
+        """Decorator to check version before invoking any command.
+
+        Args:
+            f: Function to wrap
+            allow_on_downgrade: If True, allow this command even when version is outdated
+        """
+        @functools.wraps(f)
+        def wrapper(*args, **kwargs):
+            if hop.needs_hop_upgrade and not allow_on_downgrade:
+                # Display formatted error message for version downgrade
+                error = hop.hop_upgrade_error
+                click.echo("=" * 70, err=True)
+                click.echo(f"{utils.Color.red('❌ OUTDATED half_orm_dev VERSION')}", err=True)
+                click.echo("=" * 70, err=True)
+                click.echo(f"\n  Repository requires: {utils.Color.bold(error.required_version)}", err=True)
+                click.echo(f"  Installed version:   {utils.Color.bold(error.installed_version)}", err=True)
+                click.echo(f"\n  Your installed version is OLDER than the repository requirement.", err=True)
+                click.echo(f"  All commands are blocked for safety.", err=True)
+                click.echo(f"\n  Please upgrade half_orm_dev:", err=True)
+                click.echo(f"    {utils.Color.bold('pip install --upgrade half_orm_dev')}", err=True)
+                click.echo("\n" + "=" * 70 + "\n", err=True)
+                raise click.Abort()
+            return f(*args, **kwargs)
+        return wrapper
+
+    # Create custom Group that auto-decorates commands
+    class VersionCheckGroup(click.Group):
+        def add_command(self, cmd, name=None):
+            """Override to decorate all commands with version check."""
+            if isinstance(cmd, click.Command) and cmd.callback:
+                cmd.callback = check_version_before_invoke(cmd.callback)
+            super().add_command(cmd, name)
+
+    @click.group(cls=VersionCheckGroup, invoke_without_command=True)
     @click.pass_context
+    @check_version_before_invoke
     def dev(ctx):
         """halfORM development tools - Git-centric patch management and database synchronization"""
         if ctx.invoked_subcommand is None:
