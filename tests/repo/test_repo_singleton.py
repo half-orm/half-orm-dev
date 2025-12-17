@@ -69,8 +69,7 @@ class TestRepoSingleton:
         try:
             # Ensure temp_dir exists
             temp_path = Path(temp_dir)
-            if not temp_path.exists():
-                temp_path.mkdir(parents=True)
+            os.makedirs(temp_dir, exist_ok=True)
 
             # Create nested structure: temp_dir/project/.hop/config
             project_dir = temp_path / "project"
