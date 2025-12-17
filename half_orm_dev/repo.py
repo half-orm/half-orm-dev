@@ -270,6 +270,10 @@ class Repo:
                 self.__checked = True
                 # NOTE: Migration is no longer automatic - user must run `half_orm dev migrate`
                 # This prevents implicit changes and gives user control over when migration happens
+
+                # Automatically check and update hooks/config (silent, uses cache)
+                # This ensures Git hooks are always up-to-date for all commands
+                self.check_and_update(silent=True)
                 return
             par_dir = os.path.split(base_dir)[0]
             if par_dir == base_dir:
@@ -1126,6 +1130,9 @@ class Repo:
 
         hooks_source_dir = os.path.join(TEMPLATE_DIRS, 'git-hooks')
         hooks_dest_dir = os.path.join(self.__base_dir, '.git', 'hooks')
+
+        # Create .git/hooks directory if it doesn't exist
+        os.makedirs(hooks_dest_dir, exist_ok=True)
 
         any_installed = False
         overall_action = 'skipped'
@@ -2222,6 +2229,7 @@ See docs/half_orm_dev.md for complete documentation.
             5. Create .hop/alt_config if custom database_name provided
             6. Setup database (create + metadata if create_db=True)
             7. Restore database from model/schema.sql to production version
+            8. Install Git hooks (pre-commit, prepare-commit-msg)
 
         Examples:
             # Interactive with prompts for connection params
@@ -2345,3 +2353,6 @@ See docs/half_orm_dev.md for complete documentation.
             raise RepoError(
                 f"Failed to restore database from schema: {e}"
             ) from e
+
+        # Step 9: Install Git hooks
+        repo.install_git_hooks()

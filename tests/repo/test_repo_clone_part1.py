@@ -54,6 +54,7 @@ class TestCloneRepoSuccess:
         # Mock Repo instance
         mock_repo = Mock()
         mock_repo.restore_database_from_schema = Mock()
+        mock_repo.install_git_hooks = Mock()
 
         with patch.object(Repo, '__new__', return_value=mock_repo):
             # Execute clone
@@ -86,6 +87,9 @@ class TestCloneRepoSuccess:
 
         # Verify schema restoration called
         mock_repo.restore_database_from_schema.assert_called_once()
+
+        # Verify Git hooks installation called
+        mock_repo.install_git_hooks.assert_called_once()
 
     @patch('subprocess.run')
     @patch('os.chdir')
