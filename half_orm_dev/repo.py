@@ -452,7 +452,7 @@ class Repo:
 
             if not self.hgit or self.hgit.branch != 'ho-prod':
                 # Check if working directory is clean
-                if self.hgit and self.hgit.repo.is_dirty(untracked_files=False):
+                if self.hgit and self.hgit.git_repo.is_dirty(untracked_files=False):
                     config_version = self.__config.hop_version if hasattr(self, '_Repo__config') else '0.0.0'
                     raise RepoError(
                         f"Repository migration required but working directory has uncommitted changes.\n\n"
@@ -761,7 +761,7 @@ class Repo:
         current_branch = None
         git_repo = None
         try:
-            git_repo = self.hgit.repo
+            git_repo = self.hgit.git_repo
             current_branch = git_repo.active_branch.name
 
             # Check if working directory is clean
@@ -1429,7 +1429,7 @@ class Repo:
             current_branch = None
             git_repo = None
             try:
-                git_repo = self.hgit.repo
+                git_repo = self.hgit.git_repo
                 current_branch = git_repo.active_branch.name
 
                 # Check if working directory is clean (only in non-silent mode)

@@ -143,7 +143,6 @@ class TestSendRebaseNotifications:
         commit_call = mock_hgit.commit.call_args
 
         # Check message contains key elements
-        print('XXX', commit_call.args)
         message = commit_call.args[2]
         assert "[ho]" in message
         assert "1.3.5-rc1" in message

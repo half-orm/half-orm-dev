@@ -9,7 +9,7 @@ Generates/Patches/Synchronizes a hop Python package with a PostgreSQL database.
 """
 
 import sys
-from half_orm.cli_utils import create_and_register_extension
+from half_orm.cli import CustomGroup
 from .cli import create_cli_group
 
 
@@ -25,7 +25,7 @@ def add_commands(main_group):
     dev_group = create_cli_group()
 
     # Register it as an extension
-    @create_and_register_extension(main_group, sys.modules[__name__])
+    @main_group.group(name='dev', cls=CustomGroup)
     def dev():
         """halfORM development tools - project management, patches, and database synchronization"""
         pass

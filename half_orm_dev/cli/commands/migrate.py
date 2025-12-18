@@ -27,6 +27,7 @@ def migrate(verbose: bool) -> None:
       • Must be on ho-prod branch
       • Repository must be clean (no uncommitted changes)
 
+    \b
     Process:
       1. Detects version mismatch between installed half_orm_dev and repository
       2. Applies any migration scripts for intermediate versions
@@ -34,6 +35,7 @@ def migrate(verbose: bool) -> None:
       4. Creates migration commit on ho-prod
       5. Syncs .hop/ directory to all active branches
 
+    \b
     Examples:
         # After upgrading half_orm_dev
         $ pip install --upgrade half_orm_dev
@@ -41,11 +43,13 @@ def migrate(verbose: bool) -> None:
         ⚠️  Migration needed: half_orm_dev 0.17.2 → 0.18.0
           Current branch: ho-prod
 
+    \b
           Running migrations...
           ✓ Applied migration: 0.17.2 → 0.18.0
           ✓ Updated .hop/config: hop_version = 0.18.0
           ✓ Synced .hop/ to active branches
 
+    \b
         # View detailed migration info
         $ half_orm dev migrate --verbose
     """
@@ -62,25 +66,6 @@ def migrate(verbose: bool) -> None:
         installed_version = hop_version()
         config_version = repo._Repo__config.hop_version if hasattr(repo, '_Repo__config') else '0.0.0'
 
-        # Check if migration is needed
-        comparison = repo.compare_versions(installed_version, config_version)
-
-        if comparison == 0:
-            # Versions are equal - no migration needed
-            click.echo(f"✓ {utils.Color.green('Repository is up to date')}")
-            click.echo(f"  Repository version: {config_version}")
-            click.echo(f"  Installed version:  {installed_version}")
-            return
-
-        elif comparison < 0:
-            # Installed version is OLDER than repository version
-            click.echo(f"⚠️  {utils.Color.red('Installed half_orm_dev is older than repository version')}", err=True)
-            click.echo(f"\n  Repository version: {config_version}", err=True)
-            click.echo(f"  Installed version:  {installed_version}", err=True)
-            click.echo(f"\n  Please upgrade half_orm_dev:", err=True)
-            click.echo(f"    pip install --upgrade half_orm_dev\n", err=True)
-            raise click.Abort()
-
         # Migration needed (comparison > 0)
         click.echo(f"⚠️  {utils.Color.bold('Migration needed:')}")
         click.echo(f"  half_orm_dev {config_version} → {installed_version}")
@@ -90,29 +75,34 @@ def migrate(verbose: bool) -> None:
         click.echo(f"  Current branch: {current_branch}")
         click.echo()
 
+
         # Run migrations
-        click.echo(f"  Running migrations...")
+        if not click.confirm("Do you want to proceed?", default=False):
+            click.echo()
+            click.echo("If you want to revert half_orm_dev run:")
+            click.echo(f"  pip install half-orm-dev=={config_version}")
+        else:
+            try:
+                click.echo(f"  Running migrations...")
+                result = repo.run_migrations_if_needed(silent=False)
 
-        try:
-            result = repo.run_migrations_if_needed(silent=False)
+                if result['migration_run']:
+                    click.echo(f"\n✓ {utils.Color.green('Migration completed successfully')}")
+                    click.echo(f"  Updated .hop/config: hop_version = {installed_version}")
 
-            if result['migration_run']:
-                click.echo(f"\n✓ {utils.Color.green('Migration completed successfully')}")
-                click.echo(f"  Updated .hop/config: hop_version = {installed_version}")
+                    if verbose and result.get('errors'):
+                        click.echo(f"\n⚠️  Warnings during migration:")
+                        for error in result['errors']:
+                            click.echo(f"  • {error}")
 
-                if verbose and result.get('errors'):
-                    click.echo(f"\n⚠️  Warnings during migration:")
-                    for error in result['errors']:
-                        click.echo(f"  • {error}")
+                    click.echo(f"\n✓ Synced .hop/ to active branches")
+                else:
+                    click.echo(f"✓ {utils.Color.green('Repository is up to date')}")
 
-                click.echo(f"\n✓ Synced .hop/ to active branches")
-            else:
-                click.echo(f"✓ {utils.Color.green('Repository is up to date')}")
-
-        except RepoError as e:
-            # Migration failed or branch check failed
-            click.echo(utils.Color.red(f"\n❌ {e}"), err=True)
-            raise click.Abort()
+            except RepoError as e:
+                # Migration failed or branch check failed
+                click.echo(utils.Color.red(f"\n❌ {e}"), err=True)
+                raise click.Abort()
 
     except RepoError as e:
         click.echo(utils.Color.red(f"❌ Error: {e}"), err=True)

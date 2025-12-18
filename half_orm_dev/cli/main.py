@@ -4,6 +4,7 @@ Main CLI module - Creates and configures the CLI group
 
 import click
 import functools
+import sys
 from half_orm_dev.repo import Repo, OutdatedHalfORMDevError
 from half_orm import utils
 from .commands import ALL_COMMANDS
@@ -118,8 +119,9 @@ def create_cli_group():
                 click.echo(f"\n  Your installed version is OLDER than the repository requirement.", err=True)
                 click.echo(f"  All commands are blocked for safety.", err=True)
                 click.echo(f"\n  Please upgrade half_orm_dev:", err=True)
-                click.echo(f"    {utils.Color.bold('pip install --upgrade half_orm_dev')}", err=True)
+                click.echo(f"    {utils.Color.bold(f'pip install --upgrade half_orm_dev=={error.required_version}')}", err=True)
                 click.echo("\n" + "=" * 70 + "\n", err=True)
+                sys.exit(1)
                 raise click.Abort()
             return f(*args, **kwargs)
         return wrapper
@@ -131,24 +133,6 @@ def create_cli_group():
             if isinstance(cmd, click.Command) and cmd.callback:
                 cmd.callback = check_version_before_invoke(cmd.callback)
             super().add_command(cmd, name)
-
-        def resolve_command(self, ctx, args):
-            """Override to show available commands when command not found."""
-            try:
-                return super().resolve_command(ctx, args)
-            except click.UsageError as e:
-                if 'No such command' in str(e):
-                    # Command not found - show available commands
-                    click.echo(f"\n❌ {str(e)}", err=True)
-                    click.echo(f"\n{utils.Color.bold('Available commands:')}")
-                    for cmd_name in hop.available_commands:
-                        cmd = self.commands.get(cmd_name)
-                        if cmd:
-                            help_text = cmd.help or cmd.short_help or ""
-                            first_line = help_text.split('\n')[0] if help_text else ""
-                            click.echo(f"  • {utils.Color.bold(cmd_name)}: {first_line}")
-                    click.echo(f"\nTry {utils.Color.bold('half_orm dev <command> --help')} for more information.\n")
-                raise
 
     @click.group(cls=VersionCheckGroup, invoke_without_command=True)
     @click.pass_context

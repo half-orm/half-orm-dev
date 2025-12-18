@@ -114,6 +114,10 @@ class HGit:
         return self
 
     @property
+    def git_repo(self):
+        return self.__git_repo
+
+    @property
     def branch(self):
         "Returns the active branch"
         return str(self.__git_repo.active_branch)
