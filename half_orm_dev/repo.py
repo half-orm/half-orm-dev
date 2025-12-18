@@ -683,6 +683,98 @@ class Repo:
 
         return result
 
+    def sync_and_validate_ho_prod(self):
+        """
+        Synchronize ho-prod with remote origin and validate half_orm_dev version.
+
+        This method MUST be called before any operation that acquires a branch lock
+        to ensure:
+        1. ho-prod is up-to-date with remote (pull)
+        2. All other branches are fetched with prune
+        3. The installed half_orm_dev version is compatible with repository requirements
+
+        This is critical because:
+        - Another developer may have upgraded the repository to a newer half_orm_dev version
+        - The pull on ho-prod will fetch the updated .hop/config with new hop_version
+        - We must block immediately if the installed version is outdated
+        - This prevents dangerous operations with incompatible versions
+
+        Raises:
+            OutdatedHalfORMDevError: If repository requires newer half_orm_dev version
+            RepoError: If working directory is dirty or other git errors
+
+        Implementation:
+        1. Check working directory is clean
+        2. Save current branch
+        3. Checkout ho-prod temporarily
+        4. Pull ho-prod from origin
+        5. Fetch all branches with prune
+        6. Reload .hop/config
+        7. Validate hop_version compatibility
+        8. Checkout back to original branch
+
+        Usage:
+            Called automatically by @with_dynamic_branch_lock decorator before
+            acquiring any branch lock.
+        """
+        if not self.hgit:
+            # No git repository, skip synchronization
+            return
+
+        current_branch = None
+        git_repo = None
+        try:
+            git_repo = self.hgit.repo
+            current_branch = git_repo.active_branch.name
+
+            # Check if working directory is clean
+            if git_repo.is_dirty(untracked_files=False):
+                raise RepoError(
+                    f"Working directory has uncommitted changes.\n"
+                    f"Please commit or stash your changes before running this command:\n"
+                    f"  git stash\n"
+                    f"  OR\n"
+                    f"  git add . && git commit -m \"your message\""
+                )
+
+            # Switch to ho-prod temporarily
+            git_repo.heads['ho-prod'].checkout()
+
+            # Pull ho-prod from origin
+            git_repo.remotes.origin.pull('ho-prod')
+
+            # Fetch all other branches with prune
+            git_repo.remotes.origin.fetch(prune=True)
+
+            # Switch back to original branch
+            git_repo.heads[current_branch].checkout()
+
+            # Reload config to get the potentially updated hop_version
+            self.__config = Config(self.__base_dir)
+            installed_version = hop_version()
+            required_version = self.__config.hop_version
+
+            # Validate version compatibility
+            if not _is_version_compatible(installed_version, required_version):
+                raise OutdatedHalfORMDevError(required_version, installed_version)
+
+        except RepoError:
+            # Re-raise RepoError (dirty working directory)
+            raise
+        except OutdatedHalfORMDevError:
+            # Re-raise version error (repository was updated to newer version)
+            raise
+        except Exception as e:
+            # If we're in detached HEAD or any error, try to return to original state
+            # and continue (offline mode, no remote, etc.)
+            try:
+                if current_branch and git_repo:
+                    git_repo.heads[current_branch].checkout()
+            except Exception:
+                pass
+            # Log but don't fail (offline mode, no remote, etc.)
+            # Only critical errors (dirty repo, version mismatch) should block
+
     def commit_and_sync_to_active_branches(
         self,
         message: str,
@@ -1292,6 +1384,50 @@ class Repo:
         result = {
             'cache_hit': False
         }
+
+        # 0. Update ho-prod from remote and fetch all branches
+        # This ensures we have the latest hop_version and branch status
+        # Must run in BOTH silent and non-silent modes for hop_version validation
+        if self.hgit:
+            current_branch = None
+            git_repo = None
+            try:
+                git_repo = self.hgit.repo
+                current_branch = git_repo.active_branch.name
+
+                # Check if working directory is clean (only in non-silent mode)
+                if not silent and git_repo.is_dirty(untracked_files=False):
+                    raise RepoError(
+                        f"Working directory has uncommitted changes.\n"
+                        f"Please commit or stash your changes before running check:\n"
+                        f"  git stash\n"
+                        f"  OR\n"
+                        f"  git add . && git commit -m \"your message\""
+                    )
+
+                # Switch to ho-prod temporarily
+                git_repo.heads['ho-prod'].checkout()
+
+                # Pull ho-prod from origin
+                git_repo.remotes.origin.pull('ho-prod')
+
+                # Fetch all other branches with prune
+                git_repo.remotes.origin.fetch(prune=True)
+
+                # Switch back to original branch
+                git_repo.heads[current_branch].checkout()
+
+            except RepoError:
+                # Re-raise RepoError (dirty working directory)
+                raise
+            except Exception as e:
+                # If we're in detached HEAD or any error, try to return to original state
+                # and continue (offline mode, no remote, etc.)
+                try:
+                    if current_branch and git_repo:
+                        git_repo.heads[current_branch].checkout()
+                except Exception:
+                    pass
 
         # 1. Check and update Git hooks
         if not dry_run:

@@ -44,6 +44,14 @@ def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
             lock_tag = None
             locked_branch = None
             try:
+                # CRITICAL: Sync ho-prod with origin and validate version BEFORE acquiring any lock
+                # This ensures:
+                # 1. ho-prod is up-to-date (pull)
+                # 2. All branches are fetched (prune)
+                # 3. Repository hop_version is validated against installed version
+                # 4. Operation is blocked if version is outdated (prevents dangerous operations)
+                self._repo.sync_and_validate_ho_prod()
+
                 # Determine branch name dynamically
                 locked_branch = branch_getter(self, *args, **kwargs)
 
