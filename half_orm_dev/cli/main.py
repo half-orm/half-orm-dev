@@ -142,22 +142,77 @@ def create_cli_group():
             if hop.repo_checked:
                 # Check if migration is needed
                 if hop._Hop__repo.needs_migration():
-                    # Display migration warning
+                    # Propose automatic migration
                     from half_orm_dev.utils import hop_version
+                    from half_orm_dev.repo import RepoError
                     installed_version = hop_version()
                     config_version = hop._Hop__repo._Repo__config.hop_version
                     current_branch = hop._Hop__repo.hgit.branch if hop._Hop__repo.hgit else 'unknown'
 
                     click.echo(f"\n{'='*70}")
-                    click.echo(f"⚠️  {utils.Color.bold(utils.Color.red('REPOSITORY MIGRATION REQUIRED'))} ⚠️")
+                    click.echo(f"✨ {utils.Color.bold('Repository Migration Available')} ✨")
                     click.echo(f"{'='*70}")
-                    click.echo(f"\n  Repository version: {utils.Color.red(config_version)}")
-                    click.echo(f"  Installed version:  {utils.Color.green(installed_version)}")
+                    click.echo(f"\n  Repository version: {config_version}")
+                    click.echo(f"  Installed version:  {installed_version}")
                     click.echo(f"  Current branch:     {current_branch}")
-                    click.echo(f"\n  {utils.Color.bold('All commands are blocked until migration is complete.')}")
-                    click.echo(f"\n  To apply migration, run:")
-                    click.echo(f"    {utils.Color.bold('half_orm dev migrate')}")
+                    click.echo(f"\n  A migration is needed to update the repository structure.")
+                    click.echo(f"  This will:")
+                    click.echo(f"    • Switch to ho-prod branch (if not already there)")
+                    click.echo(f"    • Update repository configuration")
+                    click.echo(f"    • Sync changes to all active branches")
+                    click.echo(f"\n  💡 You can interrupt (Ctrl+C) to backup .git/ if needed.")
                     click.echo(f"\n{'='*70}\n")
+
+                    # Ask for confirmation
+                    if click.confirm("Apply migration now?", default=True):
+                        click.echo()
+
+                        # Switch to ho-prod if needed
+                        if current_branch != 'ho-prod':
+                            try:
+                                click.echo(f"  Switching to ho-prod...")
+                                hop._Hop__repo.hgit.checkout('ho-prod')
+                                click.echo(f"  ✓ Now on ho-prod")
+                                click.echo()
+                            except Exception as e:
+                                click.echo(utils.Color.red(f"  ❌ Failed to switch to ho-prod: {e}"), err=True)
+                                click.echo(f"\n  Please switch manually: git checkout ho-prod", err=True)
+                                click.echo(f"  Then run: half_orm dev migrate\n", err=True)
+                                raise click.Abort()
+
+                        # Run migration
+                        try:
+                            click.echo(f"  Running migrations...")
+                            result = hop._Hop__repo.run_migrations_if_needed(silent=False)
+
+                            if result['migration_run']:
+                                click.echo(f"\n✓ {utils.Color.green('Migration completed successfully')}")
+                                click.echo(f"  Updated .hop/config: hop_version = {installed_version}")
+                                click.echo(f"  Synced .hop/ to active branches")
+                                click.echo()
+
+                                # Return to original branch if we switched
+                                if current_branch != 'ho-prod':
+                                    try:
+                                        click.echo(f"  Returning to {current_branch}...")
+                                        hop._Hop__repo.hgit.checkout(current_branch)
+                                        click.echo(f"  ✓ Back on {current_branch}\n")
+                                    except Exception:
+                                        click.echo(f"  ⚠️  Could not return to {current_branch}", err=True)
+                                        click.echo(f"  You are now on ho-prod\n", err=True)
+                            else:
+                                click.echo(f"✓ {utils.Color.green('Repository is up to date')}\n")
+
+                        except RepoError as e:
+                            click.echo(utils.Color.red(f"\n❌ Migration failed: {e}\n"), err=True)
+                            raise click.Abort()
+                    else:
+                        # User declined migration
+                        click.echo(f"\n  Migration declined.")
+                        click.echo(f"  All commands are blocked until migration is complete.")
+                        click.echo(f"\n  To apply migration later, run:")
+                        click.echo(f"    {utils.Color.bold('half_orm dev migrate')}")
+                        click.echo(f"\n{'='*70}\n")
                 else:
                     # Normal display
                     click.echo(hop.state)
