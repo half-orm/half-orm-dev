@@ -56,7 +56,7 @@ def release_manager(tmp_path):
     patches_dir = tmp_path / "Patches"
     patches_dir.mkdir()
 
-    # Create model/ directory with schema-0.0.1.sql and symlink (required for new_release)
+    # Create model/ directory with schema-0.0.1.sql and symlink (required for create_release)
     model_dir = tmp_path / ".hop" / "model"
     model_dir.mkdir(parents=True)
     schema_versioned = model_dir / "schema-0.0.1.sql"
@@ -105,7 +105,7 @@ class TestReleaseIntegrationWorkflow:
         rel_mgr._calculate_next_version = Mock(return_value="0.1.0")
 
         # Create new release
-        result = rel_mgr.new_release("minor")
+        result = rel_mgr.create_release("minor")
 
         # Should create branch ho-release/0.1.0 from ho-prod
         mock_hgit_complete.create_branch.assert_called_once_with(

@@ -958,7 +958,7 @@ class Repo:
 
         Examples:
             # Create new patch release
-            result = repo.release_manager.new_release('patch')
+            result = repo.release_manager.create_release('patch')
             print(f"Created: {result['version']}")
 
             # Find latest version

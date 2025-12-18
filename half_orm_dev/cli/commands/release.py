@@ -2,12 +2,8 @@
 Release command group - Unified release management.
 
 Groups all release-related commands under 'half_orm dev release':
-- release new: Prepare next release stage file
+- release create: Prepare next release stage file
 - release promote: Promote stage to rc or production
-
-Replaces legacy commands:
-- prepare-release → release new
-- promote-to → release promote
 """
 
 import click
@@ -32,7 +28,7 @@ def release():
 
     \b
     Common workflow:
-        1. half_orm dev release new <level>
+        1. half_orm dev release create <level>
         2. half_orm dev patch add <patch_id>
         3. half_orm dev release promote rc
         4. half_orm dev release promote prod
@@ -40,12 +36,12 @@ def release():
     pass
 
 
-@release.command('new')
+@release.command('create')
 @click.argument(
     'level',
     type=click.Choice(['patch', 'minor', 'major'], case_sensitive=False)
 )
-def release_new(level: str) -> None:
+def release_create(level: str) -> None:
     """
     Prepare next release stage file.
 
@@ -77,16 +73,16 @@ def release_new(level: str) -> None:
     \b
     Examples:
         Prepare patch release (production 1.3.5 → 1.3.6):
-        $ half_orm dev release new patch
+        $ half_orm dev release create patch
 
         Prepare minor release (production 1.3.5 → 1.4.0):
-        $ half_orm dev release new minor
+        $ half_orm dev release create minor
 
         Prepare major release (production 1.3.5 → 2.0.0):
-        $ half_orm dev release new major
+        $ half_orm dev release create major
 
     \b
-    Next steps after release new:
+    Next steps after release create:
         • Create patches: half_orm dev patch new <patch_id>
         • Add to release: half_orm dev patch add <patch_id>
         • Promote to RC: half_orm dev release promote rc
@@ -105,7 +101,7 @@ def release_new(level: str) -> None:
         click.echo()
 
         # Create new release with integration branch
-        result = release_mgr.new_release(level)
+        result = release_mgr.create_release(level)
 
         # Extract result info
         version = result['version']
@@ -217,7 +213,7 @@ def release_promote(target: str) -> None:
     Next steps after promote prod:
         • Tag release: git tag v1.3.5
         • Deploy to production: Use db upgrade on production servers
-        • Start next cycle: half_orm dev release new patch
+        • Start next cycle: half_orm dev release create patch
 
     \b
     Raises:
@@ -281,7 +277,7 @@ def release_promote(target: str) -> None:
             click.echo()
             click.echo("📝 Next steps:")
             click.echo(f"  • Deploy to production servers")
-            click.echo(f"  • Start next cycle: {utils.Color.bold('half_orm dev release new minor')}")
+            click.echo(f"  • Start next cycle: {utils.Color.bold('half_orm dev release create minor')}")
 
         click.echo()
 

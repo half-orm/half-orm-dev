@@ -117,7 +117,7 @@ class ReleaseManager:
     Examples:
         # Create new release
         release_mgr = ReleaseManager(repo)
-        result = release_mgr.new_release('minor')
+        result = release_mgr.create_release('minor')
         # Creates branch ho-release/1.4.0
 
         # Find latest version
@@ -2118,7 +2118,7 @@ class ReleaseManager:
         return version_tags[0]
 
     @with_dynamic_branch_lock(lambda self, level: "ho-prod")
-    def new_release(self, level: str) -> dict:
+    def create_release(self, level: str) -> dict:
         """
         Create a new release with integration branch.
 
@@ -2149,7 +2149,7 @@ class ReleaseManager:
             ReleaseManagerError: If release creation fails
 
         Examples:
-            result = rel_mgr.new_release("minor")
+            result = rel_mgr.create_release("minor")
             # → version: "0.1.0"
             # → branch: "ho-release/0.1.0"
             # → Creates empty 0.1.0-candidates.txt
