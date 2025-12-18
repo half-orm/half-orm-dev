@@ -4,7 +4,7 @@ Patch command group - Unified patch development and management.
 Groups all patch-related commands under 'half_orm dev patch':
 - patch new: Create new patch branch and directory
 - patch apply: Apply current patch files to database
-- patch close: Add patch to stage release with validation
+- patch merge: Add patch to stage release with validation
 
 Replaces legacy commands:
 - create-patch → patch new
@@ -33,12 +33,12 @@ def patch():
     Common workflow:
         1. half_orm dev patch new <patch_id>
         2. half_orm dev patch apply
-        3. half_orm dev patch close
+        3. half_orm dev patch merge
     """
     pass
 
 
-@patch.command('new')
+@patch.command('create')
 @click.argument('patch_id', type=str)
 @click.option(
     '--description', '-d',
@@ -52,7 +52,7 @@ def patch():
     default=None,
     help='Insert patch before this patch ID in the application order'
 )
-def patch_new(patch_id: str, description: Optional[str] = None, before: Optional[str] = None) -> None:
+def patch_create(patch_id: str, description: Optional[str] = None, before: Optional[str] = None) -> None:
     """
     Create new patch branch and directory structure.
 
@@ -100,7 +100,7 @@ def patch_new(patch_id: str, description: Optional[str] = None, before: Optional
         click.echo(f"  1. Add SQL/Python files to {result['patch_dir']}/")
         click.echo(f"  2. Run: {utils.Color.bold('half_orm dev patch apply')}")
         click.echo("  3. Test your changes")
-        click.echo(f"  4. Run: {utils.Color.bold('half_orm dev patch close')} (when ready to integrate)")
+        click.echo(f"  4. Run: {utils.Color.bold('half_orm dev patch merge')} (when ready to integrate)")
 
     except PatchManagerError as e:
         raise click.ClickException(str(e))
@@ -227,14 +227,14 @@ def patch_apply() -> None:
         raise click.ClickException(str(e))
 
 
-@patch.command('close')
+@patch.command('merge')
 @click.option(
     '--force', '-f',
     is_flag=True,
     default=False,
     help='Skip confirmation prompt'
 )
-def patch_close(force: bool) -> None:
+def patch_merge(force: bool) -> None:
     """
     Close patch by merging into release branch.
 
@@ -243,10 +243,10 @@ def patch_close(force: bool) -> None:
 
     Examples:
         Close patch (with confirmation):
-        $ half_orm dev patch close
+        $ half_orm dev patch merge
 
         Close patch (skip confirmation):
-        $ half_orm dev patch close --force
+        $ half_orm dev patch merge --force
 
     Raises:
         click.ClickException: If not on patch branch or validation fails
@@ -326,10 +326,10 @@ def patch_close(force: bool) -> None:
                 click.echo("Cancelled.")
                 return
 
-        # Execute close
+        # Execute merge
         click.echo()
-        click.echo("Closing patch...")
-        result = repo.patch_manager.close_patch()
+        click.echo("Merging patch...")
+        result = repo.patch_manager.merge_patch()
 
         # Display success message
         click.echo(f"✓ {utils.Color.green('Patch closed successfully!')}")

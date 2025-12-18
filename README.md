@@ -1,6 +1,6 @@
 # half-orm-dev
 
-## **WARNING!** half-orm-dev is still in alpha development phase!
+## **WARNING!** half-orm-dev is in alpha development phase!
 
 **Git-centric patch management and database versioning for half-orm projects**
 
@@ -13,62 +13,6 @@ Modern development workflow for PostgreSQL databases with automatic code generat
 
 ---
 
-## ⚠️ Breaking Changes (v0.17.0)
-
-**This version introduces major architectural changes that completely transform how you use half-orm-dev.**
-
-### What Changed
-
-**1. Complete Command Reorganization**
-- **OLD**: `half_orm patch new`, `half_orm patch add`, `half_orm release new`
-- **NEW**: `half_orm dev patch new`, `half_orm dev patch close`, `half_orm dev release new`
-- All commands now under `half_orm dev` namespace for better organization
-- Note: `patch close` must be run from the `ho-patch/*` branch (no arguments)
-
-**2. New Branch Strategy**
-- **OLD**: Various branch naming conventions
-- **NEW**: Strict `ho-prod`, `ho-patch/*`, `ho-release/*` hierarchy
-- Previous branch structures are not compatible
-
-**3. Unified Promotion Command**
-- **OLD**: `half_orm release promote-to-rc`, `half_orm release promote-to-prod`
-- **NEW**: `half_orm dev release promote rc`, `half_orm dev release promote prod`
-- Single `promote` command with explicit target argument
-
-**4. TOML-Based Patch Tracking (v0.17.0)**
-- **OLD**: Separate `X.Y.Z-candidates.txt` and `X.Y.Z-stage.txt` files
-- **NEW**: Single `X.Y.Z-patches.toml` file with candidate/staged status
-- **Structure**: `[patches]` section with `patch-id = "candidate"` or `patch-id = "staged"`
-- Order preserved in TOML file (insertion order)
-- RC/prod/hotfix still use `.txt` format (immutable snapshots)
-
-**5. Test Organization and Validation**
-- **NEW**: Systematic test validation before ANY integration
-- **NEW**: Temporary validation branches (`temp-valid-X.Y.Z`) for safe testing
-- Tests must pass before patches are added to releases
-
-### What Stayed the Same
-
-
-- ✅ **Business Logic Code**: Your database schemas, models, and application code remain unchanged
-- ✅ **Database Structure**: PostgreSQL schemas and data are not affected
-- ✅ **half-orm Integration**: Code generation and ORM features work identically
-- ✅ **Semantic Versioning**: MAJOR.MINOR.PATCH logic is preserved
-- ✅ **SQL Patch Files**: Format and execution order unchanged
-
-### Migration Guide
-
-**If migrating from previous versions:**
-
-1. **Backup your repository** before upgrading
-2. **Update all scripts** to use `half_orm dev` prefix
-3. **Reorganize branches** to match new `ho-prod`/`ho-patch/*` structure
-4. **Convert release files** from CHANGELOG.py to releases/*.txt format
-5. **Update CI/CD pipelines** with new command syntax
-
-**For new projects:** Just follow the Quick Start guide below!
-
----
 
 ## 📖 Description
 
@@ -101,13 +45,13 @@ Perfect for teams managing evolving PostgreSQL schemas with Python applications.
 # When closing a patch, tests run FIRST
 # You must be on the patch branch
 git checkout ho-patch/456-user-auth
-half_orm dev patch close
+half_orm dev patch merge
 
 # What happens behind the scenes:
 # 1. Creates temp-valid-1.3.6 branch
 # 2. Merges ALL release patches + new patch
 # 3. Runs pytest tests/
-# 4. If merge and tests PASS → changes patch status to "staged" in TOML and commits
+# 4. If merge and tests PASS → merges patch branch into release branch; changes patch status to "staged" in TOML and commits
 # 5. If anything FAILS → nothing committed (temp branch is deleted)
 ```
 
@@ -247,7 +191,7 @@ cd project
 half_orm dev release new minor  # Creates ho-release/0.1.0
 
 # Now create patch (automatically added to candidates)
-half_orm dev patch new 1-users
+half_orm dev patch create 1-users
 # → Auto-added to 0.1.0-patches.toml as "candidate"
 
 # Add schema changes
@@ -300,7 +244,7 @@ git commit -m "Add users table with business logic and tests"
 # Close patch - integrate to release (automatic validation runs here!)
 # You must be on the patch branch
 git checkout ho-patch/1-users
-half_orm dev patch close
+half_orm dev patch merge
 # → Status changed to "staged" in TOML
 # → Tests validated automatically
 ```
@@ -324,9 +268,9 @@ The workflow follows a **Git-Flow** approach with dedicated integration branches
 │ DEVELOPMENT (ho-release/X.Y.Z branch)                           │
 ├─────────────────────────────────────────────────────────────────┤
 │ 1. release new <level>     Create ho-release/X.Y.Z              │
-│ 2. patch new <id>          Create patch (auto in candidates)    │
+│ 2. patch create <id>          Create patch (auto in candidates)    │
 │ 3. patch apply             Apply & test changes                 │
-│ 4. patch close             Merge into ho-release (TESTS!)       │
+│ 4. patch merge             Merge into ho-release (TESTS!)       │
 │                            (run from ho-patch/<id> branch)      │
 │                                                                 │
 │ RELEASE PROMOTION                                               │
@@ -339,7 +283,7 @@ The workflow follows a **Git-Flow** approach with dedicated integration branches
 │                                                                 │
 │ HOTFIX WORKFLOW (urgent fixes)                                  │
 │ 9. release hotfix          Reopen production version            │
-│ 10. patch new/close        Same workflow on hotfix branch       │
+│ 10. patch create/close        Same workflow on hotfix branch       │
 │ 11. release promote hotfix Deploy as vX.Y.Z-hotfixN             │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -378,9 +322,9 @@ The workflow follows a **Git-Flow** approach with dedicated integration branches
 | half-orm state | File | GitLab/GitHub |
 |----------------|------|---------------|
 | `release new` | Creates `-patches.toml` | Create milestone |
-| `patch new` (on ho-release) | Adds to TOML as "candidate" | Create issue assigned to milestone |
+| `patch create` (on ho-release) | Adds to TOML as "candidate" | Create issue assigned to milestone |
 | Candidate | `"patch-id" = "candidate"` in TOML | Open issue assigned to milestone |
-| `patch close` | Changes to `"staged"` in TOML | Merge MR and close issue |
+| `patch merge` | Changes to `"staged"` in TOML | Merge MR and close issue |
 | Stage | `"patch-id" = "staged"` in TOML | Closed issue in milestone |
 | `release promote rc` | Creates `-rcN.txt` snapshot | Create pre-release |
 | RC | `-rcN.txt` | GitHub pre-release |
@@ -408,8 +352,8 @@ half_orm dev release new minor
   Patches file:     .hop/releases/0.17.0-patches.toml
 
 📝 Next steps:
-  1. Create patches: half_orm dev patch new <patch_id>
-  2. Close patches: git checkout ho-patch/<patch_id> && half_orm dev patch close
+  1. Create patches: half_orm dev patch create <patch_id>
+  2. Close patches: git checkout ho-patch/<patch_id> && half_orm dev patch merge
   3. Promote to RC: half_orm dev release promote rc
 
 ℹ️  Patches will be merged into ho-release/0.17.0 for integration testing
@@ -421,7 +365,7 @@ half_orm dev release new minor
 
 ```bash
 git checkout ho-release/0.17.0
-half_orm dev patch new 6-feature-x
+half_orm dev patch create 6-feature-x
 # → Auto-detects version 0.17.0 from current branch
 # → Creates ho-patch/6-feature-x from ho-release/0.17.0
 # → Adds 6-feature-x to 0.17.0-patches.toml as "candidate"
@@ -439,7 +383,7 @@ half_orm dev patch new 6-feature-x
   1. Add SQL/Python files to Patches/6-feature-x/
   2. Run: half_orm dev patch apply
   3. Test your changes
-  4. Run: half_orm dev patch close (already on ho-patch/6-feature-x)
+  4. Run: half_orm dev patch merge (already on ho-patch/6-feature-x)
 ```
 
 #### Step 3: Develop and Test (TDD Approach)
@@ -473,7 +417,7 @@ git commit -m "Implement feature with tests"
 # Ensure you're on the patch branch
 git checkout ho-patch/6-feature-x
 
-half_orm dev patch close
+half_orm dev patch merge
 # Complete workflow:
 # → Detects version from 0.17.0-patches.toml
 # → Validates ho-patch/6-feature-x exists
@@ -499,13 +443,13 @@ half_orm dev patch close
 
 📝 Next steps:
   • Other developers: git pull && git merge ho-release/0.17.0
-  • Continue development: half_orm dev patch new <next_patch_id>
+  • Continue development: half_orm dev patch create <next_patch_id>
   • Promote to RC: half_orm dev release promote rc
 ```
 
-**Important:** `patch close` replaces the old `patch add` command. The semantics are different:
+**Important:** `patch merge` replaces the old `patch add` command. The semantics are different:
 - **OLD**: `patch add` = "I add my validated patch to release" (from ho-prod)
-- **NEW**: `patch close` = "I close my work, it's integrated in release" (merge into ho-release)
+- **NEW**: `patch merge` = "I close my work, it's integrated in release" (merge into ho-release)
 
 #### Step 5: Synchronize with Other Integrated Patches
 
@@ -627,8 +571,8 @@ half_orm dev release hotfix
 ✓ Ready for hotfix patches
 
 📝 Next steps:
-  1. half_orm dev patch new <patch_id>
-  2. git checkout ho-patch/<patch_id> && half_orm dev patch close
+  1. half_orm dev patch create <patch_id>
+  2. git checkout ho-patch/<patch_id> && half_orm dev patch merge
   3. half_orm dev release promote hotfix
 ```
 
@@ -640,12 +584,12 @@ The workflow is **identical** to normal workflow:
 
 ```bash
 # On ho-release/0.17.0
-half_orm dev patch new 999-critical-security-fix
+half_orm dev patch create 999-critical-security-fix
 # ... develop ...
 half_orm dev patch apply
 # ... test ...
 git checkout ho-patch/999-critical-security-fix
-half_orm dev patch close
+half_orm dev patch merge
 ```
 
 **Step 3: Promote Hotfix to Production**
@@ -711,7 +655,7 @@ half_orm dev clone <git_origin>
 
 ```bash
 # Create new patch (must be on ho-release/* branch)
-half_orm dev patch new <patch_id> [-d "description"] [--before <other_patch_id>]
+half_orm dev patch create <patch_id> [-d "description"] [--before <other_patch_id>]
 # → Patches are ordered in the TOML file (insertion order = application order)
 # → Use --before to insert a patch before an existing one
 # → Order matters: patches are applied sequentially
@@ -721,7 +665,7 @@ half_orm dev patch apply
 
 # Close patch - integrate to release (AUTOMATIC VALIDATION!)
 # Must be on ho-patch/* branch
-half_orm dev patch close
+half_orm dev patch merge
 ```
 
 **Patch Ordering:**
@@ -776,7 +720,7 @@ half_orm dev upgrade --dry-run
 half_orm dev release new minor  # Creates ho-release/0.17.0
 
 # Now on ho-release/0.17.0, create patch
-half_orm dev patch new 123-add-users
+half_orm dev patch create 123-add-users
 # → Auto-added to 0.17.0-candidates.txt
 
 # Add SQL/Python files
@@ -799,7 +743,7 @@ git commit -m "Implement users table with tests"
 
 # Close patch - integrate to release (tests validated automatically!)
 git checkout ho-patch/123-add-users
-half_orm dev patch close
+half_orm dev patch merge
 # → Status changed to "staged" in TOML
 # → Tests run automatically before integration
 ```
@@ -812,11 +756,11 @@ half_orm dev release new minor  # Creates ho-release/0.17.0
 
 # Developer A: Working on feature
 git checkout ho-release/0.17.0
-half_orm dev patch new 456-dashboard
+half_orm dev patch create 456-dashboard
 # → Added to 0.17.0-patches.toml as candidate
 # ... develop and test ...
 git checkout ho-patch/456-dashboard
-half_orm dev patch close
+half_orm dev patch merge
 # → Status changed to "staged" in TOML
 
 # Developer B: Must sync with A's changes first
@@ -824,12 +768,12 @@ git checkout ho-release/0.17.0
 git pull origin ho-release/0.17.0  # Get A's integrated changes
 
 # Then create patch
-half_orm dev patch new 789-reports
+half_orm dev patch create 789-reports
 # → Added to 0.17.0-patches.toml as candidate
 # ... develop and test ...
 git merge origin/ho-release/0.17.0  # Sync again before closing
 git checkout ho-patch/789-reports
-half_orm dev patch close
+half_orm dev patch merge
 # → Tests run with 456 + 789 together!
 
 # All patches validated together in stage
@@ -845,14 +789,14 @@ half_orm dev release new patch  # Creates 0.17.1
 
 # 2. Add patches to specific versions
 git checkout ho-release/0.17.1
-half_orm dev patch new 123-hotfix
+half_orm dev patch create 123-hotfix
 git checkout ho-patch/123-hotfix
-half_orm dev patch close
+half_orm dev patch merge
 
 git checkout ho-release/0.18.0
-half_orm dev patch new 456-feature
+half_orm dev patch create 456-feature
 git checkout ho-patch/456-feature
-half_orm dev patch close
+half_orm dev patch merge
 
 # 3. Sequential promotion (must promote 0.17.1 before 0.18.0)
 half_orm dev release promote rc   # Auto-promotes 0.17.1 (smallest)
@@ -872,14 +816,14 @@ half_orm dev release promote rc  # Creates 0.17.0-rc1
 
 # Found bug in testing, create fix patch
 git checkout ho-release/0.17.0  # Back to integration branch
-half_orm dev patch new 999-rc1-fix
+half_orm dev patch create 999-rc1-fix
 # → Added to 0.17.0-patches.toml as candidate
 half_orm dev patch apply
 # ... fix and test ...
 
 # Close patch - changes status to staged
 git checkout ho-patch/999-rc1-fix
-half_orm dev patch close
+half_orm dev patch merge
 # → Status changed to "staged" in TOML
 # → Validated automatically
 
@@ -903,12 +847,12 @@ half_orm dev release hotfix
 # → Creates 0.17.0-patches.toml for hotfix patches
 
 # Same workflow as normal patch
-half_orm dev patch new 999-critical-fix
+half_orm dev patch create 999-critical-fix
 # → Added to 0.17.0-patches.toml as candidate (with # HOTFIX marker)
 half_orm dev patch apply
 # ... fix and test ...
 git checkout ho-patch/999-critical-fix
-half_orm dev patch close
+half_orm dev patch merge
 # → Status changed to "staged" in TOML
 
 # Promote as hotfix
@@ -964,8 +908,8 @@ ho-prod (main production)
 
 **Branch Lifecycle:**
 1. `release new` creates `ho-release/X.Y.Z` from `ho-prod`
-2. `patch new` creates `ho-patch/ID` from `ho-release/X.Y.Z`
-3. `patch close` merges `ho-patch/ID` into `ho-release/X.Y.Z` and deletes `ho-patch/ID`
+2. `patch create` creates `ho-patch/ID` from `ho-release/X.Y.Z`
+3. `patch merge` merges `ho-patch/ID` into `ho-release/X.Y.Z` and deletes `ho-patch/ID`
 4. `release promote prod` merges `ho-release/X.Y.Z` into `ho-prod` and deletes `ho-release/X.Y.Z`
 
 **Exception - Hotfix Branches:**
@@ -987,9 +931,9 @@ ho-prod (main production)
 
 **File lifecycle (normal workflow):**
 ```
-patch new → X.Y.Z-patches.toml (patch added as "candidate")
+patch create → X.Y.Z-patches.toml (patch added as "candidate")
                     ↓
-patch close → X.Y.Z-patches.toml (status changed to "staged")
+patch merge → X.Y.Z-patches.toml (status changed to "staged")
                     ↓
                     ├─→ promote rc → X.Y.Z-rc1.txt snapshot created
                     │                staged patches reset to candidates
@@ -1006,7 +950,7 @@ patch close → X.Y.Z-patches.toml (status changed to "staged")
 ```
 release hotfix → Reopens X.Y.Z-patches.toml
                     ↓
-patch close → X.Y.Z-patches.toml (adds hotfix patches as staged)
+patch merge → X.Y.Z-patches.toml (adds hotfix patches as staged)
                     ↓
 promote hotfix → X.Y.Z-hotfixN.txt (snapshot created, TOML deleted)
 ```
@@ -1052,12 +996,12 @@ MAJOR.MINOR.PATCH
 3. **Patch origin**: Must create patches from `ho-release/*` branch, not `ho-prod`
 4. **Patch lifecycle**: new → candidates → close → stage → rc → prod
 5. **Branch cleanup**:
-   - `patch close` deletes `ho-patch/*` branch
+   - `patch merge` deletes `ho-patch/*` branch
    - `promote prod` deletes `ho-release/*` branch
 6. **Database restore**: `patch apply` always restores from production state
 7. **Immutable releases**: RC and production files never modified
 8. **Automatic Git operations**: Push/pull handled by commands automatically
-9. **⚠️ SYSTEMATIC TEST VALIDATION**: Tests run before integration (in `patch close`)
+9. **⚠️ SYSTEMATIC TEST VALIDATION**: Tests run before integration (in `patch merge`)
 10. **Hotfix exception**: Can reopen production version while other releases in progress
 11. **# HOTFIX marker**: Candidates file marked with `# HOTFIX` comment for hotfix releases
 
@@ -1078,7 +1022,7 @@ git checkout ho-release/0.17.0
 # Solution: Create or switch to patch branch
 # First ensure you're on ho-release/*
 git checkout ho-release/0.17.0
-half_orm dev patch new <patch_id>
+half_orm dev patch create <patch_id>
 # or
 git checkout ho-patch/<patch_id>
 ```
@@ -1089,7 +1033,7 @@ git checkout ho-patch/<patch_id>
 # Solution: Patch must be created from ho-release/* branch
 # to be automatically added to candidates
 git checkout ho-release/0.17.0
-half_orm dev patch new <patch_id>
+half_orm dev patch create <patch_id>
 ```
 
 ### Error: "Repository is not clean"
@@ -1143,7 +1087,7 @@ vim tests/test_feature.py
 
 # Try again
 git checkout ho-patch/123-feature
-half_orm dev patch close  # Tests will run again
+half_orm dev patch merge  # Tests will run again
 ```
 
 ### Patch apply failed (SQL error)
@@ -1185,7 +1129,7 @@ git checkout ho-prod
 - Keep patches focused (one feature per patch)
 - Commit generated code with meaningful messages
 - Create release when patches are ready to integrate
-- Run `pytest` locally before `patch close`
+- Run `pytest` locally before `patch merge`
 
 ❌ **DON'T:**
 - Mix multiple features in one patch
@@ -1283,7 +1227,7 @@ half_orm dev patch --help
 half_orm dev release --help
 
 # Specific command help
-half_orm dev patch new --help
+half_orm dev patch create --help
 half_orm dev release promote --help
 half_orm dev update --help
 half_orm dev upgrade --help

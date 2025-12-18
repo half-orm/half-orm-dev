@@ -1,5 +1,5 @@
 """
-Tests for PatchManager.close_patch() method.
+Tests for PatchManager.merge_patch() method.
 
 Tests the complete workflow of closing a patch:
 1. Validation (must be on ho-patch/* branch)
@@ -60,20 +60,20 @@ def patch_manager(tmp_path):
 
 
 class TestClosePatch:
-    """Test PatchManager.close_patch() method."""
+    """Test PatchManager.merge_patch() method."""
 
-    def test_close_patch_validates_current_branch(self, patch_manager):
-        """Test that close_patch fails if not on patch branch."""
+    def test_merge_patch_validates_current_branch(self, patch_manager):
+        """Test that merge_patch fails if not on patch branch."""
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # Set current branch to non-patch branch
         repo.hgit.branch = 'ho-prod'
 
         with pytest.raises(PatchManagerError, match="Must be on a patch branch"):
-            pm.close_patch()
+            pm.merge_patch()
 
-    def test_close_patch_finds_version_from_candidates(self, patch_manager):
-        """Test that close_patch finds version from candidates file."""
+    def test_merge_patch_finds_version_from_candidates(self, patch_manager):
+        """Test that merge_patch finds version from candidates file."""
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # Create candidates file with patch
@@ -88,13 +88,13 @@ class TestClosePatch:
         # Mock _validate_patch_before_merge to avoid complex setup
         with patch.object(pm, '_validate_patch_before_merge'):
             with patch.object(pm, '_sync_release_files_to_ho_prod'):
-                result = pm.close_patch()
+                result = pm.merge_patch()
 
         assert result['version'] == '0.17.0'
         assert result['patch_id'] == '123-test'
 
-    def test_close_patch_merges_into_release_branch(self, patch_manager):
-        """Test that close_patch merges patch into release branch."""
+    def test_merge_patch_merges_into_release_branch(self, patch_manager):
+        """Test that merge_patch merges patch into release branch."""
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # Setup
@@ -108,7 +108,7 @@ class TestClosePatch:
         # Mock validation and sync
         with patch.object(pm, '_validate_patch_before_merge'):
             with patch.object(pm, '_sync_release_files_to_ho_prod'):
-                result = pm.close_patch()
+                result = pm.merge_patch()
 
         # Verify checkout to release branch
         repo.hgit.checkout.assert_called_with('ho-release/0.17.0')
@@ -119,8 +119,8 @@ class TestClosePatch:
         assert 'ho-patch/123-test' in str(merge_call)
         assert '123-test' in str(merge_call)
 
-    def test_close_patch_moves_to_staged(self, patch_manager):
-        """Test that close_patch moves patch from candidates to staged."""
+    def test_merge_patch_moves_to_staged(self, patch_manager):
+        """Test that merge_patch moves patch from candidates to staged."""
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # Setup
@@ -135,7 +135,7 @@ class TestClosePatch:
         # Mock validation and sync
         with patch.object(pm, '_validate_patch_before_merge'):
             with patch.object(pm, '_sync_release_files_to_ho_prod'):
-                result = pm.close_patch()
+                result = pm.merge_patch()
 
         # Verify patch moved to staged
         release_file_after = ReleaseFile('0.17.0', releases_dir)
@@ -144,8 +144,8 @@ class TestClosePatch:
         # 123-test should be in staged
         assert '123-test' in staged_patches
 
-    def test_close_patch_commits_and_pushes(self, patch_manager):
-        """Test that close_patch commits and pushes changes."""
+    def test_merge_patch_commits_and_pushes(self, patch_manager):
+        """Test that merge_patch commits and pushes changes."""
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # Setup
@@ -159,7 +159,7 @@ class TestClosePatch:
         # Mock validation and sync
         with patch.object(pm, '_validate_patch_before_merge'):
             with patch.object(pm, '_sync_release_files_to_ho_prod'):
-                result = pm.close_patch()
+                result = pm.merge_patch()
 
         # Verify commit with correct message
         repo.commit_and_sync_to_active_branches.assert_called_once()
@@ -167,8 +167,8 @@ class TestClosePatch:
         assert '123-test' in str(commit_call)
         assert 'candidate to stage' in str(commit_call)
 
-    def test_close_patch_deletes_branch(self, patch_manager):
-        """Test that close_patch deletes patch branch locally and remotely."""
+    def test_merge_patch_deletes_branch(self, patch_manager):
+        """Test that merge_patch deletes patch branch locally and remotely."""
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # Setup
@@ -182,14 +182,14 @@ class TestClosePatch:
         # Mock validation and sync
         with patch.object(pm, '_validate_patch_before_merge'):
             with patch.object(pm, '_sync_release_files_to_ho_prod'):
-                result = pm.close_patch()
+                result = pm.merge_patch()
 
         # Verify branch deletion
         repo.hgit.delete_local_branch.assert_called_once_with('ho-patch/123-test')
         repo.hgit.delete_remote_branch.assert_called_once_with('ho-patch/123-test')
 
-    def test_close_patch_uses_commit_and_sync(self, patch_manager):
-        """Test that close_patch uses commit_and_sync_to_active_branches."""
+    def test_merge_patch_uses_commit_and_sync(self, patch_manager):
+        """Test that merge_patch uses commit_and_sync_to_active_branches."""
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # Setup
@@ -202,21 +202,21 @@ class TestClosePatch:
 
         # Mock validation
         with patch.object(pm, '_validate_patch_before_merge'):
-            result = pm.close_patch()
+            result = pm.merge_patch()
 
         # Verify commit_and_sync was called (sync is automatic via decorator)
         repo.commit_and_sync_to_active_branches.assert_called_once()
 
-    def test_close_patch_fails_if_patch_not_in_candidates(self, patch_manager):
-        """Test that close_patch fails if patch not found in any candidates file."""
+    def test_merge_patch_fails_if_patch_not_in_candidates(self, patch_manager):
+        """Test that merge_patch fails if patch not found in any candidates file."""
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # No candidates file exists
         with pytest.raises(PatchManagerError, match="not found in any candidates file"):
-            pm.close_patch()
+            pm.merge_patch()
 
-    def test_close_patch_fails_if_branch_not_exists(self, patch_manager):
-        """Test that close_patch fails if patch branch doesn't exist."""
+    def test_merge_patch_fails_if_branch_not_exists(self, patch_manager):
+        """Test that merge_patch fails if patch branch doesn't exist."""
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # Setup candidates file
@@ -231,10 +231,10 @@ class TestClosePatch:
         repo.hgit.branch_exists.return_value = False
 
         with pytest.raises(PatchManagerError, match="does not exist"):
-            pm.close_patch()
+            pm.merge_patch()
 
-    def test_close_patch_handles_merge_failure(self, patch_manager):
-        """Test that close_patch handles merge failures gracefully."""
+    def test_merge_patch_handles_merge_failure(self, patch_manager):
+        """Test that merge_patch handles merge failures gracefully."""
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # Setup
@@ -253,10 +253,10 @@ class TestClosePatch:
         # Mock validation
         with patch.object(pm, '_validate_patch_before_merge'):
             with pytest.raises(PatchManagerError, match="Failed to merge"):
-                pm.close_patch()
+                pm.merge_patch()
 
-    def test_close_patch_return_structure(self, patch_manager):
-        """Test that close_patch returns correct structure."""
+    def test_merge_patch_return_structure(self, patch_manager):
+        """Test that merge_patch returns correct structure."""
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # Setup
@@ -270,7 +270,7 @@ class TestClosePatch:
         # Mock validation and sync
         with patch.object(pm, '_validate_patch_before_merge'):
             with patch.object(pm, '_sync_release_files_to_ho_prod'):
-                result = pm.close_patch()
+                result = pm.merge_patch()
 
         # Verify return structure
         assert 'version' in result
@@ -282,8 +282,8 @@ class TestClosePatch:
         assert result['patch_id'] == '123-test'
         assert result['merged_into'] == 'ho-release/0.17.0'
 
-    def test_close_patch_with_description_in_branch_name(self, patch_manager):
-        """Test close_patch with patch ID containing description."""
+    def test_merge_patch_with_description_in_branch_name(self, patch_manager):
+        """Test merge_patch with patch ID containing description."""
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # Set branch with description
@@ -300,7 +300,7 @@ class TestClosePatch:
         # Mock validation and sync
         with patch.object(pm, '_validate_patch_before_merge'):
             with patch.object(pm, '_sync_release_files_to_ho_prod'):
-                result = pm.close_patch()
+                result = pm.merge_patch()
 
         assert result['patch_id'] == '123-add-user-auth'
 

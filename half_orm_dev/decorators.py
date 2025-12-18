@@ -29,7 +29,7 @@ def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
             return f"ho-release/{version}"
 
         @with_dynamic_branch_lock(_get_release_branch)
-        def close_patch(self, patch_id):
+        def merge_patch(self, patch_id):
             # Will lock the release branch determined by _get_release_branch
             ...
 

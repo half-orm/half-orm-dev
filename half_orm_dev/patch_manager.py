@@ -1651,7 +1651,7 @@ class PatchManager:
 
     def _get_release_branch_for_patch(self, patch_id: str, *args, **kwargs) -> str:
         """
-        Helper to determine release branch for close_patch lock.
+        Helper to determine release branch for merge_patch lock.
 
         Args:
             patch_id: Patch identifier
@@ -1826,7 +1826,7 @@ class PatchManager:
             }
 
     @with_dynamic_branch_lock(lambda self: "ho-prod")
-    def close_patch(self) -> dict:
+    def merge_patch(self) -> dict:
         """
         Close a patch by merging it into the release branch.
 
@@ -1859,7 +1859,7 @@ class PatchManager:
 
         Examples:
             # Must be on ho-patch/456-user-auth
-            result = patch_mgr.close_patch()
+            result = patch_mgr.merge_patch()
             # Merges into ho-release/0.17.0, moves to stage
         """
         # 1. Extract patch_id from current branch
