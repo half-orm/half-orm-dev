@@ -445,37 +445,74 @@ class Repo:
 
             result['migration_needed'] = True
 
-            # Only run migrations on ho-prod branch
+            # Migration must be run on ho-prod branch
+            # If not on ho-prod, switch automatically if working directory is clean
+            current_branch = self.hgit.branch if self.hgit else 'unknown'
+            switched_branch = False
+
             if not self.hgit or self.hgit.branch != 'ho-prod':
-                # Raise error directing user to checkout ho-prod
-                current_branch = self.hgit.branch if self.hgit else 'unknown'
-                config_version = self.__config.hop_version if hasattr(self, '_Repo__config') else '0.0.0'
-                raise RepoError(
-                    f"Repository migration required\n\n"
-                    f"  Repository version: {config_version}\n"
-                    f"  Installed version:  {current_version}\n"
-                    f"  Current branch:     {current_branch}\n\n"
-                    f"  Please checkout to ho-prod branch and run:\n"
-                    f"    git checkout ho-prod\n"
-                    f"    half_orm dev migrate\n"
+                # Check if working directory is clean
+                if self.hgit and self.hgit.repo.is_dirty(untracked_files=False):
+                    config_version = self.__config.hop_version if hasattr(self, '_Repo__config') else '0.0.0'
+                    raise RepoError(
+                        f"Repository migration required but working directory has uncommitted changes.\n\n"
+                        f"  Repository version: {config_version}\n"
+                        f"  Installed version:  {current_version}\n"
+                        f"  Current branch:     {current_branch}\n\n"
+                        f"  Please commit or stash your changes:\n"
+                        f"    git stash\n"
+                        f"    OR\n"
+                        f"    git add . && git commit -m \"your message\"\n"
+                    )
+
+                # Working directory is clean, switch to ho-prod
+                try:
+                    if not silent:
+                        print(f"  Switching to ho-prod...")
+                    self.hgit.checkout('ho-prod')
+                    switched_branch = True
+                    if not silent:
+                        print(f"  ✓ Now on ho-prod")
+                except Exception as e:
+                    raise RepoError(
+                        f"Failed to switch to ho-prod: {e}\n\n"
+                        f"  Please switch manually:\n"
+                        f"    git checkout ho-prod\n"
+                        f"    half_orm dev migrate\n"
+                    ) from e
+
+            try:
+                # Run migrations on ho-prod
+                # Branch sync is handled automatically by the decorator
+                migration_result = migration_mgr.run_migrations(
+                    target_version=current_version,
+                    create_commit=True
                 )
 
-            # Run migrations on ho-prod
-            # Branch sync is handled automatically by the decorator
-            migration_result = migration_mgr.run_migrations(
-                target_version=current_version,
-                create_commit=True
-            )
+                result['migration_run'] = True
+                result['errors'] = migration_result.get('errors', [])
 
-            result['migration_run'] = True
-            result['errors'] = migration_result.get('errors', [])
+                # Log success if not silent
+                if not silent:
+                    if migration_result.get('migrations_applied'):
+                        print(f"✓ Applied {len(migration_result['migrations_applied'])} migration(s)")
+                    else:
+                        print(f"✓ Updated repository version to {current_version}")
 
-            # Log success if not silent
-            if not silent:
-                if migration_result.get('migrations_applied'):
-                    print(f"✓ Applied {len(migration_result['migrations_applied'])} migration(s)")
-                else:
-                    print(f"✓ Updated repository version to {current_version}")
+            finally:
+                # Always try to return to original branch if we switched
+                if switched_branch:
+                    try:
+                        if not silent:
+                            print(f"  Returning to {current_branch}...")
+                        self.hgit.checkout(current_branch)
+                        if not silent:
+                            print(f"  ✓ Back on {current_branch}")
+                    except Exception as e:
+                        # Log warning but don't fail the migration
+                        if not silent:
+                            print(f"  ⚠️  Could not return to {current_branch}: {e}", file=sys.stderr)
+                            print(f"  You are now on ho-prod", file=sys.stderr)
 
         except RepoError:
             # Re-raise RepoError (for branch check)
