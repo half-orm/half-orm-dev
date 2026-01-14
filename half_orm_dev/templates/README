@@ -136,8 +136,6 @@ half_orm dev release promote prod
 
 ```bash
 half_orm dev check              # Show repository state
-git branch -a                   # List all branches
-cat .hop/releases/*.toml        # View patch candidates/staged
 ```
 
 ### Patch Management
@@ -184,8 +182,7 @@ half_orm dev upgrade <version>  # Deploy specific version
 │       ├── *.sql               # SQL migrations (numbered)
 │       └── *.py                # Python migrations (optional)
 ├── {package_name}/             # Generated ORM package
-│   ├── public/                 # public schema classes
-│   └── <schema>/               # other schema classes
+│   └── <schema>/               # schema classes
 └── tests/                      # Test suite (pytest)
 ```
 
