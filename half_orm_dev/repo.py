@@ -2197,6 +2197,12 @@ See docs/half_orm_dev.md for complete documentation.
         for schema_name in schemas:
             self.model.execute_query(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE')
 
+        # Recreate public schema (PostgreSQL standard schema)
+        # The public schema is expected to exist by many applications and tools
+        if 'public' in schemas:
+            self.model.execute_query('CREATE SCHEMA public')
+            self.model.execute_query('GRANT ALL ON SCHEMA public TO public')
+
     def restore_database_from_schema(self) -> None:
         """
         Restore database from model/schema.sql and model/metadata-X.Y.Z.sql.
