@@ -86,7 +86,7 @@ class ReleaseFile:
         if not self.file_path.exists():
             raise ReleaseFileError(
                 f"Release file not found: {self.file_path}\n"
-                f"Hint: Run 'half_orm dev release new <level>' first"
+                f"Hint: Run 'half_orm dev release create <level>' first"
             )
 
         try:

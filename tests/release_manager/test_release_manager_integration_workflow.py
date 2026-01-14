@@ -2,8 +2,8 @@
 Tests for the new release integration workflow with release branches.
 
 This module tests the enhanced workflow where:
-1. `release new` creates a release branch (ho-release/{version})
-2. `patch add` merges patches into the release branch
+1. `release create` creates a release branch (ho-release/{version})
+2. `patch merge` merges patches into the release branch
 3. `promote rc` tags the release branch
 4. `promote prod` merges the release branch into ho-prod
 
@@ -97,7 +97,7 @@ class TestReleaseIntegrationWorkflow:
     """Test the new workflow with release branches for patch integration."""
 
     def test_new_release_creates_branch(self, release_manager, mock_hgit_complete):
-        """Test that 'release new' creates a release branch."""
+        """Test that 'release create' creates a release branch."""
         rel_mgr, repo, temp_dir, releases_dir = release_manager
         repo.hgit = mock_hgit_complete
 

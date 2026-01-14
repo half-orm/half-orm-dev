@@ -2,14 +2,14 @@
 Patch command group - Unified patch development and management.
 
 Groups all patch-related commands under 'half_orm dev patch':
-- patch new: Create new patch branch and directory
+- patch create: Create new patch branch and directory
 - patch apply: Apply current patch files to database
 - patch merge: Add patch to stage release with validation
 
 Replaces legacy commands:
-- create-patch → patch new
+- create-patch → patch create
 - apply-patch → patch apply
-- add-to-release → patch add
+- add-to-release → patch merge
 """
 
 import click
@@ -31,7 +31,7 @@ def patch():
 
     \b
     Common workflow:
-        1. half_orm dev patch new <patch_id>
+        1. half_orm dev patch create <patch_id>
         2. half_orm dev patch apply
         3. half_orm dev patch merge
     """
@@ -71,13 +71,13 @@ def patch_create(patch_id: str, description: Optional[str] = None, before: Optio
     \b
     Examples:
         Create patch with numeric ID:
-        $ half_orm dev patch new 456
+        $ half_orm dev patch create 456
 
         Create patch with full ID and description:
-        $ half_orm dev patch new 456-user-auth -d "Add user authentication"
+        $ half_orm dev patch create 456-user-auth -d "Add user authentication"
 
         Insert patch before another patch (to control application order):
-        $ half_orm dev patch new 457-hotfix --before 456-user-auth
+        $ half_orm dev patch create 457-hotfix --before 456-user-auth
 
     \b
     Raises:
@@ -174,7 +174,7 @@ def patch_apply() -> None:
         if not current_branch.startswith('ho-patch/'):
             raise click.ClickException(
                 f"Must be on ho-patch/* branch. Current branch: {current_branch}\n"
-                f"Use: half_orm dev patch new <patch_id>"
+                f"Use: half_orm dev patch create <patch_id>"
             )
 
         # Extract patch_id from branch name
@@ -344,7 +344,7 @@ def patch_merge(force: bool) -> None:
         click.echo()
         click.echo("📝 Next steps:")
         click.echo(f"""  • Other developers: {utils.Color.bold(f'git pull && git merge origin/{result["merged_into"]}')}""")
-        click.echo(f"  • Continue development: {utils.Color.bold('half_orm dev patch new <next_patch_id>')}")
+        click.echo(f"  • Continue development: {utils.Color.bold('half_orm dev patch create <next_patch_id>')}")
         click.echo(f"  • Promote to RC: {utils.Color.bold('half_orm dev release promote rc')}")
         click.echo()
 

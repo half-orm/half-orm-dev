@@ -115,13 +115,16 @@ cat << 'EOF'
 The ho-prod branch is a protected production branch. Changes must be
 promoted through the official Half-ORM release workflow.
 
-To create a patch:
-  $ half_orm dev patch new <patch_id>
+To create a release:
+  $ half_orm dev release create <major|minor|patch>
 
-To add a patch to a release:
-  $ half_orm dev patch <patch_id> add-to-release [release]
+To create a patch (on a release branch):
+  $ half_orm dev patch create <patch_id>
 
-To promote a stage release to rc/production:
+To add a patch to a release (on a patch branch):
+  $ half_orm dev patch merge
+
+To promote a stage release to rc/production (on a release branch):
   $ half_orm dev release promote <rc|prod>
 
 This workflow ensures:

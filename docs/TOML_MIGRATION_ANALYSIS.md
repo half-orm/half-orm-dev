@@ -65,18 +65,18 @@ Ces fichiers **restent inchangés** et conservent leur logique actuelle:
 - Toute la logique de promotion vers prod (`promote_to_prod`)
 - Génération des fichiers `-rc*.txt` et `.txt`
 
-**Tests:** Environ 10-15 fichiers de tests à adapter (seulement ceux testant patch add/close)
+**Tests:** Environ 10-15 fichiers de tests à adapter (seulement ceux testant patch merge/close)
 
 ### 1.5 Opérations actuelles (développement)
 
-**Création** (`release new`):
+**Création** (`release create`):
 ```python
 # release_manager.py:2463-2474
 candidates_file.write_text("", encoding='utf-8')
 stage_file.write_text("", encoding='utf-8')
 ```
 
-**Ajout** (`patch add`):
+**Ajout** (`patch merge`):
 ```python
 # patch_manager.py:2460
 with candidates_file.open('a', encoding='utf-8') as f:
@@ -307,9 +307,9 @@ def insert_before(patches: dict, new_key: str, before_key: str, value: str):
 ## 4. Tests à mettre à jour
 
 **Fichiers de tests concernés** (environ 10-15):
-- `test_patch_manager_*.py` (tests de patch add/close)
+- `test_patch_manager_*.py` (tests de patch merge/close)
 - `test_release_manager_integration_workflow.py` (si teste candidates/stage)
-- Tests CLI de `patch add` et `patch close`
+- Tests CLI de `patch merge` et `patch close`
 
 **Fichiers NON concernés**:
 - Tests de promotion RC/prod (aucun changement)
@@ -328,7 +328,7 @@ def insert_before(patches: dict, new_key: str, before_key: str, value: str):
 4. ⏳ Créer migration `01_txt_to_toml.py`
 5. ⏳ Modifier `release_manager.py` pour utiliser TOML (seulement `new_release`)
 6. ⏳ Modifier `patch_manager.py` pour utiliser TOML
-7. ⏳ Ajouter option `--before` à `patch add`
+7. ⏳ Ajouter option `--before` à `patch merge`
 8. ⏳ Mettre à jour les tests concernés
 9. ⏳ Tester la migration sur projet réel
 10. ⏳ Documentation
@@ -346,7 +346,7 @@ def insert_before(patches: dict, new_key: str, before_key: str, value: str):
 ## 7. Avantages de cette approche limitée
 
 1. ✅ **Risque minimal**: Logique de release/production intacte
-2. ✅ **Tests limités**: Seulement patch add/close à tester
+2. ✅ **Tests limités**: Seulement patch merge/close à tester
 3. ✅ **Migration simple**: Conversion directe candidates+stage → patches
 4. ✅ **Rollback facile**: Peut revenir en arrière si problème
 5. ✅ **Valeur immédiate**: Résout le problème d'ordre dès le développement

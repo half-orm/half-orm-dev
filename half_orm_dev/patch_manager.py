@@ -2171,7 +2171,7 @@ class PatchManager:
             raise PatchManagerError(
                 "Must be on ho-release/X.Y.Z branch to create patch. "
                 f"Current branch: {current_branch}\n"
-                "Hint: Run 'half_orm dev release new <level>' first to create a release "
+                "Hint: Run 'half_orm dev release create <level>' first to create a release "
                 "or switch to a release branch."
             )
 

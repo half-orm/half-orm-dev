@@ -2187,7 +2187,17 @@ See docs/half_orm_dev.md for complete documentation.
         return True
 
     def _reset_database_schemas(self) -> None:
-        """Drop all user schemas with CASCADE (including half_orm_meta)."""
+        """Drop all user schemas with CASCADE (including half_orm_meta).
+        
+        Note: Database-level objects persist and are NOT reset:
+        - Extensions (will be recreated by schema.sql with IF NOT EXISTS)
+        - Foreign Data Wrappers and servers
+        - Event triggers
+        - Database settings (ALTER DATABASE SET)
+        
+        This is by design: these objects are typically configured once
+        and should persist across schema resets.
+        """
         # Get user schemas from half_orm metadata
         relations = self.model.desc()
         schemas = {'half_orm_meta', 'half_orm_meta.view'}

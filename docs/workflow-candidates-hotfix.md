@@ -6,7 +6,7 @@ Ce document décrit le workflow de gestion des patches et releases avec le syst�
 
 ### Problème du workflow actuel
 
-Dans le workflow actuel, les patches sont ajoutés directement à `ho-prod` via `patch add`. Les développeurs ont pris l'habitude de créer des releases RC pour un seul patch, car :
+Dans le workflow actuel, les patches sont ajoutés directement à `ho-prod` via `patch merge`. Les développeurs ont pris l'habitude de créer des releases RC pour un seul patch, car :
 - Les patches ne sont pas visibles avant d'être en RC
 - Ils préfèrent faire une pre-release pour rendre le patch accessible
 - `ho-prod` est "pollué" avec des patches avant même d'avoir un RC
@@ -51,8 +51,8 @@ releases/
 
 | État half-orm | Fichier | GitLab/GitHub |
 |---------------|---------|---------------|
-| `release new` | Crée `-candidates.txt` et `-stage.txt` | Créer un milestone |
-| `patch new` (sur ho-release) | Ajoute à `-candidates.txt` | Créer une issue assignée au milestone |
+| `release create` | Crée `-candidates.txt` et `-stage.txt` | Créer un milestone |
+| `patch create` (sur ho-release) | Ajoute à `-candidates.txt` | Créer une issue assignée au milestone |
 | Candidate | `-candidates.txt` | Issue ouverte assignée au milestone |
 | `patch close` | Déplace vers `-stage.txt` | Merger la MR et fermer l'issue |
 | Stage | `-stage.txt` | Issue fermée du milestone |
@@ -66,7 +66,7 @@ releases/
 ### 1. Créer une nouvelle release
 
 ```bash
-half_orm dev release new minor
+half_orm dev release create minor
 # → Détecte la version prod actuelle (ex: 0.0.5)
 # → Calcule la prochaine version minor : 0.1.0
 # → Crée la branche ho-release/0.1.0 depuis ho-prod
@@ -85,7 +85,7 @@ half_orm dev release new minor
   Stage file:       releases/0.1.0-stage.txt
 
 📝 Next steps:
-  1. Create patches: half_orm dev patch new <patch_id>
+  1. Create patches: half_orm dev patch create <patch_id>
   2. Add to release: half_orm dev patch close <patch_id>
   3. Promote to RC:  half_orm dev release promote rc
 
@@ -98,7 +98,7 @@ half_orm dev release new minor
 
 ```bash
 git checkout ho-release/0.1.0
-half_orm dev patch new 6-feature-x
+half_orm dev patch create 6-feature-x
 # → Détecte automatiquement la version 0.1.0 depuis la branche courante
 # → Crée ho-patch/6-feature-x depuis ho-release/0.1.0
 # → Ajoute 6-feature-x à 0.1.0-candidates.txt
@@ -159,12 +159,12 @@ half_orm dev patch close 6-feature-x
 
 📝 Next steps:
   • Other developers: git pull && git rebase ho-release/0.1.0
-  • Continue development: half_orm dev patch new <next_patch_id>
+  • Continue development: half_orm dev patch create <next_patch_id>
   • Promote to RC: half_orm dev release promote rc
 ```
 
-**Important** : `patch close` remplace l'ancienne commande `patch add`. La sémantique est différente :
-- **Ancien** : `patch add` = "j'ajoute mon patch validé à la release" (depuis ho-prod)
+**Important** : `patch close` remplace l'ancienne commande `patch merge`. La sémantique est différente :
+- **Ancien** : `patch merge` = "j'ajoute mon patch validé à la release" (depuis ho-prod)
 - **Nouveau** : `patch close` = "je ferme mon travail, il est intégré à la release" (merge dans ho-release)
 
 ### 5. Promouvoir en Release Candidate
@@ -236,7 +236,7 @@ half_orm dev release promote prod
 
 📝 Next steps:
   • Deploy to production servers
-  • Start next cycle: half_orm dev release new minor
+  • Start next cycle: half_orm dev release create minor
 ```
 
 **Notes importantes** :
@@ -267,7 +267,7 @@ half_orm dev hotfix
 ✓ Ready for hotfix patches
 
 📝 Next steps:
-  1. half_orm dev patch new <patch_id>
+  1. half_orm dev patch create <patch_id>
   2. half_orm dev patch close <patch_id>
   3. half_orm dev release promote hotfix
 ```
@@ -280,7 +280,7 @@ Le workflow est **identique** au workflow normal :
 
 ```bash
 # Sur ho-release/0.2.0
-half_orm dev patch new 999-critical-security-fix
+half_orm dev patch create 999-critical-security-fix
 # ... développement ...
 half_orm dev patch apply
 # ... tests ...
@@ -458,7 +458,7 @@ Les hotfixes sont la **seule exception** à cette règle car ils rouvrent une ve
 4. **Synchronisation** : `half_orm dev check` permet aux développeurs de rester à jour
 5. **Traçabilité** : Historique complet des RC et hotfixes dans `releases/`
 6. **Flexibilité** : Support des hotfixes sans perturber le développement en cours
-7. **Simplicité** : Pas de planification manuelle requise - ajout automatique lors de `patch new`
+7. **Simplicité** : Pas de planification manuelle requise - ajout automatique lors de `patch create`
 8. **Compatibilité GitLab/GitHub** : Workflow familier pour les développeurs habitués aux milestones et MR
 9. **Séquentialité garantie** : Impossible de promouvoir les versions dans le désordre
 
@@ -468,13 +468,13 @@ Les hotfixes sont la **seule exception** à cette règle car ils rouvrent une ve
 
 ```bash
 # Planification
-half_orm dev release new minor                    # 0.2.0
+half_orm dev release create minor                    # 0.2.0
 
 # Développement parallèle (chaque dev sur ho-release/0.2.0)
 git checkout ho-release/0.2.0
-half_orm dev patch new 10-auth                    # Dev A
-half_orm dev patch new 11-api                     # Dev B
-half_orm dev patch new 12-ui                      # Dev C
+half_orm dev patch create 10-auth                    # Dev A
+half_orm dev patch create 11-api                     # Dev B
+half_orm dev patch create 12-ui                      # Dev C
 
 # Intégration séquentielle
 half_orm dev patch close 10-auth                  # Dev A termine
@@ -495,7 +495,7 @@ half_orm dev hotfix
 # → Réouvre ho-release/0.2.0 depuis tag v0.2.0
 
 # Même workflow que d'habitude
-half_orm dev patch new 999-critical-fix
+half_orm dev patch create 999-critical-fix
 half_orm dev patch close 999-critical-fix
 
 # Promotion spécifique hotfix
@@ -514,7 +514,7 @@ git merge ho-prod
 half_orm dev release promote rc                   # v0.2.0-rc1
 # Bug trouvé en test
 # toujours sur la branche ho-release/0.2.0
-half_orm dev patch new 13-fix-test
+half_orm dev patch create 13-fix-test
 half_orm dev patch close 13-fix-test
 half_orm dev release promote rc                   # v0.2.0-rc2
 # OK
@@ -529,16 +529,16 @@ half_orm dev release promote prod                 # v0.2.0
 
 | Commande | Workflow actuel | Workflow cible | Changements requis |
 |----------|----------------|----------------|-------------------|
-| `release new` | Crée `-stage.txt`, reste sur `ho-prod` | Crée `ho-release/X.Y.Z` + `-candidates.txt` + `-stage.txt`, switch sur branche | ✅ Adapter ReleaseManager |
-| `patch new` | Depuis `ho-prod` | Depuis `ho-release/*`, ajoute à `-candidates.txt` | ✅ Adapter PatchManager |
-| `patch add` | Merge dans `ho-prod` | **Renommer en `patch close`**, merge dans `ho-release/*`, déplace vers `-stage.txt` | ✅ Refactor complet |
+| `release create` | Crée `-stage.txt`, reste sur `ho-prod` | Crée `ho-release/X.Y.Z` + `-candidates.txt` + `-stage.txt`, switch sur branche | ✅ Adapter ReleaseManager |
+| `patch create` | Depuis `ho-prod` | Depuis `ho-release/*`, ajoute à `-candidates.txt` | ✅ Adapter PatchManager |
+| `patch merge` | Merge dans `ho-prod` | **Renommer en `patch close`**, merge dans `ho-release/*`, déplace vers `-stage.txt` | ✅ Refactor complet |
 | `release promote rc` | Tag sur `ho-prod` | Tag sur `ho-release/*` (pas ho-prod!) | ✅ Adapter ReleaseManager |
 | `release promote prod` | Tag et dumps | Merge `ho-release/*` → `ho-prod`, tag et dumps | ✅ Adapter ReleaseManager |
 | `hotfix` | ❌ Non implémenté | Réouvre `ho-release/*` depuis tag | ✅ Nouvelle commande |
 
 ### Phases d'implémentation
 
-#### Phase 1 : Adapter `release new`
+#### Phase 1 : Adapter `release create`
 **Objectif** : Créer une vraie branche d'intégration au lieu de juste un fichier.
 
 **Fichiers à modifier** :
@@ -584,7 +584,7 @@ def new_release(self, level: str) -> dict:
 
 ---
 
-#### Phase 2 : Adapter `patch new`
+#### Phase 2 : Adapter `patch create`
 **Objectif** : Créer les patches depuis `ho-release/*` au lieu de `ho-prod`.
 
 **Fichiers à modifier** :
@@ -601,7 +601,7 @@ def create_patch(self, patch_id: str, description: str = None) -> dict:
     if not current_branch.startswith('ho-release/'):
         raise PatchManagerError(
             f"Must be on ho-release/* branch. Current: {current_branch}\n"
-            f"Use: half_orm dev release new <level> first\n"
+            f"Use: half_orm dev release create <level> first\n"
             f"For production hotfixes, use: half_orm dev hotfix"
         )
 
@@ -646,7 +646,7 @@ def create_patch(self, patch_id: str, description: str = None) -> dict:
 
 ---
 
-#### Phase 3 : Renommer et adapter `patch add` → `patch close`
+#### Phase 3 : Renommer et adapter `patch merge` → `patch close`
 **Objectif** : Changer la sémantique : merge dans `ho-release/*` au lieu de `ho-prod`.
 
 **Fichiers à modifier** :

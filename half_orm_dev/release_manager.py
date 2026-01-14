@@ -2229,7 +2229,7 @@ class ReleaseManager:
         if not patches_files:
             raise ReleaseManagerError(
                 "No stage release found. "
-                "Create a stage release first with: half_orm dev release new"
+                "Create a stage release first with: half_orm dev release create"
             )
 
         # Sort by version to get the smallest (oldest) one first

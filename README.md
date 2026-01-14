@@ -188,7 +188,7 @@ cd project
 
 ```bash
 # First, create a release integration branch
-half_orm dev release new minor  # Creates ho-release/0.1.0
+half_orm dev release create minor  # Creates ho-release/0.1.0
 
 # Now create patch (automatically added to candidates)
 half_orm dev patch create 1-users
@@ -267,7 +267,7 @@ The workflow follows a **Git-Flow** approach with dedicated integration branches
 ┌─────────────────────────────────────────────────────────────────┐
 │ DEVELOPMENT (ho-release/X.Y.Z branch)                           │
 ├─────────────────────────────────────────────────────────────────┤
-│ 1. release new <level>     Create ho-release/X.Y.Z              │
+│ 1. release create <level>     Create ho-release/X.Y.Z              │
 │ 2. patch create <id>          Create patch (auto in candidates)    │
 │ 3. patch apply             Apply & test changes                 │
 │ 4. patch merge             Merge into ho-release (TESTS!)       │
@@ -321,7 +321,7 @@ The workflow follows a **Git-Flow** approach with dedicated integration branches
 
 | half-orm state | File | GitLab/GitHub |
 |----------------|------|---------------|
-| `release new` | Creates `-patches.toml` | Create milestone |
+| `release create` | Creates `-patches.toml` | Create milestone |
 | `patch create` (on ho-release) | Adds to TOML as "candidate" | Create issue assigned to milestone |
 | Candidate | `"patch-id" = "candidate"` in TOML | Open issue assigned to milestone |
 | `patch merge` | Changes to `"staged"` in TOML | Merge MR and close issue |
@@ -334,7 +334,7 @@ The workflow follows a **Git-Flow** approach with dedicated integration branches
 #### Step 1: Create a New Release
 
 ```bash
-half_orm dev release new minor
+half_orm dev release create minor
 # → Detects current production version (e.g., 0.16.0)
 # → Calculates next minor version: 0.17.0
 # → Creates branch ho-release/0.17.0 from ho-prod
@@ -447,8 +447,8 @@ half_orm dev patch merge
   • Promote to RC: half_orm dev release promote rc
 ```
 
-**Important:** `patch merge` replaces the old `patch add` command. The semantics are different:
-- **OLD**: `patch add` = "I add my validated patch to release" (from ho-prod)
+**Important:** `patch merge` replaces the old `patch merge` command. The semantics are different:
+- **OLD**: `patch merge` = "I add my validated patch to release" (from ho-prod)
 - **NEW**: `patch merge` = "I close my work, it's integrated in release" (merge into ho-release)
 
 #### Step 5: Synchronize with Other Integrated Patches
@@ -529,7 +529,7 @@ half_orm dev release promote prod
 
 📝 Next steps:
   • Deploy to production servers
-  • Start next cycle: half_orm dev release new minor
+  • Start next cycle: half_orm dev release create minor
 ```
 
 **Important Notes:**
@@ -679,9 +679,9 @@ half_orm dev patch merge
 ```bash
 # Prepare next release (patch/minor/major)
 # Creates ho-release/X.Y.Z branch + candidates.txt + stage.txt
-half_orm dev release new patch
-half_orm dev release new minor
-half_orm dev release new major
+half_orm dev release create patch
+half_orm dev release create minor
+half_orm dev release create major
 
 # Promote stage to RC (automatically pushes)
 # Tags ho-release/X.Y.Z, renames stage → rc
@@ -717,7 +717,7 @@ half_orm dev upgrade --dry-run
 
 ```bash
 # Start by creating release integration branch
-half_orm dev release new minor  # Creates ho-release/0.17.0
+half_orm dev release create minor  # Creates ho-release/0.17.0
 
 # Now on ho-release/0.17.0, create patch
 half_orm dev patch create 123-add-users
@@ -752,7 +752,7 @@ half_orm dev patch merge
 
 ```bash
 # Integration Manager: Create release
-half_orm dev release new minor  # Creates ho-release/0.17.0
+half_orm dev release create minor  # Creates ho-release/0.17.0
 
 # Developer A: Working on feature
 git checkout ho-release/0.17.0
@@ -784,8 +784,8 @@ half_orm dev patch merge
 ```bash
 # Parallel development of different versions
 # 1. Create multiple release branches
-half_orm dev release new minor  # Creates 0.18.0
-half_orm dev release new patch  # Creates 0.17.1
+half_orm dev release create minor  # Creates 0.18.0
+half_orm dev release create patch  # Creates 0.17.1
 
 # 2. Add patches to specific versions
 git checkout ho-release/0.17.1
@@ -907,7 +907,7 @@ ho-prod (main production)
 - **ho-patch/\***: Patch development branches created from ho-release/* (temporary, deleted after close)
 
 **Branch Lifecycle:**
-1. `release new` creates `ho-release/X.Y.Z` from `ho-prod`
+1. `release create` creates `ho-release/X.Y.Z` from `ho-prod`
 2. `patch create` creates `ho-patch/ID` from `ho-release/X.Y.Z`
 3. `patch merge` merges `ho-patch/ID` into `ho-release/X.Y.Z` and deletes `ho-patch/ID`
 4. `release promote prod` merges `ho-release/X.Y.Z` into `ho-prod` and deletes `ho-release/X.Y.Z`
@@ -1011,7 +1011,7 @@ MAJOR.MINOR.PATCH
 
 ```bash
 # Solution: Create release or switch to release branch
-half_orm dev release new minor
+half_orm dev release create minor
 # or
 git checkout ho-release/0.17.0
 ```
@@ -1059,7 +1059,7 @@ git pull origin ho-prod
 
 ```bash
 # Solution: Prepare a release first
-half_orm dev release new patch
+half_orm dev release create patch
 ```
 
 ### Error: "Active RC exists"
