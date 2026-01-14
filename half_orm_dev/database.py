@@ -1362,25 +1362,23 @@ class Database:
                 pass
         """
         try:
-            result = self._execute_pg_command(
-                self.__name,
-                self._get_connection_params(),
-                *['psql', '-d', 'postgres', '-t', '-A', '-c', 'SHOW server_version;'],
-            )
+            # Use existing database connection via half_orm Model API
+            # Query returns: "PostgreSQL 16.1 (Ubuntu 16.1-1.pgdg22.04+1) on ..."
+            result = self.__model.execute_query('SELECT version()')
+            version_str = result[0]['version']
 
-            # Output format: "16.1 (Ubuntu 16.1-1.pgdg22.04+1)"
-            # Extract version: "16.1"
-            version_str = result.stdout.strip().split()[0]
+            # Extract version number: split on space, take 2nd element (e.g., "16.1")
+            # Then split on dot to get [major, minor, patch]
+            version_parts = [int(part) for part in version_str.split(' ')[1].split('.')]
 
-            # Parse major.minor
-            parts = version_str.split('.')
-            major = int(parts[0])
-            minor = int(parts[1]) if len(parts) > 1 else 0
+            # Return (major, minor) tuple
+            major = version_parts[0]
+            minor = version_parts[1] if len(version_parts) > 1 else 0
 
             return (major, minor)
 
         except Exception as e:
             raise DatabaseError(
                 f"Failed to get PostgreSQL version: {e}\n"
-                f"Ensure PostgreSQL is installed and accessible."
+                f"Ensure database connection is available."
             )
