@@ -1,11 +1,11 @@
 """
-Tests for PatchManager.restore_database_from_schema() method.
+Tests for Repo.restore_database_from_schema() method.
 
 Focused on testing database restoration from model/schema.sql including:
 - Successful restoration workflow
 - Error handling for missing schema file
-- PostgreSQL command failures (dropdb, createdb, psql)
-- Model disconnection and reconnection
+- PostgreSQL command failures (schema drop, psql)
+- Model metadata cache reload
 - Symlink vs regular file handling
 """
 
@@ -25,9 +25,8 @@ def mock_restore_environment(patch_manager):
 
     Creates:
     - model/ directory with schema.sql file
-    - Mock Model with disconnect() and ping() methods
+    - Mock Model with desc(), execute_query(), and reconnect() methods
     - Mock Database.execute_pg_command()
-    - Mock Database.get_postgres_version()  # <-- AJOUTÉ
 
     Returns:
         Tuple of (patch_mgr, repo, schema_file, mock_model, mock_execute)
@@ -43,14 +42,15 @@ def mock_restore_environment(patch_manager):
 
     # Mock Model methods
     mock_model = Mock()
-    mock_model.disconnect = Mock()
-    mock_model.ping = Mock()
+    # Mock desc() for _reset_database_schemas
+    mock_model.desc = Mock(return_value=[
+        ('r', ('test_database', 'public', 'users'), [])
+    ])
+    # Mock execute_query() for DROP SCHEMA
+    mock_model.execute_query = Mock()
+    # Mock reconnect(reload=True) instead of ping()
+    mock_model.reconnect = Mock()
     repo.model = mock_model
-
-    # Mock Database.get_postgres_version() to return version >= 13
-    # (enables --force flag for dropdb)
-    mock_get_version = Mock(return_value=(16, 1))
-    repo.database.get_postgres_version = mock_get_version
 
     # Mock Database.execute_pg_command
     mock_execute = Mock()
@@ -62,33 +62,28 @@ def mock_restore_environment(patch_manager):
 class TestRestoreDatabaseFromSchema:
     """Test database restoration from model/schema.sql."""
 
-    @pytest.mark.skip
     def test_restore_database_success(self, mock_restore_environment):
         """Test successful database restoration workflow."""
         patch_mgr, repo, schema_file, mock_model, mock_execute = mock_restore_environment
 
-        # Execute restoration
-        repo.restore_database_from_schema()
+        # Patch _reset_database_schemas to track calls
+        with patch.object(repo, '_reset_database_schemas') as mock_reset:
+            # Execute restoration
+            repo.restore_database_from_schema()
 
-        # Verify workflow steps
-        # 1. Model disconnected
-        mock_model.disconnect.assert_called_once()
+            # Verify workflow steps
+            # 1. _reset_database_schemas called
+            mock_reset.assert_called_once()
 
-        # 2. Database dropped
-        mock_execute.assert_any_call('dropdb', 'test_database')
+            # 2. Schema loaded via psql -f
+            psql_call = call('psql', '-d', 'test_database', '-f', str(schema_file))
+            assert psql_call in mock_execute.call_args_list
 
-        # 3. Database created
-        mock_execute.assert_any_call('createdb', 'test_database')
+            # 3. Model metadata cache reloaded
+            mock_model.reconnect.assert_called_once_with(reload=True)
 
-        # 4. Schema loaded via psql -f
-        psql_call = call('psql', '-d', 'test_database', '-f', str(schema_file))
-        assert psql_call in mock_execute.call_args_list
-
-        # 5. Model reconnected
-        mock_model.ping.assert_called_once()
-
-        # 6. Verify call order
-        assert mock_execute.call_count == 3  # dropdb, createdb, psql
+            # 4. Verify psql was called (at least once for schema.sql, maybe twice with metadata)
+            assert mock_execute.call_count >= 1
 
     def test_restore_database_schema_file_missing(self, patch_manager):
         """Test restoration fails when model/schema.sql doesn't exist."""
@@ -115,9 +110,6 @@ class TestRestoreDatabaseFromSchema:
         with pytest.raises(RepoError, match="Schema file not found"):
             repo.restore_database_from_schema()
 
-        # Model should not be disconnected if file missing
-        mock_model.disconnect.assert_not_called()
-
     def test_restore_database_model_dir_missing(self, patch_manager):
         """Test restoration fails when model/ directory doesn't exist."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
@@ -133,69 +125,52 @@ class TestRestoreDatabaseFromSchema:
         with pytest.raises(RepoError, match="Model.*not found|Schema file not found"):
             repo.restore_database_from_schema()
 
-        # Model should not be disconnected
-        mock_model.disconnect.assert_not_called()
-
     def test_restore_database_dropdb_fails(self, mock_restore_environment):
-        """Test restoration fails when dropdb command fails."""
+        """Test restoration fails when schema drop fails."""
         patch_mgr, repo, schema_file, mock_model, mock_execute = mock_restore_environment
 
-        # Mock execute_pg_command to fail on dropdb
-        mock_execute.side_effect = [
-            Exception("dropdb failed: database in use"),  # dropdb fails
-        ]
+        # Mock _reset_database_schemas to fail
+        with patch.object(repo, '_reset_database_schemas', side_effect=RepoError("Failed to reset database schemas: DROP SCHEMA failed")):
+            # Should raise RepoError
+            with pytest.raises(RepoError, match="schema.*failed|Database restoration failed"):
+                repo.restore_database_from_schema()
 
-        # Should raise RepoError
-        with pytest.raises(RepoError, match="dropdb.*failed|Database restoration failed"):
-            repo.restore_database_from_schema()
-
-        # Model should have been disconnected before dropdb
-        mock_model.disconnect.assert_called_once()
-
-        # Ping should not be called (restoration failed)
-        mock_model.ping.assert_not_called()
+            # reconnect should not be called (restoration failed)
+            mock_model.reconnect.assert_not_called()
 
     def test_restore_database_createdb_fails(self, mock_restore_environment):
-        """Test restoration fails when createdb command fails."""
+        """Test restoration fails when schema load (psql) fails."""
         patch_mgr, repo, schema_file, mock_model, mock_execute = mock_restore_environment
 
-        # Mock execute_pg_command: dropdb succeeds, createdb fails
-        mock_execute.side_effect = [
-            None,  # dropdb succeeds
-            Exception("createdb failed: permission denied"),  # createdb fails
-        ]
+        # Mock execute_pg_command: schema drop succeeds, psql fails
+        mock_execute.side_effect = Exception("psql failed: syntax error in schema.sql")
 
         # Should raise RepoError
-        with pytest.raises(RepoError, match="createdb.*failed|Database restoration failed"):
+        with pytest.raises(RepoError, match="schema load.*failed|Failed to load schema|Database restoration failed"):
             repo.restore_database_from_schema()
 
-        # Model disconnected, dropdb called, but not createdb or psql
-        mock_model.disconnect.assert_called_once()
-        assert mock_execute.call_count == 2  # dropdb + createdb attempt
+        # execute_pg_command should have been called (psql attempt)
+        assert mock_execute.called
 
-        # Ping not called
-        mock_model.ping.assert_not_called()
+        # reconnect not called (restoration failed)
+        mock_model.reconnect.assert_not_called()
 
     def test_restore_database_psql_fails(self, mock_restore_environment):
         """Test restoration fails when psql schema load fails."""
         patch_mgr, repo, schema_file, mock_model, mock_execute = mock_restore_environment
 
-        # Mock execute_pg_command: dropdb and createdb succeed, psql fails
-        mock_execute.side_effect = [
-            None,  # dropdb succeeds
-            None,  # createdb succeeds
-            Exception("psql failed: syntax error"),  # psql fails
-        ]
+        # Mock execute_pg_command: schema drop succeeds, psql fails
+        mock_execute.side_effect = Exception("psql failed: syntax error")
 
         # Should raise RepoError
-        with pytest.raises(RepoError, match="psql.*failed|schema load.*failed|Database restoration failed"):
+        with pytest.raises(RepoError, match="psql.*failed|schema load.*failed|Failed to load schema|Database restoration failed"):
             repo.restore_database_from_schema()
 
-        # All commands attempted
-        assert mock_execute.call_count == 3
+        # execute_pg_command should have been called
+        assert mock_execute.called
 
-        # Ping not called (restoration failed)
-        mock_model.ping.assert_not_called()
+        # reconnect not called (restoration failed)
+        mock_model.reconnect.assert_not_called()
 
     def test_restore_database_with_symlink(self, patch_manager):
         """Test restoration works with schema.sql as symlink."""
@@ -219,8 +194,14 @@ class TestRestoreDatabaseFromSchema:
 
         # Mock Model
         mock_model = Mock()
-        mock_model.disconnect = Mock()
-        mock_model.ping = Mock()
+        # Mock desc() for _reset_database_schemas
+        mock_model.desc = Mock(return_value=[
+            ('r', ('test_database', 'public', 'users'), [])
+        ])
+        # Mock execute_query() for DROP SCHEMA
+        mock_model.execute_query = Mock()
+        # Mock reconnect(reload=True)
+        mock_model.reconnect = Mock()
         repo.model = mock_model
         repo.model_dir = str(model_dir)
 
@@ -236,8 +217,7 @@ class TestRestoreDatabaseFromSchema:
         assert psql_call in mock_execute.call_args_list
 
         # Workflow should complete successfully
-        mock_model.disconnect.assert_called_once()
-        mock_model.ping.assert_called_once()
+        mock_model.reconnect.assert_called_once_with(reload=True)
 
     def test_restore_database_with_regular_file(self, patch_manager):
         """Test restoration works with schema.sql as regular file."""
@@ -255,8 +235,14 @@ class TestRestoreDatabaseFromSchema:
 
         # Mock Model
         mock_model = Mock()
-        mock_model.disconnect = Mock()
-        mock_model.ping = Mock()
+        # Mock desc() for _reset_database_schemas
+        mock_model.desc = Mock(return_value=[
+            ('r', ('test_database', 'public', 'test'), [])
+        ])
+        # Mock execute_query() for DROP SCHEMA
+        mock_model.execute_query = Mock()
+        # Mock reconnect(reload=True)
+        mock_model.reconnect = Mock()
         repo.model = mock_model
         repo.model_dir = str(model_dir)
 
@@ -272,5 +258,4 @@ class TestRestoreDatabaseFromSchema:
         assert psql_call in mock_execute.call_args_list
 
         # Workflow should complete
-        mock_model.disconnect.assert_called_once()
-        mock_model.ping.assert_called_once()
+        mock_model.reconnect.assert_called_once_with(reload=True)

@@ -2186,26 +2186,35 @@ See docs/half_orm_dev.md for complete documentation.
         # Validation passed
         return True
 
+    def _reset_database_schemas(self) -> None:
+        """Drop all user schemas with CASCADE (including half_orm_meta)."""
+        # Get user schemas from half_orm metadata
+        relations = self.model.desc()
+        schemas = {'half_orm_meta', 'half_orm_meta.view'}
+        _ = [schemas.add(rel[1][1]) for rel in relations]
+
+        # Drop each schema with CASCADE
+        for schema_name in schemas:
+            self.model.execute_query(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE')
+
     def restore_database_from_schema(self) -> None:
         """
         Restore database from model/schema.sql and model/metadata-X.Y.Z.sql.
 
-        Restores database to clean production state by dropping and recreating
-        database, then loading schema structure and half_orm_meta data. This provides
+        Restores database to clean production state by dropping all user schemas
+        and reloading schema structure and half_orm_meta data. This provides
         a clean baseline before applying patch files during patch development.
 
         Process:
         1. Verify model/schema.sql exists (file or symlink)
-        2. Disconnect halfORM Model from database
-        3. Drop existing database using dropdb command
-        4. Create fresh empty database using createdb command
-        5. Load schema structure from model/schema.sql using psql -f
-        5b. Load half_orm_meta data from model/metadata-X.Y.Z.sql using psql -f (if exists)
-        6. Reconnect halfORM Model to restored database
+        2. Drop all user schemas with CASCADE (no superuser privileges needed)
+        3. Load schema structure from model/schema.sql using psql -f
+        4. Load half_orm_meta data from model/metadata-X.Y.Z.sql using psql -f (if exists)
+        5. Reload halfORM Model metadata cache
 
-        The method uses Database.execute_pg_command() for all PostgreSQL
-        operations (dropdb, createdb, psql) with connection parameters from
-        repository configuration.
+        The method uses DROP SCHEMA CASCADE instead of dropdb/createdb, allowing
+        operation without CREATEDB privilege or superuser access. This makes it
+        compatible with cloud databases (RDS, Azure) and restricted environments.
 
         File Resolution:
         - Accepts model/schema.sql as regular file or symlink
@@ -2216,8 +2225,7 @@ See docs/half_orm_dev.md for complete documentation.
 
         Error Handling:
         - Raises RepoError if model/schema.sql not found
-        - Raises RepoError if dropdb fails
-        - Raises RepoError if createdb fails
+        - Raises RepoError if schema drop fails
         - Raises RepoError if psql schema load fails
         - Raises RepoError if psql metadata load fails (when file exists)
         - Database state rolled back on any failure
@@ -2255,8 +2263,9 @@ See docs/half_orm_dev.md for complete documentation.
                 # Handle error: check schema.sql exists, verify permissions
 
         Notes:
-            - Silences psql output using stdout=subprocess.DEVNULL
-            - Uses Model.ping() for reconnection after restoration
+            - Uses DROP SCHEMA CASCADE - no superuser or CREATEDB privilege required
+            - Works on cloud databases (AWS RDS, Azure Database, etc.)
+            - Uses Model.reconnect(reload=True) to refresh metadata cache
             - Supports both schema.sql file and schema.sql -> schema-X.Y.Z.sql symlink
             - Metadata file is optional (backward compatibility with older schemas)
             - All PostgreSQL commands use repository connection configuration
@@ -2272,26 +2281,10 @@ See docs/half_orm_dev.md for complete documentation.
             )
 
         try:
-            # 2. Disconnect Model from database
-            self.model.disconnect()
-            pg_version = self.database.get_postgres_version()
-            drop_cmd = ['dropdb', self.name]
-            if pg_version > (13, 0):
-                drop_cmd.append('--force')
+            # 2. Drop all schemas (no superuser privileges needed)
+            self._reset_database_schemas()
 
-            # 3. Drop existing database
-            try:
-                self.database.execute_pg_command(*drop_cmd)
-            except Exception as e:
-                raise RepoError(f"Failed to drop database: {e}") from e
-
-            # 4. Create fresh empty database
-            try:
-                self.database.execute_pg_command('createdb', self.name)
-            except Exception as e:
-                raise RepoError(f"Failed to create database: {e}") from e
-
-            # 5. Load schema from model/schema.sql
+            # 3. Load schema from model/schema.sql
             try:
                 self.database.execute_pg_command(
                     'psql', '-d', self.name, '-f', str(schema_path)
@@ -2299,7 +2292,7 @@ See docs/half_orm_dev.md for complete documentation.
             except Exception as e:
                 raise RepoError(f"Failed to load schema from {schema_path.name}: {e}") from e
 
-            # 5b. Load metadata from model/metadata-X.Y.Z.sql (if exists)
+            # 4. Load metadata from model/metadata-X.Y.Z.sql (if exists)
             metadata_path = self._deduce_metadata_path(schema_path)
 
             if metadata_path and metadata_path.exists():
@@ -2315,8 +2308,8 @@ See docs/half_orm_dev.md for complete documentation.
                     ) from e
             # else: metadata file doesn't exist, continue without error (backward compatibility)
 
-            # 6. Reconnect Model to restored database
-            self.model.ping()
+            # 5. Reload half_orm metadata cache
+            self.model.reconnect(reload=True)
 
         except RepoError:
             # Re-raise RepoError as-is
