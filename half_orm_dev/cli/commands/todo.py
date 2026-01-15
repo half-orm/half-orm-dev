@@ -30,11 +30,11 @@ def todo(ctx):
     command_descriptions = {
         # 🚧 New Git-centric commands
         'init-project': 'Initialize new project with ho-prod branch and Patches/ structure',
-        'create-patch': 'Create ho-patch/patch-name branch with Patches/patch-name/ directory',
-        'apply-patch': 'Apply current patch files using PatchManager.apply_patch_files()',
-        'add-to-release': 'Add patch to releases/X.Y.Z-stage.txt and merge to ho-prod',
-        'prepare-release': 'Create next releases/X.Y.Z-stage.txt file',
-        'promote-to': "Promote stage → target ('rc', 'prod') with automatic branch cleanup",
+        'patch create': 'Create ho-patch/patch-name branch with Patches/patch-name/ directory',
+        'patch apply': 'Apply current patch files using PatchManager.apply_patch_files()',
+        'patch merge': 'Merge patch into release branch with validation',
+        'release create': 'Create next releases/X.Y.Z-patches.toml file',
+        'release promote': "Promote stage → target ('rc', 'prod') with automatic branch cleanup",
         'update': 'Apply patches in production (adapt for Git-centric)',
         'upgrade': 'Apply patches in production (adapt for Git-centric)',
 

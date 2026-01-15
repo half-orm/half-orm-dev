@@ -80,7 +80,7 @@ def init(project_name, host, port, user, password, git_origin, production, force
     \b
     MODES:
         - Full development mode (default): Database with half_orm_dev metadata
-          → Enables: create-patch, apply-patch, prepare-release, etc.
+          → Enables: patch create, patch apply, release create, etc.
 
         - Sync-only mode (--force-sync-only or user declines metadata):
           → Only enables: sync-package (code generation from schema)

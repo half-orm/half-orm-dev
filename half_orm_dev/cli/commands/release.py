@@ -28,11 +28,11 @@ def release():
 
     \b
     Common workflow:
-        1. half_orm dev release create <major|minor|patch>
+        1. half_orm dev release create <level>
         2. half_orm dev patch create <patch_id>
-        3. half_orm dev patch apply
-        4. half_orm dev patch merge
-        5a. half_orm dev release promote <rc|prod>
+        3. git checkout ho-patch/<patch_id> && half_orm dev patch merge
+        4. half_orm dev release promote rc
+        5. half_orm dev release promote prod
     """
     pass
 
@@ -86,7 +86,7 @@ def release_create(level: str) -> None:
     Next steps after release create:
         • Create patches: half_orm dev patch create <patch_id>
         • Add to release: half_orm dev patch merge <patch_id>
-        • Promote release to RC: half_orm dev release promote rc
+        • Promote to RC: half_orm dev release promote rc
     """
     # Normalize level to lowercase
     level = level.lower()
@@ -119,7 +119,7 @@ def release_create(level: str) -> None:
         click.echo(f"📝 Next steps:")
         click.echo(f"  1. Switch to release branch: {utils.Color.bold(f'git checkout {branch}')}")
         click.echo(f"  2. Create patches: {utils.Color.bold(f'half_orm dev patch create <patch_id>')}")
-        click.echo(f"  3. Close patches:  {utils.Color.bold(f'half_orm dev patch close <patch_id>')}")
+        click.echo(f"  3. Merge patches:  {utils.Color.bold('git checkout ho-patch/<patch_id> && half_orm dev patch merge')}")
         click.echo(f"  4. Promote to RC:  {utils.Color.bold('half_orm dev release promote rc')}")
         click.echo()
         click.echo(f"ℹ️  You are now on {utils.Color.bold(branch)} - patches will be merged here")
@@ -329,7 +329,7 @@ def release_hotfix(version: Optional[str] = None) -> None:
     \b
     Next steps after hotfix:
         • Create patches: half_orm dev patch create <patch_id>
-        • Close patches: half_orm dev patch close <patch_id>
+        • Merge patches: From ho-patch/<patch_id> branch, run: half_orm dev patch merge
         • Promote hotfix: half_orm dev release promote hotfix
 
     \b
@@ -358,7 +358,7 @@ def release_hotfix(version: Optional[str] = None) -> None:
         click.echo()
         click.echo("📝 Next steps:")
         click.echo(f"  • Create patches: {utils.Color.bold('half_orm dev patch create <patch_id>')}")
-        click.echo(f"  • Close patches: {utils.Color.bold('half_orm dev patch close <patch_id>')}")
+        click.echo(f"  • Merge patches: {utils.Color.bold('git checkout ho-patch/<patch_id> && half_orm dev patch merge')}")
         click.echo(f"  • Promote hotfix: {utils.Color.bold('half_orm dev release promote hotfix')}")
         click.echo()
         click.echo(f"ℹ️  You are now on {utils.Color.bold(result['branch'])} - patches will be merged here")

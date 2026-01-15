@@ -1898,11 +1898,12 @@ Patches/
 
 ## Workflow
 
-1. Create patch branch: `half_orm dev create-patch <patch-id>`
-2. Add SQL/Python files to Patches/<patch-id>/
-3. Apply patch: `half_orm dev apply-patch`
-4. Test your changes
-5. Add to release: `half_orm dev add-to-release <patch-id>`
+1. Create release: `half_orm dev release create <level>`
+2. Create patch branch: `half_orm dev patch create <patch-id>`
+3. Add SQL/Python files to Patches/<patch-id>/
+4. Apply patch: `half_orm dev patch apply`
+5. Test your changes
+6. Merge patch: `git checkout ho-patch/<patch-id> && half_orm dev patch merge`
 
 ## File Naming
 
@@ -1940,12 +1941,14 @@ Each file contains patch IDs, one per line:
 
 ## Workflow
 
-1. **Stage**: Development work
-- `half_orm dev add-to-release <patch-id>`
-- Patches added to X.Y.Z-stage.txt
+1. **Development**: Patch development
+- `half_orm dev patch create <patch-id>`
+- `half_orm dev patch apply`
+- `half_orm dev patch merge` (from ho-patch/<patch-id> branch)
+- Patches added to X.Y.Z-patches.toml
 
 2. **RC**: Release candidate
-- `half_orm dev promote-to rc`
+- `half_orm dev release promote rc`
 - Creates X.Y.Z-rc.txt
 - Deletes patch branches
 

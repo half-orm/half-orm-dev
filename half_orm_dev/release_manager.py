@@ -890,7 +890,7 @@ class ReleaseManager:
 
         Raises:
             ReleaseManagerError:
-                - No development release found (need prepare-release first)
+                - No development release found (need release create first)
                 - Multiple releases without explicit version
                 - Specified release doesn't exist
 
@@ -904,7 +904,7 @@ class ReleaseManager:
             # Returns: ("1.4.0", "1.4.0-patches.toml")
 
             # Error cases
-            # No release: "No development release found. Run 'prepare-release' first."
+            # No release: "No development release found. Run 'release create' first."
             # Multiple releases: "Multiple releases found. Use --to-version."
             # Invalid: "Release 1.9.9 not found"
         """
@@ -935,7 +935,7 @@ class ReleaseManager:
         if len(patches_files) == 0:
             raise ReleaseManagerError(
                 "No development release found.\n"
-                "Run 'half_orm dev prepare-release <type>' first."
+                "Run 'half_orm dev release create <level>' first."
             )
 
         if len(patches_files) > 1:
@@ -1316,7 +1316,7 @@ class ReleaseManager:
                     f"  git add .\n"
                     f"  git commit\n"
                     f"  git push\n\n"
-                    f"Then retry: half_orm dev add-to-release {patch_id}\n\n"
+                    f"Then retry: git checkout ho-patch/{patch_id} && half_orm dev patch merge\n\n"
                     f"Git error: {e}"
                 )
 
@@ -2229,7 +2229,7 @@ class ReleaseManager:
         if not patches_files:
             raise ReleaseManagerError(
                 "No stage release found. "
-                "Create a stage release first with: half_orm dev release create"
+                "Create a stage release first with: half_orm dev release create <level>"
             )
 
         # Sort by version to get the smallest (oldest) one first
@@ -2412,7 +2412,7 @@ class ReleaseManager:
                 raise ReleaseManagerError(
                     f"Promotion cancelled.\n"
                     f"To proceed, either:\n"
-                    f"  1. Close candidate patches: half_orm dev patch close <patch_id>\n"
+                    f"  1. Merge candidate patches: git checkout ho-patch/<patch_id> && half_orm dev patch merge\n"
                     f"  2. Accept candidate migration when prompted"
                 )
 
@@ -2879,7 +2879,7 @@ class ReleaseManager:
                         f"Cannot promote hotfix: {len(candidates)} candidate patch(es) remain:\n"
                         f"  • " + "\n  • ".join(candidates) + "\n\n"
                         f"Actions required:\n"
-                        f"  1. Close patches: half_orm dev patch close <patch_id>\n"
+                        f"  1. Merge patches: git checkout ho-patch/<patch_id> && half_orm dev patch merge\n"
                         f"  2. OR delete branches: git branch -D ho-patch/<patch_id>\n"
                         f"  3. OR move to another release (edit patches file manually)"
                     )

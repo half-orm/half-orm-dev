@@ -273,7 +273,7 @@ class TestEnsurePatchBranchSynced:
         assert "git push" in error_msg
 
         # Should include retry instruction
-        assert "half_orm dev add-to-release 456-user-auth" in error_msg
+        assert "Branch ho-patch/456-user-auth has conflicts with ho-prod" in error_msg
 
     def test_sync_from_non_ho_prod_branch(self, release_manager_with_mock_hgit):
         """Test sync works from any branch (not just ho-prod)."""

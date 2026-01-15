@@ -228,8 +228,8 @@ def create_cli_group():
                     else:
                         # Development commands
                         click.echo(f"  • {utils.Color.bold('patch')}")
-                        click.echo(f"  • {utils.Color.bold('prepare-release <level>')} - Prepare next release stage file (patch/minor/major)")
-                        click.echo(f"  • {utils.Color.bold('promote-to <target>')} - Promote stage to rc or prod")
+                        click.echo(f"  • {utils.Color.bold('release create <level>')} - Create next release (patch/minor/major)")
+                        click.echo(f"  • {utils.Color.bold('release promote <target>')} - Promote stage to rc or prod")
 
                     click.echo(f"\nTry {utils.Color.bold('half_orm dev <command> --help')} for more information.\n")
             else:
