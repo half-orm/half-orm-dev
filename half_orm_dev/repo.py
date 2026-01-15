@@ -2188,28 +2188,28 @@ See docs/half_orm_dev.md for complete documentation.
 
     def _reset_database_schemas(self) -> None:
         """Drop all user schemas with CASCADE (including half_orm_meta).
-        
+
         Note: Database-level objects persist and are NOT reset:
         - Extensions (will be recreated by schema.sql with IF NOT EXISTS)
         - Foreign Data Wrappers and servers
         - Event triggers
         - Database settings (ALTER DATABASE SET)
-        
+
         This is by design: these objects are typically configured once
         and should persist across schema resets.
         """
-        # Get user schemas from half_orm metadata
+        schemas_to_drop = {'half_orm_meta', 'half_orm_meta.view'}
+        # Add user schemas from half_orm metadata
         relations = self.model.desc()
-        schemas = {'half_orm_meta', 'half_orm_meta.view'}
-        _ = [schemas.add(rel[1][1]) for rel in relations]
+        _ = [schemas_to_drop.add(rel[1][1]) for rel in relations]
 
         # Drop each schema with CASCADE
-        for schema_name in schemas:
+        for schema_name in schemas_to_drop:
             self.model.execute_query(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE')
 
         # Recreate public schema (PostgreSQL standard schema)
         # The public schema is expected to exist by many applications and tools
-        if 'public' in schemas:
+        if 'public' in schemas_to_drop:
             self.model.execute_query('CREATE SCHEMA public')
             self.model.execute_query('GRANT ALL ON SCHEMA public TO public')
 
@@ -2218,7 +2218,6 @@ See docs/half_orm_dev.md for complete documentation.
         Restore database from model/schema.sql and model/metadata-X.Y.Z.sql.
 
         Restores database to clean production state by dropping all user schemas
-        and reloading schema structure and half_orm_meta data. This provides
         a clean baseline before applying patch files during patch development.
 
         Process:
