@@ -34,8 +34,8 @@ def release_manager_for_upgrade(tmp_path):
     releases_dir = tmp_path / ".hop" / "releases"
     releases_dir.mkdir(parents=True, exist_ok=True)
 
-    backups_dir = tmp_path / "backups"
-    backups_dir.mkdir()
+    backups_dir = tmp_path / ".hop" / "backups"
+    backups_dir.mkdir(parents=True, exist_ok=True)
 
     # Create release files
     (releases_dir / "1.3.6.txt").write_text("456-user-auth\n789-security\n")
@@ -106,6 +106,7 @@ class TestUpgradeProductionBackup:
         # But pg_dump should be called with correct path
         mock_repo.database.execute_pg_command.assert_any_call(
             'pg_dump',
+            'test_db',
             '-f', str(backups_dir / "1.3.5.sql")
         )
 

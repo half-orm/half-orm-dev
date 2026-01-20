@@ -1869,7 +1869,7 @@ class ReleaseManager:
             # → Raises: "Backup exists and user declined overwrite"
         """
         # Create backups directory if doesn't exist
-        backups_dir = Path(self._repo.base_dir) / "backups"
+        backups_dir = Path(self._repo.base_dir) / ".hop" / "backups"
         backups_dir.mkdir(exist_ok=True)
 
         # Build backup filename
@@ -1893,6 +1893,7 @@ class ReleaseManager:
         try:
             self._repo.database.execute_pg_command(
                 'pg_dump',
+                self._repo.database.name,
                 '-f', str(backup_file),
             )
         except Exception as e:

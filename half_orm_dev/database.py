@@ -94,6 +94,10 @@ class Database:
             self.__last_release = self.last_release
 
     @property
+    def name(self):
+        return self.__name
+
+    @property
     def last_release(self):
         "Returns the last release"
         self.__last_release = next(
