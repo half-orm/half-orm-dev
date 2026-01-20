@@ -1,8 +1,12 @@
 """
 Tests for data SQL file generation during release promotion.
 
-Tests the generation of data-X.Y.Z.sql files from patches with @HOP:data
-annotation during promote_to_rc, promote_to_prod, and promote_to_hotfix.
+Tests the generation of model/data-X.Y.Z.sql files from patches with @HOP:data
+annotation during promote_to_prod.
+
+Note: data files are only generated for production releases, not for RC or hotfix.
+In production upgrades, data is inserted via patch application.
+Data files are only used for from-scratch installations (clone, restore).
 """
 
 import pytest
@@ -24,7 +28,7 @@ def release_manager_with_data_patches(tmp_path):
     model_dir = tmp_path / ".hop" / "model"
     model_dir.mkdir(parents=True)
 
-    # Create mock repo
+    # Mock repo
     mock_repo = Mock()
     mock_repo.base_dir = str(tmp_path)
     mock_repo.releases_dir = str(releases_dir)
@@ -44,7 +48,7 @@ def release_manager_with_data_patches(tmp_path):
     # Create release manager
     rel_mgr = ReleaseManager(mock_repo)
 
-    return rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir
+    return rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir, model_dir
 
 
 class TestGenerateDataSqlFile:
@@ -52,7 +56,7 @@ class TestGenerateDataSqlFile:
 
     def test_generate_data_sql_file_with_data_files(self, release_manager_with_data_patches):
         """Test generating data SQL file from patches with data files."""
-        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_with_data_patches
+        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir, model_dir = release_manager_with_data_patches
 
         # Create mock data files
         data_file1 = patches_dir / "01_roles.sql"
@@ -65,15 +69,16 @@ class TestGenerateDataSqlFile:
         mock_repo.patch_manager._collect_data_files_from_patches.return_value = [data_file1, data_file2]
 
         # Generate data SQL file
-        result = rel_mgr._generate_data_sql_file(["456-auth"], "data-1.0.0.sql")
+        result = rel_mgr._generate_data_sql_file(["456-auth"], "1.0.0")
 
         assert result is not None
         assert result.exists()
         assert result.name == "data-1.0.0.sql"
+        assert result.parent == model_dir
 
         # Verify content
         content = result.read_text()
-        assert "-- Data file for data-1.0.0" in content
+        assert "-- Data file for version 1.0.0" in content
         assert "-- Generated from patches: 456-auth" in content
         assert "INSERT INTO roles" in content
         assert "INSERT INTO permissions" in content
@@ -81,7 +86,7 @@ class TestGenerateDataSqlFile:
 
     def test_generate_data_sql_file_strips_annotation(self, release_manager_with_data_patches):
         """Test that @HOP:data annotation is stripped from output."""
-        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_with_data_patches
+        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir, model_dir = release_manager_with_data_patches
 
         # Create mock data file with annotation
         data_file = patches_dir / "01_roles.sql"
@@ -91,7 +96,7 @@ class TestGenerateDataSqlFile:
         mock_repo.patch_manager._collect_data_files_from_patches.return_value = [data_file]
 
         # Generate data SQL file
-        result = rel_mgr._generate_data_sql_file(["456-auth"], "data-1.0.0.sql")
+        result = rel_mgr._generate_data_sql_file(["456-auth"], "1.0.0")
 
         content = result.read_text()
         # First line with annotation should not appear in generated content
@@ -101,28 +106,28 @@ class TestGenerateDataSqlFile:
 
     def test_generate_data_sql_file_no_data_files(self, release_manager_with_data_patches):
         """Test that no file is generated when there are no data files."""
-        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_with_data_patches
+        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir, model_dir = release_manager_with_data_patches
 
         # Mock patch_manager to return empty list
         mock_repo.patch_manager._collect_data_files_from_patches.return_value = []
 
         # Generate data SQL file
-        result = rel_mgr._generate_data_sql_file(["456-schema"], "data-1.0.0.sql")
+        result = rel_mgr._generate_data_sql_file(["456-schema"], "1.0.0")
 
         assert result is None
 
     def test_generate_data_sql_file_empty_patch_list(self, release_manager_with_data_patches):
         """Test that no file is generated for empty patch list."""
-        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_with_data_patches
+        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir, model_dir = release_manager_with_data_patches
 
         # Generate with empty patch list
-        result = rel_mgr._generate_data_sql_file([], "data-1.0.0.sql")
+        result = rel_mgr._generate_data_sql_file([], "1.0.0")
 
         assert result is None
 
     def test_generate_data_sql_file_multiple_patches(self, release_manager_with_data_patches):
         """Test generating data SQL file from multiple patches."""
-        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_with_data_patches
+        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir, model_dir = release_manager_with_data_patches
 
         # Create mock data files from different patches
         data_file1 = patches_dir / "01_roles.sql"
@@ -135,7 +140,7 @@ class TestGenerateDataSqlFile:
         mock_repo.patch_manager._collect_data_files_from_patches.return_value = [data_file1, data_file2]
 
         # Generate data SQL file
-        result = rel_mgr._generate_data_sql_file(["456-auth", "457-perms"], "data-1.0.0.sql")
+        result = rel_mgr._generate_data_sql_file(["456-auth", "457-perms"], "1.0.0")
 
         content = result.read_text()
         assert "456-auth, 457-perms" in content
@@ -143,113 +148,80 @@ class TestGenerateDataSqlFile:
         assert "INSERT INTO permissions" in content
 
 
-class TestPromoteToRCWithDataFiles:
-    """Test promote_to_rc with data file generation."""
+class TestCollectAllVersionPatches:
+    """Test _collect_all_version_patches helper method."""
 
-    def test_promote_rc_generates_data_file(self, release_manager_with_data_patches):
-        """Test that promote_to_rc generates data-X.Y.Z-rcN.sql if data exists."""
-        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_with_data_patches
+    def test_collect_base_release_patches(self, release_manager_with_data_patches):
+        """Test collecting patches from base release only."""
+        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir, model_dir = release_manager_with_data_patches
 
-        # Setup: create stage file
-        from half_orm_dev.release_file import ReleaseFile
+        # Create base release file
+        release_file = releases_dir / "1.0.0.txt"
+        release_file.write_text("456-auth\n789-schema\n")
 
-        release_file = ReleaseFile("1.0.0", releases_dir)
+        # Collect patches
+        patches = rel_mgr._collect_all_version_patches("1.0.0")
 
-        release_file.create_empty()
+        assert patches == ["456-auth", "789-schema"]
 
-        release_file.add_patch("456-auth")
+    def test_collect_patches_with_hotfixes(self, release_manager_with_data_patches):
+        """Test collecting patches from base release and hotfixes."""
+        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir, model_dir = release_manager_with_data_patches
 
-        release_file.move_to_staged("456-auth")
+        # Create base release file
+        release_file = releases_dir / "1.0.0.txt"
+        release_file.write_text("456-auth\n")
 
-        # Mock data file
-        data_file = patches_dir / "01_roles.sql"
-        data_file.write_text("-- @HOP:data\nINSERT INTO roles (name) VALUES ('admin') ON CONFLICT DO NOTHING;")
+        # Create hotfix files
+        hotfix1 = releases_dir / "1.0.0-hotfix1.txt"
+        hotfix1.write_text("789-fix1\n")
 
-        # Mock dependencies
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.checkout = Mock()
-        mock_hgit.list_tags = Mock(return_value=[])
-        mock_hgit.create_tag = Mock()
-        mock_hgit.push_tag = Mock()
-        mock_hgit.push_branch = Mock()
-        mock_hgit.add = Mock()
-        mock_hgit.commit = Mock()
-        mock_repo.hgit = mock_hgit
+        hotfix2 = releases_dir / "1.0.0-hotfix2.txt"
+        hotfix2.write_text("999-fix2\n")
 
-        mock_repo.patch_manager._collect_data_files_from_patches.return_value = [data_file]
-        mock_repo.patch_manager._sync_release_files_to_ho_prod = Mock()
+        # Collect patches
+        patches = rel_mgr._collect_all_version_patches("1.0.0")
 
-        # Mock _apply_release_patches to avoid database operations
-        rel_mgr._apply_release_patches = Mock()
+        assert patches == ["456-auth", "789-fix1", "999-fix2"]
 
-        # Promote to RC
-        result = rel_mgr.promote_to_rc()
+    def test_collect_patches_empty_release(self, release_manager_with_data_patches):
+        """Test collecting patches from empty release."""
+        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir, model_dir = release_manager_with_data_patches
 
-        # Verify data file was generated
-        data_file_path = releases_dir / "data-1.0.0-rc1.sql"
-        assert data_file_path.exists()
+        # Create empty release file
+        release_file = releases_dir / "1.0.0.txt"
+        release_file.write_text("")
 
-        # Verify commit_and_sync was called (data file is in .hop/releases/)
-        mock_repo.commit_and_sync_to_active_branches.assert_called()
+        # Collect patches
+        patches = rel_mgr._collect_all_version_patches("1.0.0")
 
-    def test_promote_rc_no_data_file_when_no_data(self, release_manager_with_data_patches):
-        """Test that promote_to_rc doesn't generate data file if no data exists."""
-        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_with_data_patches
+        assert patches == []
 
-        # Setup: create stage file
-        from half_orm_dev.release_file import ReleaseFile
+    def test_collect_patches_nonexistent_release(self, release_manager_with_data_patches):
+        """Test collecting patches from nonexistent release."""
+        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir, model_dir = release_manager_with_data_patches
 
-        release_file = ReleaseFile("1.0.0", releases_dir)
+        # No release file created
 
-        release_file.create_empty()
+        # Collect patches
+        patches = rel_mgr._collect_all_version_patches("1.0.0")
 
-        release_file.add_patch("456-schema")
-
-        release_file.move_to_staged("456-schema")
-
-        # Mock dependencies
-        mock_hgit = Mock()
-        mock_hgit.branch = "ho-prod"
-        mock_hgit.checkout = Mock()
-        mock_hgit.list_tags = Mock(return_value=[])
-        mock_hgit.create_tag = Mock()
-        mock_hgit.push_tag = Mock()
-        mock_hgit.push_branch = Mock()
-        mock_hgit.add = Mock()
-        mock_hgit.commit = Mock()
-        mock_repo.hgit = mock_hgit
-
-        mock_repo.patch_manager._collect_data_files_from_patches.return_value = []
-        mock_repo.patch_manager._sync_release_files_to_ho_prod = Mock()
-
-        # Mock _apply_release_patches
-        rel_mgr._apply_release_patches = Mock()
-
-        # Promote to RC
-        result = rel_mgr.promote_to_rc()
-
-        # Verify no data file was generated
-        data_file_path = releases_dir / "data-1.0.0-rc1.sql"
-        assert not data_file_path.exists()
+        assert patches == []
 
 
 class TestPromoteToProdWithDataFiles:
     """Test promote_to_prod with data file generation."""
 
-    def test_promote_prod_generates_data_file(self, release_manager_with_data_patches):
-        """Test that promote_to_prod generates data-X.Y.Z.sql if data exists."""
-        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_with_data_patches
+    def test_promote_prod_generates_data_file_in_model(self, release_manager_with_data_patches):
+        """Test that promote_to_prod generates model/data-X.Y.Z.sql if data exists."""
+        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir, model_dir = release_manager_with_data_patches
 
         # Setup: create stage file with patches
         from half_orm_dev.release_file import ReleaseFile
 
         release_file = ReleaseFile("1.0.0", releases_dir)
-
         release_file.create_empty()
-
         release_file.add_patch("789-data-patch")
-
         release_file.move_to_staged("789-data-patch")
 
         # Mock data file
@@ -277,9 +249,6 @@ class TestPromoteToProdWithDataFiles:
         mock_database._generate_schema_sql = Mock()
         mock_repo.database = mock_database
 
-        model_dir = tmp_path / "model"
-        model_dir.mkdir()
-
         # Mock _get_latest_rc_number and read_release_patches
         rel_mgr._get_latest_rc_number = Mock(return_value=0)
         rel_mgr.read_release_patches = Mock(return_value=["789-data-patch"])
@@ -287,64 +256,62 @@ class TestPromoteToProdWithDataFiles:
         # Promote to prod
         result = rel_mgr.promote_to_prod()
 
-        # Verify data file was generated
-        data_file_path = releases_dir / "data-1.0.0.sql"
+        # Verify data file was generated in model/ directory
+        data_file_path = model_dir / "data-1.0.0.sql"
         assert data_file_path.exists()
 
-        # Verify commit_and_sync was called (data file is in .hop/releases/)
+        # Verify data file was added to git
+        add_calls = [str(call[0][0]) for call in mock_hgit.add.call_args_list]
+        assert any("data-1.0.0.sql" in call for call in add_calls)
+
+        # Verify commit_and_sync was called
         mock_repo.commit_and_sync_to_active_branches.assert_called_once()
 
 
-class TestPromoteToHotfixWithDataFiles:
-    """Test promote_to_hotfix with data file generation."""
+class TestPromoteToRCNoDataFile:
+    """Test that promote_to_rc does NOT generate data files."""
 
-    def test_promote_hotfix_generates_data_file(self, release_manager_with_data_patches):
-        """Test that promote_to_hotfix generates data-X.Y.Z-hotfixN.sql if data exists."""
-        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_with_data_patches
+    def test_promote_rc_does_not_generate_data_file(self, release_manager_with_data_patches):
+        """Test that promote_to_rc does not generate data file (data loaded via patches)."""
+        rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir, model_dir = release_manager_with_data_patches
 
         # Setup: create stage file
         from half_orm_dev.release_file import ReleaseFile
 
         release_file = ReleaseFile("1.0.0", releases_dir)
-
         release_file.create_empty()
-
-        release_file.add_patch("999-hotfix-patch")
-
-        release_file.move_to_staged("999-hotfix-patch")
+        release_file.add_patch("456-auth")
+        release_file.move_to_staged("456-auth")
 
         # Mock data file
-        data_file = patches_dir / "01_hotfix_data.sql"
-        data_file.write_text("-- @HOP:data\nINSERT INTO hotfix (value) VALUES ('fix') ON CONFLICT DO NOTHING;")
+        data_file = patches_dir / "01_roles.sql"
+        data_file.write_text("-- @HOP:data\nINSERT INTO roles (name) VALUES ('admin') ON CONFLICT DO NOTHING;")
 
         # Mock dependencies
         mock_hgit = Mock()
-        mock_hgit.branch = "ho-release/1.0.0"
+        mock_hgit.branch = "ho-prod"
         mock_hgit.checkout = Mock()
-        mock_hgit.merge = Mock()
+        mock_hgit.list_tags = Mock(return_value=[])
         mock_hgit.create_tag = Mock()
         mock_hgit.push_tag = Mock()
         mock_hgit.push_branch = Mock()
         mock_hgit.add = Mock()
         mock_hgit.commit = Mock()
-        mock_hgit.delete_branch = Mock()
-        mock_hgit.delete_remote_branch = Mock()
         mock_repo.hgit = mock_hgit
 
         mock_repo.patch_manager._collect_data_files_from_patches.return_value = [data_file]
+        mock_repo.patch_manager._sync_release_files_to_ho_prod = Mock()
 
-        # Mock _apply_release_patches
+        # Mock _apply_release_patches to avoid database operations
         rel_mgr._apply_release_patches = Mock()
-        rel_mgr._determine_hotfix_number = Mock(return_value=1)
-        rel_mgr.read_release_patches = Mock(return_value=["999-hotfix-patch"])
 
-        # Promote to hotfix
-        result = rel_mgr.promote_to_hotfix()
+        # Promote to RC
+        result = rel_mgr.promote_to_rc()
 
-        # Verify data file was generated
-        data_file_path = releases_dir / "data-1.0.0-hotfix1.sql"
-        assert data_file_path.exists()
+        # Verify NO data file was generated in releases/
+        data_file_path = releases_dir / "data-1.0.0-rc1.sql"
+        assert not data_file_path.exists()
 
-        # Verify data file was added to git
-        add_calls = [str(call[0][0]) for call in mock_hgit.add.call_args_list]
-        assert any("data-1.0.0-hotfix1.sql" in call for call in add_calls)
+        # Verify NO data file was generated in model/
+        data_file_path_model = model_dir / "data-1.0.0-rc1.sql"
+        assert not data_file_path_model.exists()

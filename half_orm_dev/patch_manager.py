@@ -1916,7 +1916,7 @@ class PatchManager:
         # This also syncs .hop/ to all active branches automatically via decorator
         try:
             self._repo.commit_and_sync_to_active_branches(
-                message=f"[HOP] move patch #{patch_id} from candidate to stage %{version}"
+                message=f"[HOP] move patch #{patch_id} from candidate to stage %{version}\nFixes #{patch_id}."
             )
         except Exception as e:
             raise PatchManagerError(f"Failed to commit/push changes: {e}")

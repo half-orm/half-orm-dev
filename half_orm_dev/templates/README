@@ -170,10 +170,11 @@ half_orm dev upgrade <version>  # Deploy specific version
 {package_name}/
 ├── .hop/                       # half-orm-dev metadata
 │   ├── config                  # Repository configuration
-│   ├── model/                  # Database schemas
+│   ├── model/                  # Database schemas and data
 │   │   ├── schema.sql          # Current production schema (symlink)
 │   │   ├── schema-X.Y.Z.sql    # Versioned schemas
-│   │   └── metadata-X.Y.Z.sql  # half_orm_meta data dumps
+│   │   ├── metadata-X.Y.Z.sql  # half_orm_meta data dumps
+│   │   └── data-X.Y.Z.sql      # Reference data from @HOP:data patches
 │   └── releases/               # Release tracking files
 │       ├── X.Y.Z-patches.toml  # Development releases (mutable)
 │       ├── X.Y.Z-rcN.txt       # Release candidates (immutable)
@@ -196,6 +197,39 @@ half_orm dev upgrade <version>  # Deploy specific version
 - **`ho-patch/ID`**: Patch development branches (temporary)
 
 All development happens on patch branches, merged into release branches, then promoted to production.
+
+---
+
+## 💾 Data Persistence (@HOP:data)
+
+For reference data that must be loaded with every database installation (lookup tables, default roles, etc.), use the `@HOP:data` annotation:
+
+```sql
+-- @HOP:data
+-- This file will be included in model/data-X.Y.Z.sql
+
+INSERT INTO roles (name, description)
+VALUES ('admin', 'Administrator')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO permissions (name)
+VALUES ('read'), ('write'), ('delete')
+ON CONFLICT DO NOTHING;
+```
+
+### How it works
+
+1. **In patches**: SQL files starting with `-- @HOP:data` contain reference data
+2. **Production promote**: All `@HOP:data` files are consolidated into `model/data-X.Y.Z.sql`
+3. **Clone/Restore**: Data files are loaded automatically after schema restoration
+4. **Production upgrade**: Data is inserted via normal patch application (no special handling)
+
+### Best practices
+
+- Use `ON CONFLICT DO NOTHING` or `ON CONFLICT DO UPDATE` for idempotency
+- Keep data files small and focused (one concern per file)
+- Number your SQL files to control execution order: `01_roles.sql`, `02_permissions.sql`
+- Only use for **reference data**, not user-generated data
 
 ---
 

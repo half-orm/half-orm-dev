@@ -2218,17 +2218,19 @@ See docs/half_orm_dev.md for complete documentation.
 
     def restore_database_from_schema(self) -> None:
         """
-        Restore database from model/schema.sql and model/metadata-X.Y.Z.sql.
+        Restore database from model/schema.sql, metadata, and data files.
 
         Restores database to clean production state by dropping all user schemas
-        a clean baseline before applying patch files during patch development.
+        and loading schema, metadata, and reference data. Used for from-scratch
+        installations (clone) and patch development (patch apply).
 
         Process:
         1. Verify model/schema.sql exists (file or symlink)
         2. Drop all user schemas with CASCADE (no superuser privileges needed)
         3. Load schema structure from model/schema.sql using psql -f
         4. Load half_orm_meta data from model/metadata-X.Y.Z.sql using psql -f (if exists)
-        5. Reload halfORM Model metadata cache
+        5. Load reference data from model/data-*.sql files up to current version
+        6. Reload halfORM Model metadata cache
 
         The method uses DROP SCHEMA CASCADE instead of dropdb/createdb, allowing
         operation without CREATEDB privilege or superuser access. This makes it
@@ -2238,20 +2240,24 @@ See docs/half_orm_dev.md for complete documentation.
         - Accepts model/schema.sql as regular file or symlink
         - Symlink typically points to versioned schema-X.Y.Z.sql file
         - Follows symlink automatically during psql execution
-        - Deduces metadata file version from schema.sql symlink target
-        - If metadata-X.Y.Z.sql doesn't exist, continues without error (backward compatibility)
+        - Deduces version from schema.sql symlink target for metadata and data files
+        - Missing metadata/data files are silently skipped (backward compatibility)
+
+        Data Files:
+        - model/data-X.Y.Z.sql contains reference data from @HOP:data patches
+        - All data files up to current version are loaded in version order
+        - Example: for version 1.2.0, loads data-0.1.0.sql, data-1.0.0.sql, data-1.2.0.sql
 
         Error Handling:
         - Raises RepoError if model/schema.sql not found
         - Raises RepoError if schema drop fails
-        - Raises RepoError if psql schema load fails
-        - Raises RepoError if psql metadata load fails (when file exists)
+        - Raises RepoError if psql schema/metadata/data load fails
         - Database state rolled back on any failure
 
         Usage Context:
+        - Called by clone_repo workflow (from-scratch installation)
         - Called by apply-patch workflow (Step 1: Database Restoration)
-        - Ensures clean state before applying patch SQL files
-        - Part of isolated patch testing strategy
+        - Ensures clean state with all reference data before applying patches
 
         Returns:
             None
@@ -2263,31 +2269,23 @@ See docs/half_orm_dev.md for complete documentation.
         Examples:
             # Restore database from model/schema.sql before applying patch
             repo.restore_database_from_schema()
-            # Database now contains clean production schema + half_orm_meta data
+            # Database now contains: schema + metadata + reference data
 
             # Typical apply-patch workflow
-            repo.restore_database_from_schema()  # Step 1: Clean state + metadata
+            repo.restore_database_from_schema()  # Step 1: Clean state + all data
             patch_mgr.apply_patch_files("456-user-auth", repo.model)  # Step 2: Apply patch
 
-            # With versioned schema and metadata
+            # With versioned files
             # If schema.sql → schema-1.2.3.sql exists
-            # Then metadata-1.2.3.sql is loaded automatically (if it exists)
-
-            # Error handling
-            try:
-                repo.restore_database_from_schema()
-            except RepoError as e:
-                print(f"Database restoration failed: {e}")
-                # Handle error: check schema.sql exists, verify permissions
+            # Then loads: metadata-1.2.3.sql, data-0.1.0.sql, data-1.0.0.sql, data-1.2.3.sql
 
         Notes:
             - Uses DROP SCHEMA CASCADE - no superuser or CREATEDB privilege required
             - Works on cloud databases (AWS RDS, Azure Database, etc.)
             - Uses Model.reconnect(reload=True) to refresh metadata cache
             - Supports both schema.sql file and schema.sql -> schema-X.Y.Z.sql symlink
-            - Metadata file is optional (backward compatibility with older schemas)
+            - Metadata and data files are optional (backward compatibility)
             - All PostgreSQL commands use repository connection configuration
-            - Version deduction: schema.sql → schema-1.2.3.sql ⇒ metadata-1.2.3.sql
         """
         # 1. Verify model/schema.sql exists
         schema_path = Path(self.model_dir) / "schema.sql"
@@ -2318,15 +2316,16 @@ See docs/half_orm_dev.md for complete documentation.
                     self.database.execute_pg_command(
                         'psql', '-d', self.name, '-f', str(metadata_path)
                     )
-                    # Optional: Log success (can be removed if too verbose)
-                    # print(f"✓ Loaded metadata from {metadata_path.name}")
                 except Exception as e:
                     raise RepoError(
                         f"Failed to load metadata from {metadata_path.name}: {e}"
                     ) from e
             # else: metadata file doesn't exist, continue without error (backward compatibility)
 
-            # 5. Reload half_orm metadata cache
+            # 5. Load data files from model/data-*.sql (all versions up to current)
+            self._load_data_files(schema_path)
+
+            # 6. Reload half_orm metadata cache
             self.model.reconnect(reload=True)
 
         except RepoError:
@@ -2379,6 +2378,76 @@ See docs/half_orm_dev.md for complete documentation.
         metadata_path = schema_path.parent / f"metadata-{version}.sql"
 
         return metadata_path
+
+    def _load_data_files(self, schema_path: Path) -> None:
+        """
+        Load all data files from model/data-*.sql up to current version.
+
+        Data files contain reference data (DML) from patches with @HOP:data annotation.
+        They are loaded in version order for from-scratch installations.
+
+        Args:
+            schema_path: Path to model/schema.sql (used to deduce current version)
+
+        Process:
+            1. Deduce current version from schema.sql symlink
+            2. Find all data-*.sql files in model/
+            3. Sort by version (semantic versioning)
+            4. Load each file up to current version using psql -f
+
+        Examples:
+            # schema.sql → schema-1.2.0.sql
+            # model/ contains: data-0.1.0.sql, data-1.0.0.sql, data-1.2.0.sql, data-2.0.0.sql
+            # Loads: data-0.1.0.sql, data-1.0.0.sql, data-1.2.0.sql (skips 2.0.0)
+        """
+        # Deduce current version from schema.sql symlink
+        if not schema_path.is_symlink():
+            return  # No version info, skip data loading
+
+        try:
+            target = Path(os.readlink(schema_path))
+        except OSError:
+            return
+
+        match = re.match(r'schema-(\d+\.\d+\.\d+)\.sql$', target.name)
+        if not match:
+            return
+
+        current_version = match.group(1)
+        current_tuple = tuple(map(int, current_version.split('.')))
+
+        # Find all data files
+        model_dir = schema_path.parent
+        data_files = list(model_dir.glob("data-*.sql"))
+
+        if not data_files:
+            return  # No data files to load
+
+        # Parse and sort by version
+        versioned_files = []
+        for data_file in data_files:
+            match = re.match(r'data-(\d+\.\d+\.\d+)\.sql$', data_file.name)
+            if match:
+                version = match.group(1)
+                version_tuple = tuple(map(int, version.split('.')))
+                versioned_files.append((version_tuple, data_file))
+
+        # Sort by version tuple
+        versioned_files.sort(key=lambda x: x[0])
+
+        # Load each file up to current version
+        for version_tuple, data_file in versioned_files:
+            if version_tuple > current_tuple:
+                break  # Stop at versions beyond current
+
+            try:
+                self.database.execute_pg_command(
+                    'psql', '-d', self.name, '-f', str(data_file)
+                )
+            except Exception as e:
+                raise RepoError(
+                    f"Failed to load data from {data_file.name}: {e}"
+                ) from e
 
     @classmethod
     def clone_repo(cls,

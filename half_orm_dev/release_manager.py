@@ -744,27 +744,64 @@ class ReleaseManager:
         for patch_id in stage_patches:
             self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
 
-    def _generate_data_sql_file(self, patch_list: List[str], output_filename: str) -> Optional[Path]:
+    def _collect_all_version_patches(self, version: str) -> List[str]:
         """
-        Generate data-X.Y.Z.sql file from patches with @HOP:data annotation.
+        Collect all patches for a version including hotfixes.
+
+        Returns patches from:
+        1. Base release (X.Y.Z.txt)
+        2. All hotfixes in order (X.Y.Z-hotfix1.txt, X.Y.Z-hotfix2.txt, ...)
+
+        Args:
+            version: Base version string (e.g., "1.2.0")
+
+        Returns:
+            List of all patch IDs in application order
+
+        Examples:
+            # With 1.2.0.txt containing [a, b] and 1.2.0-hotfix1.txt containing [c]
+            patches = mgr._collect_all_version_patches("1.2.0")
+            # Returns: ["a", "b", "c"]
+        """
+        all_patches = []
+
+        # 1. Base release patches
+        base_file = f"{version}.txt"
+        all_patches.extend(self.read_release_patches(base_file))
+
+        # 2. Hotfix patches in order
+        hotfix_files = sorted(self._releases_dir.glob(f"{version}-hotfix*.txt"))
+        for hotfix_file in hotfix_files:
+            all_patches.extend(self.read_release_patches(hotfix_file.name))
+
+        return all_patches
+
+    def _generate_data_sql_file(self, patch_list: List[str], version: str) -> Optional[Path]:
+        """
+        Generate model/data-X.Y.Z.sql file from patches with @HOP:data annotation.
 
         Collects all SQL files marked with `-- @HOP:data` from the patch list
         and concatenates them into a single data SQL file for from-scratch
-        installations.
+        installations (clone, restore_database_from_schema).
+
+        This file is only generated for production releases. RC and hotfix
+        versions don't need this file because:
+        - In production upgrades, data is inserted by patch application
+        - This file is only for from-scratch installations
 
         Args:
             patch_list: List of patch IDs to process
-            output_filename: Name of the output file (e.g., "data-0.17.0-rc1.sql")
+            version: Version string (e.g., "0.17.0")
 
         Returns:
-            Path to generated file, or None if no data files found
+            Path to generated file (model/data-X.Y.Z.sql), or None if no data files found
 
         Examples:
             self._generate_data_sql_file(
                 ["456-auth", "457-roles"],
-                "data-0.17.0-rc1.sql"
+                "0.17.0"
             )
-            # Generates releases/data-0.17.0-rc1.sql with data from both patches
+            # Generates model/data-0.17.0.sql with data from both patches
         """
         if not patch_list:
             return None
@@ -777,16 +814,17 @@ class ReleaseManager:
                 # No data files found - skip generation
                 return None
 
-            # Generate output file
-            output_path = self._releases_dir / output_filename
+            # Generate output file in model/ directory
+            output_filename = f"data-{version}.sql"
+            output_path = Path(self._repo.model_dir) / output_filename
 
             with output_path.open('w', encoding='utf-8') as out_file:
                 # Write header
-                out_file.write(f"-- Data file for {output_filename.replace('.sql', '')}\n")
+                out_file.write(f"-- Data file for version {version}\n")
                 out_file.write(f"-- Generated from patches: {', '.join(patch_list)}\n")
                 out_file.write(f"-- This file contains reference data (DML) for from-scratch installations\n")
                 out_file.write(f"--\n")
-                out_file.write(f"-- Usage: psql -f {output_filename}\n")
+                out_file.write(f"-- Usage: Automatically loaded by restore_database_from_schema()\n")
                 out_file.write(f"--\n\n")
 
                 # Concatenate all data files
@@ -811,7 +849,7 @@ class ReleaseManager:
 
         except Exception as e:
             raise ReleaseManagerError(
-                f"Failed to generate data SQL file {output_filename}: {e}"
+                f"Failed to generate data SQL file data-{version}.sql: {e}"
             )
 
     def get_all_release_context_patches(self) -> List[str]:
@@ -2310,14 +2348,10 @@ class ReleaseManager:
 
             # Keep TOML file for continued development (don't delete it)
 
-            # Generate data-X.Y.Z-rcN.sql if any patches have @HOP:data files
-            rc_patches = self.read_release_patches(rc_file.name)
-            data_file = self._generate_data_sql_file(
-                rc_patches,
-                f"data-{version}-rc{rc_number}.sql"
-            )
+            # Note: data-X.Y.Z.sql is only generated for production releases
+            # RC releases don't need it - data is inserted via patch application
 
-            # Commit RC snapshot and data file (both in .hop/releases/)
+            # Commit RC snapshot (in .hop/releases/)
             # This also syncs .hop/ to all active branches automatically
             self._repo.commit_and_sync_to_active_branches(
                 message=f"[HOP] Promote release %{version} to RC {rc_number}"
@@ -2489,13 +2523,12 @@ class ReleaseManager:
             if toml_file.exists():
                 toml_file.unlink()
 
-            # Generate data-X.Y.Z.sql if any patches have @HOP:data files
-            # This includes patches from stage (incremental after last RC)
+            # Generate model/data-X.Y.Z.sql if any patches have @HOP:data files
+            # This file is used for from-scratch installations (clone, restore)
             prod_patches = self.read_release_patches(prod_file.name)
-            self._generate_data_sql_file(
-                prod_patches,
-                f"data-{version}.sql"
-            )
+            data_file = self._generate_data_sql_file(prod_patches, version)
+            if data_file:
+                self._repo.hgit.add(str(data_file))
 
             self._repo.commit_and_sync_to_active_branches(
                 message=f"[HOP] Promote release %{version} to production",
@@ -2910,14 +2943,12 @@ class ReleaseManager:
                 if toml_file.exists():
                     self._repo.hgit.rm(str(toml_file))
 
-            # Generate data-X.Y.Z-hotfixN.sql if any patches have @HOP:data files
-            hotfix_patches = self.read_release_patches(hotfix_file.name)
-            data_file = self._generate_data_sql_file(
-                hotfix_patches,
-                f"data-{version}-hotfix{hotfix_num}.sql"
-            )
+            # Regenerate model/data-X.Y.Z.sql with all patches (original release + all hotfixes)
+            # This ensures from-scratch installations get all data
+            all_patches = self._collect_all_version_patches(version)
+            data_file = self._generate_data_sql_file(all_patches, version)
             if data_file:
-                self._repo.hgit.add(str(data_file))  # Add data file if generated
+                self._repo.hgit.add(str(data_file))
 
             # 6. Apply release patches and generate SQL dumps
             self._apply_release_patches(version, True)
