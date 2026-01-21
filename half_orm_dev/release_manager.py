@@ -854,21 +854,25 @@ class ReleaseManager:
 
     def get_all_release_context_patches(self) -> List[str]:
         """
-        Récupère TOUS les patches du contexte de la prochaine release.
+        Get all validated patches for the next release context.
 
-        IMPORTANT: Application séquentielle des RC incrémentaux + TOML patches.
-        - rc1: patches initiaux (ex: 123, 456, 789)
-        - rc2: patches nouveaux (ex: 999)
-        - rc3: patches nouveaux (ex: 888, 777)
-        - TOML: TOUS les patches (candidates + staged) dans l'ordre
+        Sequential application of incremental RCs + staged patches from TOML.
+        - rc1: initial patches (e.g., 123, 456, 789)
+        - rc2: new patches (e.g., 999)
+        - rc3: new patches (e.g., 888, 777)
+        - TOML: only "staged" patches (validated via patch merge)
 
-        Résultat: [123, 456, 789, 999, 888, 777, ...]
+        "candidate" patches are NOT included because they have not passed
+        the validation process (tests) that occurs during patch merge.
+        Only "staged" patches are guaranteed to have passed tests.
 
-        Pas de déduplication car chaque RC est incrémental.
+        The current patch is applied separately by apply_patch_complete_workflow.
+
+        Note: A future "release apply" command could allow applying all patches
+        (candidates + staged) in a temporary branch for integration testing.
 
         Returns:
-            Liste ordonnée des patch IDs (séquence complète)
-            Inclut RC files + TOUS les patches du TOML (candidates + staged)
+            Ordered list of validated patch IDs (RC + staged)
 
         Examples:
             # Production: 1.3.5
@@ -877,14 +881,15 @@ class ReleaseManager:
             # 1.3.6-patches.toml: {"234": "candidate", "567": "staged"}
 
             patches = mgr.get_all_release_context_patches()
-            # → ["123", "456", "789", "999", "234", "567"]
+            # → ["123", "456", "789", "999", "567"]
+            # Note: "234" (candidate) is not included - not yet validated
 
-            # Pour apply-patch sur patch 888:
+            # For apply-patch on patch 234:
             # 1. Restore DB (1.3.5)
             # 2. Apply 123, 456, 789 (rc1)
             # 3. Apply 999 (rc2)
-            # 4. Apply 234, 567 (from TOML, all patches)
-            # 5. Apply 888 (patch courant)
+            # 4. Apply 567 (staged from TOML)
+            # 5. Apply 234 (current patch, applied separately)
         """
         next_version = self.get_next_release_version()
 
@@ -893,20 +898,21 @@ class ReleaseManager:
 
         all_patches = []
 
-        # 1. Appliquer tous les RC dans l'ordre (incrémentaux)
+        # 1. Apply all RCs in order (incremental)
         rc_files = self._get_label_files(next_version, 'rc')
         for rc_file in rc_files:
             patches = self.read_release_patches(rc_file)
-            # Chaque RC est incrémental, pas besoin de déduplication
+            # Each RC is incremental, no deduplication needed
             all_patches.extend(patches)
 
-        # 2. Appliquer TOUS les patches du TOML (candidates + staged)
-        # Pour les tests et la synchronisation, on veut tous les patches dans l'ordre
+        # 2. Apply only "staged" patches from TOML
+        # "candidate" patches are excluded because they have not yet passed
+        # the validation process (tests) that occurs during patch merge
+        # Current patch is applied separately by apply_patch_complete_workflow
         release_file = ReleaseFile(next_version, self._releases_dir)
         if release_file.exists():
-            # get_patches() sans argument retourne TOUS les patches dans l'ordre d'insertion
-            all_toml_patches = release_file.get_patches()
-            all_patches.extend(all_toml_patches)
+            staged_patches = release_file.get_patches(status="staged")
+            all_patches.extend(staged_patches)
 
         return all_patches
 
