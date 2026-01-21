@@ -2991,3 +2991,248 @@ class ReleaseManager:
             raise
         except Exception as e:
             raise ReleaseManagerError(f"Failed to promote hotfix: {e}")
+
+    def get_all_release_patches_for_testing(self) -> List[str]:
+        """
+        Get ALL patches for integration testing (candidates + staged).
+
+        Unlike get_all_release_context_patches() which excludes candidates,
+        this method returns ALL patches including those not yet validated.
+        Used by 'release apply' for complete integration testing.
+
+        Returns:
+            Ordered list of ALL patch IDs (RC + candidates + staged)
+
+        Examples:
+            # Production: 1.3.5
+            # 1.3.6-rc1.txt: 123, 456, 789
+            # 1.3.6-patches.toml: {"234": "candidate", "567": "staged"}
+
+            patches = mgr.get_all_release_patches_for_testing()
+            # → ["123", "456", "789", "234", "567"]
+            # All patches included for complete integration testing
+        """
+        next_version = self.get_next_release_version()
+
+        if not next_version:
+            return []
+
+        all_patches = []
+
+        # 1. Apply all RCs in order (incremental)
+        rc_files = self._get_label_files(next_version, 'rc')
+        for rc_file in rc_files:
+            patches = self.read_release_patches(rc_file)
+            all_patches.extend(patches)
+
+        # 2. Apply ALL patches from TOML (candidates + staged)
+        # For integration testing, we want to test the complete release
+        release_file = ReleaseFile(next_version, self._releases_dir)
+        if release_file.exists():
+            all_toml_patches = release_file.get_patches()  # No status filter = all
+            all_patches.extend(all_toml_patches)
+
+        return all_patches
+
+    def _cleanup_validate_branch(self, original_branch: Optional[str],
+                                  validate_branch: Optional[str]) -> None:
+        """
+        Cleanup temporary validation branch after apply_release.
+
+        Switches back to the original branch and deletes the temporary
+        validation branch. Errors are silently ignored for robustness.
+
+        Args:
+            original_branch: Branch to switch back to (may be None)
+            validate_branch: Temporary branch to delete (may be None)
+        """
+        try:
+            if original_branch:
+                self._repo.hgit.checkout(original_branch)
+        except Exception:
+            pass  # Best effort
+
+        try:
+            if validate_branch:
+                self._repo.hgit.delete_branch(validate_branch, force=True)
+        except Exception:
+            pass  # Best effort
+
+    def apply_release(self, run_tests: bool = True) -> dict:
+        """
+        Apply all patches from current release for integration testing.
+
+        Creates a temporary validation branch (ho-validate/release-X.Y.Z),
+        merges candidate patch branches, restores the database, applies ALL
+        patches (including candidates), optionally runs tests, then cleans up.
+        This simulates a complete release merge without modifying the release branch.
+
+        Unlike 'patch apply' which only applies staged patches,
+        'release apply' applies ALL patches (candidates + staged) to
+        validate the complete integration.
+
+        Args:
+            run_tests: Whether to run pytest after applying patches (default: True)
+
+        Returns:
+            Dict containing:
+            - version: Release version being tested
+            - patches_applied: List of patch IDs applied
+            - candidates_merged: List of candidate patch branches merged
+            - files_applied: List of SQL/Python files applied
+            - tests_passed: Boolean (None if tests not run)
+            - test_output: Test output (None if tests not run)
+            - status: 'success' or 'failed'
+            - error: Error message if failed
+
+        Raises:
+            ReleaseManagerError: If no release in development or apply fails
+
+        Workflow:
+            1. Detect current development release
+            2. Validate we're on release branch
+            3. Create temporary validation branch
+            4. Merge candidate patch branches (simulate future merges)
+            5. Restore database from production schema
+            6. Apply ALL patches (RC + staged + candidates)
+            7. Generate Python code
+            8. Optionally run tests
+            9. Cleanup: switch back and delete temp branch
+            10. Return results
+
+        Examples:
+            # Test current release with tests
+            result = release_mgr.apply_release()
+            if result['status'] == 'success':
+                print(f"Release {result['version']} ready!")
+
+            # Test without running tests
+            result = release_mgr.apply_release(run_tests=False)
+        """
+        import subprocess
+
+        validate_branch = None
+        original_branch = None
+
+        try:
+            # 1. Detect current development release
+            next_version = self.get_next_release_version()
+            if not next_version:
+                raise ReleaseManagerError(
+                    "No development release found.\n"
+                    "Create one with: half_orm dev release create <level>"
+                )
+
+            # 2. Validate we're on a release branch
+            original_branch = self._repo.hgit.branch
+            expected_branch = f"ho-release/{next_version}"
+            if original_branch != expected_branch:
+                raise ReleaseManagerError(
+                    f"Must be on release branch {expected_branch}\n"
+                    f"Currently on: {original_branch}\n"
+                    f"Switch with: git checkout {expected_branch}"
+                )
+
+            # 3. Create temporary validation branch
+            validate_branch = f"ho-validate/release-{next_version}"
+
+            # Delete existing validation branch if it exists
+            try:
+                self._repo.hgit.delete_branch(validate_branch, force=True)
+            except Exception:
+                pass  # Branch doesn't exist, that's fine
+
+            # Create and checkout validation branch
+            self._repo.hgit.create_branch(validate_branch)
+            self._repo.hgit.checkout(validate_branch)
+
+            # 4. Merge candidate patch branches to simulate future merges
+            # Staged patches are already merged on ho-release, only candidates need merging
+            release_file = ReleaseFile(next_version, self._releases_dir)
+            candidates_merged = []
+            if release_file.exists():
+                candidate_patches = release_file.get_patches(status="candidate")
+                for patch_id in candidate_patches:
+                    patch_branch = f"ho-patch/{patch_id}"
+                    try:
+                        self._repo.hgit.merge(patch_branch)
+                        candidates_merged.append(patch_id)
+                    except Exception as e:
+                        raise ReleaseManagerError(
+                            f"Failed to merge candidate branch {patch_branch}: {e}\n"
+                            f"Fix merge conflicts on the patch branch first."
+                        )
+
+            # 5. Restore database from production schema
+            self._repo.restore_database_from_schema()
+
+            # 6. Get and apply ALL patches (RC + staged + candidates)
+            all_patches = self.get_all_release_patches_for_testing()
+            all_applied_files = []
+
+            for patch_id in all_patches:
+                files = self._repo.patch_manager.apply_patch_files(
+                    patch_id, self._repo.model
+                )
+                all_applied_files.extend(files)
+
+            # 7. Generate Python code
+            from half_orm_dev import modules
+            modules.generate(self._repo)
+
+            # 8. Optionally run tests
+            tests_passed = None
+            test_output = None
+
+            if run_tests:
+                try:
+                    result = subprocess.run(
+                        ['pytest', '-v'],
+                        cwd=self._repo.base_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=600  # 10 minute timeout
+                    )
+                    tests_passed = result.returncode == 0
+                    test_output = result.stdout + result.stderr
+                except subprocess.TimeoutExpired:
+                    tests_passed = False
+                    test_output = "Tests timed out after 10 minutes"
+                except FileNotFoundError:
+                    tests_passed = None
+                    test_output = "pytest not found - tests skipped"
+
+            # 9. Cleanup: switch back to original branch and delete temp branch
+            self._repo.hgit.checkout(original_branch)
+            try:
+                self._repo.hgit.delete_branch(validate_branch, force=True)
+            except Exception:
+                pass  # Best effort cleanup
+
+            # 10. Return results
+            return {
+                'version': next_version,
+                'patches_applied': all_patches,
+                'candidates_merged': candidates_merged,
+                'files_applied': all_applied_files,
+                'tests_passed': tests_passed,
+                'test_output': test_output,
+                'status': 'success' if tests_passed is not False else 'failed',
+                'error': None
+            }
+
+        except ReleaseManagerError:
+            # Cleanup on error
+            self._cleanup_validate_branch(original_branch, validate_branch)
+            raise
+        except Exception as e:
+            # Cleanup on error
+            self._cleanup_validate_branch(original_branch, validate_branch)
+
+            # Restore DB to clean state on failure
+            try:
+                self._repo.restore_database_from_schema()
+            except Exception:
+                pass  # Best effort cleanup
+
+            raise ReleaseManagerError(f"Release apply failed: {e}")

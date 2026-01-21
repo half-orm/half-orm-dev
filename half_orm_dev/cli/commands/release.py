@@ -369,39 +369,118 @@ def release_hotfix(version: Optional[str] = None) -> None:
 
 
 @release.command('apply')
-@click.argument('version', type=str, required=False)
-def release_apply(version: Optional[str] = None) -> None:
+@click.option(
+    '--skip-tests',
+    is_flag=True,
+    help='Skip running pytest after applying patches'
+)
+def release_apply(skip_tests: bool) -> None:
     """
-    Test complete release before deployment (NOT IMPLEMENTED YET).
+    Apply all patches for integration testing.
 
-    Applies all patches from a release file to test the complete
-    release workflow before production deployment.
+    Restores the database from production schema and applies ALL patches
+    (candidates + staged) to test the complete release integration.
+    Optionally runs pytest to validate the release.
+
+    Unlike 'patch apply' which only applies validated (staged) patches,
+    this command applies ALL patches including candidates that haven't
+    passed individual validation yet. This enables testing the complete
+    release before promotion.
 
     \b
-    Args:
-        version: Release version to test (e.g., "1.3.5-rc1")
-                 If not provided, applies latest RC
+    Workflow:
+        1. Validate on release branch (ho-release/X.Y.Z)
+        2. Restore database from model/schema.sql
+        3. Apply all RC patches (if any)
+        4. Apply ALL TOML patches (candidates + staged)
+        5. Generate Python code
+        6. Run pytest (unless --skip-tests)
+
+    \b
+    Requirements:
+        - Must be on ho-release/X.Y.Z branch
+        - Development release must exist
 
     \b
     Examples:
-        Test latest RC:
+        Apply all patches and run tests:
         $ half_orm dev release apply
 
-        Test specific RC:
-        $ half_orm dev release apply 1.3.5-rc1
-
-        Test stage release:
-        $ half_orm dev release apply 1.3.5-stage
+        Apply patches without running tests:
+        $ half_orm dev release apply --skip-tests
 
     \b
-    Status: 🚧 Not implemented - planned for future release
+    Output:
+        ✓ Applied 5 patches for version 1.3.6
+        ✓ Tests passed (42 tests)
+
+        Or on failure:
+        ✗ Tests failed
+        <test output>
     """
-    click.echo("🚧 Release testing not implemented yet")
-    click.echo()
-    click.echo("Planned workflow:")
-    click.echo("  1. Restore database from model/schema.sql")
-    click.echo("  2. Apply all patches from release file")
-    click.echo("  3. Run comprehensive tests")
-    click.echo("  4. Validate final state")
-    click.echo()
-    raise NotImplementedError("Release apply not yet implemented")
+    try:
+        # Get repository instance
+        repo = Repo()
+        release_mgr = repo.release_manager
+
+        # Display context
+        click.echo("🔄 Applying all release patches for integration testing...")
+        click.echo()
+
+        # Apply release
+        result = release_mgr.apply_release(run_tests=not skip_tests)
+
+        # Display results
+        version = result['version']
+        patches = result['patches_applied']
+        candidates = result.get('candidates_merged', [])
+        patch_count = len(patches)
+
+        click.echo(f"✓ {utils.Color.green('Patches applied successfully!')}")
+        click.echo()
+        click.echo(f"  Version:  {utils.Color.bold(version)}")
+        click.echo(f"  Patches:  {utils.Color.bold(str(patch_count))}")
+        if candidates:
+            click.echo(f"  Candidates merged: {utils.Color.bold(str(len(candidates)))}")
+        click.echo()
+
+        # Show candidates merged (simulated merges)
+        if candidates:
+            click.echo("  Candidate branches merged (simulated):")
+            for patch_id in candidates:
+                click.echo(f"    • ho-patch/{patch_id}")
+            click.echo()
+
+        # Show patches applied
+        if patches:
+            click.echo("  Applied patches (SQL):")
+            for patch_id in patches:
+                click.echo(f"    • {patch_id}")
+            click.echo()
+
+        # Show test results
+        if skip_tests:
+            click.echo(f"⚠️  {utils.Color.bold('Tests skipped')} (--skip-tests flag)")
+        elif result['tests_passed'] is None:
+            click.echo(f"⚠️  {utils.Color.bold('Tests not run')} (pytest not found)")
+        elif result['tests_passed']:
+            click.echo(f"✓ {utils.Color.green('Tests passed!')}")
+        else:
+            click.echo(f"✗ {utils.Color.red('Tests failed!')}")
+            click.echo()
+            click.echo("Test output:")
+            click.echo(result['test_output'])
+            sys.exit(1)
+
+        click.echo()
+        click.echo("📝 Next steps:")
+        if result['tests_passed'] or result['tests_passed'] is None:
+            click.echo(f"  • Promote to RC: {utils.Color.bold('half_orm dev release promote rc')}")
+        else:
+            click.echo(f"  • Fix failing tests")
+            click.echo(f"  • Re-run: {utils.Color.bold('half_orm dev release apply')}")
+
+    except ReleaseManagerError as e:
+        click.echo(f"❌ {utils.Color.red('Release apply failed:')}", err=True)
+        click.echo(f"   {str(e)}", err=True)
+        sys.exit(1)
