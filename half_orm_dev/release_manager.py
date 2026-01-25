@@ -2335,10 +2335,18 @@ class ReleaseManager:
             # 1. Apply patches to database (for validation)
             self._apply_release_patches(version)
 
-            # 2. Checkout release branch
+            # 2. Register the RC version in half_orm_meta.hop_release
+            version_parts = version.split('.')
+            major, minor, patch_num = map(int, version_parts)
+            self._repo.database.register_release(
+                major, minor, patch_num,
+                pre_release='rc', pre_release_num=str(rc_number)
+            )
+
+            # 3. Checkout release branch
             self._repo.hgit.checkout(release_branch)
 
-            # 3. Create RC tag on release branch
+            # 4. Create RC tag on release branch
             self._repo.hgit.create_tag(rc_tag, f"Release Candidate %{version}")
 
             # Push tag
@@ -2513,6 +2521,11 @@ class ReleaseManager:
                 # No new patches - just restore from latest RC
                 # The database should already be in the correct state from RC
                 pass
+
+            # Register the release version in half_orm_meta.hop_release
+            version_parts = version.split('.')
+            major, minor, patch_num = map(int, version_parts)
+            self._repo.database.register_release(major, minor, patch_num)
 
             # Generate schema dump for this production version
             model_dir = Path(self._repo.model_dir)

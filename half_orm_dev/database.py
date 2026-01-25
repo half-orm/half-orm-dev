@@ -181,10 +181,22 @@ class Database:
             *command_args
         )
 
-    def register_release(self, major, minor, patch, changelog=None):
-        "Register the release into half_orm_meta.hop_release"
+    def register_release(self, major, minor, patch, pre_release='', pre_release_num='', changelog=None):
+        """
+        Register the release into half_orm_meta.hop_release.
+
+        Args:
+            major: Major version number
+            minor: Minor version number
+            patch: Patch version number
+            pre_release: Pre-release type ('alpha', 'beta', 'rc', or '' for production)
+            pre_release_num: Pre-release number (e.g., '1' for rc1)
+            changelog: Optional changelog text
+        """
         return self.__model.get_relation_class('half_orm_meta.hop_release')(
-            major=major, minor=minor, patch=patch, changelog=changelog
+            major=major, minor=minor, patch=patch,
+            pre_release=pre_release, pre_release_num=pre_release_num,
+            changelog=changelog
         ).ho_insert()
 
     def _generate_schema_sql(self, version: str, model_dir: Path) -> Path:
