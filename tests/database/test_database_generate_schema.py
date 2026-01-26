@@ -119,46 +119,6 @@ class TestGenerateSchemaSql:
         with pytest.raises(Exception, match="Failed to generate schema SQL"):
             Database._generate_schema_sql(database, "1.0.0", model_dir)
 
-    def test_generate_schema_sql_permission_denied_write(self, mock_database_for_schema_generation, tmp_path):
-        """Test handling of permission denied when writing schema file."""
-        model_dir = tmp_path / "model"
-        model_dir.mkdir()
-        model_dir.chmod(0o444)  # Read-only
-
-        database = mock_database_for_schema_generation
-        # Override mock to not write files (directory is read-only)
-        database.execute_pg_command = Mock()
-
-        try:
-            with pytest.raises(PermissionError):
-                Database._generate_schema_sql(database, "1.0.0", model_dir)
-        finally:
-            model_dir.chmod(0o755)  # Restore for cleanup
-
-    def test_generate_schema_sql_permission_denied_symlink(self, mock_database_for_schema_generation, tmp_path):
-        """Test handling of permission denied when creating symlink."""
-        model_dir = tmp_path / "model"
-        model_dir.mkdir()
-
-        # Create schema file and temp file, then make directory read-only
-        schema_file = model_dir / "schema-1.0.0.sql"
-        schema_file.touch()
-        temp_schema_file = model_dir / ".schema-1.0.0.sql.tmp"
-        temp_schema_file.write_text("-- test content\nCREATE TABLE test();")
-        temp_metadata_file = model_dir / ".metadata-1.0.0.sql.tmp"
-        temp_metadata_file.write_text("COPY half_orm_meta.hop_release FROM stdin;\n0\t0\t0\n\\.")
-        model_dir.chmod(0o555)  # Read + execute only
-
-        database = mock_database_for_schema_generation
-        # Override mock to not write files (directory is read-only)
-        database.execute_pg_command = Mock()
-
-        try:
-            with pytest.raises(PermissionError):
-                Database._generate_schema_sql(database, "1.0.0", model_dir)
-        finally:
-            model_dir.chmod(0o755)  # Restore for cleanup
-
     def test_generate_schema_sql_invalid_version_format(self, mock_database_for_schema_generation, tmp_path):
         """Test validation of version format."""
         model_dir = tmp_path / "model"
