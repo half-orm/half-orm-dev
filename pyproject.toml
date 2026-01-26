@@ -47,6 +47,7 @@ half_orm_dev = [
     "templates/.gitignore",
     "db_patch_system/*",
     "patches/**/*",
+    "scripts/*",
     "version.txt"
 ]
 
