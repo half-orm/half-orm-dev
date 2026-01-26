@@ -2,214 +2,271 @@
 """
 Repair script for half-orm-dev metadata files.
 
-This script fixes the bug where half_orm_meta.hop_release entries were not
-being added during RC/production promotions (fixed in 0.17.3-a5+).
-
-It updates all metadata-X.Y.Z.sql files to include the missing INSERT
-statement for the corresponding version.
-
-IMPORTANT: This script modifies files on the ho-prod branch which is typically
-protected. You may need to temporarily disable branch protection or pre-commit
-hooks before running this script.
+This script regenerates all metadata-X.Y.Z.sql files with correct hop_release
+entries by:
+1. Clearing half_orm_meta.hop_release (keeping only 0.0.0)
+2. For each version tag (vX.Y.Z or vX.Y.Z-rcN):
+   - Insert the version with the tag's date
+   - Generate metadata-X.Y.Z.sql (or metadata-X.Y.Z-rcN.sql)
 
 Usage:
     cd /path/to/your/project
     python /path/to/half-orm-dev/scripts/repair-metadata.py [--dry-run]
 
 Options:
-    --dry-run    Show what would be changed without modifying files
-    --verbose    Show detailed information about each file
+    --dry-run    Show what would be done without modifying anything
+    --verbose    Show detailed information
 """
 
 import argparse
 import re
+import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple, Optional
 
 
-def parse_version(filename: str) -> Optional[Tuple[int, int, int]]:
+def get_version_tags() -> List[Tuple[str, str, datetime]]:
     """
-    Extract version tuple from metadata filename.
-
-    Args:
-        filename: e.g., "metadata-1.2.3.sql"
+    Get all version tags with their dates from git.
 
     Returns:
-        Tuple (major, minor, patch) or None if not parseable
+        List of (tag_name, version_string, date) tuples sorted by version.
+        tag_name: e.g., "v0.1.0", "v0.1.0-rc1"
+        version_string: e.g., "0.1.0", "0.1.0-rc1"
+        date: datetime object
     """
-    match = re.match(r'metadata-(\d+)\.(\d+)\.(\d+)\.sql$', filename)
-    if match:
-        return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
-    return None
-
-
-def find_hop_release_inserts(content: str) -> List[Tuple[int, int, int]]:
-    """
-    Find all hop_release INSERT statements in metadata file content.
-
-    Handles both formats:
-    - COPY half_orm_meta.hop_release ... FROM stdin;
-    - INSERT INTO half_orm_meta.hop_release ...
-
-    Args:
-        content: File content
-
-    Returns:
-        List of (major, minor, patch) tuples found
-    """
-    versions = []
-
-    # Pattern for INSERT statements
-    # INSERT INTO half_orm_meta.hop_release (major, minor, patch, ...) VALUES (1, 2, 3, ...);
-    insert_pattern = re.compile(
-        r"INSERT INTO half_orm_meta\.hop_release\s*\([^)]+\)\s*VALUES\s*\((\d+),\s*(\d+),\s*(\d+)",
-        re.IGNORECASE
+    result = subprocess.run(
+        ['git', 'tag', '--format=%(refname:short) %(creatordate:iso)'],
+        capture_output=True, text=True, check=True
     )
 
-    for match in insert_pattern.finditer(content):
-        versions.append((int(match.group(1)), int(match.group(2)), int(match.group(3))))
-
-    # Pattern for COPY format (pg_dump default)
-    # COPY half_orm_meta.hop_release (major, minor, patch, ...) FROM stdin;
-    # 1	2	3	...
-    copy_pattern = re.compile(
-        r"COPY half_orm_meta\.hop_release\s*\([^)]+\)\s*FROM stdin;",
-        re.IGNORECASE
-    )
-
-    for match in copy_pattern.finditer(content):
-        # Find the data lines after COPY statement
-        start_pos = match.end()
-        end_marker = content.find("\\.", start_pos)
-        if end_marker == -1:
+    tags = []
+    for line in result.stdout.strip().split('\n'):
+        if not line.strip():
             continue
 
-        data_section = content[start_pos:end_marker]
+        parts = line.split(' ', 1)
+        if len(parts) != 2:
+            continue
 
-        # Parse each data line (tab-separated)
-        for line in data_section.strip().split('\n'):
-            if line.strip():
-                parts = line.split('\t')
-                if len(parts) >= 3:
-                    try:
-                        versions.append((int(parts[0]), int(parts[1]), int(parts[2])))
-                    except ValueError:
-                        continue
+        tag_name, date_str = parts
 
-    return versions
+        # Match vX.Y.Z or vX.Y.Z-rcN
+        match = re.match(r'^v(\d+\.\d+\.\d+(?:-rc\d+)?)$', tag_name)
+        if not match:
+            continue
+
+        version_str = match.group(1)
+
+        # Parse date (format: "2025-11-21 15:09:14 +0100")
+        try:
+            # Remove timezone for simpler parsing
+            date_part = ' '.join(date_str.split()[:2])
+            date = datetime.strptime(date_part, '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            continue
+
+        tags.append((tag_name, version_str, date))
+
+    # Sort by version (handle X.Y.Z and X.Y.Z-rcN)
+    def version_key(item):
+        version_str = item[1]
+        # Split base version and rc part
+        if '-rc' in version_str:
+            base, rc = version_str.split('-rc')
+            rc_num = int(rc)
+        else:
+            base = version_str
+            rc_num = 9999  # Production comes after all RCs
+
+        parts = [int(p) for p in base.split('.')]
+        return (*parts, rc_num)
+
+    return sorted(tags, key=version_key)
 
 
-def generate_insert_statement(major: int, minor: int, patch: int) -> str:
+def parse_version_string(version_str: str) -> Tuple[int, int, int, str, str]:
     """
-    Generate INSERT statement for hop_release.
+    Parse version string into components.
 
     Args:
-        major, minor, patch: Version numbers
+        version_str: e.g., "0.1.0" or "0.1.0-rc1"
 
     Returns:
-        SQL INSERT statement
+        Tuple of (major, minor, patch, pre_release, pre_release_num)
     """
-    return (
-        f"-- Added by repair-metadata.py (fix for missing hop_release entries)\n"
-        f"INSERT INTO half_orm_meta.hop_release (major, minor, patch, pre_release, pre_release_num) "
-        f"VALUES ({major}, {minor}, {patch}, '', '');\n"
-    )
+    if '-rc' in version_str:
+        base, rc = version_str.split('-rc')
+        pre_release = 'rc'
+        pre_release_num = rc
+    else:
+        base = version_str
+        pre_release = ''
+        pre_release_num = ''
 
-
-def repair_metadata_file(
-    filepath: Path,
-    dry_run: bool = False,
-    verbose: bool = False
-) -> Tuple[bool, str]:
-    """
-    Repair a single metadata file by adding missing hop_release INSERT.
-
-    Args:
-        filepath: Path to metadata-X.Y.Z.sql file
-        dry_run: If True, don't modify file
-        verbose: If True, show detailed output
-
-    Returns:
-        Tuple of (was_modified, message)
-    """
-    filename = filepath.name
-    version = parse_version(filename)
-
-    if version is None:
-        return False, f"Skipped: cannot parse version from {filename}"
-
-    major, minor, patch = version
-
-    try:
-        content = filepath.read_text()
-    except Exception as e:
-        return False, f"Error reading {filename}: {e}"
-
-    # Find existing hop_release entries
-    existing_versions = find_hop_release_inserts(content)
-
-    if verbose:
-        print(f"  Found {len(existing_versions)} existing hop_release entries")
-        for v in existing_versions:
-            print(f"    - {v[0]}.{v[1]}.{v[2]}")
-
-    # Check if this version is already present
-    if version in existing_versions:
-        return False, f"OK: {filename} already contains entry for {major}.{minor}.{patch}"
-
-    # Generate the INSERT statement
-    insert_stmt = generate_insert_statement(major, minor, patch)
-
-    if dry_run:
-        return True, f"Would add INSERT for {major}.{minor}.{patch} to {filename}"
-
-    # Add the INSERT at the end of the file
-    try:
-        with filepath.open('a') as f:
-            f.write('\n')
-            f.write(insert_stmt)
-        return True, f"Fixed: added INSERT for {major}.{minor}.{patch} to {filename}"
-    except Exception as e:
-        return False, f"Error writing to {filename}: {e}"
+    parts = base.split('.')
+    return (int(parts[0]), int(parts[1]), int(parts[2]), pre_release, pre_release_num)
 
 
 def find_model_dir() -> Optional[Path]:
-    """
-    Find the .hop/model directory in current working directory.
-
-    Returns:
-        Path to model directory or None if not found
-    """
+    """Find the .hop/model directory in current working directory."""
     cwd = Path.cwd()
     model_dir = cwd / ".hop" / "model"
 
     if model_dir.is_dir():
         return model_dir
+    return None
+
+
+def get_database_name() -> Optional[str]:
+    """Get database name from half_orm config."""
+    try:
+        from half_orm.model import Model
+        model = Model._model
+        if model:
+            return model._dbname
+    except:
+        pass
+
+    # Try reading from .hop/config
+    config_path = Path.cwd() / ".hop" / "config"
+    if config_path.exists():
+        import configparser
+        config = configparser.ConfigParser()
+        config.read(config_path)
+        if 'database' in config and 'name' in config['database']:
+            return config['database']['name']
 
     return None
 
 
+def clear_hop_release_table(db_name: str, dry_run: bool = False) -> None:
+    """
+    Clear hop_release table keeping only 0.0.0.
+
+    Args:
+        db_name: Database name
+        dry_run: If True, only show what would be done
+    """
+    sql = "DELETE FROM half_orm_meta.hop_release WHERE NOT (major = 0 AND minor = 0 AND patch = 0);"
+
+    if dry_run:
+        print(f"Would execute: {sql}")
+        return
+
+    subprocess.run(
+        ['psql', '-d', db_name, '-c', sql],
+        check=True, capture_output=True
+    )
+
+
+def insert_version(db_name: str, major: int, minor: int, patch: int,
+                   pre_release: str, pre_release_num: str,
+                   date: datetime, dry_run: bool = False) -> None:
+    """
+    Insert a version into hop_release table.
+
+    Args:
+        db_name: Database name
+        major, minor, patch: Version components
+        pre_release: 'rc' or ''
+        pre_release_num: RC number or ''
+        date: Release date
+        dry_run: If True, only show what would be done
+    """
+    date_str = date.strftime('%Y-%m-%d')
+    time_str = date.strftime('%H:%M:%S')
+
+    sql = f"""INSERT INTO half_orm_meta.hop_release
+              (major, minor, patch, pre_release, pre_release_num, date, time)
+              VALUES ({major}, {minor}, {patch}, '{pre_release}', '{pre_release_num}', '{date_str}', '{time_str}');"""
+
+    if dry_run:
+        print(f"Would execute: {sql}")
+        return
+
+    subprocess.run(
+        ['psql', '-d', db_name, '-c', sql],
+        check=True, capture_output=True
+    )
+
+
+def generate_metadata_file(db_name: str, version_str: str, model_dir: Path,
+                           dry_run: bool = False) -> Path:
+    """
+    Generate metadata-X.Y.Z.sql file using pg_dump.
+
+    Only keeps COPY blocks to avoid version-specific SET commands
+    and ensure compatibility across PostgreSQL versions.
+
+    Args:
+        db_name: Database name
+        version_str: Version string (e.g., "0.1.0" or "0.1.0-rc1")
+        model_dir: Path to model directory
+        dry_run: If True, only show what would be done
+
+    Returns:
+        Path to generated file
+    """
+    metadata_file = model_dir / f"metadata-{version_str}.sql"
+
+    if dry_run:
+        print(f"Would generate: {metadata_file}")
+        return metadata_file
+
+    # Dump to stdout
+    result = subprocess.run([
+        'pg_dump', db_name,
+        '--data-only',
+        '--table=half_orm_meta.database',
+        '--table=half_orm_meta.hop_release',
+        '--table=half_orm_meta.hop_release_issue',
+    ], check=True, capture_output=True, text=True)
+
+    # Filter to keep only COPY blocks (COPY ... FROM stdin; ... \.)
+    filtered_lines = []
+    in_copy_block = False
+    for line in result.stdout.split('\n'):
+        if line.startswith('COPY '):
+            in_copy_block = True
+        if in_copy_block:
+            filtered_lines.append(line)
+        if line == '\\.':
+            in_copy_block = False
+            filtered_lines.append('')  # Empty line between blocks
+
+    metadata_file.write_text('\n'.join(filtered_lines))
+
+    return metadata_file
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Repair half-orm-dev metadata files by adding missing hop_release entries.",
+        description="Regenerate half-orm-dev metadata files from git tags.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
     parser.add_argument(
         '--dry-run',
         action='store_true',
-        help='Show what would be changed without modifying files'
+        help='Show what would be done without modifying anything'
     )
     parser.add_argument(
         '--verbose',
         action='store_true',
-        help='Show detailed information about each file'
+        help='Show detailed information'
+    )
+    parser.add_argument(
+        '--database',
+        type=str,
+        help='Database name (auto-detected if not specified)'
     )
     parser.add_argument(
         '--model-dir',
         type=Path,
-        help='Path to model directory (default: .hop/model in current directory)'
+        help='Path to model directory (default: .hop/model)'
     )
 
     args = parser.parse_args()
@@ -225,76 +282,70 @@ def main():
         print("Make sure you're in a half-orm-dev managed project directory", file=sys.stderr)
         sys.exit(1)
 
+    # Get database name
+    db_name = args.database or get_database_name()
+    if not db_name:
+        print("Error: Could not determine database name", file=sys.stderr)
+        print("Use --database option to specify it", file=sys.stderr)
+        sys.exit(1)
+
     print(f"Model directory: {model_dir}")
+    print(f"Database: {db_name}")
     print()
 
     if args.dry_run:
-        print("=== DRY RUN MODE - No files will be modified ===")
+        print("=== DRY RUN MODE - No changes will be made ===")
         print()
 
-    # Warning about branch protection
-    print("WARNING: This script modifies files that may be on a protected branch (ho-prod).")
-    print("If your pre-commit hooks block the changes, you may need to:")
-    print("  1. Temporarily disable branch protection")
-    print("  2. Or use: git commit --no-verify")
-    print()
+    # Get version tags
+    tags = get_version_tags()
 
-    # Find all metadata files
-    metadata_files = sorted(model_dir.glob("metadata-*.sql"))
-
-    if not metadata_files:
-        print("No metadata-X.Y.Z.sql files found")
+    if not tags:
+        print("No version tags found (expected format: vX.Y.Z or vX.Y.Z-rcN)")
         sys.exit(0)
 
-    print(f"Found {len(metadata_files)} metadata files")
+    print(f"Found {len(tags)} version tags")
     print()
 
-    # Process each file
-    modified_count = 0
-    ok_count = 0
-    error_count = 0
+    # Step 1: Clear hop_release table (keep 0.0.0)
+    print("Step 1: Clearing hop_release table (keeping 0.0.0)...")
+    clear_hop_release_table(db_name, dry_run=args.dry_run)
+    print("  Done")
+    print()
 
-    for filepath in metadata_files:
+    # Step 2: Process each version
+    print("Step 2: Processing versions...")
+    for tag_name, version_str, date in tags:
+        major, minor, patch, pre_release, pre_release_num = parse_version_string(version_str)
+
         if args.verbose:
-            print(f"Processing: {filepath.name}")
+            print(f"  {tag_name} -> {version_str} ({date})")
 
-        modified, message = repair_metadata_file(
-            filepath,
-            dry_run=args.dry_run,
-            verbose=args.verbose
+        # Insert version with correct date
+        insert_version(
+            db_name, major, minor, patch,
+            pre_release, pre_release_num, date,
+            dry_run=args.dry_run
         )
 
-        if "Error" in message:
-            error_count += 1
-            print(f"  ERROR: {message}")
-        elif modified:
-            modified_count += 1
-            print(f"  {message}")
-        else:
-            ok_count += 1
-            if args.verbose:
-                print(f"  {message}")
+        # Generate metadata file
+        metadata_file = generate_metadata_file(
+            db_name, version_str, model_dir,
+            dry_run=args.dry_run
+        )
 
-    # Summary
+        print(f"  ✓ {version_str} ({date.strftime('%Y-%m-%d')})")
+
     print()
     print("=" * 50)
     print(f"Summary:")
-    print(f"  Files checked:  {len(metadata_files)}")
-    print(f"  Already OK:     {ok_count}")
-    print(f"  {'Would fix' if args.dry_run else 'Fixed'}:       {modified_count}")
-    if error_count > 0:
-        print(f"  Errors:         {error_count}")
+    print(f"  Versions processed: {len(tags)}")
 
-    if args.dry_run and modified_count > 0:
-        print()
-        print("Run without --dry-run to apply changes")
-
-    if modified_count > 0 and not args.dry_run:
+    if not args.dry_run:
         print()
         print("Next steps:")
-        print("  1. Review the changes: git diff .hop/model/")
-        print("  2. Commit: git add .hop/model/metadata-*.sql && git commit -m 'fix: add missing hop_release entries'")
-        print("     (Use --no-verify if pre-commit hooks block the commit)")
+        print("  1. Review the changes: git status")
+        print("  2. Commit: git add .hop/model/metadata-*.sql && git commit -m 'fix: regenerate metadata files'")
 
 
 if __name__ == "__main__":

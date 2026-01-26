@@ -138,12 +138,18 @@ class TestGenerateSchemaSql:
         model_dir = tmp_path / "model"
         model_dir.mkdir()
 
-        # Create schema file but make directory read-only after
+        # Create schema file and temp file, then make directory read-only
         schema_file = model_dir / "schema-1.0.0.sql"
         schema_file.touch()
+        temp_schema_file = model_dir / ".schema-1.0.0.sql.tmp"
+        temp_schema_file.write_text("-- test content\nCREATE TABLE test();")
+        temp_metadata_file = model_dir / ".metadata-1.0.0.sql.tmp"
+        temp_metadata_file.write_text("COPY half_orm_meta.hop_release FROM stdin;\n0\t0\t0\n\\.")
         model_dir.chmod(0o555)  # Read + execute only
 
         database = mock_database_for_schema_generation
+        # Override mock to not write files (directory is read-only)
+        database.execute_pg_command = Mock()
 
         try:
             with pytest.raises(PermissionError):
@@ -234,11 +240,12 @@ class TestGenerateSchemaSql:
         # Should create both files
         schema_file = model_dir / "schema-1.2.3.sql"
         metadata_file = model_dir / "metadata-1.2.3.sql"
+        temp_metadata_file = model_dir / ".metadata-1.2.3.sql.tmp"
 
         # Verify both calls were made
         assert database.execute_pg_command.call_count == 2
 
-        # Second call should be for metadata with correct tables
+        # Second call should be for metadata with correct tables (writes to temp file)
         metadata_call = database.execute_pg_command.call_args_list[1]
         call_args = metadata_call[0]
 
@@ -247,7 +254,11 @@ class TestGenerateSchemaSql:
         assert '--table=half_orm_meta.database' in call_args
         assert '--table=half_orm_meta.hop_release' in call_args
         assert '--table=half_orm_meta.hop_release_issue' in call_args
-        assert str(metadata_file) in call_args
+        # Now dumps to temp file which is then filtered
+        assert str(temp_metadata_file) in call_args
+
+        # Final metadata file should exist (created from filtered temp content)
+        assert metadata_file.exists()
 
 
     def test_generate_schema_sql_no_metadata_symlink(self, mock_database_for_schema_generation, tmp_path):
@@ -275,11 +286,18 @@ class TestGenerateSchemaSql:
 
         database = mock_database_for_schema_generation
 
-        # Mock: schema succeeds, metadata fails
-        database.execute_pg_command = Mock(side_effect=[
-            None,  # First call (schema) succeeds
-            Exception("metadata dump failed")  # Second call (metadata) fails
-        ])
+        # Create temp schema file that would be created by first pg_dump call
+        temp_schema_file = model_dir / ".schema-1.0.0.sql.tmp"
+
+        def mock_schema_then_fail(*args):
+            """First call creates temp file, second call fails."""
+            if '--schema-only' in args:
+                temp_schema_file.write_text("-- test schema\nCREATE TABLE test();")
+            else:
+                raise Exception("metadata dump failed")
+
+        # Mock: schema succeeds (creates temp file), metadata fails
+        database.execute_pg_command = Mock(side_effect=mock_schema_then_fail)
 
         with pytest.raises(Exception, match="Failed to generate metadata SQL"):
             Database._generate_schema_sql(database, "1.0.0", model_dir)

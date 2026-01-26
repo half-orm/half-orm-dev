@@ -287,6 +287,7 @@ class Database:
 
         # Construct versioned schema file path
         schema_file = model_dir / f"schema-{version}.sql"
+        temp_schema_file = model_dir / f".schema-{version}.sql.tmp"
 
         # Generate schema dump using pg_dump
         try:
@@ -294,16 +295,45 @@ class Database:
                 'pg_dump',
                 self.__name,
                 '--schema-only',
+                '--no-owner',
                 '-f',
-                str(schema_file)
+                str(temp_schema_file)
             )
+
+            # Filter out version-specific lines for cross-version compatibility
+            content = temp_schema_file.read_text()
+            filtered_lines = []
+            # SET commands that are version-specific and should be removed
+            version_specific_sets = (
+                'SET transaction_timeout',  # PG17+
+            )
+            for line in content.split('\n'):
+                # Skip \restrict and \unrestrict lines
+                if line.startswith('\\restrict') or line.startswith('\\unrestrict'):
+                    continue
+                # Skip "-- Dumped from/by" comments (version-specific)
+                if line.startswith('-- Dumped from') or line.startswith('-- Dumped by'):
+                    continue
+                # Skip version-specific SET commands
+                if any(line.startswith(s) for s in version_specific_sets):
+                    continue
+                filtered_lines.append(line)
+
+            schema_file.write_text('\n'.join(filtered_lines))
         except Exception as e:
             raise Exception(f"Failed to generate schema SQL: {e}") from e
+        finally:
+            # Clean up temporary file
+            if temp_schema_file.exists():
+                temp_schema_file.unlink()
 
         # Generate metadata dump (half_orm_meta data only)
+        # Keep only COPY statements to avoid version-specific SET commands
         metadata_file = model_dir / f"metadata-{version}.sql"
+        temp_file = model_dir / f".metadata-{version}.sql.tmp"
 
         try:
+            # Dump to temporary file
             self.execute_pg_command(
                 'pg_dump',
                 self.__name,
@@ -312,10 +342,29 @@ class Database:
                 '--table=half_orm_meta.hop_release',
                 '--table=half_orm_meta.hop_release_issue',
                 '-f',
-                str(metadata_file)
+                str(temp_file)
             )
+
+            # Filter to keep only COPY blocks (COPY ... FROM stdin; ... \.)
+            content = temp_file.read_text()
+            filtered_lines = []
+            in_copy_block = False
+            for line in content.split('\n'):
+                if line.startswith('COPY '):
+                    in_copy_block = True
+                if in_copy_block:
+                    filtered_lines.append(line)
+                if line == '\\.':
+                    in_copy_block = False
+                    filtered_lines.append('')  # Empty line between blocks
+
+            metadata_file.write_text('\n'.join(filtered_lines))
         except Exception as e:
             raise Exception(f"Failed to generate metadata SQL: {e}") from e
+        finally:
+            # Clean up temporary file
+            if temp_file.exists():
+                temp_file.unlink()
 
         # Create or update symlink
         symlink_path = model_dir / "schema.sql"

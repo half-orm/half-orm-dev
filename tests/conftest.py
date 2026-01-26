@@ -173,6 +173,8 @@ def mock_database_for_schema_generation():
 
             result = Database._generate_schema_sql(database, "1.0.0", model_dir)
     """
+    from pathlib import Path
+
     mock_db = Mock(spec=Database)
 
     # Set mangled private attribute for database name
@@ -190,8 +192,31 @@ def mock_database_for_schema_generation():
     mock_db._collect_connection_params = Mock(return_value=connection_params)
     mock_db._get_connection_params = Mock(return_value=connection_params)
 
-    # Mock pg_dump execution
-    mock_db._execute_pg_command = Mock()
+    # Mock pg_dump execution - creates temp files with sample content
+    def mock_execute_pg_command(*args):
+        # Find the -f argument to get the output file path
+        for i, arg in enumerate(args):
+            if arg == '-f' and i + 1 < len(args):
+                filepath = Path(args[i + 1])
+                # Create sample content based on dump type
+                if '--schema-only' in args:
+                    content = """-- PostgreSQL database dump
+SET client_encoding = 'UTF8';
+CREATE TABLE test_table (id integer);
+"""
+                elif '--data-only' in args:
+                    content = """-- PostgreSQL database dump
+SET client_encoding = 'UTF8';
+COPY half_orm_meta.hop_release (major, minor, patch) FROM stdin;
+0\t0\t0
+\\.
+"""
+                else:
+                    content = ""
+                filepath.write_text(content)
+                break
+
+    mock_db.execute_pg_command = Mock(side_effect=mock_execute_pg_command)
 
     return mock_db
 
