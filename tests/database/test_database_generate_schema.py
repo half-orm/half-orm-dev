@@ -126,6 +126,8 @@ class TestGenerateSchemaSql:
         model_dir.chmod(0o444)  # Read-only
 
         database = mock_database_for_schema_generation
+        # Override mock to not write files (directory is read-only)
+        database.execute_pg_command = Mock()
 
         try:
             with pytest.raises(PermissionError):
