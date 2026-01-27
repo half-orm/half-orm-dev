@@ -3,7 +3,7 @@ Tests for Repo.init_git_centric_project() - Validation phase
 
 Focused on:
 - Package name validation (_validate_package_name)
-- Database configuration verification (_verify_database_configured)
+- Project directory creation (_create_project_directory)
 - Pre-requisite checks and error handling
 """
 
@@ -13,7 +13,6 @@ import tempfile
 import shutil
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
-from psycopg2 import OperationalError
 
 from half_orm_dev.repo import Repo
 from half_orm_dev.database import Database
@@ -115,117 +114,6 @@ class TestPackageNameValidation:
 
         with pytest.raises(ValueError, match="reserved keyword"):
             repo._validate_package_name("class")
-
-
-class TestDatabaseConfigurationVerification:
-    """Test _verify_database_configured() method."""
-
-    def setup_method(self):
-        """Clear singleton instances before each test."""
-        Repo.clear_instances()
-
-    def teardown_method(self):
-        """Clear singleton instances after each test."""
-        Repo.clear_instances()
-
-    @pytest.fixture
-    def mock_database_config(self, tmp_path):
-        """Create mock database configuration file."""
-        conf_dir = tmp_path / "conf"
-        conf_dir.mkdir()
-
-        db_config = conf_dir / "test_db"
-        db_config.write_text("""[database]
-name = test_db
-user = testuser
-password = testpass
-host = localhost
-port = 5432
-production = False
-""")
-
-        return str(conf_dir), "test_db"
-
-    @patch('half_orm_dev.repo.Model')
-    @patch('half_orm_dev.database.Database._load_configuration')
-    def test_verify_database_configured_success(self, mock_load_config, mock_model, mock_database_config):
-        """Test successful verification of configured database."""
-        conf_dir, db_name = mock_database_config
-
-        mock_load_config.return_value = {
-            'name': db_name,
-            'user': 'testuser',
-            'password': 'testpass',
-            'host': 'localhost',
-            'port': 5432,
-            'production': False
-        }
-
-        # Mock Model to avoid real database connection
-        mock_model_instance = Mock()
-        mock_model.return_value = mock_model_instance
-
-        repo = Repo()
-
-        # Should not raise any exception and return model
-        result = repo._verify_database_configured(db_name)
-
-        # Verify Model was called with database name
-        mock_model.assert_called_once_with(db_name)
-
-        # Should return the model instance
-        assert result is mock_model_instance
-
-    @patch('half_orm_dev.repo.Model')
-    @patch('half_orm_dev.database.Database._load_configuration')
-    def test_verify_database_not_configured_raises_error(self, mock_load_config, mock_model):
-        """Test error when database configuration doesn't exist."""
-        mock_load_config.return_value = None  # Configuration not found
-
-        repo = Repo()
-
-        with pytest.raises(ValueError, match="not configured"):
-            repo._verify_database_configured("unconfigured_db")
-
-    @patch('half_orm_dev.repo.Model')
-    @patch('half_orm_dev.database.Database._load_configuration')
-    def test_verify_database_connection_fails_raises_error(self, mock_load_config, mock_model, mock_database_config):
-        """Test error when cannot connect to configured database."""
-        conf_dir, db_name = mock_database_config
-
-        mock_load_config.return_value = {
-            'name': db_name,
-            'user': 'testuser',
-            'password': 'testpass',
-            'host': 'localhost',
-            'port': 5432,
-            'production': False
-        }
-
-        # Simulate connection failure
-        mock_model.side_effect = OperationalError("Connection refused")
-
-        repo = Repo()
-
-        with pytest.raises(OperationalError, match="Cannot connect"):
-            repo._verify_database_configured(db_name)
-
-    @patch('half_orm_dev.repo.Model')
-    @patch('half_orm_dev.database.Database._load_configuration')
-    def test_verify_database_helpful_error_message(self, mock_load_config, mock_model):
-        """Test error message provides helpful guidance."""
-        mock_load_config.return_value = None
-
-        repo = Repo()
-
-        with pytest.raises(ValueError) as exc_info:
-            repo._verify_database_configured("my_db")
-
-        error_message = str(exc_info.value)
-
-        # Error should mention init-database command
-        assert "init-database" in error_message
-        assert "my_db" in error_message
 
 
 class TestProjectDirectoryCreation:

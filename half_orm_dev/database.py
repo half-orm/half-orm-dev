@@ -1224,126 +1224,12 @@ class Database:
 
         return complete_params
 
-    @classmethod
-    def _load_configuration(cls, database_name):
-        """
-        Load existing database configuration file, replacing DbConn functionality.
-
-        Reads halfORM configuration file and returns connection parameters as a dictionary.
-        This method completely replaces DbConn.__init() logic, supporting both minimal
-        configurations (PostgreSQL trust mode) and complete parameter sets.
-
-        Args:
-            database_name (str): Name of the database to load configuration for
-
-        Returns:
-            dict | None: Connection parameters dictionary with standardized keys:
-                - name (str): Database name (always present)
-                - user (str): Database user (defaults to $USER environment variable)
-                - password (str): Database password (empty string if not set)
-                - host (str): Database host (empty string for Unix socket, 'localhost' otherwise)
-                - port (int): Database port (5432 if not specified)
-                - production (bool): Production environment flag (defaults to False)
-            Returns None if configuration file doesn't exist.
-
-        Raises:
-            FileNotFoundError: If CONF_DIR doesn't exist or isn't accessible
-            PermissionError: If configuration file exists but isn't readable
-            ValueError: If configuration file format is invalid or corrupted
-
-        Examples:
-            # Complete configuration file
-            config = Database._load_configuration("production_db")
-            # Returns: {'name': 'production_db', 'user': 'app_user', 'password': 'secret',
-            #           'host': 'db.company.com', 'port': 5432, 'production': True}
-
-            # Minimal trust mode configuration (only name=database_name)
-            config = Database._load_configuration("local_dev")
-            # Returns: {'name': 'local_dev', 'user': 'joel', 'password': '',
-            #           'host': '', 'port': 5432, 'production': False}
-
-            # Non-existent configuration
-            config = Database._load_configuration("unknown_db")
-            # Returns: None
-
-        Migration Notes:
-            - Completely replaces DbConn.__init() and DbConn.__init logic
-            - Maintains backward compatibility with existing config files
-            - Standardizes return format (int for port, bool for production)
-            - Integrates PostgreSQL trust mode defaults directly into Database class
-            - Eliminates external DbConn dependency while preserving all functionality
-        """
-        from half_orm.model import CONF_DIR
-
-        # Check if configuration directory exists
-        if not os.path.exists(CONF_DIR):
-            raise FileNotFoundError(f"Configuration directory {CONF_DIR} doesn't exist")
-
-        # Build configuration file path
-        config_file = os.path.join(CONF_DIR, database_name)
-
-        # Return None if configuration file doesn't exist
-        if not os.path.exists(config_file):
-            return None
-
-        # Check if file is readable before attempting to parse
-        if not os.access(config_file, os.R_OK):
-            raise PermissionError(f"Configuration file {config_file} is not readable")
-
-        # Read configuration file
-        config = ConfigParser()
-        try:
-            config.read(config_file)
-        except Exception as e:
-            raise ValueError(f"Configuration file format is invalid: {e}")
-
-        # Check if [database] section exists
-        if not config.has_section('database'):
-            raise ValueError("Configuration file format is invalid: missing [database] section")
-
-        # Extract configuration values with PostgreSQL defaults
-        try:
-            name = config.get('database', 'name')
-            user = config.get('database', 'user', fallback=os.environ.get('USER', ''))
-            password = config.get('database', 'password', fallback='')
-            host = config.get('database', 'host', fallback='')
-            port_str = config.get('database', 'port', fallback='')
-            production_str = config.get('database', 'production', fallback='False')
-            docker_container = config.get('database', 'docker_container', fallback='')
-
-            # Convert port to int (default 5432 if empty)
-            if port_str == '':
-                port = 5432
-            else:
-                port = int(port_str)
-
-            # Convert production to bool
-            production = config.getboolean('database', 'production', fallback=False)
-
-            return {
-                'name': name,
-                'user': user,
-                'password': password,
-                'host': host,
-                'port': port,
-                'production': production,
-                'docker_container': docker_container
-            }
-
-        except (ValueError, TypeError) as e:
-            raise ValueError(f"Configuration file format is invalid: {e}")
-
     def _get_connection_params(self):
         """
         Get current connection parameters for this database instance.
 
-        Returns the connection parameters dictionary for this Database instance,
-        replacing direct access to DbConn properties. This method serves as the
-        unified interface for accessing connection parameters during the migration
-        from DbConn to integrated Database functionality.
-
-        Uses instance-level caching to avoid repeated file reads within the same
-        Database instance lifecycle.
+        Returns the connection parameters dictionary using Model._dbinfo,
+        which is already loaded by half_orm from the configuration file.
 
         Returns:
             dict: Connection parameters dictionary with standardized keys:
@@ -1353,59 +1239,37 @@ class Database:
                 - host (str): Database host (empty string for Unix socket)
                 - port (int): Database port (5432 default)
                 - production (bool): Production environment flag
-            Returns dict with defaults if no configuration exists or errors occur.
-
-        Examples:
-            # Get connection parameters for existing database instance
-            db = Database(repo)
-            params = db._get_connection_params()
-            # Returns: {'name': 'my_db', 'user': 'dev', 'password': '',
-            #           'host': 'localhost', 'port': 5432, 'production': False}
-
-            # Access specific parameters (replaces DbConn.property access)
-            user = db._get_connection_params()['user']      # replaces self.__connection_params.user
-            host = db._get_connection_params()['host']      # replaces self.__connection_params.host
-            prod = db._get_connection_params()['production'] # replaces self.__connection_params.production
-
-        Implementation Notes:
-            - Uses _load_configuration() internally but handles all exceptions
-            - Provides stable interface - never raises exceptions
-            - Returns sensible defaults if configuration is missing/invalid
-            - Serves as protective wrapper around _load_configuration()
-            - Exceptions from _load_configuration() are caught and handled gracefully
-            - Uses instance-level cache to avoid repeated file reads
-
-        Migration Notes:
-            - Replaces self.__connection_params.user, .host, .port, .production access
-            - Serves as transition method during DbConn elimination
-            - Maintains compatibility with existing Database instance usage patterns
-            - Will be used by state, production, and execute_pg_command properties
+                - docker_container (str): Docker container name (if configured)
         """
         # Return cached parameters if already loaded
         if hasattr(self, '_Database__connection_params_cache') and self.__connection_params_cache is not None:
             return self.__connection_params_cache
 
-        # Load configuration with defaults
+        # Use connection info from Model._dbinfo (already loaded by half_orm)
+        if self.__model is not None and hasattr(self.__model, '_dbinfo'):
+            dbinfo = self.__model._dbinfo
+            config = {
+                'name': self.__repo.name,
+                'user': dbinfo.get('user', os.environ.get('USER', '')),
+                'password': dbinfo.get('password', ''),
+                'host': dbinfo.get('host', ''),
+                'port': int(dbinfo.get('port', 5432) or 5432),
+                'production': not self.__model._production_mode,  # devel=False means production
+                'docker_container': dbinfo.get('docker_container', ''),
+            }
+            self.__connection_params_cache = config
+            return config
+
+        # Fallback: defaults (should not happen in normal usage)
         config = {
             'name': self.__repo.name,
             'user': os.environ.get('USER', ''),
             'password': '',
             'host': '',
             'port': 5432,
-            'production': False
+            'production': False,
+            'docker_container': '',
         }
-
-        try:
-            # Try to load configuration for this database
-            loaded_config = self._load_configuration(self.__repo.name)
-            if loaded_config is not None:
-                config = loaded_config
-        except (FileNotFoundError, PermissionError, ValueError):
-            # Handle all possible exceptions from _load_configuration gracefully
-            # Return sensible defaults to maintain stable interface
-            pass
-
-        # Cache the result for subsequent calls
         self.__connection_params_cache = config
         return config
 

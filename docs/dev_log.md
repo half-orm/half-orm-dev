@@ -19,7 +19,6 @@
 - `Database._collect_connection_params()` - Collecte interactive
 - `Database._execute_pg_command()` - Exécution commandes PostgreSQL
 - `Database._save_configuration()` - Sauvegarde configuration
-- `Database._load_configuration()` - Lecture configuration
 - `Database._get_connection_params()` - Accès paramètres
 
 **Fonctionnalités :**

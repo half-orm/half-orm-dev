@@ -38,8 +38,7 @@ class TestInitGitCentricProjectWithGitOrigin:
              patch('os.path.abspath') as mock_abspath, \
              patch('os.chmod') as mock_chmod, \
              patch('shutil.copy') as mock_shutil_copy, \
-             patch('builtins.open', new_callable=mock_open) as mock_file, \
-             patch.object(Repo, '_verify_database_configured') as mock_verify_db:
+             patch('builtins.open', new_callable=mock_open) as mock_file:
 
             # Setup common defaults
             mock_abspath.return_value = "/test/path"
@@ -52,9 +51,6 @@ class TestInitGitCentricProjectWithGitOrigin:
             mock_db_instance = Mock()
             mock_db.return_value = mock_db_instance
 
-            # Mock database verification (assume DB is configured)
-            mock_verify_db.return_value = None
-
             yield {
                 'hgit': mock_hgit,
                 'db': mock_db,
@@ -66,7 +62,6 @@ class TestInitGitCentricProjectWithGitOrigin:
                 'chmod': mock_chmod,
                 'shutil_copy': mock_shutil_copy,
                 'file': mock_file,
-                'verify_db': mock_verify_db
             }
 
     @pytest.fixture

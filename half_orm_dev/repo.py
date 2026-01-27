@@ -1199,10 +1199,7 @@ class Repo:
         # Step 1b: Validate git origin URL (EARLY validation)
         self._validate_git_origin_url(git_origin)
 
-        # Step 2: Check database configuration exists
-        self._verify_database_configured(package_name)
-
-        # Step 3: Connect to database and detect mode
+        # Step 2: Connect to database and detect mode
         devel_mode = self._detect_development_mode(package_name)
 
         # Step 4: Setup project directory
@@ -1644,56 +1641,6 @@ class Repo:
 
         # Store normalized name for later use
         return normalized_name
-
-
-    def _verify_database_configured(self, package_name):
-        """
-        Verify database is configured via init-database command.
-
-        Checks that database configuration file exists and is accessible.
-        Does NOT create the database - assumes init-database was run first.
-
-        Args:
-            package_name (str): Database name to verify
-
-        Raises:
-            DatabaseNotConfiguredError: If configuration file doesn't exist
-            DatabaseConnectionError: If cannot connect to configured database
-
-        Process:
-            1. Check ~/.half_orm/<package_name> exists
-            2. Attempt connection to verify database is accessible
-            3. Store connection for later use
-
-        Examples:
-            # Database configured
-            _verify_database_configured("my_blog")  # Success
-
-            # Database not configured
-            _verify_database_configured("unconfigured_db")
-            # Raises: DatabaseNotConfiguredError with helpful message
-        """
-        # Try to load database configuration
-        config = Database._load_configuration(package_name)
-
-        if config is None:
-            raise ValueError(
-                f"Database '{package_name}' is not configured.\n"
-                f"Please run: half_orm dev init-database {package_name} [OPTIONS]\n"
-                f"See 'half_orm dev init-database --help' for more information."
-            )
-
-        # Try to connect to verify database is accessible
-        try:
-            model = Model(package_name)
-            # Store model for later use
-            return model
-        except OperationalError as e:
-            raise OperationalError(
-                f"Cannot connect to database '{package_name}'.\n"
-                f"Database may not exist or connection parameters may be incorrect.\n"
-                f"Original error: {e}"
-            )
 
     def _detect_development_mode(self, package_name):
         """
