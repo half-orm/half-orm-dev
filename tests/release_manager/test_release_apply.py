@@ -71,7 +71,7 @@ class TestGetAllReleasePatchesForTesting:
         release_file.create_empty()
         release_file.add_patch("123-candidate-patch")
         release_file.add_patch("456-staged-patch")
-        release_file.move_to_staged("456-staged-patch")
+        release_file.move_to_staged("456-staged-patch", "commit456")
 
         # Get all patches for testing
         patches = rel_mgr.get_all_release_patches_for_testing()
@@ -220,7 +220,7 @@ class TestApplyRelease:
         release_file.create_empty()
         release_file.add_patch("002-candidate")
         release_file.add_patch("003-staged")
-        release_file.move_to_staged("003-staged")
+        release_file.move_to_staged("003-staged", "commit003")
 
         # Track apply order
         apply_order = []
@@ -375,7 +375,7 @@ class TestApplyReleaseCandidateMerge:
         release_file.create_empty()
         release_file.add_patch("123-candidate")
         release_file.add_patch("456-staged")
-        release_file.move_to_staged("456-staged")
+        release_file.move_to_staged("456-staged", "commit456")
 
         with patch('half_orm_dev.modules.generate'):
             result = rel_mgr.apply_release(run_tests=False)
@@ -396,7 +396,7 @@ class TestApplyReleaseCandidateMerge:
         release_file = ReleaseFile("1.1.0", releases_dir)
         release_file.create_empty()
         release_file.add_patch("456-staged")
-        release_file.move_to_staged("456-staged")
+        release_file.move_to_staged("456-staged", "commit456")
 
         with patch('half_orm_dev.modules.generate'):
             result = rel_mgr.apply_release(run_tests=False)
@@ -461,7 +461,7 @@ class TestApplyReleaseVsPatchApply:
         release_file.create_empty()
         release_file.add_patch("123-candidate")
         release_file.add_patch("456-staged")
-        release_file.move_to_staged("456-staged")
+        release_file.move_to_staged("456-staged", "commit456")
 
         # get_all_release_context_patches (used by patch apply) - only staged
         context_patches = rel_mgr.get_all_release_context_patches()

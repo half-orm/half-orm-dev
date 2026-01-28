@@ -406,10 +406,10 @@ def create_toml_patches_file():
 
         # Move staged patches to staged status
         if staged:
-            for patch_id in staged:
+            for i, patch_id in enumerate(staged):
                 # First add as candidate, then move to staged
                 release_file.add_patch(patch_id)
-                release_file.move_to_staged(patch_id)
+                release_file.move_to_staged(patch_id, f"commit{i:03d}")
 
         return release_file
 

@@ -488,61 +488,84 @@ class PatchManager:
         Apply patch with full release context.
 
         Workflow:
-        1. Restore DB from production baseline (model/schema.sql)
-        2. Apply all release patches in order (RC1, RC2, ..., stage)
-        3. If current patch is in release, apply it in correct order
-        4. If current patch is NOT in release, apply it at the end
-        5. Generate Python code
+        1. Restore DB from release schema (includes all staged patches)
+        2. Apply only the current patch
+        3. Generate Python code
+
+        If release schema doesn't exist (backward compatibility), falls back to:
+        1. Restore DB from production baseline
+        2. Apply all staged patches in order
+        3. Apply current patch
+        4. Generate Python code
 
         Examples:
-            # Release context: [123, 456, 789, 234]
-            # Current patch: 789 (already in release)
-
-            apply_patch_complete_workflow("789")
-            # Execution:
-            # 1. Restore DB (1.3.5)
-            # 2. Apply 123
-            # 3. Apply 456
-            # 4. Apply 789 ← In correct order
-            # 5. Apply 234
-            # 6. Generate code
-
-            # Current patch: 999 (NOT in release)
+            # With release schema (new workflow):
             apply_patch_complete_workflow("999")
             # Execution:
-            # 1. Restore DB (1.3.5)
-            # 2. Apply 123
-            # 3. Apply 456
-            # 4. Apply 789
-            # 5. Apply 234
-            # 6. Apply 999 ← At the end
-            # 7. Generate code
+            # 1. Restore DB from release-0.17.1.sql (includes staged patches)
+            # 2. Apply 999
+            # 3. Generate code
+
+            # Without release schema (backward compat):
+            apply_patch_complete_workflow("999")
+            # Execution:
+            # 1. Restore DB from schema.sql (prod)
+            # 2. Apply all staged patches
+            # 3. Apply 999
+            # 4. Generate code
         """
 
         try:
-            # Étape 1: Restauration DB
-            self._repo.restore_database_from_schema()
-
-            # Étape 2: Récupérer contexte release complet
-            release_patches = self._repo.release_manager.get_all_release_context_patches()
+            # Get release version for this patch
+            version = self._find_version_for_candidate(patch_id)
+            if not version:
+                # Try to find from staged patches
+                version = self._repo.release_manager.get_next_release_version()
 
             applied_release_files = []
             applied_current_files = []
             patch_was_in_release = False
 
-            # Étape 3: Appliquer patches
-            for patch in release_patches:
-                if patch == patch_id:
-                    patch_was_in_release = True
-                files = self.apply_patch_files(patch, self._repo.model)
-                applied_release_files.extend(files)
+            # Check if release schema exists
+            release_schema_path = None
+            if version:
+                release_schema_path = self._repo.get_release_schema_path(version)
 
-            # Étape 4: Si patch courant pas dans release, l'appliquer maintenant
-            if not patch_was_in_release:
+            if release_schema_path and release_schema_path.exists():
+                # New workflow: restore from release schema (includes all staged patches)
+                self._repo.restore_database_from_release_schema(version)
+
+                # Apply only the current patch
                 files = self.apply_patch_files(patch_id, self._repo.model)
                 applied_current_files = files
+            else:
+                # Backward compatibility: old workflow
+                # Also generates release schema for migration of existing projects
+                self._repo.restore_database_from_schema()
 
-            # Étape 5: Génération code Python
+                # Get and apply all staged release patches
+                release_patches = self._repo.release_manager.get_all_release_context_patches()
+
+                for patch in release_patches:
+                    if patch == patch_id:
+                        patch_was_in_release = True
+                    files = self.apply_patch_files(patch, self._repo.model)
+                    applied_release_files.extend(files)
+
+                # Generate release schema for existing projects migration
+                # This captures the state after all staged patches are applied
+                if version:
+                    try:
+                        self._repo.generate_release_schema(version)
+                    except Exception:
+                        pass  # Non-critical, continue with apply
+
+                # If current patch not in release (candidate), apply it now
+                if not patch_was_in_release:
+                    files = self.apply_patch_files(patch_id, self._repo.model)
+                    applied_current_files = files
+
+            # Generate Python code
             # Track generated files
             package_dir = Path(self._base_dir) / self._repo_name
             files_before = set()
@@ -557,14 +580,14 @@ class PatchManager:
 
             generated_files = [str(f.relative_to(self._base_dir)) for f in files_after]
 
-            # Étape 6: Retour succès
+            # Return success
             return {
                 'patch_id': patch_id,
-                'release_patches': [p for p in release_patches if p != patch_id],
                 'applied_release_files': applied_release_files,
                 'applied_current_files': applied_current_files,
                 'patch_was_in_release': patch_was_in_release,
                 'generated_files': generated_files,
+                'used_release_schema': release_schema_path is not None and release_schema_path.exists(),
                 'status': 'success',
                 'error': None
             }
@@ -619,9 +642,11 @@ class PatchManager:
         # Apply files in lexicographic order
         for patch_file in structure.files:
             if patch_file.is_sql:
+                print('XXX', patch_file.name)
                 self._execute_sql_file(patch_file.path, database_model)
                 applied_files.append(patch_file.name)
             elif patch_file.is_python:
+                print('XXX', patch_file.name)
                 self._execute_python_file(patch_file.path)
                 applied_files.append(patch_file.name)
             # Other file types are ignored (not executed)
@@ -1909,8 +1934,17 @@ class PatchManager:
                 f"You may need to resolve conflicts manually."
             )
 
-        # 6. Move from candidates to stage
-        self._move_patch_to_stage(patch_id, version)
+        # 5b. Get merge commit hash
+        merge_commit = self._repo.hgit.last_commit()
+
+        # 6. Move from candidates to stage (with merge commit hash)
+        self._move_patch_to_stage(patch_id, version, merge_commit)
+
+        # 6b. Regenerate release schema (DB is already in correct state after validation)
+        try:
+            self._update_release_schemas(version)
+        except Exception as e:
+            raise PatchManagerError(f"Failed to update release schema: {e}")
 
         # 7. Commit changes on release branch (TOML file is in .hop/releases/)
         # This also syncs .hop/ to all active branches automatically via decorator
@@ -1935,6 +1969,91 @@ class PatchManager:
             'patches_file': f"releases/{version}-patches.toml",
             'merged_into': release_branch
         }
+
+    def _update_release_schemas(self, version: str) -> None:
+        """
+        Update release schema for current version and propagate to higher versions.
+
+        After a patch is merged, regenerates the release schema file for the
+        current version and updates all higher version releases that depend on it.
+
+        Args:
+            version: Current release version (e.g., "0.17.1")
+
+        Workflow:
+        1. Regenerate release-{version}.sql for current release
+        2. Find all release branches with higher versions
+        3. For each higher version:
+           - Checkout to that branch
+           - Restore DB from current release schema
+           - Apply all staged patches for that release
+           - Regenerate its release schema
+           - Commit the updated schema
+        4. Return to original branch
+        """
+        from packaging.version import Version
+        from half_orm_dev.release_file import ReleaseFile
+
+        original_branch = self._repo.hgit.branch
+        current_ver = Version(version)
+
+        # 1. Regenerate release schema for current version
+        # DB is already in correct state after validation
+        release_schema_path = self._repo.generate_release_schema(version)
+        self._repo.hgit.add(str(release_schema_path))
+
+        # 2. Find higher version releases
+        releases_dir = Path(self._repo.releases_dir)
+        higher_releases = []
+
+        for toml_file in releases_dir.glob("*-patches.toml"):
+            rel_version = toml_file.stem.replace('-patches', '')
+            try:
+                rel_ver = Version(rel_version)
+                if rel_ver > current_ver:
+                    higher_releases.append(rel_version)
+            except Exception:
+                continue
+
+        # Sort by version (ascending)
+        higher_releases.sort(key=lambda v: Version(v))
+
+        # 3. Update each higher version release
+        for higher_version in higher_releases:
+            higher_branch = f"ho-release/{higher_version}"
+
+            if not self._repo.hgit.branch_exists(higher_branch):
+                continue
+
+            click.echo(f"  • Propagating to {higher_branch}...")
+
+            try:
+                # Checkout to higher version branch
+                self._repo.hgit.checkout(higher_branch)
+
+                # Restore DB from current release schema (which includes the new patch)
+                self._repo.restore_database_from_release_schema(version)
+
+                # Apply all staged patches for this higher release
+                release_file = ReleaseFile(higher_version, releases_dir)
+                if release_file.exists():
+                    staged_patches = release_file.get_patches(status="staged")
+                    for pid in staged_patches:
+                        patch_dir = Path(self._base_dir) / "Patches" / pid
+                        if patch_dir.exists():
+                            self.apply_patch_files(pid, self._repo.model)
+
+                # Regenerate release schema for this higher version
+                higher_schema_path = self._repo.generate_release_schema(higher_version)
+                self._repo.hgit.add(str(higher_schema_path))
+                self._repo.hgit.commit(f"[HOP] Update release schema from %{version}")
+                self._repo.hgit.push()
+
+            except Exception as e:
+                click.echo(f"    ⚠️  Warning: Failed to propagate to {higher_branch}: {e}")
+
+        # 4. Return to original branch
+        self._repo.hgit.checkout(original_branch)
 
     def _validate_patch_before_merge(
         self,
@@ -1998,24 +2117,36 @@ class PatchManager:
             # 3. Run patch apply and verify no modifications
             click.echo(f"  • Running patch apply to verify idempotency...")
             try:
-                # Get list of staged patches for this version from TOML file
-                release_file = ReleaseFile(version, Path(self._repo.releases_dir))
-                staged_patches = []
-                if release_file.exists():
-                    staged_patches = release_file.get_patches(status="staged")
+                # Check if release schema exists
+                release_schema_path = self._repo.get_release_schema_path(version)
 
-                # Apply all staged patches + current patch
-                all_patches = staged_patches + [patch_id]
+                if release_schema_path.exists():
+                    # New workflow: restore from release schema (includes all staged patches)
+                    self._repo.restore_database_from_release_schema(version)
 
-                # Restore database and apply patches
-                self._repo.restore_database_from_schema()
-
-                for pid in all_patches:
-                    patch_dir = Path(self._repo.base_dir) / "Patches" / pid
+                    # Apply only the current patch
+                    patch_dir = Path(self._repo.base_dir) / "Patches" / patch_id
                     if patch_dir.exists():
-                        self.apply_patch_files(pid, self._repo.model)
+                        self.apply_patch_files(patch_id, self._repo.model)
+                else:
+                    # Fallback: old workflow for backward compatibility
+                    release_file = ReleaseFile(version, Path(self._repo.releases_dir))
+                    staged_patches = []
+                    if release_file.exists():
+                        staged_patches = release_file.get_patches(status="staged")
 
-                # Generate modules                
+                    # Apply all staged patches + current patch
+                    all_patches = staged_patches + [patch_id]
+
+                    # Restore database and apply patches
+                    self._repo.restore_database_from_schema()
+
+                    for pid in all_patches:
+                        patch_dir = Path(self._repo.base_dir) / "Patches" / pid
+                        if patch_dir.exists():
+                            self.apply_patch_files(pid, self._repo.model)
+
+                # Generate modules
                 modules.generate(self._repo)
 
                 # Check if any files were modified
@@ -2631,7 +2762,7 @@ class PatchManager:
 
         return '\n'.join(lines)
 
-    def _move_patch_to_stage(self, patch_id: str, version: str) -> None:
+    def _move_patch_to_stage(self, patch_id: str, version: str, merge_commit: str) -> None:
         """
         Move patch from candidate to staged status.
 
@@ -2641,19 +2772,21 @@ class PatchManager:
         Args:
             patch_id: Patch identifier to move
             version: Release version
+            merge_commit: Git commit hash of the merge commit
 
         Raises:
             PatchManagerError: If operation fails
 
         Examples:
-            self._move_patch_to_stage("456-user-auth", "0.17.0")
-            # Changes "456-user-auth" = "candidate" to "456-user-auth" = "staged"
+            self._move_patch_to_stage("456-user-auth", "0.17.0", "abc123de")
+            # Changes "456-user-auth" = {status = "candidate"}
+            # to "456-user-auth" = {status = "staged", merge_commit = "abc123de"}
             # Order is preserved!
         """
         release_file = ReleaseFile(version, self._releases_dir)
 
         try:
-            release_file.move_to_staged(patch_id)
+            release_file.move_to_staged(patch_id, merge_commit)
 
             # Stage file for commit
             self._repo.hgit.add(str(release_file.file_path))

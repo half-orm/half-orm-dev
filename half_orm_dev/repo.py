@@ -2282,6 +2282,130 @@ See docs/half_orm_dev.md for complete documentation.
             # Catch any unexpected errors
             raise RepoError(f"Database restoration failed: {e}") from e
 
+    def generate_release_schema(self, version: str) -> Path:
+        """
+        Generate release schema SQL dump.
+
+        Creates .hop/model/release-{version}.sql with current database structure,
+        metadata, and data. This file represents the complete state of a release
+        in development (prod + all staged patches).
+
+        Used by:
+        - release create: Generate initial release schema from prod baseline
+        - patch merge: Update release schema after patch integration
+
+        Args:
+            version: Release version string (e.g., "0.17.1", "0.18.0")
+
+        Returns:
+            Path to generated release schema file
+
+        Raises:
+            RepoError: If pg_dump fails or model_dir doesn't exist
+
+        Examples:
+            # After merging patch into release
+            schema_path = repo.generate_release_schema("0.17.1")
+            # Creates: .hop/model/release-0.17.1.sql
+        """
+        model_dir = Path(self.model_dir)
+
+        if not model_dir.exists():
+            raise RepoError(f"Model directory does not exist: {model_dir}")
+
+        release_schema_file = model_dir / f"release-{version}.sql"
+        temp_file = model_dir / f".release-{version}.sql.tmp"
+
+        try:
+            # Dump complete database (schema + data) to temp file
+            self.database.execute_pg_command(
+                'pg_dump',
+                self.name,
+                '--no-owner',
+                '-f',
+                str(temp_file)
+            )
+
+            # Filter out version-specific lines for cross-version compatibility
+            content = temp_file.read_text()
+            filtered_lines = []
+            version_specific_sets = (
+                'SET transaction_timeout',  # PG17+
+            )
+            for line in content.split('\n'):
+                if line.startswith('\\restrict') or line.startswith('\\unrestrict'):
+                    continue
+                if line.startswith('-- Dumped from') or line.startswith('-- Dumped by'):
+                    continue
+                if any(line.startswith(s) for s in version_specific_sets):
+                    continue
+                filtered_lines.append(line)
+
+            release_schema_file.write_text('\n'.join(filtered_lines))
+
+            return release_schema_file
+
+        except Exception as e:
+            raise RepoError(f"Failed to generate release schema: {e}") from e
+        finally:
+            if temp_file.exists():
+                temp_file.unlink()
+
+    def restore_database_from_release_schema(self, version: str) -> None:
+        """
+        Restore database from release schema file.
+
+        Restores database from .hop/model/release-{version}.sql which contains
+        the complete state of a release in development (prod + staged patches).
+
+        If the release schema file doesn't exist, falls back to
+        restore_database_from_schema() for backward compatibility.
+
+        Args:
+            version: Release version string (e.g., "0.17.1")
+
+        Raises:
+            RepoError: If restoration fails
+
+        Examples:
+            # Before applying a candidate patch
+            repo.restore_database_from_release_schema("0.17.1")
+            # Database now has prod schema + all staged patches for 0.17.1
+        """
+        release_schema_path = Path(self.model_dir) / f"release-{version}.sql"
+
+        # Fallback to production schema if release schema doesn't exist
+        if not release_schema_path.exists():
+            self.restore_database_from_schema()
+            return
+
+        try:
+            # Drop all user schemas
+            self._reset_database_schemas()
+
+            # Load release schema
+            self.database.execute_pg_command(
+                'psql', '-d', self.name, '-f', str(release_schema_path)
+            )
+
+            # Reload half_orm metadata cache
+            self.model.reconnect(reload=True)
+
+        except Exception as e:
+            raise RepoError(f"Failed to restore from release schema: {e}") from e
+
+    def get_release_schema_path(self, version: str) -> Path:
+        """
+        Get path to release schema file.
+
+        Args:
+            version: Release version string
+
+        Returns:
+            Path to .hop/model/release-{version}.sql (may not exist)
+        """
+        return Path(self.model_dir) / f"release-{version}.sql"
+
     def _deduce_metadata_path(self, schema_path: Path) -> Path | None:
         """
         Deduce metadata file path from schema.sql symlink target.

@@ -222,7 +222,7 @@ class TestPromoteToProdWithDataFiles:
         release_file = ReleaseFile("1.0.0", releases_dir)
         release_file.create_empty()
         release_file.add_patch("789-data-patch")
-        release_file.move_to_staged("789-data-patch")
+        release_file.move_to_staged("789-data-patch", "commit789")
 
         # Mock data file
         data_file = patches_dir / "01_data.sql"
@@ -281,7 +281,7 @@ class TestPromoteToRCNoDataFile:
         release_file = ReleaseFile("1.0.0", releases_dir)
         release_file.create_empty()
         release_file.add_patch("456-auth")
-        release_file.move_to_staged("456-auth")
+        release_file.move_to_staged("456-auth", "commit456")
 
         # Mock data file
         data_file = patches_dir / "01_roles.sql"

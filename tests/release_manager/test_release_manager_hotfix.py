@@ -471,7 +471,6 @@ class TestHotfixTomlFile:
         # No special marker needed in TOML file
         from half_orm_dev.release_file import ReleaseFile
         release_file = ReleaseFile("1.3.5", releases_dir)
-        patches_data = release_file.get_all_patches_with_status()
 
-        # Just an empty patches dict, no marker
-        assert patches_data == {}
+        # Just an empty patches list, no marker
+        assert release_file.get_patches() == []

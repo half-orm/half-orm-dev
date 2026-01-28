@@ -36,10 +36,10 @@ def create_patches_file(releases_dir: Path, version: str, patches: list = None, 
     release_file.create_empty()
 
     if patches:
-        for patch_id in patches:
+        for i, patch_id in enumerate(patches):
             release_file.add_patch(patch_id)
             if as_staged and not as_candidates:
-                release_file.move_to_staged(patch_id)
+                release_file.move_to_staged(patch_id, f"commit{i:03d}")
             # If as_candidates is True, leave as candidates
 
     return release_file.file_path

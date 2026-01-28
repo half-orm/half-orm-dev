@@ -64,6 +64,10 @@ class TestValidatePatchBeforeMerge:
         mock_database = Mock()
         mock_repo.database = mock_database
 
+        # Mock get_release_schema_path to return a path that doesn't exist
+        # (so fallback to old workflow is used)
+        mock_repo.get_release_schema_path = Mock(return_value=tmp_path / "nonexistent.sql")
+
         patch_mgr = PatchManager(mock_repo)
 
         # Mock apply_patch_files
@@ -251,9 +255,9 @@ class TestValidatePatchBeforeMerge:
         release_file = ReleaseFile("0.17.0", releases_dir)
         release_file.create_empty()
         release_file.add_patch("38-auth")
-        release_file.move_to_staged("38-auth")
+        release_file.move_to_staged("38-auth", "commit38")
         release_file.add_patch("39-api")
-        release_file.move_to_staged("39-api")
+        release_file.move_to_staged("39-api", "commit39")
 
         # Create patch directories
         for pid in ["38-auth", "39-api", "42-feature"]:
@@ -285,9 +289,9 @@ class TestValidatePatchBeforeMerge:
         release_file = ReleaseFile("0.17.0", releases_dir)
         release_file.create_empty()
         release_file.add_patch("38-auth")
-        release_file.move_to_staged("38-auth")
+        release_file.move_to_staged("38-auth", "commit38")
         release_file.add_patch("39-api")
-        release_file.move_to_staged("39-api")
+        release_file.move_to_staged("39-api", "commit39")
 
         # Create patch directories
         for pid in ["38-auth", "39-api", "42-feature"]:

@@ -52,7 +52,7 @@ class TestCandidateMigrationPrompt:
         release_file.create_empty()
         release_file.add_patch("42-feature")
         release_file.add_patch("43-bugfix")
-        release_file.move_to_staged("42-feature")
+        release_file.move_to_staged("42-feature", "commit42")
         # 43-bugfix stays as candidate
 
         # Mock HGit
@@ -73,7 +73,7 @@ class TestCandidateMigrationPrompt:
         release_file = ReleaseFile("0.17.1", releases_dir)
         release_file.create_empty()
         release_file.add_patch("42-feature")
-        release_file.move_to_staged("42-feature")
+        release_file.move_to_staged("42-feature", "commit42")
 
         # Mock HGit and other dependencies
         mock_hgit = Mock()

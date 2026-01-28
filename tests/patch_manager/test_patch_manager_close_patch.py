@@ -52,6 +52,7 @@ def patch_manager(tmp_path):
     repo.hgit.branch_exists = Mock(return_value=True)
     repo.hgit.delete_local_branch = Mock()
     repo.hgit.delete_remote_branch = Mock()
+    repo.hgit.last_commit = Mock(return_value="abc12345")
 
     # Create PatchManager
     pm = PatchManager(repo)
@@ -105,13 +106,15 @@ class TestClosePatch:
         release_file.create_empty()
         release_file.add_patch('123-test')
 
-        # Mock validation and sync
+        # Mock validation, sync, and release schema update
         with patch.object(pm, '_validate_patch_before_merge'):
             with patch.object(pm, '_sync_release_files_to_ho_prod'):
-                result = pm.merge_patch()
+                with patch.object(pm, '_update_release_schemas'):
+                    result = pm.merge_patch()
 
-        # Verify checkout to release branch
-        repo.hgit.checkout.assert_called_with('ho-release/0.17.0')
+        # Verify checkout to release branch was called
+        checkout_calls = [str(c) for c in repo.hgit.checkout.call_args_list]
+        assert any('ho-release/0.17.0' in c for c in checkout_calls)
 
         # Verify merge
         repo.hgit.merge.assert_called_once()

@@ -7,9 +7,10 @@ patch tracking in TOML format with candidate and staged sections.
 Test coverage:
 - File creation and validation
 - Adding patches (candidates)
-- Moving patches to staged
+- Moving patches to staged (with merge_commit)
 - Removing patches
 - Getting patches by status
+- Getting merge_commit
 - Order preservation
 - Error handling
 """
@@ -96,9 +97,8 @@ class TestAddPatch:
         release_file.add_patch("001-feature")
 
         # Verify patch added as candidate
-        patches = release_file.get_all_patches_with_status()
-        assert "001-feature" in patches
-        assert patches["001-feature"] == "candidate"
+        assert "001-feature" in release_file.get_patches()
+        assert release_file.get_patch_status("001-feature") == "candidate"
 
     def test_add_multiple_patches(self, tmp_path):
         """Test adding multiple patches."""
@@ -111,9 +111,10 @@ class TestAddPatch:
         for patch_id in ["001-first", "002-second", "003-third"]:
             release_file.add_patch(patch_id)
 
-        patches = release_file.get_all_patches_with_status()
+        patches = release_file.get_patches()
         assert len(patches) == 3
-        assert all(status == "candidate" for status in patches.values())
+        for patch_id in patches:
+            assert release_file.get_patch_status(patch_id) == "candidate"
 
     def test_add_patch_preserves_order(self, tmp_path):
         """Test patches maintain insertion order."""
@@ -128,8 +129,8 @@ class TestAddPatch:
             release_file.add_patch(patch_id)
 
         # Get patches (should maintain order)
-        patches = release_file.get_all_patches_with_status()
-        assert list(patches.keys()) == patch_order
+        patches = release_file.get_patches()
+        assert patches == patch_order
 
     def test_add_duplicate_patch_error(self, tmp_path):
         """Test adding duplicate patch raises error."""
@@ -166,11 +167,11 @@ class TestMoveToStaged:
         release_file = ReleaseFile("1.3.6", releases_dir)
         release_file.create_empty()
         release_file.add_patch("001-feature")
-        release_file.move_to_staged("001-feature")
+        release_file.move_to_staged("001-feature", "abc12345")
 
         # Verify patch is now staged
-        patches = release_file.get_all_patches_with_status()
-        assert patches["001-feature"] == "staged"
+        assert release_file.get_patch_status("001-feature") == "staged"
+        assert release_file.get_merge_commit("001-feature") == "abc12345"
 
     def test_move_multiple_patches_to_staged(self, tmp_path):
         """Test moving multiple patches to staged."""
@@ -185,13 +186,16 @@ class TestMoveToStaged:
             release_file.add_patch(patch_id)
 
         # Move first two to staged
-        release_file.move_to_staged("001-first")
-        release_file.move_to_staged("002-second")
+        release_file.move_to_staged("001-first", "commit001")
+        release_file.move_to_staged("002-second", "commit002")
 
-        patches = release_file.get_all_patches_with_status()
-        assert patches["001-first"] == "staged"
-        assert patches["002-second"] == "staged"
-        assert patches["003-third"] == "candidate"
+        assert release_file.get_patch_status("001-first") == "staged"
+        assert release_file.get_patch_status("002-second") == "staged"
+        assert release_file.get_patch_status("003-third") == "candidate"
+
+        assert release_file.get_merge_commit("001-first") == "commit001"
+        assert release_file.get_merge_commit("002-second") == "commit002"
+        assert release_file.get_merge_commit("003-third") is None
 
     def test_move_to_staged_preserves_order(self, tmp_path):
         """Test moving to staged maintains insertion order."""
@@ -207,11 +211,11 @@ class TestMoveToStaged:
             release_file.add_patch(patch_id)
 
         # Move all to staged
-        for patch_id in patch_order:
-            release_file.move_to_staged(patch_id)
+        for i, patch_id in enumerate(patch_order):
+            release_file.move_to_staged(patch_id, f"commit{i}")
 
-        patches = release_file.get_all_patches_with_status()
-        assert list(patches.keys()) == patch_order
+        patches = release_file.get_patches()
+        assert patches == patch_order
 
     def test_move_nonexistent_patch_error(self, tmp_path):
         """Test moving non-existent patch raises error."""
@@ -222,7 +226,7 @@ class TestMoveToStaged:
         release_file.create_empty()
 
         with pytest.raises(ReleaseFileError, match="Patch 999-missing not found"):
-            release_file.move_to_staged("999-missing")
+            release_file.move_to_staged("999-missing", "commit123")
 
     def test_move_already_staged_patch_raises_error(self, tmp_path):
         """Test moving already staged patch raises error."""
@@ -232,11 +236,11 @@ class TestMoveToStaged:
         release_file = ReleaseFile("1.3.6", releases_dir)
         release_file.create_empty()
         release_file.add_patch("001-feature")
-        release_file.move_to_staged("001-feature")
+        release_file.move_to_staged("001-feature", "commit123")
 
         # Second move should raise error
         with pytest.raises(ReleaseFileError, match="already staged"):
-            release_file.move_to_staged("001-feature")
+            release_file.move_to_staged("001-feature", "commit456")
 
 
 class TestRemovePatch:
@@ -252,8 +256,7 @@ class TestRemovePatch:
         release_file.add_patch("001-feature")
         release_file.remove_patch("001-feature")
 
-        patches = release_file.get_all_patches_with_status()
-        assert "001-feature" not in patches
+        assert "001-feature" not in release_file.get_patches()
 
     def test_remove_staged_patch(self, tmp_path):
         """Test removing a staged patch."""
@@ -263,11 +266,10 @@ class TestRemovePatch:
         release_file = ReleaseFile("1.3.6", releases_dir)
         release_file.create_empty()
         release_file.add_patch("001-feature")
-        release_file.move_to_staged("001-feature")
+        release_file.move_to_staged("001-feature", "commit123")
         release_file.remove_patch("001-feature")
 
-        patches = release_file.get_all_patches_with_status()
-        assert "001-feature" not in patches
+        assert "001-feature" not in release_file.get_patches()
 
     def test_remove_nonexistent_patch_error(self, tmp_path):
         """Test removing non-existent patch raises error."""
@@ -293,29 +295,12 @@ class TestRemovePatch:
 
         release_file.remove_patch("002-second")
 
-        patches = release_file.get_all_patches_with_status()
-        assert list(patches.keys()) == ["001-first", "003-third"]
+        patches = release_file.get_patches()
+        assert patches == ["001-first", "003-third"]
 
 
 class TestGetPatches:
     """Test retrieving patches with various filters."""
-
-    def test_get_all_patches_with_status(self, tmp_path):
-        """Test getting all patches with their status."""
-        releases_dir = tmp_path / "releases"
-        releases_dir.mkdir()
-
-        release_file = ReleaseFile("1.3.6", releases_dir)
-        release_file.create_empty()
-
-        release_file.add_patch("001-candidate")
-        release_file.add_patch("002-staged")
-        release_file.move_to_staged("002-staged")
-
-        patches = release_file.get_all_patches_with_status()
-        assert len(patches) == 2
-        assert patches["001-candidate"] == "candidate"
-        assert patches["002-staged"] == "staged"
 
     def test_get_patches_returns_all_patch_ids(self, tmp_path):
         """Test get_patches() returns all patch IDs regardless of status."""
@@ -327,7 +312,7 @@ class TestGetPatches:
 
         release_file.add_patch("001-candidate")
         release_file.add_patch("002-staged")
-        release_file.move_to_staged("002-staged")
+        release_file.move_to_staged("002-staged", "commit123")
 
         patches = release_file.get_patches()
         assert set(patches) == {"001-candidate", "002-staged"}
@@ -343,7 +328,7 @@ class TestGetPatches:
         release_file.add_patch("001-candidate")
         release_file.add_patch("002-candidate2")
         release_file.add_patch("003-staged")
-        release_file.move_to_staged("003-staged")
+        release_file.move_to_staged("003-staged", "commit123")
 
         candidates = release_file.get_patches(status="candidate")
         assert set(candidates) == {"001-candidate", "002-candidate2"}
@@ -359,8 +344,8 @@ class TestGetPatches:
         release_file.add_patch("001-candidate")
         release_file.add_patch("002-staged")
         release_file.add_patch("003-staged2")
-        release_file.move_to_staged("002-staged")
-        release_file.move_to_staged("003-staged2")
+        release_file.move_to_staged("002-staged", "commit002")
+        release_file.move_to_staged("003-staged2", "commit003")
 
         staged = release_file.get_patches(status="staged")
         assert set(staged) == {"002-staged", "003-staged2"}
@@ -376,7 +361,6 @@ class TestGetPatches:
         assert release_file.get_patches() == []
         assert release_file.get_patches(status="candidate") == []
         assert release_file.get_patches(status="staged") == []
-        assert release_file.get_all_patches_with_status() == {}
 
     def test_get_patches_maintains_order(self, tmp_path):
         """Test get_patches() maintains insertion order."""
@@ -392,6 +376,43 @@ class TestGetPatches:
 
         patches = release_file.get_patches()
         assert patches == patch_order
+
+
+class TestGetMergeCommit:
+    """Test getting merge commit hash."""
+
+    def test_get_merge_commit_for_staged_patch(self, tmp_path):
+        """Test getting merge commit for a staged patch."""
+        releases_dir = tmp_path / "releases"
+        releases_dir.mkdir()
+
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()
+        release_file.add_patch("001-feature")
+        release_file.move_to_staged("001-feature", "abc12345")
+
+        assert release_file.get_merge_commit("001-feature") == "abc12345"
+
+    def test_get_merge_commit_for_candidate_returns_none(self, tmp_path):
+        """Test getting merge commit for a candidate patch returns None."""
+        releases_dir = tmp_path / "releases"
+        releases_dir.mkdir()
+
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()
+        release_file.add_patch("001-feature")
+
+        assert release_file.get_merge_commit("001-feature") is None
+
+    def test_get_merge_commit_for_nonexistent_patch_returns_none(self, tmp_path):
+        """Test getting merge commit for non-existent patch returns None."""
+        releases_dir = tmp_path / "releases"
+        releases_dir.mkdir()
+
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()
+
+        assert release_file.get_merge_commit("999-missing") is None
 
 
 class TestOrderPreservation:
@@ -412,8 +433,8 @@ class TestOrderPreservation:
         release_file.add_patch("004-fourth")
 
         # Move some to staged (not in order)
-        release_file.move_to_staged("001-first")
-        release_file.move_to_staged("004-fourth")
+        release_file.move_to_staged("001-first", "commit001")
+        release_file.move_to_staged("004-fourth", "commit004")
 
         # Order should be preserved
         patches = release_file.get_patches()
@@ -537,8 +558,8 @@ class TestIntegrationScenarios:
             release_file.add_patch(patch_id)
 
         # Merge first two
-        release_file.move_to_staged("001-auth")
-        release_file.move_to_staged("002-api")
+        release_file.move_to_staged("001-auth", "commit001")
+        release_file.move_to_staged("002-api", "commit002")
 
         # Verify state
         candidates = release_file.get_patches(status="candidate")
@@ -546,6 +567,10 @@ class TestIntegrationScenarios:
 
         assert candidates == ["003-ui"]
         assert staged == ["001-auth", "002-api"]
+
+        # Verify merge commits
+        assert release_file.get_merge_commit("001-auth") == "commit001"
+        assert release_file.get_merge_commit("002-api") == "commit002"
 
     def test_hotfix_workflow(self, tmp_path):
         """Test hotfix workflow: create empty, add patch, stage it."""
@@ -557,11 +582,12 @@ class TestIntegrationScenarios:
 
         # Add hotfix patch
         release_file.add_patch("hotfix-001-security")
-        release_file.move_to_staged("hotfix-001-security")
+        release_file.move_to_staged("hotfix-001-security", "hotfix_commit")
 
         # Verify
         patches = release_file.get_patches(status="staged")
         assert patches == ["hotfix-001-security"]
+        assert release_file.get_merge_commit("hotfix-001-security") == "hotfix_commit"
 
     def test_rc_promotion_workflow(self, tmp_path):
         """Test RC promotion: verify patches before promotion."""
@@ -572,10 +598,48 @@ class TestIntegrationScenarios:
         release_file.create_empty()
 
         # Add and stage patches
-        for patch_id in ["001-feat1", "002-feat2", "003-feat3"]:
+        for i, patch_id in enumerate(["001-feat1", "002-feat2", "003-feat3"]):
             release_file.add_patch(patch_id)
-            release_file.move_to_staged(patch_id)
+            release_file.move_to_staged(patch_id, f"commit{i}")
 
         # Before RC: verify no candidates remain
         assert release_file.get_patches(status="candidate") == []
         assert len(release_file.get_patches(status="staged")) == 3
+
+
+class TestTomlFileFormat:
+    """Test the TOML file format directly."""
+
+    def test_toml_file_format_for_candidate(self, tmp_path):
+        """Test TOML file contains correct dict format for candidate."""
+        releases_dir = tmp_path / "releases"
+        releases_dir.mkdir()
+
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()
+        release_file.add_patch("001-feature")
+
+        # Read raw TOML
+        with open(release_file.file_path, "rb") as f:
+            data = tomli.load(f)
+
+        assert data["patches"]["001-feature"] == {"status": "candidate"}
+
+    def test_toml_file_format_for_staged(self, tmp_path):
+        """Test TOML file contains correct dict format for staged with merge_commit."""
+        releases_dir = tmp_path / "releases"
+        releases_dir.mkdir()
+
+        release_file = ReleaseFile("1.3.6", releases_dir)
+        release_file.create_empty()
+        release_file.add_patch("001-feature")
+        release_file.move_to_staged("001-feature", "abc12345")
+
+        # Read raw TOML
+        with open(release_file.file_path, "rb") as f:
+            data = tomli.load(f)
+
+        assert data["patches"]["001-feature"] == {
+            "status": "staged",
+            "merge_commit": "abc12345"
+        }

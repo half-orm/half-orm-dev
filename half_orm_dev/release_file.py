@@ -38,8 +38,8 @@ class ReleaseFile:
 
     File format:
         [patches]
-        "1-auth" = "candidate"
-        "2-api" = "staged"
+        "1-auth" = { status = "staged", merge_commit = "abc123def" }
+        "2-api" = { status = "candidate" }
 
     The order of patches in the file is preserved and represents the application order.
     """
@@ -144,7 +144,7 @@ class ReleaseFile:
 
         if before is None:
             # Add at end
-            patches[patch_id] = "candidate"
+            patches[patch_id] = {"status": "candidate"}
         else:
             # Insert before specified patch
             if before not in patches:
@@ -156,7 +156,7 @@ class ReleaseFile:
             new_patches = {}
             for key, value in patches.items():
                 if key == before:
-                    new_patches[patch_id] = "candidate"
+                    new_patches[patch_id] = {"status": "candidate"}
                 new_patches[key] = value
 
             patches = new_patches
@@ -164,7 +164,7 @@ class ReleaseFile:
         data["patches"] = patches
         self._write(data)
 
-    def move_to_staged(self, patch_id: str) -> None:
+    def move_to_staged(self, patch_id: str, merge_commit: str) -> None:
         """
         Change patch status from candidate to staged.
 
@@ -173,13 +173,15 @@ class ReleaseFile:
 
         Args:
             patch_id: Patch identifier to move
+            merge_commit: Git commit hash of the merge commit
 
         Raises:
             ReleaseFileError: If patch not found or operation fails
 
         Examples:
-            release_file.move_to_staged("1-auth")
-            # Changes "1-auth" = "candidate" to "1-auth" = "staged"
+            release_file.move_to_staged("1-auth", "abc123def")
+            # Changes "1-auth" = {status = "candidate"}
+            # to "1-auth" = {status = "staged", merge_commit = "abc123def"}
         """
         data = self._read()
         patches = data.get("patches", {})
@@ -189,12 +191,13 @@ class ReleaseFile:
                 f"Patch {patch_id} not found in {self.version}"
             )
 
-        if patches[patch_id] == "staged":
+        patch_data = patches[patch_id]
+        if patch_data.get("status") == "staged":
             raise ReleaseFileError(
                 f"Patch {patch_id} is already staged"
             )
 
-        patches[patch_id] = "staged"
+        patches[patch_id] = {"status": "staged", "merge_commit": merge_commit}
         data["patches"] = patches
         self._write(data)
 
@@ -225,8 +228,8 @@ class ReleaseFile:
             return list(patches.keys())
 
         return [
-            patch_id for patch_id, patch_status in patches.items()
-            if patch_status == status
+            patch_id for patch_id, patch_data in patches.items()
+            if patch_data.get("status") == status
         ]
 
     def get_patch_status(self, patch_id: str) -> Optional[str]:
@@ -246,7 +249,10 @@ class ReleaseFile:
         """
         data = self._read()
         patches = data.get("patches", {})
-        return patches.get(patch_id)
+        patch_data = patches.get(patch_id)
+        if patch_data is None:
+            return None
+        return patch_data.get("status")
 
     def remove_patch(self, patch_id: str) -> None:
         """
@@ -276,19 +282,27 @@ class ReleaseFile:
         """Check if release file exists."""
         return self.file_path.exists()
 
-    def get_all_patches_with_status(self) -> Dict[str, str]:
+    def get_merge_commit(self, patch_id: str) -> Optional[str]:
         """
-        Get all patches with their status.
+        Get merge commit hash of a staged patch.
+
+        Args:
+            patch_id: Patch identifier
 
         Returns:
-            Ordered dict of {patch_id: status}
+            Merge commit hash, or None if patch not found or not staged
 
         Examples:
-            patches = release_file.get_all_patches_with_status()
-            # → {"1-auth": "staged", "2-api": "candidate"}
+            commit = release_file.get_merge_commit("1-auth")
+            if commit:
+                print(f"Patch was merged in commit {commit}")
         """
         data = self._read()
-        return data.get("patches", {})
+        patches = data.get("patches", {})
+        patch_data = patches.get(patch_id)
+        if patch_data is None:
+            return None
+        return patch_data.get("merge_commit")
 
     def set_metadata(self, metadata: Dict) -> None:
         """

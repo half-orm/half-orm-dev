@@ -39,11 +39,11 @@ def release_manager_for_rc_tagging(tmp_path):
 
     release_file.add_patch("456-user-auth")
 
-    release_file.move_to_staged("456-user-auth")
+    release_file.move_to_staged("456-user-auth", "commit456")
 
     release_file.add_patch("789-security")
 
-    release_file.move_to_staged("789-security")
+    release_file.move_to_staged("789-security", "commit789")
 
     # Mock Repo
     mock_repo = Mock()
@@ -103,11 +103,11 @@ def release_manager_for_prod_tagging(tmp_path):
 
     release_file.add_patch("456-user-auth")
 
-    release_file.move_to_staged("456-user-auth")
+    release_file.move_to_staged("456-user-auth", "commit456")
 
     release_file.add_patch("789-security")
 
-    release_file.move_to_staged("789-security")
+    release_file.move_to_staged("789-security", "commit789")
 
     # Mock Repo
     mock_repo = Mock()
