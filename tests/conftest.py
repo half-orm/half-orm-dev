@@ -34,6 +34,7 @@ def temp_repo():
     repo.releases_dir = str(releases_dir)
     repo.devel = True
     repo.name = "test_database"
+    repo.database_name = "test_database"  # Used for PostgreSQL commands
     repo.git_origin = "https://github.com/test/repo.git"
 
     # Create default HGit mock with tag methods

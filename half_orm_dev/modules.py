@@ -190,18 +190,14 @@ def __get_modules_list(dir, files_list, files):
             continue
         path_ = os.path.join(dir, file_)
         if path_ not in files_list and file_ not in DO_NOT_REMOVE:
-            # Filter out both old and new test file patterns
-            if (path_.find('__pycache__') == -1 and
-                not file_.endswith('_test.py') and
-                not file_.startswith('test_')):
-                print(f"REMOVING: {path_}")
+            if path_.find('__pycache__') == -1:
+                # Warn user - file does not correspond to a relation in the database
+                sys.stderr.write(f"WARNING: '{path_}' does not correspond to a relation. Removing.\n")
             os.remove(path_)
             continue
         if (re.findall('.py$', file_) and
                 file_ != INIT_PY and
-                file_ != '__pycache__' and
-                not file_.endswith('_test.py') and
-                not file_.startswith('test_')):
+                file_ != '__pycache__'):
             all_.append(file_.replace('.py', ''))
     all_.sort()
     return all_
@@ -337,7 +333,7 @@ def __update_this_module(
 
     # Generate Python module
     with open(module_path, 'w', encoding='utf-8') as file_:
-        documentation = "\n".join([line and f"    {line}" or "" for line in str(rel).split("\n")])
+        documentation = "\n".join([line and f"    {line}" or "" for line in str(rel).split("\n")[1:]])
         file_.write(
             module_template.format(
                 hop_release = hop_version(),
@@ -414,7 +410,7 @@ def generate(repo):
     except AttributeError as exc:
         sys.stderr.write(f"{exc}\n")
 
-    repo.database.model._reload()
+    repo.database.model.reconnect(reload=True)
 
     if not package_dir.exists():
         package_dir.mkdir(parents=True)

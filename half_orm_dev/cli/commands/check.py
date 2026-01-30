@@ -117,6 +117,25 @@ def _display_check_results(repo, result: dict, dry_run: bool, verbose: bool):
     elif verbose:
         click.echo(f"✓ {utils.Color.green('Pre-commit hook up to date')}")
 
+    # Branch sync results
+    branch_sync = result.get('branch_sync', {})
+    synced = branch_sync.get('synced', [])
+    created = branch_sync.get('created', [])
+    sync_errors = branch_sync.get('errors', [])
+
+    if synced or created:
+        total = len(synced) + len(created)
+        click.echo(f"\n🔄 {utils.Color.bold('Branches synchronized')} ({total}):")
+        for branch in synced:
+            click.echo(f"  ✓ {utils.Color.green(branch)} (updated)")
+        for branch in created:
+            click.echo(f"  ✓ {utils.Color.green(branch)} (new)")
+
+    if sync_errors:
+        click.echo(f"\n⚠️  {utils.Color.bold('Sync errors')} ({len(sync_errors)}):")
+        for branch, error in sync_errors:
+            click.echo(f"  ✗ {utils.Color.red(branch)}: {error}")
+
     # Active branches
     active = result.get('active_branches', {})
     patch_branches = active.get('patch_branches', [])

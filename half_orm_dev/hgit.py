@@ -1588,3 +1588,132 @@ class HGit:
             'patch_branches': patch_branch_infos,
             'release_branches': release_branch_infos
         }
+
+    def sync_active_branches(self, pattern: str = "ho-*") -> dict:
+        """
+        Synchronize local branches with remote (origin is the source of truth).
+
+        Remote-first approach:
+        1. For each remote branch matching pattern:
+           - If local exists and is behind → fast-forward pull
+           - If local exists and is synced → skip
+           - If local exists and is ahead → skip (user must push)
+           - If local exists and diverged → skip (conflict to resolve)
+           - If local doesn't exist → create local tracking branch
+
+        Note: Local branches that no longer exist on remote are handled
+        separately by stale branch detection/cleanup.
+
+        Args:
+            pattern: Glob pattern for branches to sync (default: "ho-*")
+
+        Returns:
+            dict with keys:
+                'synced': list of branch names that were fast-forward synced
+                'created': list of branch names that were created from remote
+                'skipped': list of (branch, reason) tuples for branches not synced
+                'errors': list of (branch, error) tuples for failed syncs
+                'current_branch': str - branch we're on after sync
+
+        Example:
+            result = hgit.sync_active_branches()
+            # → {
+            #     'synced': ['ho-release/0.1.0', 'ho-patch/42-feature'],
+            #     'created': ['ho-patch/99-new-from-colleague'],
+            #     'skipped': [('ho-patch/43-other', 'ahead')],
+            #     'errors': [],
+            #     'current_branch': 'ho-patch/42-feature'
+            # }
+        """
+        import fnmatch
+
+        synced = []
+        created = []
+        skipped = []
+        errors = []
+
+        # Save current branch
+        try:
+            original_branch = str(self.__git_repo.active_branch)
+        except Exception:
+            original_branch = None
+
+        # Fetch first to get latest remote state
+        try:
+            self.__git_repo.remotes.origin.fetch(prune=True)
+        except Exception as e:
+            return {
+                'synced': [],
+                'created': [],
+                'skipped': [],
+                'errors': [('fetch', str(e))],
+                'current_branch': original_branch
+            }
+
+        # Get local and remote branches
+        local_branches = set(self.get_local_branches(pattern=pattern))
+        remote_branches = self.get_remote_branches()
+
+        # Filter remote branches matching pattern (strip origin/ prefix)
+        remote_branch_names = []
+        for rb in remote_branches:
+            branch_name = rb.replace('origin/', '')
+            if fnmatch.fnmatch(branch_name, pattern):
+                remote_branch_names.append(branch_name)
+
+        # Process each remote branch
+        for branch in remote_branch_names:
+            if branch in local_branches:
+                # Branch exists locally - check sync status
+                try:
+                    is_synced, status = self.is_branch_synced(branch, remote='origin')
+
+                    if is_synced:
+                        skipped.append((branch, 'already_synced'))
+                        continue
+
+                    if status == 'ahead':
+                        skipped.append((branch, 'ahead'))
+                        continue
+
+                    if status == 'diverged':
+                        skipped.append((branch, 'diverged'))
+                        continue
+
+                    if status == 'behind':
+                        # Fast-forward pull
+                        try:
+                            self.__git_repo.heads[branch].checkout()
+                            self.__git_repo.remotes.origin.pull(branch, ff_only=True)
+                            synced.append(branch)
+                        except Exception as e:
+                            errors.append((branch, str(e)))
+
+                except Exception as e:
+                    errors.append((branch, f"status check failed: {e}"))
+            else:
+                # Branch doesn't exist locally - create it tracking remote
+                try:
+                    # Create local branch tracking remote
+                    remote_ref = self.__git_repo.remotes.origin.refs[branch]
+                    self.__git_repo.create_head(branch, remote_ref)
+                    # Set up tracking
+                    self.__git_repo.heads[branch].set_tracking_branch(remote_ref)
+                    created.append(branch)
+                except Exception as e:
+                    errors.append((branch, f"create failed: {e}"))
+
+        # Return to original branch
+        if original_branch:
+            try:
+                self.__git_repo.heads[original_branch].checkout()
+            except Exception:
+                pass  # Best effort
+
+        return {
+            'synced': synced,
+            'created': created,
+            'skipped': skipped,
+            'errors': errors,
+            'current_branch': original_branch
+        }

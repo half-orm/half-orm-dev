@@ -50,27 +50,46 @@ class OutdatedHalfORMDevError(RepoError):
 
 class Config:
     """
+    Configuration manager for half_orm_dev projects.
+
+    Stores project configuration in .hop/config including:
+    - package_name: Python package name (immutable, set at init)
+    - hop_version: half_orm_dev version
+    - git_origin: Git remote URL
+    - devel: Development mode flag
+
+    Note: database_name may differ from package_name when cloning with --database-name.
+    The package_name is always used for Python module generation.
     """
-    __name: Optional[str] = None
+    __package_name: Optional[str] = None
     __git_origin: str = ''
     __devel: bool = False
     __hop_version: Optional[str] = None
+
     def __init__(self, base_dir, **kwargs):
         Config.__file = os.path.join(base_dir, '.hop', 'config')
-        self.__name = kwargs.get('name') or resolve_database_config_name(base_dir)
+        # package_name from kwargs takes priority (used during init)
+        self.__package_name = kwargs.get('name')
         self.__devel = kwargs.get('devel', False)
         if os.path.exists(self.__file):
             sys.path.insert(0, base_dir)
             self.read()
+        # Fallback to directory name if not set (new project without config)
+        if not self.__package_name:
+            self.__package_name = Path(base_dir).name
 
     def read(self):
-        "Sets __name and __hop_version"
+        "Sets __package_name and __hop_version from .hop/config"
         config = ConfigParser()
         config.read(self.__file)
         self.__hop_version = config['halfORM'].get('hop_version', '')
         self.__git_origin = config['halfORM'].get('git_origin', '')
         self.__devel = config['halfORM'].getboolean('devel', False)
         self.__allow_rc = config['halfORM'].getboolean('allow_rc', False)
+        # Read package_name from config (takes priority over directory name)
+        stored_package_name = config['halfORM'].get('package_name', '')
+        if stored_package_name:
+            self.__package_name = stored_package_name
 
     def write(self):
         "Helper: write file in utf8"
@@ -79,18 +98,21 @@ class Config:
         data = {
             'hop_version': self.__hop_version,
             'git_origin': self.__git_origin,
-            'devel': self.__devel
+            'devel': self.__devel,
+            'package_name': self.__package_name or ''
         }
         config['halfORM'] = data
         with open(Config.__file, 'w', encoding='utf-8') as configfile:
             config.write(configfile)
 
     @property
-    def name(self):
-        return self.__name
-    @name.setter
-    def name(self, name):
-        self.__name = name
+    def package_name(self):
+        """Returns the package name (alias for name)."""
+        return self.__package_name
+
+    @package_name.setter
+    def package_name(self, name):
+        self.__package_name = name
 
     @property
     def git_origin(self):
@@ -895,7 +917,25 @@ class Repo:
     @property
     def name(self):
         "Returns the name of the package"
-        return self.__config and self.__config.name or None
+        return self.__config and self.__config.package_name or None
+
+    @property
+    def database_name(self):
+        """Returns the database name for DB connection.
+
+        Uses .hop/alt_config if present (for clones with --database-name),
+        otherwise falls back to package_name.
+
+        This is different from `name` (package_name) which is used for
+        Python module generation.
+        """
+        alt_config_path = os.path.join(self.__base_dir, '.hop', 'alt_config')
+        if os.path.exists(alt_config_path):
+            with open(alt_config_path, 'r', encoding='utf-8') as f:
+                alt_name = f.read().strip()
+                if alt_name:
+                    return alt_name
+        return self.name
 
     @property
     def git_origin(self):
@@ -1463,6 +1503,17 @@ class Repo:
                 except Exception:
                     pass
 
+        # 0b. Sync all active branches that are behind remote
+        # Origin is the source of truth - always sync to match remote
+        sync_result = {'synced': [], 'skipped': [], 'errors': []}
+        if self.hgit and not dry_run:
+            try:
+                sync_result = self.hgit.sync_active_branches(pattern="ho-*")
+            except Exception:
+                pass  # Best effort - continue even if sync fails
+
+        result['branch_sync'] = sync_result
+
         # 1. Check and update Git hooks
         if not dry_run:
             result['hooks'] = self.install_git_hooks()
@@ -1984,7 +2035,7 @@ See docs/half_orm_dev.md for complete documentation.
         pipfile_template = utils.read(os.path.join(TEMPLATE_DIRS, 'Pipfile'))
 
         # Format templates with project variables
-        package_name = self.__config.name
+        package_name = self.__config.package_name
 
         pyproject = pyproject_template.format(
             dbname=package_name,
@@ -2250,7 +2301,7 @@ See docs/half_orm_dev.md for complete documentation.
             # 3. Load schema from model/schema.sql
             try:
                 self.database.execute_pg_command(
-                    'psql', '-d', self.name, '-f', str(schema_path)
+                    'psql', '-d', self.database_name, '-f', str(schema_path)
                 )
             except Exception as e:
                 raise RepoError(f"Failed to load schema from {schema_path.name}: {e}") from e
@@ -2261,7 +2312,7 @@ See docs/half_orm_dev.md for complete documentation.
             if metadata_path and metadata_path.exists():
                 try:
                     self.database.execute_pg_command(
-                        'psql', '-d', self.name, '-f', str(metadata_path)
+                        'psql', '-d', self.database_name, '-f', str(metadata_path)
                     )
                 except Exception as e:
                     raise RepoError(
@@ -2320,7 +2371,7 @@ See docs/half_orm_dev.md for complete documentation.
             # Dump complete database (schema + data) to temp file
             self.database.execute_pg_command(
                 'pg_dump',
-                self.name,
+                self.database_name,
                 '--no-owner',
                 '-f',
                 str(temp_file)
@@ -2385,7 +2436,7 @@ See docs/half_orm_dev.md for complete documentation.
 
             # Load release schema
             self.database.execute_pg_command(
-                'psql', '-d', self.name, '-f', str(release_schema_path)
+                'psql', '-d', self.database_name, '-f', str(release_schema_path)
             )
 
             # Reload half_orm metadata cache
@@ -2513,7 +2564,7 @@ See docs/half_orm_dev.md for complete documentation.
 
             try:
                 self.database.execute_pg_command(
-                    'psql', '-d', self.name, '-f', str(data_file)
+                    'psql', '-d', self.database_name, '-f', str(data_file)
                 )
             except Exception as e:
                 raise RepoError(
@@ -2525,7 +2576,7 @@ See docs/half_orm_dev.md for complete documentation.
                 git_origin: str,
                 database_name: Optional[str] = None,
                 dest_dir: Optional[str] = None,
-                production: bool = False,
+                connection_options: Optional[dict] = None,
                 create_db: bool = True) -> None:
         """
         Clone existing half_orm_dev project and setup local database.
@@ -2538,7 +2589,12 @@ See docs/half_orm_dev.md for complete documentation.
             git_origin: Git repository URL (HTTPS, SSH, file://)
             database_name: Local database name (default: prompt or package_name)
             dest_dir: Clone destination (default: infer from git_origin)
-            production: Production mode flag (passed to Database.setup_database)
+            connection_options: Database connection parameters
+                - host (str): PostgreSQL host (default: localhost)
+                - port (int): PostgreSQL port (default: 5432)
+                - user (str): Database user (default: $USER)
+                - password (str): Database password (prompts if None)
+                - production (bool): Production environment flag
             create_db: Create database if missing (default: True)
 
         Raises:
@@ -2565,11 +2621,10 @@ See docs/half_orm_dev.md for complete documentation.
                 database_name="my_local_dev_db"
             )
 
-            # Production mode
+            # Non-interactive with explicit connection params
             Repo.clone_repo(
                 "https://github.com/user/project.git",
-                production=True,
-                create_db=False  # DB must already exist
+                connection_options={'host': 'localhost', 'user': 'dev', 'password': 'secret'}
             )
 
         Notes:
@@ -2578,6 +2633,8 @@ See docs/half_orm_dev.md for complete documentation.
             - restore_database_from_schema() loads production schema version
             - Returns None (command completes, no return value needed)
         """
+        if connection_options is None:
+            connection_options = {}
         # Step 1: Determine destination directory
         if dest_dir:
             dest_name = dest_dir
@@ -2633,6 +2690,10 @@ See docs/half_orm_dev.md for complete documentation.
                 f"Ensure 'ho-prod' branch exists in the repository."
             ) from e
 
+        # Step 7: Load config and setup database
+        from half_orm_dev.repo import Config  # Import here to avoid circular imports
+        config = Config(dest_path)
+
         # Step 6: Create .hop/alt_config if custom database name provided
         if database_name:
             alt_config_path = dest_path / '.hop' / 'alt_config'
@@ -2643,22 +2704,12 @@ See docs/half_orm_dev.md for complete documentation.
                 raise RepoError(
                     f"Failed to create .hop/alt_config: {e}"
                 ) from e
-
-        # Step 7: Load config and setup database
-        from half_orm_dev.repo import Config  # Import here to avoid circular imports
-        config = Config(dest_path)
-
-        connection_options = {
-            'host': None,
-            'port': None,
-            'user': None,
-            'password': None,
-            'production': production
-        }
+        else:
+            database_name = config.package_name
 
         try:
             Database.setup_database(
-                database_name=config.name,
+                database_name=database_name,
                 connection_options=connection_options,
                 create_db=create_db,
                 add_metadata=create_db  # Auto-install metadata for new DB

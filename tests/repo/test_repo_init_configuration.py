@@ -129,7 +129,7 @@ class TestConfigurationInitialization:
         config = repo._Repo__config
 
         # Verify config properties
-        assert config.name == "my_blog"
+        assert config.package_name == "my_blog"
         assert config.devel is True
         assert config.hop_version is not None  # Version set by Config.write()
         assert config.git_origin == "git@git.example.com:user/repo"

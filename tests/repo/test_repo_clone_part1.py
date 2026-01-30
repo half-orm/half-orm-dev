@@ -202,7 +202,7 @@ class TestCloneRepoSuccess:
         with patch.object(Repo, '__new__', return_value=mock_repo):
             Repo.clone_repo(
                 "https://github.com/user/project.git",
-                production=True,
+                connection_options={'production': True},
                 create_db=False
             )
 

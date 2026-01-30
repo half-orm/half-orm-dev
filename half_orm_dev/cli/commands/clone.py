@@ -14,9 +14,13 @@ from half_orm_dev.repo import Repo, RepoError
 @click.argument('git_origin')
 @click.option('--database-name', default=None, help='Custom local database name (default: use project name)')
 @click.option('--dest-dir', default=None, help='Destination directory name (default: infer from git URL)')
+@click.option('--host', default='localhost', help='PostgreSQL host (default: localhost)')
+@click.option('--port', default=5432, type=int, help='PostgreSQL port (default: 5432)')
+@click.option('--user', default=None, help='Database user (default: $USER)')
+@click.option('--password', default=None, help='Database password (prompts if missing)')
 @click.option('--production', is_flag=True, help='Production mode (default: False)')
 @click.option('--no-create-db', is_flag=True, help='Skip database creation (database must exist)')
-def clone(git_origin, database_name, dest_dir, production, no_create_db):
+def clone(git_origin, database_name, dest_dir, host, port, user, password, production, no_create_db):
     """
     Clone existing half_orm_dev project and setup local database.
 
@@ -55,12 +59,21 @@ def clone(git_origin, database_name, dest_dir, production, no_create_db):
         click.echo(f"🔄 Cloning half_orm project from {git_origin}...")
         click.echo()
 
+        # Build connection options
+        connection_options = {
+            'host': host,
+            'port': port,
+            'user': user,
+            'password': password,
+            'production': production
+        }
+
         # Execute clone
         Repo.clone_repo(
             git_origin=git_origin,
             database_name=database_name,
             dest_dir=dest_dir,
-            production=production,
+            connection_options=connection_options,
             create_db=not no_create_db
         )
 

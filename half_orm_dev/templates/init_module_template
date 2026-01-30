@@ -5,6 +5,7 @@ from half_orm_dev.utils import resolve_database_config_name
 from pathlib import Path
 
 _package_dir = Path(__file__).parent
-_config_name = resolve_database_config_name(_package_dir)
+_project_dir = _package_dir.parent  # Go up to project root where .hop/ lives
+_config_name = resolve_database_config_name(_project_dir)
 
 MODEL = Model(_config_name, scope=__name__)

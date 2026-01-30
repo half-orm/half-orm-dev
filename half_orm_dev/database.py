@@ -77,10 +77,12 @@ class Database:
         self.__repo = repo
         self.__model = None
         self.__last_release = None
-        if self.__repo.name:
+        # Use database_name for DB connection (may differ from package_name after clone)
+        db_name = self.__repo.database_name
+        if db_name:
             try:
-                self.__model = Model(self.__repo.name)
-                self.__init(self.__repo.name, get_release)
+                self.__model = Model(db_name)
+                self.__init(db_name, get_release)
             except OperationalError as err:
                 if not self.__repo.new:
                     utils.error(err, 1)
@@ -132,7 +134,7 @@ class Database:
     @property
     def production(self):
         "Returns whether the database is tagged in production or not."
-        return self._get_connection_params()['production']
+        return self.__model._production_mode
 
     def init(self, name):
         """Called when creating a new repo.
