@@ -87,6 +87,11 @@ def release_manager(tmp_path):
     mock_patch_manager._sync_release_files_to_ho_prod = Mock()
     mock_repo.patch_manager = mock_patch_manager
 
+    # Mock get_release_schema_path to return non-existent path
+    # This forces the old workflow (restore from schema.sql + apply patches)
+    non_existent_path = tmp_path / ".hop" / "model" / "release-nonexistent.sql"
+    mock_repo.get_release_schema_path = Mock(return_value=non_existent_path)
+
     # Create ReleaseManager
     rel_mgr = ReleaseManager(mock_repo)
 
@@ -158,8 +163,9 @@ class TestReleaseIntegrationWorkflow:
         repo.hgit = mock_hgit_complete
 
         # Setup: create rc file (with proper rc number)
+        # Format: patch_id:merge_commit
         rc_file = releases_dir / "0.1.0-rc1.txt"
-        rc_file.write_text("001-first\n002-second\n")
+        rc_file.write_text("001-first:abc123\n002-second:def456\n")
 
         # Setup: create TOML patches file
 
@@ -222,11 +228,12 @@ class TestApplyReleasePatches:
         rel_mgr, repo, temp_dir, releases_dir = release_manager
 
         # Setup: create RC files and TOML patches file
+        # Format: patch_id:merge_commit
         rc1_file = releases_dir / "0.1.0-rc1.txt"
-        rc1_file.write_text("001-first\n002-second\n")
+        rc1_file.write_text("001-first:abc123\n002-second:def456\n")
 
         rc2_file = releases_dir / "0.1.0-rc2.txt"
-        rc2_file.write_text("003-third\n")
+        rc2_file.write_text("003-third:ghi789\n")
 
         create_patches_file(releases_dir, "0.1.0", ["004-fourth", "005-fifth"])
 
@@ -310,8 +317,9 @@ class TestApplyReleasePatches:
         rel_mgr, repo, temp_dir, releases_dir = release_manager
 
         # Setup: create RC file and empty TOML
+        # Format: patch_id:merge_commit
         rc1_file = releases_dir / "0.1.0-rc1.txt"
-        rc1_file.write_text("001-first\n")
+        rc1_file.write_text("001-first:abc123\n")
 
         create_patches_file(releases_dir, "0.1.0")  # Empty TOML file
 
@@ -332,14 +340,15 @@ class TestApplyReleasePatches:
         rel_mgr, repo, temp_dir, releases_dir = release_manager
 
         # Setup: create RC files out of order
+        # Format: patch_id:merge_commit
         rc3_file = releases_dir / "0.1.0-rc3.txt"
-        rc3_file.write_text("003-third\n")
+        rc3_file.write_text("003-third:ghi789\n")
 
         rc1_file = releases_dir / "0.1.0-rc1.txt"
-        rc1_file.write_text("001-first\n")
+        rc1_file.write_text("001-first:abc123\n")
 
         rc2_file = releases_dir / "0.1.0-rc2.txt"
-        rc2_file.write_text("002-second\n")
+        rc2_file.write_text("002-second:def456\n")
 
         create_patches_file(releases_dir, "0.1.0")  # Empty TOML file
 

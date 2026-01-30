@@ -680,6 +680,8 @@ class ReleaseManager:
         """
         Lit les patch IDs d'un fichier de release.
 
+        Format: patch_id:merge_commit (one per line)
+
         Ignore:
         - Lignes vides
         - Commentaires (#)
@@ -695,15 +697,49 @@ class ReleaseManager:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#'):
-                    patch_ids.append(line)
+                    patch_id = line.split(':')[0]
+                    patch_ids.append(patch_id)
 
         return patch_ids
 
-    def _apply_release_patches(self, version: str, hotfix=False) -> None:
+    def read_release_patches_with_commits(self, filename: str) -> dict:
+        """
+        Lit les patch IDs et merge_commits d'un fichier de release.
+
+        Format: patch_id:merge_commit (one per line)
+
+        Returns:
+            dict: {patch_id: merge_commit}
+
+        Example:
+            # File content:
+            # 1-premier:ce96282f
+            # 2-second:8e10f11b
+            patches = read_release_patches_with_commits("0.1.0-rc1.txt")
+            # → {"1-premier": "ce96282f", "2-second": "8e10f11b"}
+        """
+        file_path = self._releases_dir / filename
+
+        if not file_path.exists():
+            return {}
+
+        patches = {}
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    patch_id, merge_commit = line.split(':', 1)
+                    patches[patch_id] = merge_commit
+
+        return patches
+
+    def _apply_release_patches(self, version: str, hotfix=False, force_apply=False) -> None:
         """
         Apply all patches for a release version to the database.
 
-        Restores database from baseline and applies patches in order:
+        If a release schema exists (release-X.Y.Z.sql) and force_apply=False,
+        uses it directly. Otherwise, restores database from baseline and
+        applies patches in order:
         1. All RC patches (rc1, rc2, etc.)
         2. Stage patches
 
@@ -712,41 +748,56 @@ class ReleaseManager:
 
         Args:
             version: Release version (e.g., "0.1.0")
+            hotfix: If True, skip RC patches (hotfix workflow)
+            force_apply: If True, always apply patches individually even if
+                        release schema exists (used for production validation)
 
         Raises:
             ReleaseManagerError: If patch application fails
         """
-        # Restore database from baseline
+        # Check if release schema exists (new workflow)
+        release_schema_path = self._repo.get_release_schema_path(version)
+        if release_schema_path.exists() and not force_apply:
+            # New workflow: restore from release schema (already contains all staged patches)
+            self._repo.restore_database_from_release_schema(version)
+            return
+
+        # Fallback: old workflow - restore database from baseline
         self._repo.restore_database_from_schema()
 
         current_branch = self._repo.hgit.branch
 
-        # Apply all RC patches in order
+        # Collect patches already applied from RC files
+        applied_patches = set()
+
+        # Apply all RC patches in order (with merge_commit checkout)
         if not hotfix:
             rc_files = self._get_label_files(version, 'rc')
             for rc_file in rc_files:
-                rc_patches = self.read_release_patches(rc_file.name)
-                for patch_id in rc_patches:
+                rc_patches = self.read_release_patches_with_commits(rc_file.name)
+                for patch_id, merge_commit in rc_patches.items():
+                    if merge_commit:
+                        self._repo.hgit.checkout(merge_commit)
                     self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
+                    applied_patches.add(patch_id)
 
-        # Apply staged patches from TOML file (if in development) or from snapshot (if released)
-        # Try TOML file first (development)
+        # Apply staged patches from TOML file that are NOT already in RC files
+        # (patches added after promote_to_rc)
         release_file = ReleaseFile(version, self._releases_dir)
         if release_file.exists():
             # Development: read from TOML
             stage_patches = release_file.get_patches(status="staged")
 
-            # Apply staged patches, checking out each merge_commit
-            # to have the correct Python code context
+            # Apply only patches not already applied from RC
             for patch_id in stage_patches:
+                if patch_id in applied_patches:
+                    continue  # Already applied from RC file
+
                 merge_commit = release_file.get_merge_commit(patch_id)
                 if merge_commit:
                     # Checkout the merge commit to have correct Python code
                     self._repo.hgit.checkout(merge_commit)
                 self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
-
-            # Return to original branch
-            self._repo.hgit.checkout(current_branch)
         else:
             # Production: read from hotfix snapshot if it exists
             # This handles the case where we're applying a hotfix release
@@ -761,7 +812,11 @@ class ReleaseManager:
             # For production snapshots (no TOML), apply patches without checkout
             # (merge_commit info not available in .txt files)
             for patch_id in stage_patches:
-                self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
+                if patch_id not in applied_patches:
+                    self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
+
+        # Return to original branch
+        self._repo.hgit.checkout(current_branch)
 
     def _collect_all_version_patches(self, version: str) -> List[str]:
         """
@@ -2281,7 +2336,7 @@ class ReleaseManager:
 
             # Commit release schema on release branch
             self._repo.hgit.add(str(release_schema_path))
-            self._repo.hgit.commit(f"[HOP] Add release schema for %{version}")
+            self._repo.hgit.commit('-m', f"[HOP] Add release schema for %{version}")
             self._repo.hgit.push()
         except Exception as e:
             raise ReleaseManagerError(f"Failed to generate release schema: {e}")
@@ -2439,10 +2494,14 @@ class ReleaseManager:
             # Stay on release branch for rename operations
             # (allows continued development on this release)
 
-            # Create RC snapshot from staged patches
+            # Create RC snapshot from staged patches (with merge_commit)
             rc_file = self._releases_dir / f"{version}-rc{rc_number}.txt"
             staged_patches = release_file.get_patches(status="staged")
-            rc_file.write_text("\n".join(staged_patches) + "\n" if staged_patches else "", encoding='utf-8')
+            lines = []
+            for patch_id in staged_patches:
+                merge_commit = release_file.get_merge_commit(patch_id)
+                lines.append(f"{patch_id}:{merge_commit}" if merge_commit else patch_id)
+            rc_file.write_text("\n".join(lines) + "\n" if lines else "", encoding='utf-8')
 
             # Keep TOML file for continued development (don't delete it)
 
@@ -2582,38 +2641,13 @@ class ReleaseManager:
                         "ho-prod has been restored to its previous state."
                     )
 
-            # 3. Apply only NEW patches from TOML file (if any) and generate schema
-            # Note: RC patches have already been applied during promote_to_rc
-            stage_patches = release_file.get_patches(status="staged")
-
-            if stage_patches:
-                # There are new patches after RC - apply them
-                # First, restore from latest RC schema
-                latest_rc = self._get_latest_label_number(version, "rc")
-                rc_schema_version = f"{version}-rc{latest_rc}" if latest_rc > 0 else "0.0.0"
-
-                # Restore from RC schema if it exists, otherwise from baseline
-                try:
-                    self._repo.restore_database_from_schema(rc_schema_version)
-                except:
-                    self._repo.restore_database_from_schema()
-
-                # Apply new stage patches, checking out each merge_commit
-                # to have the correct Python code context
-                current_branch = self._repo.hgit.branch
-                for patch_id in stage_patches:
-                    merge_commit = release_file.get_merge_commit(patch_id)
-                    if merge_commit:
-                        # Checkout the merge commit to have correct Python code
-                        self._repo.hgit.checkout(merge_commit)
-                    self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
-
-                # Return to original branch
-                self._repo.hgit.checkout(current_branch)
-            else:
-                # No new patches - just restore from latest RC
-                # The database should already be in the correct state from RC
-                pass
+            # 3. Apply all patches (RC + staged) to database
+            # Uses _apply_release_patches which handles:
+            # - Reading RC files with merge_commits (patch_id:merge_commit format)
+            # - Checking out each merge_commit before applying patch
+            # - Reading staged patches from TOML with merge_commits
+            # force_apply=True to validate by applying patches even if release schema exists
+            self._apply_release_patches(version, force_apply=True)
 
             # Register the release version in half_orm_meta.hop_release
             version_parts = version.split('.')

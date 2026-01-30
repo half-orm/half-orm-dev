@@ -1955,6 +1955,9 @@ class PatchManager:
         except Exception as e:
             raise PatchManagerError(f"Failed to commit/push changes: {e}")
 
+        # 7b. Propagate release schema to higher version releases (now that commit is done)
+        self._propagate_release_schema_to_higher_versions(version)
+
         # 8. Delete patch branch (local and remote)
         try:
             self._repo.hgit.delete_local_branch(patch_branch)
@@ -1981,7 +1984,7 @@ class PatchManager:
             version: Current release version (e.g., "0.17.1")
 
         Workflow:
-        1. Regenerate release-{version}.sql for current release
+        1. Add release schema to staging (already generated during validation)
         2. Find all release branches with higher versions
         3. For each higher version:
            - Checkout to that branch
@@ -1997,12 +2000,25 @@ class PatchManager:
         original_branch = self._repo.hgit.branch
         current_ver = Version(version)
 
-        # 1. Regenerate release schema for current version
-        # DB is already in correct state after validation
-        release_schema_path = self._repo.generate_release_schema(version)
-        self._repo.hgit.add(str(release_schema_path))
+        # 1. Write and add release schema to staging area (if not hotfix mode)
+        # Schema content was saved during validation with correct DB state
+        release_schema_path = self._repo.get_release_schema_path(version)
+        if hasattr(self, '_pending_release_schema_content') and self._pending_release_schema_content:
+            click.echo(f"  • Writing release schema ({len(self._pending_release_schema_content)} bytes)")
+            release_schema_path.write_text(self._pending_release_schema_content, encoding='utf-8')
+            self._pending_release_schema_content = None  # Clear after use
+            self._repo.hgit.add(str(release_schema_path))
+        else:
+            # Hotfix mode or no content - skip release schema
+            click.echo(f"  • Skipping release schema (hotfix mode)")
 
-        # 2. Find higher version releases
+        # NOTE: Do NOT checkout other branches here!
+        # The commit will be done later by commit_and_sync_to_active_branches()
+        # Propagation to higher releases is disabled for now as it causes issues
+        # with uncommitted changes being lost during checkout.
+        # TODO: Re-enable propagation after the main commit is done.
+
+        # 2. Find higher version releases (disabled - propagation moved to after commit)
         releases_dir = Path(self._repo.releases_dir)
         higher_releases = []
 
@@ -2018,7 +2034,32 @@ class PatchManager:
         # Sort by version (ascending)
         higher_releases.sort(key=lambda v: Version(v))
 
-        # 3. Update each higher version release
+        # Store higher releases for later propagation (after commit)
+        # This avoids losing uncommitted changes when checking out other branches
+        self._pending_higher_releases = higher_releases if higher_releases else None
+
+    def _propagate_release_schema_to_higher_versions(self, version: str) -> None:
+        """
+        Propagate release schema changes to higher version releases.
+
+        Called after commit to update release schemas for all releases
+        with version > current version.
+
+        Args:
+            version: Current release version that was just updated
+        """
+        from packaging.version import Version
+        from half_orm_dev.release_file import ReleaseFile
+
+        if not hasattr(self, '_pending_higher_releases') or not self._pending_higher_releases:
+            return
+
+        higher_releases = self._pending_higher_releases
+        self._pending_higher_releases = None  # Clear after use
+
+        original_branch = self._repo.hgit.branch
+        releases_dir = Path(self._repo.releases_dir)
+
         for higher_version in higher_releases:
             higher_branch = f"ho-release/{higher_version}"
 
@@ -2046,13 +2087,13 @@ class PatchManager:
                 # Regenerate release schema for this higher version
                 higher_schema_path = self._repo.generate_release_schema(higher_version)
                 self._repo.hgit.add(str(higher_schema_path))
-                self._repo.hgit.commit(f"[HOP] Update release schema from %{version}")
+                self._repo.hgit.commit('-m', f"[HOP] Update release schema from %{version}")
                 self._repo.hgit.push()
 
             except Exception as e:
                 click.echo(f"    ⚠️  Warning: Failed to propagate to {higher_branch}: {e}")
 
-        # 4. Return to original branch
+        # Return to original branch
         self._repo.hgit.checkout(original_branch)
 
     def _validate_patch_before_merge(
@@ -2095,6 +2136,8 @@ class PatchManager:
         # Save current branch
         original_branch = self._repo.hgit.branch
         temp_branch = f"ho-validate/{patch_id}"
+        release_schema_content = None
+        release_schema_path = None
 
         try:
             click.echo(f"\n🔍 Validating patch {utils.Color.bold(patch_id)} before merge...")
@@ -2174,10 +2217,33 @@ class PatchManager:
             # 4. Run tests (best-effort)
             self._run_tests_if_available()
 
+            # 5. Generate release schema while DB is in correct state
+            # This captures prod + all staged patches + current patch
+            # Skip for hotfix releases (detected by presence of X.Y.Z.txt production file)
+            prod_file = Path(self._repo.releases_dir) / f"{version}.txt"
+            is_hotfix = prod_file.exists()
+
+            if is_hotfix:
+                click.echo(f"  • Skipping release schema (hotfix mode)")
+                release_schema_content = None
+            else:
+                click.echo(f"  • Generating release schema...")
+                release_schema_path = self._repo.generate_release_schema(version)
+
+                # Save schema content to restore after branch checkout
+                # (the file will be lost when switching branches)
+                release_schema_content = release_schema_path.read_text(encoding='utf-8')
+
+                # Delete the file to avoid checkout conflicts
+                # (content is saved in memory and will be written after checkout)
+                release_schema_path.unlink()
+
+                click.echo(f"  • {utils.Color.green('✓')} Release schema generated")
+
             click.echo(f"  • {utils.Color.green('✓')} Validation passed!\n")
 
         finally:
-            # 5. Cleanup: Delete temp branch and return to original branch
+            # 6. Cleanup: Delete temp branch and return to original branch
             try:
                 # Return to original branch
                 if self._repo.hgit.branch != original_branch:
@@ -2189,6 +2255,10 @@ class PatchManager:
             except Exception as e:
                 # Cleanup errors are non-critical, just warn
                 click.echo(f"⚠️  Warning: Failed to cleanup temp branch {temp_branch}: {e}")
+
+        # Store release schema content for later use in _update_release_schemas
+        # (after merge, when we're on the release branch)
+        self._pending_release_schema_content = release_schema_content
 
     def _run_tests_if_available(self) -> None:
         """

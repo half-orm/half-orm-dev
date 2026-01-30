@@ -90,9 +90,9 @@ def release_manager_for_prod_tagging(tmp_path):
     releases_dir = tmp_path / ".hop" / "releases"
     releases_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create RC file (needed for promote to prod)
+    # Create RC file (format: patch_id:merge_commit)
     rc_file = releases_dir / "1.3.6-rc1.txt"
-    rc_file.write_text("456-user-auth\n789-security\n")
+    rc_file.write_text("456-user-auth:abc123\n789-security:def456\n")
 
     # Create stage file (automatically created after promote_to_rc)
     from half_orm_dev.release_file import ReleaseFile
@@ -193,9 +193,9 @@ class TestPromoteToRCTagging:
         # Simulate existing RC1 tag
         mock_hgit.list_tags.return_value = ["v1.3.6-rc1"]
 
-        # Create RC1 file to simulate first promotion
+        # Create RC1 file (format: patch_id:merge_commit)
         rc1_file = releases_dir / "1.3.6-rc1.txt"
-        rc1_file.write_text("456-user-auth\n")
+        rc1_file.write_text("456-user-auth:abc123\n")
 
         result = release_mgr.promote_to_rc()
 

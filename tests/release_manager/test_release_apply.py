@@ -85,9 +85,9 @@ class TestGetAllReleasePatchesForTesting:
         """Test that RC patches are included."""
         rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_for_apply
 
-        # Create RC file
+        # Create RC file (format: patch_id:merge_commit)
         rc_file = releases_dir / "1.1.0-rc1.txt"
-        rc_file.write_text("100-rc-patch\n101-rc-patch2\n")
+        rc_file.write_text("100-rc-patch:abc123\n101-rc-patch2:def456\n")
 
         # Create TOML file with candidates
         release_file = ReleaseFile("1.1.0", releases_dir)
@@ -211,9 +211,9 @@ class TestApplyRelease:
         """Test that patches are applied in correct order."""
         rel_mgr, mock_repo, tmp_path, releases_dir, patches_dir = release_manager_for_apply
 
-        # Create RC file first
+        # Create RC file first (format: patch_id:merge_commit)
         rc_file = releases_dir / "1.1.0-rc1.txt"
-        rc_file.write_text("001-first\n")
+        rc_file.write_text("001-first:abc123\n")
 
         # Create TOML with candidates and staged
         release_file = ReleaseFile("1.1.0", releases_dir)
