@@ -1254,7 +1254,7 @@ class Database:
                 'password': dbinfo.get('password', ''),
                 'host': dbinfo.get('host', ''),
                 'port': int(dbinfo.get('port', 5432) or 5432),
-                'production': not self.__model._production_mode,  # devel=False means production
+                'production': self.__model._production_mode,
                 'docker_container': dbinfo.get('docker_container', ''),
             }
             self.__connection_params_cache = config

@@ -642,11 +642,11 @@ class PatchManager:
         # Apply files in lexicographic order
         for patch_file in structure.files:
             if patch_file.is_sql:
-                print('XXX', patch_file.name)
+                click.echo(f"  • {patch_file.name}")
                 self._execute_sql_file(patch_file.path, database_model)
                 applied_files.append(patch_file.name)
             elif patch_file.is_python:
-                print('XXX', patch_file.name)
+                click.echo(f"  • {patch_file.name}")
                 self._execute_python_file(patch_file.path)
                 applied_files.append(patch_file.name)
             # Other file types are ignored (not executed)
