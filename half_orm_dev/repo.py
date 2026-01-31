@@ -1868,11 +1868,13 @@ class Repo:
         releases_dir = self.releases_dir
         model_dir = self.model_dir
         backups_dir = self.backups_dir
+        bootstrap_dir = os.path.join(self.__base_dir, 'bootstrap')
 
         os.makedirs(patches_dir, exist_ok=True)
         os.makedirs(releases_dir, exist_ok=True)
         os.makedirs(model_dir, exist_ok=True)
         os.makedirs(backups_dir, exist_ok=True)
+        os.makedirs(bootstrap_dir, exist_ok=True)
 
         # Create README files for guidance
         patches_readme = os.path.join(patches_dir, 'README.md')
@@ -1956,6 +1958,62 @@ Each file contains patch IDs, one per line:
 - Apply to production: `half_orm dev deploy-to-prod`
 
 See docs/half_orm_dev.md for complete documentation.
+""")
+
+        bootstrap_readme = os.path.join(bootstrap_dir, 'README.md')
+        with open(bootstrap_readme, 'w', encoding='utf-8') as f:
+            f.write("""# Bootstrap Scripts
+
+This directory contains data initialization scripts that run after database setup.
+
+## File Naming
+
+Files are named: `<number>-<patch_id>-<version>.<ext>`
+
+Examples:
+- `1-init-users-0.1.0.sql`
+- `2-seed-config-0.1.0.py`
+
+Scripts are executed in numeric order (by the first number).
+
+## Usage
+
+Run pending bootstrap scripts:
+```bash
+half_orm dev bootstrap
+```
+
+Preview what would be executed:
+```bash
+half_orm dev bootstrap --dry-run
+```
+
+Re-execute all scripts (ignore tracking):
+```bash
+half_orm dev bootstrap --force
+```
+
+## Creating Bootstrap Files
+
+Mark patch files with the `@HOP:bootstrap` marker (or `@HOP:data` alias)
+on the first line to have them automatically copied here during `patch merge`.
+
+SQL files:
+```sql
+-- @HOP:bootstrap
+INSERT INTO roles (name) VALUES ('admin'), ('user') ON CONFLICT DO NOTHING;
+```
+
+Python files:
+```python
+# @HOP:bootstrap
+# Your initialization script here
+```
+
+## Tracking
+
+Executed scripts are tracked in `half_orm_meta.bootstrap` table.
+Each script is executed only once unless `--force` is used.
 """)
 
     def _generate_python_package(self):
@@ -2214,7 +2272,7 @@ See docs/half_orm_dev.md for complete documentation.
             self.model.execute_query('CREATE SCHEMA public')
             self.model.execute_query('GRANT ALL ON SCHEMA public TO public')
 
-    def restore_database_from_schema(self) -> None:
+    def restore_database_from_schema(self, exclude_bootstrap_patch_id: Optional[str] = None) -> None:
         """
         Restore database from model/schema.sql, metadata, and data files.
 
@@ -2326,6 +2384,11 @@ See docs/half_orm_dev.md for complete documentation.
             # 6. Reload half_orm metadata cache
             self.model.reconnect(reload=True)
 
+            # 7. Execute bootstrap scripts
+            from half_orm_dev.bootstrap_manager import BootstrapManager
+            bootstrap_mgr = BootstrapManager(self)
+            bootstrap_mgr.run_bootstrap(exclude_patch_id=exclude_bootstrap_patch_id)
+
         except RepoError:
             # Re-raise RepoError as-is
             raise
@@ -2402,7 +2465,11 @@ See docs/half_orm_dev.md for complete documentation.
             if temp_file.exists():
                 temp_file.unlink()
 
-    def restore_database_from_release_schema(self, version: str) -> None:
+    def restore_database_from_release_schema(
+        self,
+        version: str,
+        exclude_bootstrap_patch_id: Optional[str] = None
+    ) -> None:
         """
         Restore database from release schema file.
 
@@ -2414,6 +2481,8 @@ See docs/half_orm_dev.md for complete documentation.
 
         Args:
             version: Release version string (e.g., "0.17.1")
+            exclude_bootstrap_patch_id: If provided, skip bootstrap files
+                belonging to this patch (used during patch apply)
 
         Raises:
             RepoError: If restoration fails
@@ -2427,7 +2496,7 @@ See docs/half_orm_dev.md for complete documentation.
 
         # Fallback to production schema if release schema doesn't exist
         if not release_schema_path.exists():
-            self.restore_database_from_schema()
+            self.restore_database_from_schema(exclude_bootstrap_patch_id)
             return
 
         try:
@@ -2441,6 +2510,11 @@ See docs/half_orm_dev.md for complete documentation.
 
             # Reload half_orm metadata cache
             self.model.reconnect(reload=True)
+
+            # Execute bootstrap scripts
+            from half_orm_dev.bootstrap_manager import BootstrapManager
+            bootstrap_mgr = BootstrapManager(self)
+            bootstrap_mgr.run_bootstrap(exclude_patch_id=exclude_bootstrap_patch_id)
 
         except Exception as e:
             raise RepoError(f"Failed to restore from release schema: {e}") from e

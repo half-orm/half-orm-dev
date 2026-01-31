@@ -14,6 +14,10 @@ from half_orm_dev.patch_manager import (
     PatchManager,
     PatchManagerError
 )
+from half_orm_dev.file_executor import (
+    execute_sql_file, execute_python_file,
+    FileExecutionError
+)
 
 
 class TestApplyPatchFiles:
@@ -187,7 +191,7 @@ class TestApplyPatchFiles:
 
 
 class TestExecuteSqlFile:
-    """Test internal _execute_sql_file method."""
+    """Test execute_sql_file function from file_executor."""
 
     def test_execute_sql_file_success(self, patch_manager, mock_database):
         """Test successful SQL file execution."""
@@ -198,7 +202,7 @@ class TestExecuteSqlFile:
         sql_file.write_text("CREATE TABLE test (id INTEGER);")
 
         # Execute SQL file
-        patch_mgr._execute_sql_file(sql_file, mock_database)
+        execute_sql_file(sql_file, mock_database)
 
         # Should call database execute_query once
         assert mock_database.execute_query.call_count == 1
@@ -214,7 +218,7 @@ class TestExecuteSqlFile:
         sql_file.write_text(sql_content, encoding='utf-8')
 
         # Execute SQL file
-        patch_mgr._execute_sql_file(sql_file, mock_database)
+        execute_sql_file(sql_file, mock_database)
 
         # Should handle UTF-8 correctly
         assert mock_database.execute_query.call_count == 1
@@ -229,7 +233,7 @@ class TestExecuteSqlFile:
         sql_file.write_text("")
 
         # Execute SQL file
-        patch_mgr._execute_sql_file(sql_file, mock_database)
+        execute_sql_file(sql_file, mock_database)
 
         # Should skip execution for empty file
         assert mock_database.execute_query.call_count == 0
@@ -245,9 +249,9 @@ class TestExecuteSqlFile:
         # Mock database to raise error
         mock_database.execute_query.side_effect = Exception("Database connection error")
 
-        # Should raise PatchManagerError
-        with pytest.raises(PatchManagerError, match="SQL execution failed in error.sql"):
-            patch_mgr._execute_sql_file(sql_file, mock_database)
+        # Should raise FileExecutionError
+        with pytest.raises(FileExecutionError, match="SQL execution failed in error.sql"):
+            execute_sql_file(sql_file, mock_database)
 
     def test_execute_sql_file_read_error(self, patch_manager, mock_database):
         """Test SQL file execution with file read error."""
@@ -256,13 +260,13 @@ class TestExecuteSqlFile:
         # Reference non-existent file
         sql_file = Path(temp_dir) / "nonexistent.sql"
 
-        # Should raise PatchManagerError
-        with pytest.raises(PatchManagerError, match="SQL execution failed in nonexistent.sql"):
-            patch_mgr._execute_sql_file(sql_file, mock_database)
+        # Should raise FileExecutionError
+        with pytest.raises(FileExecutionError, match="SQL execution failed in nonexistent.sql"):
+            execute_sql_file(sql_file, mock_database)
 
 
 class TestExecutePythonFile:
-    """Test internal _execute_python_file method."""
+    """Test execute_python_file function from file_executor."""
 
     def test_execute_python_file_success(self, patch_manager):
         """Test successful Python file execution."""
@@ -273,17 +277,18 @@ class TestExecutePythonFile:
         py_file.write_text("print('Hello from Python')")
 
         # Mock subprocess.run to simulate success
-        with mock_patch('subprocess.run') as mock_run:
+        with mock_patch('half_orm_dev.file_executor.subprocess.run') as mock_run:
             mock_run.return_value.stdout = "Hello from Python\n"
             mock_run.return_value.stderr = ""
 
             # Execute Python file
-            patch_mgr._execute_python_file(py_file)
+            output = execute_python_file(py_file)
 
             # Should call subprocess.run
             assert mock_run.call_count == 1
+            assert output == "Hello from Python"
 
-    def test_execute_python_file_with_output(self, patch_manager, capsys):
+    def test_execute_python_file_with_output(self, patch_manager):
         """Test Python file execution with output capture."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
@@ -292,16 +297,15 @@ class TestExecutePythonFile:
         py_file.write_text("print('Migration output')")
 
         # Mock subprocess to return output
-        with mock_patch('subprocess.run') as mock_run:
+        with mock_patch('half_orm_dev.file_executor.subprocess.run') as mock_run:
             mock_run.return_value.stdout = "Migration output\n"
             mock_run.return_value.stderr = ""
 
             # Execute Python file
-            patch_mgr._execute_python_file(py_file)
+            output = execute_python_file(py_file)
 
-            # Should print output
-            captured = capsys.readouterr()
-            assert "Migration output" in captured.out
+            # Should return output
+            assert output == "Migration output"
 
     def test_execute_python_file_error(self, patch_manager):
         """Test Python file execution with script error."""
@@ -312,14 +316,14 @@ class TestExecutePythonFile:
         py_file.write_text("raise ValueError('Script error')")
 
         # Mock subprocess to raise CalledProcessError
-        with mock_patch('subprocess.run') as mock_run:
+        with mock_patch('half_orm_dev.file_executor.subprocess.run') as mock_run:
             mock_run.side_effect = subprocess.CalledProcessError(
                 1, 'python', stderr="ValueError: Script error"
             )
 
-            # Should raise PatchManagerError
-            with pytest.raises(PatchManagerError, match="Python execution failed in error.py"):
-                patch_mgr._execute_python_file(py_file)
+            # Should raise FileExecutionError
+            with pytest.raises(FileExecutionError, match="Python execution failed in error.py"):
+                execute_python_file(py_file)
 
     def test_execute_python_file_subprocess_error(self, patch_manager):
         """Test Python file execution with subprocess error."""
@@ -330,12 +334,12 @@ class TestExecutePythonFile:
         py_file.write_text("print('test')")
 
         # Mock subprocess to raise generic error
-        with mock_patch('subprocess.run') as mock_run:
+        with mock_patch('half_orm_dev.file_executor.subprocess.run') as mock_run:
             mock_run.side_effect = OSError("Subprocess failed")
 
-            # Should raise PatchManagerError
-            with pytest.raises(PatchManagerError, match="Failed to execute Python file"):
-                patch_mgr._execute_python_file(py_file)
+            # Should raise FileExecutionError
+            with pytest.raises(FileExecutionError, match="Failed to execute Python file"):
+                execute_python_file(py_file)
 
     def test_execute_python_file_working_directory(self, patch_manager):
         """Test Python file execution uses correct working directory."""
@@ -348,14 +352,14 @@ class TestExecutePythonFile:
         py_file.write_text("print('test')")
 
         # Mock subprocess.run
-        with mock_patch('subprocess.run') as mock_run:
+        with mock_patch('half_orm_dev.file_executor.subprocess.run') as mock_run:
             mock_run.return_value.stdout = ""
             mock_run.return_value.stderr = ""
 
             # Execute Python file
-            patch_mgr._execute_python_file(py_file)
+            execute_python_file(py_file)
 
-            # Should use patch directory as cwd
+            # Should use patch directory as cwd (default is file's parent)
             mock_run.assert_called_once()
             call_args = mock_run.call_args
             assert call_args[1]['cwd'] == patch_path

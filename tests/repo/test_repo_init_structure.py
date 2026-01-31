@@ -129,8 +129,8 @@ class TestGitCentricStructureCreation:
 
         repo._create_git_centric_structure()
 
-        # Verify exact number of makedirs calls (4 directories)
-        assert mock_makedirs.call_count == 4
+        # Verify exact number of makedirs calls (5 directories)
+        assert mock_makedirs.call_count == 5
 
         # Verify all expected directories
         created_dirs = [call[0][0] for call in mock_makedirs.call_args_list]
@@ -138,3 +138,4 @@ class TestGitCentricStructureCreation:
         assert "/test/project/.hop/releases" in created_dirs
         assert "/test/project/.hop/model" in created_dirs
         assert "/test/project/.hop/backups" in created_dirs
+        assert "/test/project/bootstrap" in created_dirs

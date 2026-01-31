@@ -14,6 +14,7 @@ from .update import update
 from .upgrade import upgrade
 from .check import check
 from .migrate import migrate
+from .bootstrap import bootstrap
 from .todo import apply_release
 from .todo import rollback
 
@@ -32,6 +33,7 @@ ALL_COMMANDS = {
     'upgrade': upgrade,          # Adapted for production
     'check': check,            # Project health check and updates
     'migrate': migrate,        # Repository migration after upgrade
+    'bootstrap': bootstrap,    # Execute data initialization scripts
     # 🚧 (stubs)
     'apply_release': apply_release,
 
@@ -52,6 +54,7 @@ __all__ = [
     'upgrade',
     'check',
     'migrate',
+    'bootstrap',
     'rollback',
     # Adapted commands
     'sync_package',

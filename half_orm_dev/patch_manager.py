@@ -22,6 +22,10 @@ from git.exc import GitCommandError
 from half_orm import utils
 from half_orm_dev import modules
 from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
+from half_orm_dev.file_executor import (
+    execute_sql_file, execute_python_file, is_bootstrap_file,
+    FileExecutionError
+)
 from .patch_validator import PatchValidator, PatchInfo
 from .decorators import with_dynamic_branch_lock
 
@@ -533,7 +537,10 @@ class PatchManager:
 
             if release_schema_path and release_schema_path.exists():
                 # New workflow: restore from release schema (includes all staged patches)
-                self._repo.restore_database_from_release_schema(version)
+                # Bootstrap scripts run automatically, excluding current patch
+                self._repo.restore_database_from_release_schema(
+                    version, exclude_bootstrap_patch_id=patch_id
+                )
 
                 # Apply only the current patch
                 files = self.apply_patch_files(patch_id, self._repo.model)
@@ -541,7 +548,10 @@ class PatchManager:
             else:
                 # Backward compatibility: old workflow
                 # Also generates release schema for migration of existing projects
-                self._repo.restore_database_from_schema()
+                # Bootstrap scripts run automatically, excluding current patch
+                self._repo.restore_database_from_schema(
+                    exclude_bootstrap_patch_id=patch_id
+                )
 
                 # Get and apply all staged release patches
                 release_patches = self._repo.release_manager.get_all_release_context_patches()
@@ -643,11 +653,19 @@ class PatchManager:
         for patch_file in structure.files:
             if patch_file.is_sql:
                 click.echo(f"  • {patch_file.name}")
-                self._execute_sql_file(patch_file.path, database_model)
+                try:
+                    execute_sql_file(patch_file.path, database_model)
+                except FileExecutionError as e:
+                    raise PatchManagerError(str(e)) from e
                 applied_files.append(patch_file.name)
             elif patch_file.is_python:
                 click.echo(f"  • {patch_file.name}")
-                self._execute_python_file(patch_file.path)
+                try:
+                    output = execute_python_file(patch_file.path)
+                    if output:
+                        print(f"Python output from {patch_file.name}: {output}")
+                except FileExecutionError as e:
+                    raise PatchManagerError(str(e)) from e
                 applied_files.append(patch_file.name)
             # Other file types are ignored (not executed)
 
@@ -842,60 +860,89 @@ class PatchManager:
         """
         pass
 
-    def _is_data_file(self, file_path: Path) -> bool:
+    def _get_bootstrap_files_from_patch(self, patch_id: str) -> List[Path]:
         """
-        Check if SQL file is annotated with @HOP:data marker.
+        Get all bootstrap files (annotated with @HOP:bootstrap or @HOP:data) from a patch.
 
-        Data files contain reference data (DML) that should be preserved
-        for from-scratch installations. They must be marked with `-- @HOP:data`
-        as the first line of the file.
-
-        Args:
-            file_path: Path to SQL file to check
-
-        Returns:
-            True if file has @HOP:data annotation, False otherwise
-
-        Examples:
-            if self._is_data_file(Path("Patches/456/01_roles.sql")):
-                # This is a data file
-                pass
-        """
-        try:
-            with file_path.open('r', encoding='utf-8') as f:
-                first_line = f.readline().strip().lower()
-                return re.match(r"--\s*@hop:data", first_line) is not None
-        except Exception:
-            return False
-
-    def _get_data_files_from_patch(self, patch_id: str) -> List[Path]:
-        """
-        Get all data files (annotated with @HOP:data) from a patch.
-
-        Returns SQL files from the patch directory that are annotated with
-        `-- @HOP:data` marker, in lexicographic order for proper sequencing.
+        Returns SQL and Python files from the patch directory that are annotated with
+        `-- @HOP:bootstrap` or `-- @HOP:data` (SQL) or `# @HOP:bootstrap` or `# @HOP:data` (Python)
+        marker, in lexicographic order for proper sequencing.
 
         Args:
             patch_id: Patch identifier (e.g., "456-user-auth")
 
         Returns:
-            List of Path objects for data files in application order
+            List of Path objects for bootstrap files in application order
 
         Examples:
-            data_files = self._get_data_files_from_patch("456-user-auth")
+            bootstrap_files = self._get_bootstrap_files_from_patch("456-user-auth")
             # Returns [Path("Patches/456-user-auth/01_roles.sql"), ...]
         """
-        data_files = []
+        bootstrap_files = []
         structure = self.get_patch_structure(patch_id)
 
         if not structure.is_valid:
             return []
 
         for patch_file in structure.files:
-            if patch_file.is_sql and self._is_data_file(patch_file.path):
-                data_files.append(patch_file.path)
+            if (patch_file.is_sql or patch_file.is_python) and is_bootstrap_file(patch_file.path):
+                bootstrap_files.append(patch_file.path)
 
-        return data_files
+        return bootstrap_files
+
+    # Alias for backwards compatibility
+    def _get_data_files_from_patch(self, patch_id: str) -> List[Path]:
+        """Alias for _get_bootstrap_files_from_patch (backwards compatibility)."""
+        return self._get_bootstrap_files_from_patch(patch_id)
+
+    def _copy_bootstrap_files_from_patch(self, patch_id: str, version: str) -> List[str]:
+        """
+        Copy files marked with @HOP:bootstrap or @HOP:data to bootstrap/ directory.
+
+        Called during patch merge to copy bootstrap files from the patch
+        to the bootstrap/ directory with proper naming.
+
+        Naming format: <number>-<patch_id>-<version>.<ext>
+        Example: 1-init-users-0.1.0.sql
+
+        Args:
+            patch_id: Patch identifier (e.g., "456-user-auth")
+            version: Release version (e.g., "0.1.0")
+
+        Returns:
+            List of copied filenames
+
+        Examples:
+            copied = self._copy_bootstrap_files_from_patch("456-user-auth", "0.1.0")
+            # Returns ["1-456-user-auth-0.1.0.sql"]
+        """
+        from half_orm_dev.bootstrap_manager import BootstrapManager
+
+        bootstrap_files = self._get_bootstrap_files_from_patch(patch_id)
+        if not bootstrap_files:
+            return []
+
+        # Ensure bootstrap directory exists
+        bootstrap_mgr = BootstrapManager(self._repo)
+        bootstrap_mgr.ensure_bootstrap_dir()
+
+        copied = []
+        for file_path in bootstrap_files:
+            # Get next number for bootstrap file
+            next_num = bootstrap_mgr.get_next_bootstrap_number() + len(copied)
+            ext = file_path.suffix
+
+            # Build new filename: N-patch_id-X.Y.Z.ext
+            new_name = f"{next_num}-{patch_id}-{version}{ext}"
+            dest = bootstrap_mgr.bootstrap_dir / new_name
+
+            # Copy file
+            shutil.copy(file_path, dest)
+            copied.append(new_name)
+
+            click.echo(f"  • Copied bootstrap file: {new_name}")
+
+        return copied
 
     def _validate_data_file_idempotent(self, file_path: Path) -> Tuple[bool, List[str]]:
         """
@@ -1001,69 +1048,6 @@ class PatchManager:
             click.echo("")
 
         return all_data_files
-
-    def _execute_sql_file(self, file_path: Path, database_model) -> None:
-        """
-        Execute SQL file against database.
-
-        Internal method to safely execute SQL files with error handling
-        using halfORM Model.execute_query().
-
-        Args:
-            file_path: Path to SQL file
-            database_model: halfORM Model instance
-
-        Raises:
-            PatchManagerError: If SQL execution fails
-        """
-        try:
-            # Read SQL content
-            sql_content = str(file_path.read_text(encoding='utf-8'))
-
-            # Skip empty files
-            if not sql_content.strip():
-                return
-
-            # Execute SQL using halfORM model (same as patch.py line 144)
-            database_model.execute_query(sql_content)
-
-        except Exception as e:
-            raise PatchManagerError(f"SQL execution failed in {file_path.name}: {e}") from e
-
-    def _execute_python_file(self, file_path: Path) -> None:
-        """
-        Execute Python script file.
-
-        Internal method to safely execute Python scripts with proper
-        environment setup and error handling.
-
-        Args:
-            file_path: Path to Python file
-
-        Raises:
-            PatchManagerError: If Python execution fails
-        """
-        try:
-            # Execute Python script as subprocess
-            result = subprocess.run(
-                [sys.executable, str(file_path)],
-                cwd=file_path.parent,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-
-            # Log output if any (could be enhanced with proper logging)
-            if result.stdout.strip():
-                print(f"Python output from {file_path.name}: {result.stdout.strip()}")
-
-        except subprocess.CalledProcessError as e:
-            error_msg = f"Python execution failed in {file_path.name}"
-            if e.stderr:
-                error_msg += f": {e.stderr.strip()}"
-            raise PatchManagerError(error_msg) from e
-        except Exception as e:
-            raise PatchManagerError(f"Failed to execute Python file {file_path.name}: {e}") from e
 
     def _fetch_from_remote(self) -> None:
         """
@@ -1936,6 +1920,13 @@ class PatchManager:
 
         # 5b. Get merge commit hash
         merge_commit = self._repo.hgit.last_commit()
+
+        # 5c. Copy bootstrap files from patch to bootstrap/ directory
+        bootstrap_files = self._copy_bootstrap_files_from_patch(patch_id, version)
+        if bootstrap_files:
+            # Add bootstrap files to git staging
+            for filename in bootstrap_files:
+                self._repo.hgit.add(f'bootstrap/{filename}')
 
         # 6. Move from candidates to stage (with merge commit hash)
         self._move_patch_to_stage(patch_id, version, merge_commit)

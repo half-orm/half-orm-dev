@@ -59,10 +59,10 @@ class Hop:
         # Development mode (metadata present)
         if self.__repo.database.production:
             # PRODUCTION ENVIRONMENT - Release deployment only
-            return ['update', 'upgrade', 'check']
+            return ['update', 'upgrade', 'check', 'bootstrap']
         else:
             # DEVELOPMENT ENVIRONMENT - Patch development
-            return ['patch', 'release', 'check']
+            return ['patch', 'release', 'check', 'bootstrap']
 
     @property
     def repo_checked(self):

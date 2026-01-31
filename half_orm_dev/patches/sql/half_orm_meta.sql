@@ -126,6 +126,27 @@ CREATE TABLE half_orm_meta.hop_release_issue (
 
 
 --
+-- Name: bootstrap; Type: TABLE; Schema: half_orm_meta; Owner: -
+--
+
+CREATE TABLE half_orm_meta.bootstrap (
+    filename text NOT NULL,
+    version text NOT NULL,
+    executed_at timestamp without time zone DEFAULT now()
+);
+
+
+--
+-- Name: TABLE bootstrap; Type: COMMENT; Schema: half_orm_meta; Owner: -
+--
+
+COMMENT ON TABLE half_orm_meta.bootstrap IS 'Tracks executed bootstrap scripts for data initialization';
+COMMENT ON COLUMN half_orm_meta.bootstrap.filename IS 'Bootstrap file name (e.g., 1-init-users-0.1.0.sql)';
+COMMENT ON COLUMN half_orm_meta.bootstrap.version IS 'Release version from filename (e.g., 0.1.0)';
+COMMENT ON COLUMN half_orm_meta.bootstrap.executed_at IS 'Timestamp when the script was executed';
+
+
+--
 -- Name: hop_last_release; Type: VIEW; Schema: half_orm_meta.view; Owner: -
 --
 
@@ -184,6 +205,14 @@ ALTER TABLE ONLY half_orm_meta.hop_release_issue
 
 ALTER TABLE ONLY half_orm_meta.hop_release
     ADD CONSTRAINT hop_release_pkey PRIMARY KEY (major, minor, patch, pre_release, pre_release_num);
+
+
+--
+-- Name: bootstrap bootstrap_pkey; Type: CONSTRAINT; Schema: half_orm_meta; Owner: -
+--
+
+ALTER TABLE ONLY half_orm_meta.bootstrap
+    ADD CONSTRAINT bootstrap_pkey PRIMARY KEY (filename);
 
 
 --

@@ -818,6 +818,45 @@ class ReleaseManager:
         # Return to original branch
         self._repo.hgit.checkout(current_branch)
 
+    def _run_bootstrap_scripts(self) -> None:
+        """
+        Execute pending bootstrap scripts after patch application.
+
+        Bootstrap scripts are SQL and Python files that initialize application
+        data. They are executed in numeric order and tracked in the database.
+
+        Raises:
+            ReleaseManagerError: If bootstrap execution fails
+        """
+        from half_orm_dev.bootstrap_manager import BootstrapManager, BootstrapManagerError
+
+        bootstrap_mgr = BootstrapManager(self._repo)
+
+        # Check if bootstrap directory exists
+        if not bootstrap_mgr.bootstrap_dir.exists():
+            return
+
+        # Get pending files
+        pending = bootstrap_mgr.get_pending_files()
+        if not pending:
+            return
+
+        print(f"\n📦 Executing {len(pending)} bootstrap script(s)...")
+
+        try:
+            result = bootstrap_mgr.run_bootstrap()
+
+            if result['errors']:
+                errors = result['errors']
+                error_msg = "\n".join([f"  • {f}: {e}" for f, e in errors])
+                raise ReleaseManagerError(f"Bootstrap execution failed:\n{error_msg}")
+
+            if result['executed']:
+                print(f"✓ Executed {len(result['executed'])} bootstrap script(s)")
+
+        except BootstrapManagerError as e:
+            raise ReleaseManagerError(f"Bootstrap execution failed: {e}")
+
     def _collect_all_version_patches(self, version: str) -> List[str]:
         """
         Collect all patches for a version including hotfixes.
@@ -2474,6 +2513,9 @@ class ReleaseManager:
             # 1. Apply patches to database (for validation)
             self._apply_release_patches(version)
 
+            # 1b. Execute bootstrap scripts
+            self._run_bootstrap_scripts()
+
             # 2. Register the RC version in half_orm_meta.hop_release
             version_parts = version.split('.')
             major, minor, patch_num = map(int, version_parts)
@@ -2648,6 +2690,9 @@ class ReleaseManager:
             # - Reading staged patches from TOML with merge_commits
             # force_apply=True to validate by applying patches even if release schema exists
             self._apply_release_patches(version, force_apply=True)
+
+            # 3b. Execute bootstrap scripts
+            self._run_bootstrap_scripts()
 
             # Register the release version in half_orm_meta.hop_release
             version_parts = version.split('.')

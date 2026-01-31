@@ -9,6 +9,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import Mock
 from half_orm_dev.patch_manager import PatchManager
+from half_orm_dev.file_executor import is_bootstrap_file
 
 
 @pytest.fixture
@@ -39,7 +40,7 @@ def patch_manager_with_data_files(tmp_path):
 class TestDataFileDetection:
     """Test detection of @HOP:data annotation in SQL files."""
 
-    def test_is_data_file_with_annotation(self, patch_manager_with_data_files):
+    def test_is_bootstrap_file_with_data_annotation(self, patch_manager_with_data_files):
         """Test that file with @HOP:data annotation is detected."""
         patch_mgr, tmp_path, patches_dir = patch_manager_with_data_files
 
@@ -47,9 +48,19 @@ class TestDataFileDetection:
         sql_file = tmp_path / "test.sql"
         sql_file.write_text("-- @HOP:data\nINSERT INTO roles VALUES (1, 'admin');")
 
-        assert patch_mgr._is_data_file(sql_file) is True
+        assert is_bootstrap_file(sql_file) is True
 
-    def test_is_data_file_without_annotation(self, patch_manager_with_data_files):
+    def test_is_bootstrap_file_with_bootstrap_annotation(self, patch_manager_with_data_files):
+        """Test that file with @HOP:bootstrap annotation is detected."""
+        patch_mgr, tmp_path, patches_dir = patch_manager_with_data_files
+
+        # Create SQL file with @HOP:bootstrap annotation
+        sql_file = tmp_path / "test.sql"
+        sql_file.write_text("-- @HOP:bootstrap\nINSERT INTO roles VALUES (1, 'admin');")
+
+        assert is_bootstrap_file(sql_file) is True
+
+    def test_is_bootstrap_file_without_annotation(self, patch_manager_with_data_files):
         """Test that file without @HOP:data annotation is not detected."""
         patch_mgr, tmp_path, patches_dir = patch_manager_with_data_files
 
@@ -57,9 +68,9 @@ class TestDataFileDetection:
         sql_file = tmp_path / "test.sql"
         sql_file.write_text("CREATE TABLE users (id SERIAL PRIMARY KEY);")
 
-        assert patch_mgr._is_data_file(sql_file) is False
+        assert is_bootstrap_file(sql_file) is False
 
-    def test_is_data_file_with_annotation_not_first_line(self, patch_manager_with_data_files):
+    def test_is_bootstrap_file_with_annotation_not_first_line(self, patch_manager_with_data_files):
         """Test that annotation must be on first line."""
         patch_mgr, tmp_path, patches_dir = patch_manager_with_data_files
 
@@ -67,14 +78,34 @@ class TestDataFileDetection:
         sql_file = tmp_path / "test.sql"
         sql_file.write_text("-- Comment\n-- @HOP:data\nINSERT INTO roles VALUES (1, 'admin');")
 
-        assert patch_mgr._is_data_file(sql_file) is False
+        assert is_bootstrap_file(sql_file) is False
 
-    def test_is_data_file_missing_file(self, patch_manager_with_data_files):
+    def test_is_bootstrap_file_missing_file(self, patch_manager_with_data_files):
         """Test that missing file returns False."""
         patch_mgr, tmp_path, patches_dir = patch_manager_with_data_files
 
         non_existent = tmp_path / "missing.sql"
-        assert patch_mgr._is_data_file(non_existent) is False
+        assert is_bootstrap_file(non_existent) is False
+
+    def test_is_bootstrap_file_python_with_data(self, patch_manager_with_data_files):
+        """Test that Python file with @HOP:data annotation is detected."""
+        patch_mgr, tmp_path, patches_dir = patch_manager_with_data_files
+
+        # Create Python file with @HOP:data annotation
+        py_file = tmp_path / "test.py"
+        py_file.write_text("# @HOP:data\nimport sys\nprint('data')")
+
+        assert is_bootstrap_file(py_file) is True
+
+    def test_is_bootstrap_file_python_with_bootstrap(self, patch_manager_with_data_files):
+        """Test that Python file with @HOP:bootstrap annotation is detected."""
+        patch_mgr, tmp_path, patches_dir = patch_manager_with_data_files
+
+        # Create Python file with @HOP:bootstrap annotation
+        py_file = tmp_path / "test.py"
+        py_file.write_text("# @HOP:bootstrap\nimport sys\nprint('bootstrap')")
+
+        assert is_bootstrap_file(py_file) is True
 
     def test_get_data_files_from_patch_with_data(self, patch_manager_with_data_files):
         """Test getting data files from a patch."""
