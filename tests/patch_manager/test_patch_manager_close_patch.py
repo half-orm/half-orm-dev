@@ -30,7 +30,15 @@ def patch_manager(tmp_path):
     releases_dir = hop_dir / 'releases'
     releases_dir.mkdir()
     patches_dir = base_dir / 'Patches'
+    # staged_patches_dir = patches_dir / 'staged'
+    # orphaned_patches_dir = patches_dir / 'orphaned'
     patches_dir.mkdir()
+    # staged_patches_dir.mkdir()
+    # orphaned_patches_dir.mkdir()
+    patch_123_dir = patches_dir / '123-test'
+    patch_123_dir.mkdir()
+    patch_124_dir = patches_dir / '124-add-user-auth'
+    patch_124_dir.mkdir()
 
     # Create config
     config_file = hop_dir / 'config'
@@ -290,23 +298,23 @@ class TestClosePatch:
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # Set branch with description
-        repo.hgit.branch = 'ho-patch/123-add-user-auth'
+        repo.hgit.branch = 'ho-patch/124-add-user-auth'
 
         # Setup
         candidates_file = releases_dir / '0.17.0-candidates.txt'
-        candidates_file.write_text('123-add-user-auth\n')
+        candidates_file.write_text('124-add-user-auth\n')
 
         release_file = ReleaseFile('0.17.0', releases_dir)
         release_file.create_empty()
-        release_file.add_patch('123-add-user-auth')
+        release_file.add_patch('124-add-user-auth')
 
         # Mock validation and sync
         with patch.object(pm, '_validate_patch_before_merge'):
             with patch.object(pm, '_sync_release_files_to_ho_prod'):
                 result = pm.merge_patch()
 
-        assert result['patch_id'] == '123-add-user-auth'
+        assert result['patch_id'] == '124-add-user-auth'
 
         # Verify merge used full patch ID
         merge_call = repo.hgit.merge.call_args
-        assert '123-add-user-auth' in str(merge_call)
+        assert '124-add-user-auth' in str(merge_call)

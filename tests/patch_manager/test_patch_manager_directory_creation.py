@@ -139,9 +139,10 @@ class TestCreatePatchDirectory:
             assert readme.exists()
             assert readme.read_text() == f"# Patch {patch_id}\n"
 
-        # All patches should be listable
-        all_patches = patch_mgr.list_all_patches()
-        assert set(all_patches) == set(patch_ids)
+        # All patches should exist as directories
+        for patch_id in patch_ids:
+            assert (patches_dir / patch_id).exists()
+            assert (patches_dir / patch_id).is_dir()
 
     def test_create_patch_directory_concurrent_protection(self, patch_manager):
         """Test protection against concurrent directory creation."""

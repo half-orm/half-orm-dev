@@ -2,7 +2,7 @@
 Tests pour les méthodes utilitaires de PatchManager.
 
 Module de test focalisé sur les méthodes utilitaires simples comme
-get_patch_directory_path, list_all_patches, et delete_patch_directory.
+get_patch_directory_path et delete_patch_directory.
 """
 
 import pytest
@@ -76,133 +76,6 @@ class TestGetPatchDirectoryPath:
         # Path should be normalized (whitespace stripped)
         expected_path = patches_dir / "456-user-auth"
         assert path == expected_path
-
-
-class TestListAllPatches:
-    """Test listing all patch directories."""
-
-    def test_list_all_patches_multiple_patches(self, patch_manager):
-        """Test listing multiple valid patches."""
-        patch_mgr, repo, temp_dir, patches_dir = patch_manager
-
-        # Create multiple patch directories
-        patches = ["456-user-auth", "789-security-fix", "234-performance"]
-        for patch_id in patches:
-            patch_path = patches_dir / patch_id
-            patch_path.mkdir()
-            (patch_path / "README.md").write_text(f"# {patch_id}")
-
-        found_patches = patch_mgr.list_all_patches()
-
-        # Should return all valid patches
-        assert len(found_patches) == 3
-        assert set(found_patches) == set(patches)
-
-    def test_list_all_patches_empty_schema_patches(self, patch_manager):
-        """Test listing patches in empty Patches directory."""
-        patch_mgr, repo, temp_dir, patches_dir = patch_manager
-
-        found_patches = patch_mgr.list_all_patches()
-
-        # Should return empty list
-        assert found_patches == []
-
-    def test_list_all_patches_filters_invalid_directories(self, patch_manager):
-        """Test that invalid directories are filtered out."""
-        patch_mgr, repo, temp_dir, patches_dir = patch_manager
-
-        # Create mix of valid and invalid directories
-        (patches_dir / "456-valid").mkdir()
-        (patches_dir / "456-valid" / "README.md").write_text("# Valid")
-
-        (patches_dir / "invalid-format").mkdir()  # No number prefix
-        (patches_dir / "__pycache__").mkdir()     # Python cache
-        (patches_dir / ".hidden").mkdir()         # Hidden directory
-
-        # Create a file (not directory)
-        (patches_dir / "not-a-directory.txt").write_text("Not a directory")
-
-        found_patches = patch_mgr.list_all_patches()
-
-        # Should return only valid patches
-        assert found_patches == ["456-valid"]
-
-    def test_list_all_patches_sorted_order(self, patch_manager):
-        """Test patches are returned in sorted order."""
-        patch_mgr, repo, temp_dir, patches_dir = patch_manager
-
-        # Create patches in random order
-        patches = ["999-last", "123-first", "456-middle", "789-another"]
-        for patch_id in patches:
-            patch_path = patches_dir / patch_id
-            patch_path.mkdir()
-            (patch_path / "README.md").write_text(f"# {patch_id}")
-
-        found_patches = patch_mgr.list_all_patches()
-
-        # Should be sorted by patch number
-        expected_order = ["123-first", "456-middle", "789-another", "999-last"]
-        assert found_patches == expected_order
-
-    def test_list_all_patches_numeric_vs_full_ids(self, patch_manager):
-        """Test listing mix of numeric and full patch IDs."""
-        patch_mgr, repo, temp_dir, patches_dir = patch_manager
-
-        # Create mix of numeric and full IDs
-        patches = ["123", "456-user-auth", "789", "234-security-fix"]
-        for patch_id in patches:
-            patch_path = patches_dir / patch_id
-            patch_path.mkdir()
-            (patch_path / "README.md").write_text(f"# {patch_id}")
-
-        found_patches = patch_mgr.list_all_patches()
-
-        # Should be sorted numerically
-        expected_order = ["123", "234-security-fix", "456-user-auth", "789"]
-        assert found_patches == expected_order
-
-    def test_list_all_patches_filters_incomplete_patches(self, patch_manager):
-        """Test filtering out patches without required files."""
-        patch_mgr, repo, temp_dir, patches_dir = patch_manager
-
-        # Create valid patch
-        valid_path = patches_dir / "456-valid"
-        valid_path.mkdir()
-        (valid_path / "README.md").write_text("# Valid patch")
-
-        # Create incomplete patch (no README)
-        incomplete_path = patches_dir / "789-incomplete"
-        incomplete_path.mkdir()
-        (incomplete_path / "01_test.sql").write_text("SELECT 1;")
-        # Missing README.md
-
-        found_patches = patch_mgr.list_all_patches()
-
-        # Should only return complete/valid patches
-        assert found_patches == ["456-valid"]
-
-    def test_list_all_patches_permission_error(self, patch_manager):
-        """Test handling permission errors when listing patches."""
-        patch_mgr, repo, temp_dir, patches_dir = patch_manager
-
-        # Create patch directory
-        patch_path = patches_dir / "456-test"
-        patch_path.mkdir()
-        (patch_path / "README.md").write_text("# Test")
-
-        # Make directory unreadable
-        patch_path.chmod(0o000)
-
-        try:
-            found_patches = patch_mgr.list_all_patches()
-
-            # Should handle permission error gracefully
-            # Might return empty list or exclude unreadable patches
-            assert isinstance(found_patches, list)
-
-        finally:
-            # Restore permissions for cleanup
-            patch_path.chmod(0o755)
 
 
 class TestDeletePatchDirectory:
@@ -395,29 +268,25 @@ class TestDeletePatchDirectory:
 class TestUtilitieIntegration:
     """Test integration between utility methods."""
 
-    def test_path_and_list_integration(self, patch_manager):
-        """Test integration between get_patch_directory_path and list_all_patches."""
+    def test_path_creates_valid_directories(self, patch_manager):
+        """Test get_patch_directory_path returns valid paths for directory creation."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Create some patches
+        # Create some patches using get_patch_directory_path
         patch_ids = ["123-first", "456-second", "789-third"]
         for patch_id in patch_ids:
             patch_path = patch_mgr.get_patch_directory_path(patch_id)
             patch_path.mkdir()
             (patch_path / "README.md").write_text(f"# {patch_id}")
 
-        # List should find all created patches
-        found_patches = patch_mgr.list_all_patches()
-        assert set(found_patches) == set(patch_ids)
-
-        # Each found patch should have valid path
-        for patch_id in found_patches:
+        # Each patch should have valid path
+        for patch_id in patch_ids:
             path = patch_mgr.get_patch_directory_path(patch_id)
             assert path.exists()
             assert path.is_dir()
 
-    def test_list_and_delete_integration(self, patch_manager):
-        """Test integration between list_all_patches and delete_patch_directory."""
+    def test_delete_removes_directories(self, patch_manager):
+        """Test delete_patch_directory removes directories correctly."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
         # Create patches
@@ -428,16 +297,17 @@ class TestUtilitieIntegration:
             (patch_path / "README.md").write_text(f"# {patch_id}")
 
         # Verify all patches exist
-        found_patches = patch_mgr.list_all_patches()
-        assert len(found_patches) == 3
+        for patch_id in patch_ids:
+            assert (patches_dir / patch_id).exists()
 
         # Delete some patches
         assert patch_mgr.delete_patch_directory("111-delete-me", confirm=True) is True
         assert patch_mgr.delete_patch_directory("333-delete-me-too", confirm=True) is True
 
-        # List should now show only remaining patch
-        remaining_patches = patch_mgr.list_all_patches()
-        assert remaining_patches == ["222-keep-me"]
+        # Verify only remaining patch exists
+        assert not (patches_dir / "111-delete-me").exists()
+        assert (patches_dir / "222-keep-me").exists()
+        assert not (patches_dir / "333-delete-me-too").exists()
 
     def test_path_normalization_consistency(self, patch_manager):
         """Test that path methods handle normalization consistently."""

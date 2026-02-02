@@ -1949,7 +1949,14 @@ class ReleaseManager:
                 'final_version': upgrade_path[-1] if upgrade_path else current_version
             }
 
-        # === 5. Apply releases sequentially ===
+        # === 5. Pull ho-prod to get release files ===
+        # update_production only fetches tags, we need the actual release files
+        try:
+            self._repo.hgit.pull('origin', 'ho-prod')
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to pull ho-prod branch: {e}")
+
+        # === 6. Apply releases sequentially ===
         patches_applied = {}
 
         try:
@@ -1968,7 +1975,7 @@ class ReleaseManager:
                 f"3. Fix the failing patch and retry upgrade"
             ) from e
 
-        # === 6. Build success result ===
+        # === 7. Build success result ===
         final_version = upgrade_path[-1] if upgrade_path else current_version
 
         return {

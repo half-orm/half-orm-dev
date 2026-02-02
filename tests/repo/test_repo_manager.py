@@ -306,8 +306,8 @@ class TestPatchManagerFunctionalIntegration:
         assert structure.files[1].name == "02_script.py"
         assert structure.files[1].is_python is True
 
-    def test_list_all_patches_integration(self, devel_repo):
-        """Test listing patches via Repo."""
+    def test_create_multiple_patches_integration(self, devel_repo):
+        """Test creating multiple patches via Repo."""
         repo = devel_repo
 
         # Create multiple patches
@@ -315,11 +315,12 @@ class TestPatchManagerFunctionalIntegration:
         for patch_id in patch_ids:
             repo.patch_manager.create_patch_directory(patch_id)
 
-        # List all patches
-        found_patches = repo.patch_manager.list_all_patches()
-
-        assert len(found_patches) == 3
-        assert set(found_patches) == set(patch_ids)
+        # Verify all patches exist as directories
+        patches_dir = repo.patch_manager._schema_patches_dir
+        for patch_id in patch_ids:
+            patch_path = patches_dir / patch_id
+            assert patch_path.exists()
+            assert patch_path.is_dir()
 
     def test_apply_patch_files_integration(self, devel_repo):
         """Test application de patches via Repo."""
@@ -490,8 +491,8 @@ class TestPatchManagerIntegrationEdgeCases:
         assert new_patch_mgr is not patch_mgr
 
         # Should still be able to see existing patches
-        patches = new_patch_mgr.list_all_patches()
-        assert "555-memory-test" in patches
+        patch_path = new_patch_mgr.get_patch_directory_path("555-memory-test")
+        assert patch_path.exists()
 
 
 class TestPatchManagerDocumentationExamples:
@@ -524,9 +525,9 @@ class TestPatchManagerDocumentationExamples:
         applied = repo.patch_manager.apply_patch_files("456-user-auth", mock_model)
         assert applied == ["01_create.sql"]
 
-        # List all existing patches
-        patches = repo.patch_manager.list_all_patches()
-        assert "456-user-auth" in patches
+        # Verify patch exists
+        assert patch_path.exists()
+        assert patch_path.is_dir()
 
         # Get detailed patch structure analysis
         structure = repo.patch_manager.get_patch_structure("456-user-auth")
@@ -547,8 +548,8 @@ class TestPatchManagerDocumentationExamples:
 
         # Devel repo should support patch operations
         if devel_repo.has_patch_directory_support():
-            patches = devel_repo.patch_manager.list_all_patches()
-            assert isinstance(patches, list)
+            status_map = devel_repo.patch_manager.get_patch_status_map()
+            assert isinstance(status_map, dict)
 
         # Non-devel repo should not support patch operations
         if not non_devel_repo.has_patch_directory_support():

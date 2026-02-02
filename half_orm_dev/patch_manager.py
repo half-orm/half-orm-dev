@@ -152,6 +152,9 @@ class PatchManager:
         # Initialize PatchValidator
         self._validator = PatchValidator()
 
+        # Cache for patch status map (lazy loaded)
+        self._patch_status_map: Optional[Dict[str, Dict]] = None
+
     def create_patch_directory(self, patch_id: str) -> Path:
         """
         Create complete patch directory structure.
@@ -676,99 +679,141 @@ class PatchManager:
 
         return applied_files
 
-    def get_patch_directory_path(self, patch_id: str) -> Path:
-        """
-        Get path to patch directory.
+    # ========================================================================
+    # PATCH STATUS MAP (cache for directory resolution)
+    # ========================================================================
 
-        Returns Path object for Patches/patch-name/ directory.
-        Does not validate existence - use get_patch_structure() for validation.
+    def get_patch_status_map(self) -> Dict[str, Dict]:
+        """
+        Get cached patch status map, building it if needed.
+
+        Returns:
+            Dict mapping patch_id to status info:
+            {
+                "123-auth": {"status": "staged", "version": "0.1.0", "merge_commit": "abc123"},
+                "456-feature": {"status": "candidate", "version": "0.2.0"},
+                "789-delayed": {"status": "orphaned"}
+            }
+        """
+        if self._patch_status_map is None:
+            self._patch_status_map = self._build_patch_status_map()
+        return self._patch_status_map
+
+    def _add_patch_to_status_cache(self, patch_id: str, status: str, version: str) -> None:
+        """Add a patch to the status cache without rebuilding."""
+        if self._patch_status_map is None:
+            self._patch_status_map = self._build_patch_status_map()
+        self._patch_status_map[patch_id] = {"status": status, "version": version}
+
+    def _update_patch_status_cache(self, patch_id: str, status: str, merge_commit: Optional[str] = None) -> None:
+        """Update a patch's status in the cache without rebuilding."""
+        if self._patch_status_map is None:
+            self._patch_status_map = self._build_patch_status_map()
+        if patch_id in self._patch_status_map:
+            self._patch_status_map[patch_id]["status"] = status
+            if merge_commit:
+                self._patch_status_map[patch_id]["merge_commit"] = merge_commit
+
+    def _build_patch_status_map(self) -> Dict[str, Dict]:
+        """
+        Build complete map of all patches and their status.
+
+        Reads from:
+        - TOML files: development releases with candidate/staged status
+        - TXT files: production releases (all staged)
+        - Filesystem: patches not in any file are orphaned
+
+        Returns:
+            Dict mapping patch_id to status info
+        """
+        patch_map = {}
+
+        # 1. TOML files (development releases)
+        for toml_file in self._releases_dir.glob("*-patches.toml"):
+            version = toml_file.stem.replace('-patches', '')
+            try:
+                release_file = ReleaseFile(version, self._releases_dir)
+                for patch_id in release_file.get_patches():
+                    patch_map[patch_id] = {
+                        "status": release_file.get_patch_status(patch_id),
+                        "version": version,
+                        "merge_commit": release_file.get_merge_commit(patch_id)
+                    }
+            except ReleaseFileError:
+                # Skip invalid files
+                continue
+
+        # 2. TXT files (production releases)
+        for txt_file in self._releases_dir.glob("*.txt"):
+            if '-patches' in txt_file.stem:
+                continue  # Skip TOML companion files
+            version = txt_file.stem
+            try:
+                patches = self.read_release_patches(txt_file.name)
+                for patch_id in patches:
+                    if patch_id not in patch_map:
+                        patch_map[patch_id] = {"status": "staged", "version": version}
+            except Exception:
+                # Skip invalid files
+                continue
+
+        # 3. Scan subdirectories for staged/orphaned patches on filesystem
+        # NOTE: Patches at root (Patches/) are considered "candidate" by default
+        # and don't need to be in the cache. Only staged/ and orphaned/ are scanned.
+        subdir_status = {
+            self._schema_patches_dir / "staged": "staged",
+            self._schema_patches_dir / "orphaned": "orphaned"
+        }
+        for subdir, status in subdir_status.items():
+            try:
+                if not subdir.exists():
+                    continue
+                for patch_dir in subdir.iterdir():
+                    if patch_dir.is_dir() and patch_dir.name[0].isdigit():
+                        if patch_dir.name not in patch_map:
+                            patch_map[patch_dir.name] = {"status": status}
+            except (PermissionError, OSError):
+                continue
+
+        return patch_map
+
+    def get_patch_directory_path(self, patch_id: str, status: Optional[str] = None) -> Path:
+        """
+        Get path to patch directory based on status.
+
+        Returns Path object for patch directory. Location depends on status:
+        - candidate: Patches/{patch_id}/
+        - staged: Patches/staged/{patch_id}/
+        - orphaned: Patches/orphaned/{patch_id}/
 
         Args:
             patch_id: Patch identifier
+            status: Optional status override ("candidate", "staged", "orphaned").
+                    If None, uses status from cache.
 
         Returns:
             Path object for patch directory
 
         Examples:
+            # Get current path (from cache)
             path = patch_mgr.get_patch_directory_path("456-user-auth")
-            # Returns: Path("Patches/456-user-auth")
 
-            # Check if exists
-            if path.exists():
-                print(f"Patch directory exists at {path}")
+            # Get path for specific status
+            new_path = patch_mgr.get_patch_directory_path("456-user-auth", "staged")
         """
-        # Normalize patch_id by stripping whitespace
         normalized_patch_id = patch_id.strip() if patch_id else ""
 
-        # Return path without validation (as documented)
-        return self._schema_patches_dir / normalized_patch_id
+        # Use provided status or get from cache
+        if status is None:
+            status_map = self.get_patch_status_map()
+            status = status_map.get(normalized_patch_id, {}).get("status", "candidate")
 
-    def list_all_patches(self) -> List[str]:
-        """
-        List all existing patch directories.
-
-        Scans Patches/ directory and returns all valid patch identifiers.
-        Only returns directories that pass basic validation.
-
-        Returns:
-            List of patch identifiers
-
-        Examples:
-            patches = patch_mgr.list_all_patches()
-            # Returns: ["456-user-auth", "789-security-fix", "234-performance"]
-
-            for patch_id in patches:
-                structure = patch_mgr.get_patch_structure(patch_id)
-                print(f"{patch_id}: {'valid' if structure.is_valid else 'invalid'}")
-        """
-        valid_patches = []
-
-        try:
-            # Scan Patches directory
-            if not self._schema_patches_dir.exists():
-                return []
-
-            for item in self._schema_patches_dir.iterdir():
-                # Skip files, only process directories
-                if not item.is_dir():
-                    continue
-
-                # Basic patch ID validation - must start with number
-                # This excludes hidden directories, __pycache__, etc.
-                if not item.name or not item.name[0].isdigit():
-                    continue
-
-                # Check for required README.md file
-                readme_path = item / "README.md"
-                try:
-                    if readme_path.exists() and readme_path.is_file():
-                        valid_patches.append(item.name)
-                except PermissionError:
-                    # Skip directories we can't read
-                    continue
-
-        except PermissionError:
-            # If we can't read Patches directory, return empty list
-            return []
-        except OSError:
-            # Handle other filesystem errors
-            return []
-
-        # Sort patches by numeric value of ticket number
-        def sort_key(patch_id):
-            try:
-                # Extract number part for sorting
-                if '-' in patch_id:
-                    number_part = patch_id.split('-', 1)[0]
-                else:
-                    number_part = patch_id
-                return int(number_part)
-            except ValueError:
-                # Fallback to string sort if not numeric
-                return float('inf')
-
-        valid_patches.sort(key=sort_key)
-        return valid_patches
+        if status == "staged":
+            return self._schema_patches_dir / "staged" / normalized_patch_id
+        elif status == "orphaned":
+            return self._schema_patches_dir / "orphaned" / normalized_patch_id
+        else:  # candidate or new patch
+            return self._schema_patches_dir / normalized_patch_id
 
     def delete_patch_directory(self, patch_id: str, confirm: bool = False) -> bool:
         """
@@ -2684,6 +2729,8 @@ class PatchManager:
 
         try:
             release_file.add_patch(patch_id, before=before)
+            # Update cache
+            self._add_patch_to_status_cache(patch_id, "candidate", version)
         except ReleaseFileError as e:
             raise PatchManagerError(str(e))
 
@@ -2834,6 +2881,7 @@ class PatchManager:
 
         Changes the patch status from "candidate" to "staged" in the TOML file,
         preserving its position (order) in the file.
+        Also moves the patch directory from Patches/{patch_id}/ to Patches/staged/{patch_id}/.
 
         Args:
             patch_id: Patch identifier to move
@@ -2841,24 +2889,42 @@ class PatchManager:
             merge_commit: Git commit hash of the merge commit
 
         Raises:
-            PatchManagerError: If operation fails
+            PatchManagerError: If operation fails or patch directory not found
 
         Examples:
             self._move_patch_to_stage("456-user-auth", "0.17.0", "abc123de")
             # Changes "456-user-auth" = {status = "candidate"}
             # to "456-user-auth" = {status = "staged", merge_commit = "abc123de"}
-            # Order is preserved!
+            # Directory moved from Patches/456-user-auth/ to Patches/staged/456-user-auth/
         """
         release_file = ReleaseFile(version, self._releases_dir)
 
         try:
-            release_file.move_to_staged(patch_id, merge_commit)
+            # 1. Verify patch directory exists (STRICT)
+            old_path = self.get_patch_directory_path(patch_id)
+            if not old_path.exists():
+                raise PatchManagerError(
+                    f"CRITICAL: Patch directory not found: {old_path}\n"
+                    f"The patch '{patch_id}' must exist in Patches/ before merge."
+                )
 
-            # Stage file for commit
+            # 2. Update TOML status
+            release_file.move_to_staged(patch_id, merge_commit)
             self._repo.hgit.add(str(release_file.file_path))
+
+            # 3. Move directory to staged/
+            new_path = self.get_patch_directory_path(patch_id, "staged")
+            staged_dir = new_path.parent
+            staged_dir.mkdir(exist_ok=True)
+            self._repo.hgit.mv(str(old_path), str(new_path))
+
+            # 4. Update cache
+            self._update_patch_status_cache(patch_id, "staged", merge_commit)
 
         except ReleaseFileError as e:
             raise PatchManagerError(str(e))
+        except PatchManagerError:
+            raise  # Re-raise our own errors
         except Exception as e:
             raise PatchManagerError(
                 f"Failed to move patch to staged: {e}"
