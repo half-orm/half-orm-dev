@@ -651,6 +651,11 @@ class PatchManager:
 
         # Apply files in lexicographic order
         for patch_file in structure.files:
+            # Skip bootstrap files - they are executed via run_bootstrap() after merge
+            if is_bootstrap_file(patch_file.path):
+                click.echo(f"  • {patch_file.name} (bootstrap - skipped, will run after merge)")
+                continue
+
             if patch_file.is_sql:
                 click.echo(f"  • {patch_file.name}")
                 try:
