@@ -2162,6 +2162,16 @@ class ReleaseManager:
                     f"Failed to apply patch {patch_id} from release {version}: {e}"
                 ) from e
 
+        # Execute bootstrap scripts (files copied to bootstrap/ during merge)
+        from half_orm_dev.bootstrap_manager import BootstrapManager
+        bootstrap_mgr = BootstrapManager(self._repo)
+        bootstrap_result = bootstrap_mgr.run_bootstrap()
+        if bootstrap_result['errors']:
+            filename, error = bootstrap_result['errors'][0]
+            raise ReleaseManagerError(
+                f"Bootstrap script failed during release {version}: {filename}: {error}"
+            )
+
         # Update database version
         version_parts = version.split('.')
         if len(version_parts) != 3:
