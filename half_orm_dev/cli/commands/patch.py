@@ -13,6 +13,7 @@ Replaces legacy commands:
 """
 
 import click
+from pathlib import Path
 from typing import Optional
 
 from half_orm_dev.repo import Repo
@@ -107,7 +108,13 @@ def patch_create(patch_id: str, description: Optional[str] = None, before: Optio
 
 
 @patch.command('apply')
-def patch_apply() -> None:
+@click.option(
+    '--from-dump',
+    type=click.Path(exists=True, dir_okay=False, resolve_path=True),
+    help='Restore from pg_dump SQL file instead of schema.sql. '
+         'Useful for testing with production data.'
+)
+def patch_apply(from_dump: Optional[str]) -> None:
     """
     Apply current patch files to database.
 
@@ -115,15 +122,14 @@ def patch_apply() -> None:
     patch from current branch name and executes complete workflow:
     database restoration, patch application, and code generation.
 
-    This command has no parameters - patch detection is automatic from
-    the current Git branch. All business logic is delegated to
-    PatchManager.apply_patch_complete_workflow().
+    Patch detection is automatic from the current Git branch.
+    All business logic is delegated to PatchManager.apply_patch_complete_workflow().
 
     \b
     Workflow:
         1. Validate current branch is ho-patch/*
         2. Extract patch_id from branch name
-        3. Restore database from model/schema.sql
+        3. Restore database from model/schema.sql (or --from-dump file)
         4. Apply patch SQL/Python files in lexicographic order
         5. Generate halfORM Python code via modules.py
         6. Display detailed report with next steps
@@ -136,8 +142,11 @@ def patch_apply() -> None:
 
     \b
     Examples:
-        On branch ho-patch/456-user-auth:
+        # Standard workflow (restore from schema.sql):
         $ half_orm dev patch apply
+
+        # Using production dump for realistic data:
+        $ half_orm dev patch apply --from-dump /path/to/prod_dump.sql
 
     \b
     Output:
@@ -183,15 +192,21 @@ def patch_apply() -> None:
         # Display current context
         click.echo(f"✓ Current branch: {utils.Color.bold(current_branch)}")
         click.echo(f"✓ Detected patch: {utils.Color.bold(patch_id)}")
+        if from_dump:
+            click.echo(f"✓ Using dump file: {utils.Color.bold(from_dump)}")
         click.echo()
 
         # Delegate to PatchManager
         click.echo("Applying patch...")
-        result = repo.patch_manager.apply_patch_complete_workflow(patch_id)
+        dump_path = Path(from_dump) if from_dump else None
+        result = repo.patch_manager.apply_patch_complete_workflow(patch_id, from_dump=dump_path)
 
         # Display success
         click.echo(f"✓ {utils.Color.green('Patch applied successfully!')}")
-        click.echo(f"✓ Database restored from model/schema.sql")
+        if result.get('used_dump'):
+            click.echo(f"✓ Database restored from dump file")
+        else:
+            click.echo(f"✓ Database restored from model/schema.sql")
         click.echo()
 
         # Display applied files

@@ -2396,6 +2396,64 @@ Each script is executed only once unless `--force` is used.
             # Catch any unexpected errors
             raise RepoError(f"Database restoration failed: {e}") from e
 
+    def restore_database_from_dump(self, dump_file: Path) -> None:
+        """
+        Restore database from a pg_dump SQL file.
+
+        Alternative to restore_database_from_schema() for working with
+        production data snapshots. Useful for testing patches against
+        realistic data.
+
+        Process:
+        1. Verify dump file exists
+        2. Drop all user schemas with CASCADE
+        3. Load dump using psql -f
+        4. Reload halfORM Model metadata cache
+
+        Note: Bootstrap scripts are NOT executed since the dump
+        already contains the data.
+
+        Args:
+            dump_file: Path to SQL dump file (plain text format from pg_dump)
+
+        Raises:
+            RepoError: If dump file not found or restoration fails
+
+        Examples:
+            # Use production dump for patch development
+            repo.restore_database_from_dump(Path("/path/to/prod_dump.sql"))
+            patch_mgr.apply_patch_files("456-feature", repo.model)
+        """
+        dump_path = Path(dump_file)
+
+        if not dump_path.exists():
+            raise RepoError(
+                f"Dump file not found: {dump_path}. "
+                "Please provide a valid pg_dump SQL file."
+            )
+
+        try:
+            # 1. Drop all schemas (no superuser privileges needed)
+            self._reset_database_schemas()
+
+            # 2. Load dump using psql
+            try:
+                self.database.execute_pg_command(
+                    'psql', '-d', self.database_name, '-f', str(dump_path)
+                )
+            except Exception as e:
+                raise RepoError(f"Failed to load dump from {dump_path.name}: {e}") from e
+
+            # 3. Reload half_orm metadata cache
+            self.model.reconnect(reload=True)
+
+            # Note: Bootstrap scripts are NOT executed - dump contains data
+
+        except RepoError:
+            raise
+        except Exception as e:
+            raise RepoError(f"Database restoration from dump failed: {e}") from e
+
     def generate_release_schema(self, version: str) -> Path:
         """
         Generate release schema SQL dump.

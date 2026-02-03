@@ -264,10 +264,13 @@ class TestRunBootstrap:
         result = bootstrap_manager.run_bootstrap(dry_run=True)
 
         assert '1-init-0.1.0.sql' in result['executed']
-        # execute_query is called twice: once in get_pending_files() -> get_executed_files()
-        # and once more in run_bootstrap() to calculate skipped files
+        # execute_query is called 4 times:
+        # - _ensure_bootstrap_table() CREATE TABLE IF NOT EXISTS
+        # - get_executed_files() SELECT for get_pending_files()
+        # - _ensure_bootstrap_table() CREATE TABLE IF NOT EXISTS
+        # - get_executed_files() SELECT for skipped files calculation
         # No record_execution should be called (which would add more calls)
-        assert mock_repo.database.model.execute_query.call_count == 2
+        assert mock_repo.database.model.execute_query.call_count == 4
 
     def test_exclude_patch_id(self, bootstrap_manager, tmp_path, mock_repo):
         """Test that files matching exclude_patch_id are excluded."""

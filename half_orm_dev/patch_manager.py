@@ -490,7 +490,9 @@ class PatchManager:
         """
         pass
 
-    def apply_patch_complete_workflow(self, patch_id: str) -> dict:
+    def apply_patch_complete_workflow(
+        self, patch_id: str, from_dump: Optional[Path] = None
+    ) -> dict:
         """
         Apply patch with full release context.
 
@@ -504,6 +506,16 @@ class PatchManager:
         2. Apply all staged patches in order
         3. Apply current patch
         4. Generate Python code
+
+        If from_dump is provided:
+        1. Restore DB from dump file (skips bootstrap, data already present)
+        2. Apply only the current patch
+        3. Generate Python code
+
+        Args:
+            patch_id: Patch identifier
+            from_dump: Optional path to pg_dump SQL file to restore from
+                      instead of schema.sql. Useful for testing with prod data.
 
         Examples:
             # With release schema (new workflow):
@@ -520,63 +532,83 @@ class PatchManager:
             # 2. Apply all staged patches
             # 3. Apply 999
             # 4. Generate code
+
+            # With dump file:
+            apply_patch_complete_workflow("999", from_dump=Path("prod_dump.sql"))
+            # Execution:
+            # 1. Restore DB from prod_dump.sql (no bootstrap)
+            # 2. Apply 999
+            # 3. Generate code
         """
 
         try:
-            # Get release version for this patch
-            version = self._find_version_for_candidate(patch_id)
-            if not version:
-                # Try to find from staged patches
-                version = self._repo.release_manager.get_next_release_version()
-
             applied_release_files = []
             applied_current_files = []
             patch_was_in_release = False
-
-            # Check if release schema exists
+            used_dump = False
             release_schema_path = None
-            if version:
-                release_schema_path = self._repo.get_release_schema_path(version)
 
-            if release_schema_path and release_schema_path.exists():
-                # New workflow: restore from release schema (includes all staged patches)
-                # Bootstrap scripts run automatically, excluding current patch
-                self._repo.restore_database_from_release_schema(
-                    version, exclude_bootstrap_patch_id=patch_id
-                )
+            # If from_dump is provided, use simplified workflow
+            if from_dump:
+                # Restore from dump file (no bootstrap, data already present)
+                self._repo.restore_database_from_dump(from_dump)
+                used_dump = True
 
                 # Apply only the current patch
                 files = self.apply_patch_files(patch_id, self._repo.model)
                 applied_current_files = files
+
             else:
-                # Backward compatibility: old workflow
-                # Also generates release schema for migration of existing projects
-                # Bootstrap scripts run automatically, excluding current patch
-                self._repo.restore_database_from_schema(
-                    exclude_bootstrap_patch_id=patch_id
-                )
+                # Standard workflow: get release version for this patch
+                version = self._find_version_for_candidate(patch_id)
+                if not version:
+                    # Try to find from staged patches
+                    version = self._repo.release_manager.get_next_release_version()
 
-                # Get and apply all staged release patches
-                release_patches = self._repo.release_manager.get_all_release_context_patches()
-
-                for patch in release_patches:
-                    if patch == patch_id:
-                        patch_was_in_release = True
-                    files = self.apply_patch_files(patch, self._repo.model)
-                    applied_release_files.extend(files)
-
-                # Generate release schema for existing projects migration
-                # This captures the state after all staged patches are applied
+                # Check if release schema exists
+                release_schema_path = None
                 if version:
-                    try:
-                        self._repo.generate_release_schema(version)
-                    except Exception:
-                        pass  # Non-critical, continue with apply
+                    release_schema_path = self._repo.get_release_schema_path(version)
 
-                # If current patch not in release (candidate), apply it now
-                if not patch_was_in_release:
+                if release_schema_path and release_schema_path.exists():
+                    # New workflow: restore from release schema (includes all staged patches)
+                    # Bootstrap scripts run automatically, excluding current patch
+                    self._repo.restore_database_from_release_schema(
+                        version, exclude_bootstrap_patch_id=patch_id
+                    )
+
+                    # Apply only the current patch
                     files = self.apply_patch_files(patch_id, self._repo.model)
                     applied_current_files = files
+                else:
+                    # Backward compatibility: old workflow
+                    # Also generates release schema for migration of existing projects
+                    # Bootstrap scripts run automatically, excluding current patch
+                    self._repo.restore_database_from_schema(
+                        exclude_bootstrap_patch_id=patch_id
+                    )
+
+                    # Get and apply all staged release patches
+                    release_patches = self._repo.release_manager.get_all_release_context_patches()
+
+                    for patch in release_patches:
+                        if patch == patch_id:
+                            patch_was_in_release = True
+                        files = self.apply_patch_files(patch, self._repo.model)
+                        applied_release_files.extend(files)
+
+                    # Generate release schema for existing projects migration
+                    # This captures the state after all staged patches are applied
+                    if version:
+                        try:
+                            self._repo.generate_release_schema(version)
+                        except Exception:
+                            pass  # Non-critical, continue with apply
+
+                    # If current patch not in release (candidate), apply it now
+                    if not patch_was_in_release:
+                        files = self.apply_patch_files(patch_id, self._repo.model)
+                        applied_current_files = files
 
             # Generate Python code
             # Track generated files
@@ -600,7 +632,13 @@ class PatchManager:
                 'applied_current_files': applied_current_files,
                 'patch_was_in_release': patch_was_in_release,
                 'generated_files': generated_files,
-                'used_release_schema': release_schema_path is not None and release_schema_path.exists(),
+                'used_dump': used_dump,
+                'from_dump': str(from_dump) if from_dump else None,
+                'used_release_schema': (
+                    not used_dump and
+                    release_schema_path is not None and
+                    release_schema_path.exists()
+                ),
                 'status': 'success',
                 'error': None
             }
