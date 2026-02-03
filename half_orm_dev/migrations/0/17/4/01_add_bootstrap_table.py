@@ -87,6 +87,10 @@ The `@HOP:data` marker is also supported for backwards compatibility.
         readme_path.write_text(readme_content)
         created_readme = True
 
+    # Add bootstrap directory to git
+    if created_dir or created_readme:
+        repo.hgit.add('bootstrap')
+
     return {
         'table_created': True,
         'directory_created': created_dir,

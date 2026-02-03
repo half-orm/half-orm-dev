@@ -749,10 +749,12 @@ class PatchManager:
                 continue  # Skip TOML companion files
             version = txt_file.stem
             try:
-                patches = self.read_release_patches(txt_file.name)
-                for patch_id in patches:
-                    if patch_id not in patch_map:
-                        patch_map[patch_id] = {"status": "staged", "version": version}
+                content = txt_file.read_text()
+                for line in content.strip().split('\n'):
+                    patch_id = line.strip()
+                    if patch_id and not patch_id.startswith('#'):
+                        if patch_id not in patch_map:
+                            patch_map[patch_id] = {"status": "staged", "version": version}
             except Exception:
                 # Skip invalid files
                 continue

@@ -58,6 +58,26 @@ class BootstrapManager:
         """Get path to bootstrap directory."""
         return self._bootstrap_dir
 
+    def _ensure_bootstrap_table(self) -> None:
+        """
+        Ensure half_orm_meta.bootstrap table exists.
+
+        Creates the table if it doesn't exist. This handles the case
+        where the table hasn't been created yet (pre-migration databases).
+        """
+        sql = """
+        CREATE TABLE IF NOT EXISTS half_orm_meta.bootstrap (
+            filename TEXT PRIMARY KEY,
+            version TEXT NOT NULL,
+            executed_at TIMESTAMP DEFAULT NOW()
+        );
+        """
+        try:
+            self._repo.database.model.execute_query(sql)
+        except Exception:
+            # Schema might not exist yet, ignore
+            pass
+
     def get_bootstrap_files(self) -> List[Path]:
         """
         List bootstrap files sorted by numeric prefix.
@@ -96,6 +116,9 @@ class BootstrapManager:
         Returns:
             Set of filename strings that have been executed
         """
+        # Ensure table exists before querying
+        self._ensure_bootstrap_table()
+
         try:
             result = self._repo.database.model.execute_query(
                 "SELECT filename FROM half_orm_meta.bootstrap"
