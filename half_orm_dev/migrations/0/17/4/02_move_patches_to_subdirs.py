@@ -82,6 +82,55 @@ def _get_staged_patches_from_txt(releases_dir: Path) -> dict:
     return staged
 
 
+def _move_patches_on_branch(repo, patches_dir: Path, staged_dir: Path, releases_dir: Path) -> tuple:
+    """
+    Move staged patches on current branch.
+
+    Returns:
+        Tuple of (moved_count, skipped_count)
+    """
+    # Collect all staged patches from both TOML and TXT files
+    staged_patches = {}
+    staged_patches.update(_get_staged_patches_from_toml(releases_dir))
+    staged_patches.update(_get_staged_patches_from_txt(releases_dir))
+
+    if not staged_patches:
+        return 0, 0
+
+    moved_count = 0
+    skipped_count = 0
+
+    for patch_id, version in staged_patches.items():
+        old_path = patches_dir / patch_id
+        new_path = staged_dir / patch_id
+
+        # Skip if already moved
+        if new_path.exists():
+            skipped_count += 1
+            continue
+
+        # Skip if source doesn't exist
+        if not old_path.exists():
+            skipped_count += 1
+            continue
+
+        try:
+            # Ensure staged/ directory exists
+            staged_dir.mkdir(exist_ok=True)
+
+            # Use git mv to preserve history
+            repo.hgit.mv(str(old_path), str(new_path))
+
+            print(f"    {patch_id}: moved to staged/ (version {version})")
+            moved_count += 1
+
+        except Exception as e:
+            print(f"    {patch_id}: error moving - {e}")
+            continue
+
+    return moved_count, skipped_count
+
+
 def migrate(repo):
     """
     Execute migration: Move staged patches to Patches/staged/.
@@ -90,6 +139,8 @@ def migrate(repo):
     1. Check if patch directory exists at Patches/{patch_id}/
     2. Create Patches/staged/ directory if needed
     3. Move patch directory with git mv
+
+    This migration runs on all active branches (ho-prod, ho-release/*, ho-patch/*).
 
     Args:
         repo: Repo instance
@@ -108,51 +159,45 @@ def migrate(repo):
         print("  No releases directory found, skipping migration.")
         return
 
-    # Collect all staged patches from both TOML and TXT files
-    staged_patches = {}
-    staged_patches.update(_get_staged_patches_from_toml(releases_dir))
-    staged_patches.update(_get_staged_patches_from_txt(releases_dir))
+    # Save current branch
+    original_branch = repo.hgit.branch
+    total_moved = 0
 
-    if not staged_patches:
-        print("  No staged patches found, skipping migration.")
-        return
+    # Get all active branches
+    try:
+        branches_status = repo.hgit.get_active_branches_status()
+        patch_branches = [b['name'] for b in branches_status.get('patch_branches', [])]
+        release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
+        all_branches = ['ho-prod'] + release_branches + patch_branches
+    except Exception as e:
+        print(f"  Warning: Could not get active branches: {e}")
+        all_branches = [original_branch]
 
-    moved_count = 0
-    skipped_count = 0
-
-    for patch_id, version in staged_patches.items():
-        old_path = patches_dir / patch_id
-        new_path = staged_dir / patch_id
-
-        # Skip if already moved
-        if new_path.exists():
-            print(f"    {patch_id}: already in staged/, skipping")
-            skipped_count += 1
-            continue
-
-        # Skip if source doesn't exist
-        if not old_path.exists():
-            print(f"    {patch_id}: not found at root, skipping")
-            skipped_count += 1
-            continue
-
+    # Process each branch
+    for branch in all_branches:
         try:
-            # Ensure staged/ directory exists
-            staged_dir.mkdir(exist_ok=True)
+            repo.hgit.checkout(branch)
 
-            # Use git mv to preserve history
-            repo.hgit.mv(str(old_path), str(new_path))
+            moved, skipped = _move_patches_on_branch(repo, patches_dir, staged_dir, releases_dir)
 
-            print(f"    {patch_id}: moved to staged/ (version {version})")
-            moved_count += 1
+            if moved > 0:
+                # Commit changes on this branch
+                repo.hgit.add('Patches')
+                repo.hgit.commit('-m', f'[HOP] Move {moved} staged patch(es) to Patches/staged/')
+                print(f"  {branch}: moved {moved} patch(es)")
+                total_moved += moved
 
         except Exception as e:
-            print(f"    {patch_id}: error moving - {e}")
+            print(f"  {branch}: error - {e}")
             continue
 
-    if moved_count > 0:
-        # Stage all changes
-        repo.hgit.add('Patches')
-        print(f"\nMigration complete: {moved_count} patch(es) moved to Patches/staged/")
+    # Return to original branch
+    try:
+        repo.hgit.checkout(original_branch)
+    except Exception:
+        pass
+
+    if total_moved > 0:
+        print(f"\nMigration complete: {total_moved} patch(es) moved across all branches")
     else:
-        print(f"\nNo patches needed moving ({skipped_count} already in place)")
+        print(f"\nNo patches needed moving")
