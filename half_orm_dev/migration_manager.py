@@ -302,6 +302,9 @@ class MigrationManager:
             self._repo._Repo__config.hop_version = target_version
             self._repo._Repo__config.write()
 
+        # Update half_orm_dev version in pyproject.toml
+        self._update_pyproject_dependency_version(target_version)
+
         # Create Git commit if requested
         if create_commit and self._repo.hgit:
             try:
@@ -366,6 +369,49 @@ class MigrationManager:
             lines.append("No migration scripts needed (version update only)")
 
         return '\n'.join(lines)
+
+    def _update_pyproject_dependency_version(self, target_version: str) -> None:
+        """
+        Update half_orm_dev version in pyproject.toml.
+
+        This ensures the project's dependency on half_orm_dev always matches
+        the current tool version after each migration.
+
+        Handles both == and >= version specifiers.
+
+        Args:
+            target_version: New version to set for half_orm_dev dependency
+        """
+        import re
+
+        pyproject_path = Path(self._repo.base_dir) / "pyproject.toml"
+
+        if not pyproject_path.exists():
+            return
+
+        try:
+            content = pyproject_path.read_text()
+
+            # Only update if half_orm_dev dependency exists (== or >=)
+            if 'half_orm_dev==' not in content and 'half_orm_dev>=' not in content:
+                return
+
+            # Update the version (handles both == and >=)
+            new_content = re.sub(
+                r'half_orm_dev[>=]=[\d.a-zA-Z-]+',
+                f'half_orm_dev=={target_version}',
+                content
+            )
+
+            if new_content != content:
+                pyproject_path.write_text(new_content)
+                if self._repo.hgit:
+                    self._repo.hgit.add(str(pyproject_path))
+                print(f"  Updated pyproject.toml: half_orm_dev=={target_version}")
+
+        except Exception as e:
+            # Non-critical - don't fail migration
+            print(f"  Warning: Could not update pyproject.toml: {e}")
 
     def check_migration_needed(self, current_tool_version: str) -> bool:
         """

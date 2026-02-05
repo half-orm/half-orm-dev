@@ -2084,13 +2084,12 @@ Each script is executed only once unless `--force` is used.
 
         Examples:
             _generate_template_files()
-            # Creates: README.md, .gitignore, pyproject.toml, Pipfile
+            # Creates: README.md, .gitignore, pyproject.toml
         """
         # Read templates
         readme_template = utils.read(os.path.join(TEMPLATE_DIRS, 'README'))
         pyproject_template = utils.read(os.path.join(TEMPLATE_DIRS, 'pyproject.toml'))
         git_ignore = utils.read(os.path.join(TEMPLATE_DIRS, '.gitignore'))
-        pipfile_template = utils.read(os.path.join(TEMPLATE_DIRS, 'Pipfile'))
 
         # Format templates with project variables
         package_name = self.__config.package_name
@@ -2098,12 +2097,7 @@ Each script is executed only once unless `--force` is used.
         pyproject = pyproject_template.format(
             dbname=package_name,
             package_name=package_name,
-            half_orm_version=half_orm.__version__
-        )
-
-        pipfile = pipfile_template.format(
-            half_orm_version=half_orm.__version__,
-            hop_version=hop_version()
+            half_orm_dev_version=hop_version()
         )
 
         readme = readme_template.format(
@@ -2114,7 +2108,6 @@ Each script is executed only once unless `--force` is used.
 
         # Write files
         utils.write(os.path.join(self.__base_dir, 'pyproject.toml'), pyproject)
-        utils.write(os.path.join(self.__base_dir, 'Pipfile'), pipfile)
         utils.write(os.path.join(self.__base_dir, 'README.md'), readme)
         utils.write(os.path.join(self.__base_dir, '.gitignore'), git_ignore)
 

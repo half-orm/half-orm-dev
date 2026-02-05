@@ -41,7 +41,7 @@ classifiers = [
 ]
 requires-python = ">=3.9"
 dependencies = [
-    "half_orm=={half_orm_version}",
+    "half_orm_dev=={half_orm_dev_version}",
 ]
 
 [project.urls]
