@@ -925,7 +925,7 @@ class HGit:
             match = re.search(r'-(\d+)$', existing_locks[0])
             if match:
                 lock_timestamp_ms = int(match.group(1))
-                lock_time = datetime.utcfromtimestamp(lock_timestamp_ms / 1000.0)
+                lock_time = datetime.fromtimestamp(lock_timestamp_ms / 1000.0, tz=timezone.utc)
                 current_time = datetime.now(timezone.utc)
 
                 # Check if lock is stale
