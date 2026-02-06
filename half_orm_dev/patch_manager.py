@@ -2029,9 +2029,13 @@ class PatchManager:
 
         # 7. Commit changes on release branch (TOML file is in .hop/releases/)
         # This also syncs .hop/ to all active branches automatically via decorator
+        # Extract issue number from patch_id (e.g., "123-add-users" -> "123")
+        issue_match = re.match(r'^(\d+)', patch_id)
+        issue_number = issue_match.group(1) if issue_match else None
+        fixes_line = f"\nFixes #{issue_number}." if issue_number else ""
         try:
             self._repo.commit_and_sync_to_active_branches(
-                message=f"[HOP] move patch #{patch_id} from candidate to stage %{version}\nFixes #{patch_id}."
+                message=f"[HOP] move patch #{patch_id} from candidate to stage %{version}{fixes_line}"
             )
         except Exception as e:
             raise PatchManagerError(f"Failed to commit/push changes: {e}")
