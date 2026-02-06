@@ -4,7 +4,7 @@
 
 > **Please report any issues at [GitHub Issues](https://github.com/half-orm/half-orm-dev/issues)**
 
-**Git-centric patch management and database versioning for half-orm projects**
+**Git-centric patch management and PostgreSQL database versioning for half-orm projects**
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
@@ -22,6 +22,7 @@ Modern development workflow for PostgreSQL databases with automatic code generat
 - **Git-centric workflow**: Patches stored in Git branches with semantic versioning
 - **Test-Driven Development**: **Automatic validation** - tests run before integration, patches blocked if tests fail
 - **Code generation**: Python classes auto-generated from schema changes
+- **Data bootstrapping**: Initialize reference data and configurations with tracked scripts
 - **Safe deployments**: Sequential releases with automatic backups and validation
 - **Team collaboration**: Distributed locks, branch management, conflict prevention
 - **Cloud-friendly**: No superuser privileges required (works on AWS RDS, Azure, GCP)
@@ -43,10 +44,11 @@ half_orm dev patch merge
 
 # Behind the scenes:
 # 1. Creates temporary validation branch
-# 2. Merges ALL patches in release context
-# 3. Runs pytest automatically
-# 4. ✅ If PASS → merges into release, status → "staged"
-# 5. ❌ If FAIL → nothing committed, temp branch deleted
+# 2. Restores database from production schema
+# 3. Applies ALL release patches sequentially
+# 4. Runs pytest automatically
+# 5. ✅ If PASS → merges into release, status → "staged"
+# 6. ❌ If FAIL → nothing committed, temp branch deleted
 ```
 
 **Benefits:**
@@ -69,6 +71,7 @@ half_orm dev patch merge
 - **Semantic versioning**: patch/minor/major increments
 - **Sequential promotion**: stage → rc → production workflow
 - **Release candidates**: RC validation before production
+- **Hotfix support**: Reopen last released version for urgent fixes
 - **Branch cleanup**: Automatic deletion after promotion
 
 ### 🚀 Production
@@ -84,8 +87,8 @@ half_orm dev patch merge
 
 ### Prerequisites
 
-- **Python 3.9+** required
-- **PostgreSQL 12+** recommended
+- **Python**: [Active versions](https://devguide.python.org/versions/) (currently 3.9+)
+- **PostgreSQL**: [Supported versions](https://www.postgresql.org/support/versioning/) (currently 13+)
 - **Git** for version control
 
 ### Install
@@ -107,8 +110,8 @@ half_orm dev --help
 ### Initialize New Project
 
 ```bash
-# Create project with database
-half_orm dev init myproject --database mydb
+# Create project with database (requires git origin)
+half_orm dev init myproject --database mydb --git-origin git@github.com:user/myproject.git
 cd myproject
 ```
 
@@ -204,6 +207,7 @@ ho-prod (main production branch)
 ├── 0.17.0-patches.toml    # Development (mutable: candidate/staged status)
 ├── 0.17.0-rc1.txt         # Release candidate snapshot (immutable)
 ├── 0.17.0.txt             # Production snapshot (immutable)
+├── 0.17.0-hotfix1.txt     # Hotfix snapshot (immutable)
 └── 0.18.0-patches.toml    # Next version in progress
 ```
 
@@ -218,7 +222,7 @@ ho-prod (main production branch)
 ┌─────────────────────────────────────────────────────────────┐
 │ DEVELOPMENT WORKFLOW                                        │
 ├─────────────────────────────────────────────────────────────┤
-│ 1. release create <level>     Create ho-release/X.Y.Z          │
+│ 1. release create <level>     Create ho-release/X.Y.Z       │
 │ 2. patch create <id>       Create patch (auto-candidate)    │
 │ 3. patch apply             Apply & test changes             │
 │ 4. patch merge             Merge into release (TESTS!)      │
@@ -232,6 +236,11 @@ ho-prod (main production branch)
 │ PRODUCTION DEPLOYMENT                                       │
 │ 7. update                  Check available releases         │
 │ 8. upgrade                 Apply on production servers      │
+│                                                             │
+│ HOTFIX (urgent production fix)                              │
+│ 9. release hotfix          Reopen last released version     │
+│10. patch create/merge      Fix and validate                 │
+│11. release promote hotfix  Deploy hotfix                    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -242,11 +251,44 @@ ho-prod (main production branch)
 ### Init & Clone
 
 ```bash
-# Create new project
-half_orm dev init <package_name> --database <db_name>
+# Create new project (requires git origin)
+half_orm dev init <package_name> --database <db_name> --git-origin <url>
 
 # Clone existing project
 half_orm dev clone <git_origin>
+```
+
+### Check
+
+```bash
+# Verify and update project configuration
+half_orm dev check
+
+# Preview what would be done
+half_orm dev check --dry-run
+```
+
+**Note:** This command runs automatically before other commands (git hooks, configuration, stale branches cleanup).
+
+### Release Commands
+
+A release must be created before creating patches.
+
+```bash
+# Create new release (must be on ho-prod branch)
+half_orm dev release create patch   # X.Y.(Z+1)
+half_orm dev release create minor   # X.(Y+1).0
+half_orm dev release create major   # (X+1).0.0
+
+# Promote to release candidate (optional)
+half_orm dev release promote rc
+
+# Promote to production
+half_orm dev release promote prod
+
+# Hotfix workflow
+half_orm dev release hotfix           # Reopen production version
+half_orm dev release promote hotfix   # Deploy hotfix
 ```
 
 ### Patch Commands
@@ -265,24 +307,7 @@ half_orm dev patch merge
 
 **Tip:** Patch IDs must start with a number (e.g., `123-add-users`). This number automatically closes the corresponding GitHub/GitLab issue #123 when the patch is merged.
 
-### Release Commands
-
-```bash
-# Create new release
-half_orm dev release create patch   # X.Y.(Z+1)
-half_orm dev release create minor   # X.(Y+1).0
-half_orm dev release create major   # (X+1).0.0
-
-# Promote to release candidate (optional)
-half_orm dev release promote rc
-
-# Promote to production
-half_orm dev release promote prod
-
-# Hotfix workflow
-half_orm dev release hotfix           # Reopen production version
-half_orm dev release promote hotfix   # Deploy hotfix
-```
+**Patch files:** SQL (`.sql`) or Python (`.py`) files in `Patches/<patch_id>/`, executed in lexicographic order.
 
 ### Production Commands
 
@@ -296,6 +321,20 @@ half_orm dev upgrade [--to-release X.Y.Z]
 # Dry run (simulate upgrade)
 half_orm dev upgrade --dry-run
 ```
+
+### Data Bootstrap
+
+Mark patch files with `-- @HOP:bootstrap` (SQL) or `# @HOP:bootstrap` (Python) to declare reference data:
+
+```sql
+-- @HOP:bootstrap
+INSERT INTO roles (name) VALUES ('admin'), ('user') ON CONFLICT DO NOTHING;
+```
+
+These files are automatically:
+- Copied to `bootstrap/` during `patch merge`
+- Executed during production `upgrade`
+- Tracked in database (each script runs once)
 
 **Note:** Use `half_orm dev <command> --help` for detailed help on each command.
 
@@ -329,47 +368,17 @@ half_orm dev patch merge
 
 ---
 
-## 🎓 Best Practices
+## 🎓 Development Philosophy
 
-### Development
-✅ **DO:**
-- Write tests FIRST (TDD approach)
-- Run `pytest` locally before `patch merge`
-- Use descriptive patch IDs: `123-add-user-authentication`
-- Keep patches focused (one feature per patch)
-- Test patches thoroughly
+half-orm-dev combines **Domain-Driven Design** with **Test-Driven Development**, integrated into Git:
 
-❌ **DON'T:**
-- Skip writing tests (validation will fail anyway)
-- Mix multiple features in one patch
-- Bypass test validation (it's there for safety)
-- Modify files outside your patch directory
+1. **Schema as domain model** - The PostgreSQL schema defines your domain; Python classes are auto-generated
+2. **Write tests first** - Define expected behavior before implementation
+3. **Develop in isolation** - Each patch has its own branch and directory
+4. **Validate automatically** - Tests run during `patch merge`, blocking integration if they fail
+5. **Deploy with confidence** - Only validated code reaches production
 
-### Release Management
-✅ **DO:**
-- Trust the automatic test validation system
-- Test RC thoroughly before promoting to production
-- Use semantic versioning consistently
-- Review test failures carefully before retrying
-
-❌ **DON'T:**
-- Skip RC validation
-- Force promote without fixing issues
-- Bypass test validation
-- Ignore test failures
-
-### Production Deployment
-✅ **DO:**
-- Always run `update` first to check available releases
-- Use `--dry-run` to preview changes
-- Verify backups exist before upgrade
-- Verify all tests passed in RC before promoting
-
-❌ **DON'T:**
-- Deploy without testing in RC first
-- Skip backup verification
-- Promote to production if RC tests failed
-- Apply patches directly without releases
+This approach ensures that every schema change is tested in the full release context before integration.
 
 ---
 
@@ -432,11 +441,11 @@ git stash
 git pull origin ho-prod
 ```
 
-### Error: "No stage releases found"
+### Error: "No staged releases found"
 
 ```bash
-# Solution: Prepare a release first
-half_orm dev release new patch
+# Solution: Create a release first
+half_orm dev release create patch
 ```
 
 ### Error: "Active RC exists"
@@ -463,16 +472,6 @@ vim tests/test_feature.py
 # Try again
 git checkout ho-patch/123-feature
 half_orm dev patch merge  # Tests will run again
-```
-
-### Error: "Repository is not clean"
-```bash
-# Commit or stash changes
-git status
-git add .
-git commit -m "Your message"
-# or
-git stash
 ```
 
 For more troubleshooting, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
