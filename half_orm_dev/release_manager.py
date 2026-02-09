@@ -12,7 +12,7 @@ import sys
 import subprocess
 
 from pathlib import Path
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict, Literal
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -2491,6 +2491,261 @@ class ReleaseManager:
 
         return best_match
 
+    def _promote(self, target: Literal['rc', 'prod']) -> dict:
+        """
+        Unified promotion method for RC and production releases.
+
+        This method handles the common workflow for both promotion targets:
+        1. Detect version and validate release file
+        2. Create temporary branch for validation (ho-promote/{version})
+        3. Apply patches and bootstrap scripts
+        4. Register version in database
+        5. Create snapshot files
+        6. For prod: merge into ho-prod, generate schema/data files
+        7. Create and push tags
+        8. Commit and sync
+        9. For prod: delete release branch, handle candidate migration
+
+        Args:
+            target: Either 'rc' or 'prod'
+
+        Returns:
+            dict with promotion results
+
+        Raises:
+            ReleaseManagerError: If promotion fails
+        """
+        is_prod = (target == 'prod')
+
+        # 1. Auto-detect version
+        version = self._detect_version_to_promote(target)
+
+        # 2. Validate release file exists
+        release_file = ReleaseFile(version, self._releases_dir)
+        if not release_file.exists():
+            raise ReleaseManagerError(f"Release {version} not found (no patches file)")
+
+        release_branch = f"ho-release/{version}"
+
+        # 3. For prod: check for candidate patches and offer migration
+        candidates = []
+        migrate_candidates = False
+        next_patch_version = None
+
+        if is_prod:
+            candidates = release_file.get_patches(status="candidate")
+            if candidates:
+                next_patch_version = self._calculate_next_patch_version(version)
+                migrate_candidates = self._prompt_candidate_migration(
+                    version, candidates, next_patch_version
+                )
+
+        # 4. Calculate tag info
+        if is_prod:
+            tag = f"v{version}"
+            tag_message = f"Production release %{version}"
+        else:
+            rc_number = self._get_latest_label_number(version, 'rc')
+            tag = f"v{version}-rc{rc_number}"
+            tag_message = f"Release Candidate %{version}"
+
+        try:
+            # 5. For prod: checkout and merge into ho-prod
+            if is_prod:
+                self._repo.hgit.checkout("ho-prod")
+                self._merge_release_into_prod(release_branch, version)
+
+            # 6. Apply patches to database (validation)
+            self._apply_release_patches(version, force_apply=is_prod)
+
+            # 7. Execute bootstrap scripts (only for this version and earlier)
+            self._run_bootstrap_scripts(up_to_version=version)
+
+            # 8. Register version in database
+            version_parts = version.split('.')
+            major, minor, patch_num = map(int, version_parts)
+            if is_prod:
+                self._repo.database.register_release(major, minor, patch_num)
+            else:
+                rc_number = self._get_latest_label_number(version, 'rc')
+                self._repo.database.register_release(
+                    major, minor, patch_num,
+                    pre_release='rc', pre_release_num=str(rc_number)
+                )
+
+            # 9. For prod: generate schema dump
+            model_dir = Path(self._repo.model_dir)
+            if is_prod:
+                self._repo.database._generate_schema_sql(version, model_dir)
+
+            # 10. Checkout release branch (for RC) or stay on ho-prod (for prod)
+            if not is_prod:
+                self._repo.hgit.checkout(release_branch)
+
+            # 11. Create snapshot files
+            staged_patches = release_file.get_patches(status="staged")
+            if is_prod:
+                self._create_prod_snapshot(version, staged_patches, release_file, model_dir)
+            else:
+                rc_number = self._get_latest_label_number(version, 'rc')
+                self._create_rc_snapshot(version, rc_number, staged_patches, release_file)
+
+            # 12. Commit and sync
+            commit_msg = f"[HOP] Promote release %{version} to {'production' if is_prod else f'RC {rc_number}'}"
+            self._repo.commit_and_sync_to_active_branches(
+                message=commit_msg,
+                reason=f"promote {version} to {target}"
+            )
+
+            # 13. Create and push tag
+            self._repo.hgit.create_tag(tag, tag_message)
+            self._repo.hgit.push_tag(tag)
+
+            # 14. For prod: delete release branch
+            deleted_branches = []
+            if is_prod:
+                deleted_branches = self._cleanup_release_branch(release_branch)
+
+            # 15. For prod: migrate candidates if requested
+            if is_prod and migrate_candidates and next_patch_version:
+                print(f"\n{utils.Color.bold('🔄 Migrating candidates to ' + next_patch_version + '...')}")
+                self._migrate_candidates_to_new_release(
+                    candidates, version, next_patch_version
+                )
+
+            # Build result
+            result = {
+                'version': version,
+                'tag': tag,
+                'target': target,
+            }
+
+            if is_prod:
+                result['deleted_branches'] = deleted_branches
+                result['migrated_to'] = next_patch_version if migrate_candidates else None
+                result['migrated_patches'] = candidates if migrate_candidates else []
+            else:
+                result['branch'] = release_branch
+
+            return result
+
+        except ReleaseManagerError:
+            raise
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to promote to {target}: {e}")
+
+    def _calculate_next_patch_version(self, version: str) -> str:
+        """Calculate next patch version (X.Y.Z → X.Y.Z+1)."""
+        parts = version.split('.')
+        if len(parts) != 3:
+            raise ReleaseManagerError(f"Invalid version format: {version}")
+        major, minor, patch = map(int, parts)
+        return f"{major}.{minor}.{patch + 1}"
+
+    def _prompt_candidate_migration(
+        self, version: str, candidates: list, next_patch_version: str
+    ) -> bool:
+        """Prompt user for candidate migration decision."""
+        print(f"\n{utils.Color.bold('⚠️  Candidate patches detected:')}")
+        print(f"  Release {version} has {len(candidates)} candidate patch(es):")
+        for patch_id in candidates:
+            print(f"    • {patch_id}")
+        print()
+        print(f"{utils.Color.bold('Migration to new release ' + utils.Color.green(next_patch_version) + '?')}")
+        print(f"  → Current release {version} will be promoted to production")
+        print(f"  → Candidates will be rebased onto new release {next_patch_version}")
+        print(f"  → Patch branches will be force-pushed to origin")
+        print()
+
+        response = input(f"Migrate candidates to {next_patch_version}? [y/N]: ").strip().lower()
+
+        if response in ('y', 'yes'):
+            print(f"\n✓ Will migrate {len(candidates)} candidate(s) to {next_patch_version}")
+            return True
+        else:
+            raise ReleaseManagerError(
+                f"Promotion cancelled.\n"
+                f"To proceed, either:\n"
+                f"  1. Merge candidate patches: git checkout ho-patch/<patch_id> && half_orm dev patch merge\n"
+                f"  2. Accept candidate migration when prompted"
+            )
+
+    def _merge_release_into_prod(self, release_branch: str, version: str) -> None:
+        """Merge release branch into ho-prod."""
+        try:
+            self._repo.hgit.merge(
+                release_branch,
+                ff_only=True,
+                message=f"[HOP] Merge release %{version} into production"
+            )
+        except Exception:
+            try:
+                self._repo.hgit.merge(
+                    release_branch,
+                    message=f"[HOP] Merge release %{version} into production"
+                )
+            except Exception as e:
+                try:
+                    self._repo.hgit.merge_abort()
+                except Exception:
+                    pass
+                raise ReleaseManagerError(
+                    f"Failed to merge {release_branch} into ho-prod: {e}\n"
+                    "ho-prod has been restored to its previous state."
+                )
+
+    def _create_rc_snapshot(
+        self, version: str, rc_number: int,
+        staged_patches: list, release_file: ReleaseFile
+    ) -> None:
+        """Create RC snapshot file from staged patches."""
+        rc_file = self._releases_dir / f"{version}-rc{rc_number}.txt"
+        lines = []
+        for patch_id in staged_patches:
+            merge_commit = release_file.get_merge_commit(patch_id)
+            lines.append(f"{patch_id}:{merge_commit}" if merge_commit else patch_id)
+        rc_file.write_text("\n".join(lines) + "\n" if lines else "", encoding='utf-8')
+
+    def _create_prod_snapshot(
+        self, version: str, staged_patches: list,
+        release_file: ReleaseFile, model_dir: Path
+    ) -> None:
+        """Create production snapshot and cleanup TOML file."""
+        prod_file = self._releases_dir / f"{version}.txt"
+        toml_file = self._releases_dir / f"{version}-patches.toml"
+
+        # Write production snapshot
+        prod_file.write_text(
+            "\n".join(staged_patches) + "\n" if staged_patches else "",
+            encoding='utf-8'
+        )
+
+        # Delete TOML patches file
+        if toml_file.exists():
+            toml_file.unlink()
+
+        # Delete release schema file
+        release_schema_file = model_dir / f"release-{version}.sql"
+        if release_schema_file.exists():
+            release_schema_file.unlink()
+
+        # Generate data file
+        prod_patches = self.read_release_patches(prod_file.name)
+        data_file = self._generate_data_sql_file(prod_patches, version)
+        if data_file:
+            self._repo.hgit.add(str(data_file))
+
+    def _cleanup_release_branch(self, release_branch: str) -> list:
+        """Delete release branch after production promotion."""
+        deleted_branches = []
+        try:
+            self._repo.hgit.delete_branch(release_branch, force=True)
+            self._repo.hgit.delete_remote_branch(release_branch)
+            deleted_branches.append(release_branch)
+        except Exception as e:
+            print(f"Warning: Failed to delete release branch {release_branch}: {e}", file=sys.stderr)
+        return deleted_branches
+
     @with_dynamic_branch_lock(lambda self: "ho-prod")
     def promote_to_rc(self) -> dict:
         """
@@ -2498,10 +2753,6 @@ class ReleaseManager:
 
         Creates an RC tag on the release branch (ho-release/{version}).
         The release branch contains all merged patches.
-
-        Args:
-            version: Version to promote (e.g., "0.1.0"). If None, auto-detects
-                    the smallest (oldest) stage release for sequential promotion.
 
         Returns:
             dict with keys:
@@ -2515,79 +2766,9 @@ class ReleaseManager:
         Examples:
             rel_mgr.promote_to_rc()
             # → Creates tag "0.1.0-rcN" on ho-release/0.1.0
-            # → Renames 0.1.0-stage.txt to 0.1.0-rcN.txt
-
-            rel_mgr.promote_to_rc()  # Auto-detect version
-            # → Promotes the smallest stage release
+            # → Creates 0.1.0-rcN.txt snapshot
         """
-        # Auto-detect version if not provided
-        label = 'rc'
-        version = self._detect_version_to_promote(label)
-
-        # Check TOML patches file exists
-        release_file = ReleaseFile(version, self._releases_dir)
-        if not release_file.exists():
-            raise ReleaseManagerError(f"Release {version} not found (no patches file)")
-
-        release_branch = f"ho-release/{version}"
-        rc_number = self._get_latest_label_number(version, label)
-        rc_tag = f"v{version}-rc{rc_number}"  # Use v prefix and rc1 for first RC
-
-        try:
-            # 1. Apply patches to database (for validation)
-            self._apply_release_patches(version)
-
-            # 1b. Execute bootstrap scripts (only for this version and earlier)
-            self._run_bootstrap_scripts(up_to_version=version)
-
-            # 2. Register the RC version in half_orm_meta.hop_release
-            version_parts = version.split('.')
-            major, minor, patch_num = map(int, version_parts)
-            self._repo.database.register_release(
-                major, minor, patch_num,
-                pre_release='rc', pre_release_num=str(rc_number)
-            )
-
-            # 3. Checkout release branch
-            self._repo.hgit.checkout(release_branch)
-
-            # 4. Create RC tag on release branch
-            self._repo.hgit.create_tag(rc_tag, f"Release Candidate %{version}")
-
-            # Push tag
-            self._repo.hgit.push_tag(rc_tag)
-
-            # Stay on release branch for rename operations
-            # (allows continued development on this release)
-
-            # Create RC snapshot from staged patches (with merge_commit)
-            rc_file = self._releases_dir / f"{version}-rc{rc_number}.txt"
-            staged_patches = release_file.get_patches(status="staged")
-            lines = []
-            for patch_id in staged_patches:
-                merge_commit = release_file.get_merge_commit(patch_id)
-                lines.append(f"{patch_id}:{merge_commit}" if merge_commit else patch_id)
-            rc_file.write_text("\n".join(lines) + "\n" if lines else "", encoding='utf-8')
-
-            # Keep TOML file for continued development (don't delete it)
-
-            # Note: data-X.Y.Z.sql is only generated for production releases
-            # RC releases don't need it - data is inserted via patch application
-
-            # Commit RC snapshot (in .hop/releases/)
-            # This also syncs .hop/ to all active branches automatically
-            self._repo.commit_and_sync_to_active_branches(
-                message=f"[HOP] Promote release %{version} to RC {rc_number}"
-            )
-
-            return {
-                'version': version,
-                'tag': rc_tag,
-                'branch': release_branch
-            }
-
-        except Exception as e:
-            raise ReleaseManagerError(f"Failed to promote to RC: {e}")
+        return self._promote('rc')
 
     @with_dynamic_branch_lock(lambda self: "ho-prod")
     def promote_to_prod(self) -> dict:
@@ -2597,22 +2778,20 @@ class ReleaseManager:
         Merges the release branch into ho-prod and finalizes:
         1. Merge ho-release/{version} into ho-prod
         2. Apply all patches (RCs + stage) and generate schema
-        3. Rename stage.txt to X.Y.Z.txt (incremental patches after last RC)
-        4. Delete candidates.txt file
-        5. Create production tag on ho-prod
-        6. Delete release branch (ho-release/{version})
+        3. Create X.Y.Z.txt, delete TOML patches file
+        4. Create production tag on ho-prod
+        5. Delete release branch (ho-release/{version})
+        6. Optionally migrate candidates to next patch version
 
         RC files are preserved for historical tracking.
-
-        Args:
-            version: Version to promote (e.g., "0.1.0"). If None, auto-detects
-                    the smallest (oldest) RC release for sequential promotion.
 
         Returns:
             dict with keys:
                 - version: The version
                 - tag: The production tag
                 - deleted_branches: List of deleted branches
+                - migrated_to: Next version if candidates migrated
+                - migrated_patches: List of migrated patch IDs
 
         Raises:
             ReleaseManagerError: If promotion fails
@@ -2620,178 +2799,10 @@ class ReleaseManager:
         Examples:
             rel_mgr.promote_to_prod()
             # → Merges ho-release/0.1.0 into ho-prod
-            # → Creates tag "0.1.0"
-            # → Deletes candidates.txt, renames stage.txt to 0.1.0.txt
-            # → Keeps RC files (0.1.0-rc1.txt, etc.) for history
-
-            rel_mgr.promote_to_prod()  # Auto-detect version
-            # → Promotes the smallest RC release
+            # → Creates tag "v0.1.0"
+            # → Deletes TOML, creates 0.1.0.txt
         """
-        # Auto-detect version
-        version = self._detect_version_to_promote('prod')
-
-        # Check TOML patches file exists
-        release_file = ReleaseFile(version, self._releases_dir)
-        if not release_file.exists():
-            raise ReleaseManagerError(f"RC release {version} not found")
-
-        # Check for candidate patches - offer to migrate to next patch version
-        candidates = release_file.get_patches(status="candidate")
-        migrate_candidates = False
-        next_patch_version = None
-
-        if candidates:
-            # Calculate next patch version (X.Y.Z → X.Y.Z+1)
-            parts = version.split('.')
-            if len(parts) != 3:
-                raise ReleaseManagerError(f"Invalid version format: {version}")
-
-            major, minor, patch = map(int, parts)
-            next_patch_version = f"{major}.{minor}.{patch + 1}"
-
-            # Prompt user for migration
-            print(f"\n{utils.Color.bold('⚠️  Candidate patches detected:')}")
-            print(f"  Release {version} has {len(candidates)} candidate patch(es):")
-            for patch_id in candidates:
-                print(f"    • {patch_id}")
-            print()
-            print(f"{utils.Color.bold('Migration to new release ' + utils.Color.green(next_patch_version) + '?')}")
-            print(f"  → Current release {version} will be promoted to production")
-            print(f"  → Candidates will be rebased onto new release {next_patch_version}")
-            print(f"  → Patch branches will be force-pushed to origin")
-            print()
-
-            response = input(f"Migrate candidates to {next_patch_version}? [y/N]: ").strip().lower()
-
-            if response in ('y', 'yes'):
-                migrate_candidates = True
-                print(f"\n✓ Will migrate {len(candidates)} candidate(s) to {next_patch_version}")
-            else:
-                raise ReleaseManagerError(
-                    f"Promotion cancelled.\n"
-                    f"To proceed, either:\n"
-                    f"  1. Merge candidate patches: git checkout ho-patch/<patch_id> && half_orm dev patch merge\n"
-                    f"  2. Accept candidate migration when prompted"
-                )
-
-        release_branch = f"ho-release/{version}"
-
-        try:
-            # Read staged patches from TOML file
-            patches = release_file.get_patches(status="staged")
-
-            # 1. Checkout ho-prod
-            self._repo.hgit.checkout("ho-prod")
-
-            # 2. Merge release branch into ho-prod (fast-forward only)
-            try:
-                self._repo.hgit.merge(
-                    release_branch,
-                    ff_only=True,
-                    message=f"[HOP] Merge release %{version} into production"
-                )
-            except Exception:
-                try:
-                    self._repo.hgit.merge(
-                        release_branch,
-                        message=f"[HOP] Merge release %{version} into production"
-                    )
-                except Exception as e:
-                    # Abort merge to restore clean state
-                    try:
-                        self._repo.hgit.merge_abort()
-                    except Exception:
-                        pass  # Ignore if no merge in progress
-                    raise ReleaseManagerError(
-                        f"Failed to merge {release_branch} into ho-prod: {e}\n"
-                        "ho-prod has been restored to its previous state."
-                    )
-
-            # 3. Apply all patches (RC + staged) to database
-            # Uses _apply_release_patches which handles:
-            # - Reading RC files with merge_commits (patch_id:merge_commit format)
-            # - Checking out each merge_commit before applying patch
-            # - Reading staged patches from TOML with merge_commits
-            # force_apply=True to validate by applying patches even if release schema exists
-            self._apply_release_patches(version, force_apply=True)
-
-            # 3b. Execute bootstrap scripts (only for this version and earlier)
-            self._run_bootstrap_scripts(up_to_version=version)
-
-            # Register the release version in half_orm_meta.hop_release
-            version_parts = version.split('.')
-            major, minor, patch_num = map(int, version_parts)
-            self._repo.database.register_release(major, minor, patch_num)
-
-            # Generate schema dump for this production version
-            model_dir = Path(self._repo.model_dir)
-            self._repo.database._generate_schema_sql(version, model_dir)
-
-            # 4. Create production snapshot and delete TOML patches file
-            prod_file = self._releases_dir / f"{version}.txt"
-            toml_file = self._releases_dir / f"{version}-patches.toml"
-
-            # Write all staged patches to production snapshot
-            prod_file.write_text("\n".join(patches) + "\n" if patches else "", encoding='utf-8')
-
-            # Delete TOML patches file (no longer needed)
-            if toml_file.exists():
-                toml_file.unlink()
-
-            # Delete release schema file (no longer needed - prod schema takes over)
-            release_schema_file = model_dir / f"release-{version}.sql"
-            if release_schema_file.exists():
-                release_schema_file.unlink()
-
-            # Generate model/data-X.Y.Z.sql if any patches have @HOP:data files
-            # This file is used for from-scratch installations (clone, restore)
-            prod_patches = self.read_release_patches(prod_file.name)
-            data_file = self._generate_data_sql_file(prod_patches, version)
-            if data_file:
-                self._repo.hgit.add(str(data_file))
-
-            self._repo.commit_and_sync_to_active_branches(
-                message=f"[HOP] Promote release %{version} to production",
-                reason=f"promote {version} to production"
-            )
-
-            # 4. Create production tag on ho-prod
-            prod_tag = f"v{version}"  # Use v prefix to match existing convention
-            self._repo.hgit.create_tag(prod_tag, f"Production release %{version}")
-            self._repo.hgit.push_tag(prod_tag)
-
-            deleted_branches = []
-
-            # 7. Delete release branch (force=True because Git may not recognize the merge)
-            try:
-                self._repo.hgit.delete_branch(release_branch, force=True)
-                self._repo.hgit.delete_remote_branch(release_branch)
-                deleted_branches.append(release_branch)
-            except Exception as e:
-                # Log error for debugging
-                print(f"Warning: Failed to delete release branch {release_branch}: {e}", file=sys.stderr)
-
-            # 8. If candidate migration was requested, create new release and migrate patches
-            if migrate_candidates and next_patch_version:
-                print(f"\n{utils.Color.bold('🔄 Migrating candidates to ' + next_patch_version + '...')}")
-                self._migrate_candidates_to_new_release(
-                    candidates,
-                    version,
-                    next_patch_version
-                )
-
-            return {
-                'version': version,
-                'tag': f"v{version}",
-                'deleted_branches': deleted_branches,
-                'migrated_to': next_patch_version if migrate_candidates else None,
-                'migrated_patches': candidates if migrate_candidates else []
-            }
-
-        except ReleaseManagerError:
-            raise
-        except Exception as e:
-            raise ReleaseManagerError(f"Failed to promote to production: {e}")
+        return self._promote('prod')
 
     def _migrate_candidates_to_new_release(
         self,
