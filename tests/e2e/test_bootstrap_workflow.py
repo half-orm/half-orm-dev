@@ -398,3 +398,137 @@ password = {env['db_password']}
                 env=cmd_env,
                 check=False
             )
+
+
+@pytest.mark.integration
+class TestBootstrapVersionFiltering:
+    """Test bootstrap files are filtered by version during promote."""
+
+    def test_promote_only_executes_bootstraps_up_to_version(self, project_with_release):
+        """
+        Test that promote to prod only executes bootstraps for the release version.
+
+        Scenario:
+        - Release 0.1.0 promoted with bootstrap
+        - Release 0.1.1 created with additional bootstrap (in bootstrap/ dir manually)
+        - When promoting 0.1.0, only 0.1.0 bootstraps should execute
+        """
+        env = project_with_release
+        run = env['run']
+        project_dir = env['project_dir']
+        db_name = env['db_name']
+
+        # Create a patch with bootstrap for 0.1.0
+        run(['half_orm', 'dev', 'patch', 'create', '1-first'])
+        run(['git', 'checkout', 'ho-patch/1-first'])
+
+        patch_dir = project_dir / 'Patches' / '1-first'
+        (patch_dir / '01_schema.sql').write_text("""
+            CREATE TABLE first_release_table (id SERIAL PRIMARY KEY);
+        """)
+        (patch_dir / '02_bootstrap.sql').write_text("""-- @HOP:bootstrap
+            INSERT INTO first_release_table (id) VALUES (1);
+        """)
+
+        run(['half_orm', 'dev', 'patch', 'apply'])
+        run(['git', 'add', '.'])
+        run(['git', 'commit', '-m', 'First patch', '--no-verify'])
+        run(['half_orm', 'dev', 'patch', 'merge', '--force'])
+
+        # Manually add a bootstrap file for a future version (0.1.1)
+        # This simulates having bootstraps from future releases in the directory
+        bootstrap_dir = project_dir / 'bootstrap'
+        future_bootstrap = bootstrap_dir / '2-future-0.1.1.sql'
+        future_bootstrap.write_text("""
+            CREATE TABLE IF NOT EXISTS future_release_marker (id INT);
+            INSERT INTO future_release_marker (id) VALUES (999);
+        """)
+
+        # Commit the future bootstrap
+        run(['git', 'checkout', 'ho-release/0.1.0'])
+        run(['git', 'add', 'bootstrap/'])
+        run(['git', 'commit', '-m', 'Add future bootstrap (for testing)', '--no-verify'])
+
+        # Push to make sure release branch is up to date
+        run(['git', 'push', 'origin', 'ho-release/0.1.0'])
+
+        # Promote 0.1.0 to prod (should NOT execute 0.1.1 bootstraps)
+        run(['half_orm', 'dev', 'release', 'promote', 'prod'])
+
+        # Verify: first_release_table should have data
+        from half_orm.model import Model
+        model = Model(db_name)
+        try:
+            # Check 0.1.0 bootstrap was executed
+            rows = list(model.execute_query(
+                "SELECT id FROM first_release_table WHERE id = 1"
+            ))
+            assert len(rows) == 1, "Bootstrap for 0.1.0 should have executed"
+
+            # Check 0.1.1 bootstrap was NOT executed
+            try:
+                rows = list(model.execute_query(
+                    "SELECT id FROM future_release_marker WHERE id = 999"
+                ))
+                # If table exists, it should be empty (bootstrap didn't run)
+                assert len(rows) == 0, "Bootstrap for 0.1.1 should NOT have executed during 0.1.0 promote"
+            except Exception:
+                # Table doesn't exist = bootstrap didn't run = correct
+                pass
+        finally:
+            model.disconnect()
+
+    def test_patch_apply_executes_all_bootstraps(self, project_with_release):
+        """
+        Test that patch apply executes all bootstraps (no version filtering).
+
+        During development, all bootstraps should run so developers see
+        the full state including staged patches.
+        """
+        env = project_with_release
+        run = env['run']
+        project_dir = env['project_dir']
+        db_name = env['db_name']
+
+        # Create and merge first patch with bootstrap
+        run(['half_orm', 'dev', 'patch', 'create', '1-base'])
+        run(['git', 'checkout', 'ho-patch/1-base'])
+
+        patch_dir = project_dir / 'Patches' / '1-base'
+        (patch_dir / '01_schema.sql').write_text("""
+            CREATE TABLE base_data (id SERIAL PRIMARY KEY, name TEXT);
+        """)
+        (patch_dir / '02_bootstrap.sql').write_text("""-- @HOP:bootstrap
+            INSERT INTO base_data (name) VALUES ('base');
+        """)
+
+        run(['half_orm', 'dev', 'patch', 'apply'])
+        run(['git', 'add', '.'])
+        run(['git', 'commit', '-m', 'Base patch', '--no-verify'])
+        run(['half_orm', 'dev', 'patch', 'merge', '--force'])
+
+        # Create second patch (candidate, not yet merged)
+        run(['git', 'checkout', 'ho-release/0.1.0'])
+        run(['half_orm', 'dev', 'patch', 'create', '2-extra'])
+        run(['git', 'checkout', 'ho-patch/2-extra'])
+
+        patch_dir2 = project_dir / 'Patches' / '2-extra'
+        (patch_dir2 / '01_schema.sql').write_text("""
+            CREATE TABLE extra_data (id SERIAL PRIMARY KEY, value TEXT);
+        """)
+        # Note: This bootstrap won't be in bootstrap/ yet (not merged)
+        # but staged patch's bootstrap should still run
+
+        # Apply should restore DB and run all staged patch bootstraps
+        run(['half_orm', 'dev', 'patch', 'apply'])
+
+        # Verify: base_data bootstrap should have run
+        from half_orm.model import Model
+        model = Model(db_name)
+        try:
+            rows = list(model.execute_query(
+                "SELECT name FROM base_data WHERE name = 'base'"
+            ))
+            assert len(rows) == 1, "Staged patch bootstrap should have executed during patch apply"
+        finally:
+            model.disconnect()

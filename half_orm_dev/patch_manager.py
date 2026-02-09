@@ -843,17 +843,41 @@ class PatchManager:
         """
         normalized_patch_id = patch_id.strip() if patch_id else ""
 
-        # Use provided status or get from cache
-        if status is None:
-            status_map = self.get_patch_status_map()
-            status = status_map.get(normalized_patch_id, {}).get("status", "candidate")
+        # If status is explicitly provided, return the expected path directly
+        # (used for moving patches to new locations)
+        if status is not None:
+            if status == "staged":
+                return self._schema_patches_dir / "staged" / normalized_patch_id
+            elif status == "orphaned":
+                return self._schema_patches_dir / "orphaned" / normalized_patch_id
+            else:  # candidate
+                return self._schema_patches_dir / normalized_patch_id
 
-        if status == "staged":
-            return self._schema_patches_dir / "staged" / normalized_patch_id
-        elif status == "orphaned":
-            return self._schema_patches_dir / "orphaned" / normalized_patch_id
-        else:  # candidate or new patch
-            return self._schema_patches_dir / normalized_patch_id
+        # No status provided: check actual filesystem first
+        # This handles git checkouts to older commits where patches may be
+        # in different locations than the current status map indicates
+        candidate_path = self._schema_patches_dir / normalized_patch_id
+        staged_path = self._schema_patches_dir / "staged" / normalized_patch_id
+        orphaned_path = self._schema_patches_dir / "orphaned" / normalized_patch_id
+
+        # Return the first existing path
+        if candidate_path.exists():
+            return candidate_path
+        if staged_path.exists():
+            return staged_path
+        if orphaned_path.exists():
+            return orphaned_path
+
+        # No existing path found: fall back to cache-based resolution
+        status_map = self.get_patch_status_map()
+        cached_status = status_map.get(normalized_patch_id, {}).get("status", "candidate")
+
+        if cached_status == "staged":
+            return staged_path
+        elif cached_status == "orphaned":
+            return orphaned_path
+        else:
+            return candidate_path
 
     def delete_patch_directory(self, patch_id: str, confirm: bool = False) -> bool:
         """

@@ -793,6 +793,9 @@ class ReleaseManager:
                 if patch_id in applied_patches:
                     continue  # Already applied from RC file
 
+                # First checkout ho-prod to have a clean base
+                self._repo.hgit.checkout('ho-prod')
+
                 merge_commit = release_file.get_merge_commit(patch_id)
                 if merge_commit:
                     # Checkout the merge commit to have correct Python code
@@ -818,12 +821,16 @@ class ReleaseManager:
         # Return to original branch
         self._repo.hgit.checkout(current_branch)
 
-    def _run_bootstrap_scripts(self) -> None:
+    def _run_bootstrap_scripts(self, up_to_version: str = None) -> None:
         """
         Execute pending bootstrap scripts after patch application.
 
         Bootstrap scripts are SQL and Python files that initialize application
         data. They are executed in numeric order and tracked in the database.
+
+        Args:
+            up_to_version: If provided, only execute bootstraps for versions <= this.
+                          Used to avoid running bootstraps for future releases.
 
         Raises:
             ReleaseManagerError: If bootstrap execution fails
@@ -836,15 +843,15 @@ class ReleaseManager:
         if not bootstrap_mgr.bootstrap_dir.exists():
             return
 
-        # Get pending files
-        pending = bootstrap_mgr.get_pending_files()
+        # Get pending files (filtered by version if specified)
+        pending = bootstrap_mgr.get_pending_files(up_to_version)
         if not pending:
             return
 
         print(f"\n📦 Executing {len(pending)} bootstrap script(s)...")
 
         try:
-            result = bootstrap_mgr.run_bootstrap()
+            result = bootstrap_mgr.run_bootstrap(up_to_version=up_to_version)
 
             if result['errors']:
                 errors = result['errors']
@@ -2169,10 +2176,10 @@ class ReleaseManager:
                     f"Failed to apply patch {patch_id} from release {version}: {e}"
                 ) from e
 
-        # Execute bootstrap scripts (files copied to bootstrap/ during merge)
+        # Execute bootstrap scripts (only for this version and earlier)
         from half_orm_dev.bootstrap_manager import BootstrapManager
         bootstrap_mgr = BootstrapManager(self._repo)
-        bootstrap_result = bootstrap_mgr.run_bootstrap()
+        bootstrap_result = bootstrap_mgr.run_bootstrap(up_to_version=version)
         if bootstrap_result['errors']:
             filename, error = bootstrap_result['errors'][0]
             raise ReleaseManagerError(
@@ -2530,8 +2537,8 @@ class ReleaseManager:
             # 1. Apply patches to database (for validation)
             self._apply_release_patches(version)
 
-            # 1b. Execute bootstrap scripts
-            self._run_bootstrap_scripts()
+            # 1b. Execute bootstrap scripts (only for this version and earlier)
+            self._run_bootstrap_scripts(up_to_version=version)
 
             # 2. Register the RC version in half_orm_meta.hop_release
             version_parts = version.split('.')
@@ -2708,8 +2715,8 @@ class ReleaseManager:
             # force_apply=True to validate by applying patches even if release schema exists
             self._apply_release_patches(version, force_apply=True)
 
-            # 3b. Execute bootstrap scripts
-            self._run_bootstrap_scripts()
+            # 3b. Execute bootstrap scripts (only for this version and earlier)
+            self._run_bootstrap_scripts(up_to_version=version)
 
             # Register the release version in half_orm_meta.hop_release
             version_parts = version.split('.')
