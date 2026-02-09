@@ -552,9 +552,9 @@ class Repo:
 
         return result
 
-    def sync_hop_to_active_branches(self, reason: str = "update") -> dict:
+    def sync_hop_to_active_branches(self, reason: str = "update", additional_files: list = None) -> dict:
         """
-        Synchronize .hop/ directory from current branch to all other active branches.
+        Synchronize .hop/ directory and optional files from current branch to all other active branches.
 
         This method ensures that any changes made to .hop/ on the current branch
         are propagated to all other active branches (ho-patch/*, ho-release/*, ho-prod).
@@ -568,6 +568,8 @@ class Repo:
 
         Args:
             reason: Description of why sync is happening (for commit message)
+            additional_files: Optional list of additional file paths to sync
+                             (e.g., ['pyproject.toml'] for migration files)
 
         Returns:
             dict with keys:
@@ -580,8 +582,11 @@ class Repo:
             result = repo.sync_hop_to_active_branches("migration 0.17.1 → 0.17.2")
             print(f"Synced {len(result['synced_branches'])} branches")
 
-            # After modifying .hop/ on ho-release/0.17.0
-            result = repo.sync_hop_to_active_branches("new patch")
+            # After modifying .hop/ and pyproject.toml on ho-prod
+            result = repo.sync_hop_to_active_branches(
+                "migration",
+                additional_files=['pyproject.toml']
+            )
         """
         result = {
             'synced_branches': [],
@@ -654,6 +659,15 @@ class Repo:
                 # This updates/adds files but doesn't remove deleted files
                 self.hgit._HGit__git_repo.git.checkout(source_branch, '--', '.hop/')
 
+                # Also checkout additional files if specified
+                if additional_files:
+                    for file_path in additional_files:
+                        try:
+                            self.hgit._HGit__git_repo.git.checkout(source_branch, '--', file_path)
+                        except Exception:
+                            # File might not exist in source branch, skip
+                            pass
+
                 # Find files that exist in target but not in source and remove them
                 # IMPORTANT: Only remove files for versions that exist in source
                 # Don't remove release files (*-patches.toml, *.txt) for other versions
@@ -712,6 +726,12 @@ class Repo:
 
                 # Stage all changes
                 self.hgit.add('.hop/')
+                if additional_files:
+                    for file_path in additional_files:
+                        try:
+                            self.hgit.add(file_path)
+                        except Exception:
+                            pass  # File might not exist
 
                 # Check if there are changes
                 status = self.hgit._HGit__git_repo.git.status('--porcelain')
@@ -903,8 +923,13 @@ class Repo:
             else:
                 reason = reason_text[:50]
 
-        # 5. Sync .hop/ to all other active branches
-        sync_result = self.sync_hop_to_active_branches(reason=reason)
+        # 5. Sync .hop/ (and additional files) to all other active branches
+        # Filter out .hop/ since sync_hop_to_active_branches always syncs it
+        additional_files = [f for f in (files or []) if not f.startswith('.hop')]
+        sync_result = self.sync_hop_to_active_branches(
+            reason=reason,
+            additional_files=additional_files if additional_files else None
+        )
         result['sync_result'] = sync_result
 
         return result
@@ -2358,7 +2383,7 @@ Each script is executed only once unless `--force` is used.
                 raise RepoError(f"Failed to load schema from {schema_path.name}: {e}") from e
 
             # 4. Load metadata from model/metadata-X.Y.Z.sql (if exists)
-            metadata_path = self._deduce_metadata_path(schema_path)
+            metadata_path, version = self._deduce_metadata_path(schema_path)
 
             if metadata_path and metadata_path.exists():
                 try:
@@ -2378,9 +2403,14 @@ Each script is executed only once unless `--force` is used.
             self.model.reconnect(reload=True)
 
             # 7. Execute bootstrap scripts
+            # Note: In patch apply context, we want ALL bootstraps to run
+            # (staged patches + prod). Only the current patch is excluded.
+            # Version filtering is done separately in promote to prod/rc.
             from half_orm_dev.bootstrap_manager import BootstrapManager
             bootstrap_mgr = BootstrapManager(self)
-            bootstrap_mgr.run_bootstrap(exclude_patch_id=exclude_bootstrap_patch_id)
+            bootstrap_mgr.run_bootstrap(
+                exclude_patch_id=exclude_bootstrap_patch_id
+            )
 
         except RepoError:
             # Re-raise RepoError as-is
@@ -2624,7 +2654,7 @@ Each script is executed only once unless `--force` is used.
         # Construct metadata file path
         metadata_path = schema_path.parent / f"metadata-{version}.sql"
 
-        return metadata_path
+        return metadata_path, version
 
     def _load_data_files(self, schema_path: Path) -> None:
         """

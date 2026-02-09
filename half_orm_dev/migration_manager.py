@@ -162,11 +162,16 @@ class MigrationManager:
             migration_dir: Path to migration directory
 
         Returns:
-            Dict with migration results
+            Dict with migration results including:
+            - version: Version string
+            - applied_files: List of applied file names
+            - sync_files: List of files to sync to active branches
+            - errors: List of error messages
         """
         result = {
             'version': version_str,
             'applied_files': [],
+            'sync_files': [],
             'errors': []
         }
 
@@ -190,10 +195,16 @@ class MigrationManager:
                         f"Migration {migration_file.name} missing migrate() function"
                     )
 
-                # Execute migration
-                module.migrate(self._repo)
+                # Execute migration and collect sync_files if returned
+                migration_result = module.migrate(self._repo)
 
                 result['applied_files'].append(migration_file.name)
+
+                # Collect sync_files from migration result
+                if isinstance(migration_result, dict):
+                    sync_files = migration_result.get('sync_files', [])
+                    if sync_files:
+                        result['sync_files'].extend(sync_files)
 
             except Exception as e:
                 error_msg = f"Error in {migration_file.name}: {e}"
@@ -305,6 +316,13 @@ class MigrationManager:
         # Update half_orm_dev version in pyproject.toml
         self._update_pyproject_dependency_version(target_version)
 
+        # Collect all sync_files from migrations + pyproject.toml
+        all_sync_files = ['pyproject.toml']  # Always sync pyproject.toml
+        for migration in result['migrations_applied']:
+            all_sync_files.extend(migration.get('sync_files', []))
+        # Remove duplicates while preserving order
+        all_sync_files = list(dict.fromkeys(all_sync_files))
+
         # Create Git commit if requested
         if create_commit and self._repo.hgit:
             try:
@@ -314,10 +332,11 @@ class MigrationManager:
                     result['migrations_applied']
                 )
 
-                # Commit and sync to active branches
+                # Commit and sync to active branches (including migration files)
                 sync_result = self._repo.commit_and_sync_to_active_branches(
                     message=commit_msg,
-                    reason=f"migration {current_version} → {target_version}"
+                    reason=f"migration {current_version} → {target_version}",
+                    files=all_sync_files
                 )
 
                 result['commit_created'] = True
