@@ -107,7 +107,8 @@ class TestRepoCommitAndSync:
 
         # Verify sync was called with explicit reason
         repo.sync_hop_to_active_branches.assert_called_once_with(
-            reason="migration 0.17.0 → 0.17.1"
+            reason="migration 0.17.0 → 0.17.1",
+            additional_files=None
         )
 
     def test_commit_and_sync_reason_extraction_with_period(self, mock_repo):

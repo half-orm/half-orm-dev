@@ -860,12 +860,19 @@ class PatchManager:
         staged_path = self._schema_patches_dir / "staged" / normalized_patch_id
         orphaned_path = self._schema_patches_dir / "orphaned" / normalized_patch_id
 
+        # Helper to safely check if path exists (handles PermissionError)
+        def _path_exists(path: Path) -> bool:
+            try:
+                return path.exists()
+            except PermissionError:
+                return False
+
         # Return the first existing path
-        if candidate_path.exists():
+        if _path_exists(candidate_path):
             return candidate_path
-        if staged_path.exists():
+        if _path_exists(staged_path):
             return staged_path
-        if orphaned_path.exists():
+        if _path_exists(orphaned_path):
             return orphaned_path
 
         # No existing path found: fall back to cache-based resolution

@@ -64,6 +64,8 @@ def patch_manager(temp_repo):
     repo.restore_database_from_schema = Repo.restore_database_from_schema.__get__(repo, type(repo))
     mock_get_version = Mock(return_value=(16, 1))
     repo.database.get_postgres_version = mock_get_version
+    # Mock _deduce_metadata_path to return (None, None) - no metadata file
+    repo._deduce_metadata_path = Mock(return_value=(None, None))
     patch_mgr = PatchManager(repo)
     return patch_mgr, repo, temp_dir, patches_dir
 
