@@ -3073,6 +3073,84 @@ class PatchManager:
             'orphaned_path': str(new_path)
         }
 
+    def attach_patch(self, patch_id: str, version: str) -> dict:
+        """
+        Attach an orphaned patch to a release (move from orphaned/ to root).
+
+        Reverse of detach_patch(). Workflow:
+        1. Validate patch is orphaned
+        2. Validate target release exists (TOML file)
+        3. Add patch to TOML as candidate
+        4. Move directory from Patches/orphaned/ to Patches/
+        5. Update cache
+        6. Commit and sync changes
+
+        Args:
+            patch_id: Patch identifier to attach
+            version: Target release version (e.g., "0.1.0")
+
+        Returns:
+            dict with 'patch_id', 'version', 'patch_path'
+
+        Raises:
+            PatchManagerError: If patch not found, not orphaned, or release doesn't exist
+        """
+        # 1. Get patch status
+        status_map = self.get_patch_status_map()
+        if patch_id not in status_map:
+            raise PatchManagerError(f"Patch '{patch_id}' not found")
+
+        patch_info = status_map[patch_id]
+        status = patch_info.get("status")
+
+        # 2. Validate: only orphaned patches can be attached
+        if status == "candidate":
+            raise PatchManagerError(
+                f"Patch '{patch_id}' is already a candidate in release "
+                f"{patch_info.get('version')}."
+            )
+        if status == "staged":
+            raise PatchManagerError(
+                f"Cannot attach staged patch '{patch_id}'. "
+                "Staged patches are already integrated."
+            )
+        if status != "orphaned":
+            raise PatchManagerError(
+                f"Patch '{patch_id}' has unexpected status '{status}'."
+            )
+
+        # 3. Validate release exists and add to TOML
+        release_file = ReleaseFile(version, self._releases_dir)
+        if not release_file.file_path.exists():
+            raise PatchManagerError(
+                f"Release {version} not found. "
+                f"No file {release_file.file_path.name} exists."
+            )
+        release_file.add_patch(patch_id)
+        self._repo.hgit.add(str(release_file.file_path))
+
+        # 4. Move directory from orphaned/ to root
+        orphaned_path = self._schema_patches_dir / "orphaned" / patch_id
+        new_path = self._schema_patches_dir / patch_id
+
+        if orphaned_path.exists():
+            self._repo.hgit.mv(str(orphaned_path), str(new_path))
+
+        # 5. Update cache
+        self._update_patch_status_cache(patch_id, "candidate")
+
+        # 6. Commit changes (include Patches/ directory in sync)
+        self._repo.commit_and_sync_to_active_branches(
+            message=f"[HOP] attach patch #{patch_id} to release %{version}",
+            files=['Patches/']
+        )
+
+        return {
+            'patch_id': patch_id,
+            'version': version,
+            'patch_path': str(new_path)
+        }
+
     def _get_other_candidates(self, version: str, exclude_patch: str) -> List[str]:
         """
         Get list of other candidate patches for a release (excluding one).

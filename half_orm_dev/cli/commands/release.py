@@ -4,6 +4,7 @@ Release command group - Unified release management.
 Groups all release-related commands under 'half_orm dev release':
 - release create: Prepare next release stage file
 - release promote: Promote stage to rc or production
+- release attach-patch: Reattach orphaned patch to a release
 """
 
 import click
@@ -16,6 +17,7 @@ from half_orm_dev.release_manager import (
     ReleaseFileError,
     ReleaseVersionError
 )
+from half_orm_dev.patch_manager import PatchManagerError
 from half_orm import utils
 
 
@@ -483,4 +485,66 @@ def release_apply(skip_tests: bool) -> None:
     except ReleaseManagerError as e:
         click.echo(f"❌ {utils.Color.red('Release apply failed:')}", err=True)
         click.echo(f"   {str(e)}", err=True)
+        sys.exit(1)
+
+
+@release.command('attach-patch')
+@click.argument('patch_id', type=str)
+@click.option('--force', '-f', is_flag=True, help='Skip confirmation prompt')
+def release_attach_patch(patch_id: str, force: bool) -> None:
+    """
+    Reattach an orphaned patch to the current release.
+
+    Moves the patch from Patches/orphaned/ back to Patches/ and adds it
+    as a candidate in the release TOML file.
+
+    Must be run from a ho-release/X.Y.Z branch.
+
+    \b
+    EXAMPLES:
+        # Reattach an orphaned patch
+        half_orm dev release attach-patch 123-feature
+
+        # Skip confirmation
+        half_orm dev release attach-patch 123-feature --force
+    """
+    try:
+        repo = Repo()
+
+        # Must be on ho-release/* branch
+        current_branch = repo.hgit.branch
+        if not current_branch.startswith('ho-release/'):
+            click.echo(
+                f"❌ {utils.Color.red('Must be on ho-release/X.Y.Z branch.')}",
+                err=True
+            )
+            click.echo(
+                f"   Current branch: {current_branch}",
+                err=True
+            )
+            sys.exit(1)
+
+        version = current_branch.replace('ho-release/', '')
+
+        # Confirmation
+        if not force:
+            click.echo(f"Attaching patch '{patch_id}' to release {version}")
+            click.echo("This will:")
+            click.echo(f"  • Add patch to {version}-patches.toml as candidate")
+            click.echo(f"  • Move directory from Patches/orphaned/{patch_id}/ to Patches/{patch_id}/")
+            if not click.confirm("Continue?", default=True):
+                click.echo("Cancelled.")
+                return
+
+        # Execute attach
+        result = repo.patch_manager.attach_patch(patch_id, version)
+
+        click.echo(utils.Color.green(
+            f"✓ Patch '{patch_id}' attached to release {version}"
+        ))
+        click.echo(f"  Status: candidate")
+        click.echo(f"  Directory: {result['patch_path']}")
+
+    except PatchManagerError as e:
+        click.echo(f"❌ {utils.Color.red(str(e))}", err=True)
         sys.exit(1)
