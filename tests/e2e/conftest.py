@@ -157,7 +157,13 @@ def e2e_environment(postgres_user, tmp_path_factory):
     db_user = postgres_user['user']
     db_password = postgres_user['password']
 
-    env = {'PGPASSWORD': db_password}
+    env = {
+        'PGPASSWORD': db_password,
+        # Disable GPG signing for commits in tests
+        'GIT_CONFIG_COUNT': '1',
+        'GIT_CONFIG_KEY_0': 'commit.gpgsign',
+        'GIT_CONFIG_VALUE_0': 'false',
+    }
 
     def run_in_workdir(cmd, cwd=None, input_text=None, check=True):
         """Run command in working directory."""

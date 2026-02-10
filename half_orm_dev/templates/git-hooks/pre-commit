@@ -45,9 +45,10 @@ fi
 # HALF-ORM STANDARD CHECKS
 # =============================================================================
 
-# Check if current ho-* branch (except ho-prod) still exists on remote origin
+# Check if current ho-* branch (except ho-prod and ho-promote/*) still exists on remote origin
 # This prevents committing to ho-* branches that were deleted remotely
-if [[ "$CURRENT_BRANCH" == ho-* ]] && [ "$CURRENT_BRANCH" != "ho-prod" ]; then
+# ho-promote/* branches are temporary local branches used during promotion validation
+if [[ "$CURRENT_BRANCH" == ho-* ]] && [ "$CURRENT_BRANCH" != "ho-prod" ] && [[ "$CURRENT_BRANCH" != ho-promote/* ]]; then
     # Fetch remote refs quietly (only updates remote tracking, doesn't modify local branches)
     git fetch origin --prune --quiet 2>/dev/null || true
 

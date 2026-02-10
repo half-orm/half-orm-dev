@@ -2,6 +2,7 @@
 Shared pytest fixtures for half_orm_dev tests.
 """
 
+import os
 import pytest
 import tempfile
 import shutil
@@ -9,6 +10,26 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from half_orm_dev.database import Database
 from half_orm_dev.repo import Repo
+
+
+@pytest.fixture(scope="session", autouse=True)
+def disable_gpg_signing():
+    """
+    Disable GPG signing for all git commits during tests.
+
+    This is a session-scoped fixture that sets environment variables
+    to disable GPG signing globally for the test session.
+    """
+    # Set environment variables to disable GPG signing
+    os.environ['GIT_CONFIG_COUNT'] = '1'
+    os.environ['GIT_CONFIG_KEY_0'] = 'commit.gpgsign'
+    os.environ['GIT_CONFIG_VALUE_0'] = 'false'
+
+    yield
+
+    # Cleanup (restore original state)
+    for key in ['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0']:
+        os.environ.pop(key, None)
 
 
 @pytest.fixture

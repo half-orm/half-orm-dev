@@ -2495,16 +2495,24 @@ class ReleaseManager:
         """
         Unified promotion method for RC and production releases.
 
-        This method handles the common workflow for both promotion targets:
+        Uses a temporary branch (ho-promote/{version}-{target}) for validation.
+        If validation fails, the temporary branch is deleted and the original
+        state is preserved. On success, changes are merged to the target branch.
+
+        Workflow:
         1. Detect version and validate release file
-        2. Create temporary branch for validation (ho-promote/{version})
-        3. Apply patches and bootstrap scripts
+        2. Create temporary branch ho-promote/{version}-{target}
+        3. Apply patches and bootstrap scripts (validation)
         4. Register version in database
         5. Create snapshot files
-        6. For prod: merge into ho-prod, generate schema/data files
-        7. Create and push tags
-        8. Commit and sync
-        9. For prod: delete release branch, handle candidate migration
+        6. For prod: generate schema/data files
+        7. Merge temp branch into target (release branch for RC, ho-prod for prod)
+        8. Create and push tags
+        9. Cleanup: delete temp branch, for prod delete release branch
+        10. For prod: handle candidate migration
+
+        On failure at any step, the temporary branch is deleted and the error
+        is raised, leaving the repository in its original state.
 
         Args:
             target: Either 'rc' or 'prod'
@@ -2526,6 +2534,7 @@ class ReleaseManager:
             raise ReleaseManagerError(f"Release {version} not found (no patches file)")
 
         release_branch = f"ho-release/{version}"
+        temp_branch = f"ho-promote/{version}-{target}"
 
         # 3. For prod: check for candidate patches and offer migration
         candidates = []
@@ -2542,6 +2551,7 @@ class ReleaseManager:
 
         # 4. Calculate tag info
         if is_prod:
+            rc_number = None
             tag = f"v{version}"
             tag_message = f"Production release %{version}"
         else:
@@ -2549,11 +2559,14 @@ class ReleaseManager:
             tag = f"v{version}-rc{rc_number}"
             tag_message = f"Release Candidate %{version}"
 
+        # Save original branch for rollback
+        original_branch = self._repo.hgit.branch
+
         try:
-            # 5. For prod: checkout and merge into ho-prod
-            if is_prod:
-                self._repo.hgit.checkout("ho-prod")
-                self._merge_release_into_prod(release_branch, version)
+            # 5. Create temporary branch from release branch
+            print(f"  Creating temporary branch {temp_branch}...")
+            self._repo.hgit.checkout(release_branch)
+            self._repo.hgit.checkout("-b", temp_branch)
 
             # 6. Apply patches to database (validation)
             self._apply_release_patches(version, force_apply=is_prod)
@@ -2567,7 +2580,6 @@ class ReleaseManager:
             if is_prod:
                 self._repo.database.register_release(major, minor, patch_num)
             else:
-                rc_number = self._get_latest_label_number(version, 'rc')
                 self._repo.database.register_release(
                     major, minor, patch_num,
                     pre_release='rc', pre_release_num=str(rc_number)
@@ -2578,35 +2590,51 @@ class ReleaseManager:
             if is_prod:
                 self._repo.database._generate_schema_sql(version, model_dir)
 
-            # 10. Checkout release branch (for RC) or stay on ho-prod (for prod)
-            if not is_prod:
-                self._repo.hgit.checkout(release_branch)
-
-            # 11. Create snapshot files
+            # 10. Create snapshot files on temp branch
             staged_patches = release_file.get_patches(status="staged")
             if is_prod:
                 self._create_prod_snapshot(version, staged_patches, release_file, model_dir)
             else:
-                rc_number = self._get_latest_label_number(version, 'rc')
                 self._create_rc_snapshot(version, rc_number, staged_patches, release_file)
 
-            # 12. Commit and sync
+            # 11. Commit changes on temp branch
             commit_msg = f"[HOP] Promote release %{version} to {'production' if is_prod else f'RC {rc_number}'}"
-            self._repo.commit_and_sync_to_active_branches(
-                message=commit_msg,
+            self._repo.hgit.add(".")
+            self._repo.hgit.commit("-m", commit_msg)
+
+            # 12. Merge temp branch into target
+            if is_prod:
+                # Merge into ho-prod
+                self._repo.hgit.checkout("ho-prod")
+                self._merge_release_into_prod(release_branch, version)
+                # Now merge our temp branch changes
+                self._repo.hgit.merge(temp_branch, message=commit_msg)
+            else:
+                # For RC: merge into release branch
+                self._repo.hgit.checkout(release_branch)
+                self._repo.hgit.merge(temp_branch, message=commit_msg)
+
+            # 13. Push changes and sync to active branches
+            # (changes were already committed via merge, just push and sync)
+            current_branch = self._repo.hgit.branch
+            self._repo.hgit.push_branch(current_branch)
+            self._repo.sync_hop_to_active_branches(
                 reason=f"promote {version} to {target}"
             )
 
-            # 13. Create and push tag
+            # 14. Create and push tag
             self._repo.hgit.create_tag(tag, tag_message)
             self._repo.hgit.push_tag(tag)
 
-            # 14. For prod: delete release branch
+            # 15. Cleanup temp branch
+            self._repo.hgit.delete_local_branch(temp_branch)
+
+            # 16. For prod: delete release branch
             deleted_branches = []
             if is_prod:
                 deleted_branches = self._cleanup_release_branch(release_branch)
 
-            # 15. For prod: migrate candidates if requested
+            # 17. For prod: migrate candidates if requested
             if is_prod and migrate_candidates and next_patch_version:
                 print(f"\n{utils.Color.bold('🔄 Migrating candidates to ' + next_patch_version + '...')}")
                 self._migrate_candidates_to_new_release(
@@ -2629,10 +2657,34 @@ class ReleaseManager:
 
             return result
 
-        except ReleaseManagerError:
-            raise
         except Exception as e:
-            raise ReleaseManagerError(f"Failed to promote to {target}: {e}")
+            # Rollback: delete temporary branch and restore original state
+            print(f"\n{utils.Color.red('⚠ Promotion failed, rolling back...')}")
+            try:
+                # Try to checkout original branch first
+                try:
+                    self._repo.hgit.checkout(original_branch)
+                except Exception:
+                    # If that fails, try release branch
+                    try:
+                        self._repo.hgit.checkout(release_branch)
+                    except Exception:
+                        pass
+
+                # Delete temporary branch if it exists
+                try:
+                    self._repo.hgit.delete_local_branch(temp_branch, force=True)
+                    print(f"  Deleted temporary branch {temp_branch}")
+                except Exception:
+                    pass  # Branch might not exist
+
+            except Exception as cleanup_error:
+                print(f"  Warning: Cleanup failed: {cleanup_error}", file=sys.stderr)
+
+            # Re-raise original error
+            if isinstance(e, ReleaseManagerError):
+                raise
+            raise ReleaseManagerError(f"Failed to promote to {target}: {e}") from e
 
     def _calculate_next_patch_version(self, version: str) -> str:
         """Calculate next patch version (X.Y.Z → X.Y.Z+1)."""

@@ -240,6 +240,7 @@ class TestPromoteToProdWithDataFiles:
         mock_hgit.commit = Mock()
         mock_hgit.delete_branch = Mock()
         mock_hgit.delete_remote_branch = Mock()
+        mock_hgit.delete_local_branch = Mock()
         mock_repo.hgit = mock_hgit
 
         mock_repo.patch_manager._collect_data_files_from_patches.return_value = [data_file]
@@ -264,8 +265,9 @@ class TestPromoteToProdWithDataFiles:
         add_calls = [str(call[0][0]) for call in mock_hgit.add.call_args_list]
         assert any("data-1.0.0.sql" in call for call in add_calls)
 
-        # Verify commit_and_sync was called
-        mock_repo.commit_and_sync_to_active_branches.assert_called_once()
+        # Verify push and sync were called (new workflow uses push + sync instead of commit_and_sync)
+        mock_hgit.push_branch.assert_called()
+        mock_repo.sync_hop_to_active_branches.assert_called()
 
 
 class TestPromoteToRCNoDataFile:
