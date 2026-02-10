@@ -5,6 +5,7 @@ Groups all patch-related commands under 'half_orm dev patch':
 - patch create: Create new patch branch and directory
 - patch apply: Apply current patch files to database
 - patch merge: Add patch to stage release with validation
+- patch detach: Detach a candidate patch from its release
 
 Replaces legacy commands:
 - create-patch → patch create
@@ -365,3 +366,87 @@ def patch_merge(force: bool) -> None:
 
     except PatchManagerError as e:
         raise click.ClickException(str(e))
+
+
+@patch.command('detach')
+@click.argument('patch_id', type=str, required=False)
+@click.option('--force', '-f', is_flag=True, help='Skip confirmation prompt')
+def patch_detach(patch_id: Optional[str], force: bool) -> None:
+    """
+    Detach a candidate patch from its release.
+
+    Moves the patch to Patches/orphaned/ directory.
+    The git branch is preserved for future reattachment.
+
+    If PATCH_ID is not provided, uses the current branch's patch.
+
+    Examples:
+        Detach current patch (from ho-patch/* branch):
+        $ half_orm dev patch detach
+
+        Detach specific patch:
+        $ half_orm dev patch detach 123-feature
+
+        Detach without confirmation:
+        $ half_orm dev patch detach --force
+    """
+    try:
+        repo = Repo()
+
+        # Auto-detect patch_id from current branch if not provided
+        if not patch_id:
+            branch = repo.hgit.branch
+            if not branch.startswith('ho-patch/'):
+                raise click.UsageError(
+                    "Not on a patch branch. Provide PATCH_ID or checkout ho-patch/* branch."
+                )
+            patch_id = branch.replace('ho-patch/', '')
+
+        # Get patch info for confirmation
+        status_map = repo.patch_manager.get_patch_status_map()
+        if patch_id not in status_map:
+            click.echo(utils.Color.red(f"Patch '{patch_id}' not found"))
+            raise click.Abort()
+
+        patch_info = status_map[patch_id]
+        version = patch_info.get('version', 'unknown')
+        status = patch_info.get('status', 'unknown')
+
+        # Check if patch can be detached
+        if status == 'staged':
+            click.echo(utils.Color.red(
+                f"Cannot detach staged patch '{patch_id}'. "
+                "Only candidate patches can be detached."
+            ))
+            raise click.Abort()
+
+        if status == 'orphaned':
+            click.echo(utils.Color.red(f"Patch '{patch_id}' is already orphaned."))
+            raise click.Abort()
+
+        # Confirmation
+        if not force:
+            click.echo(f"Detaching patch '{utils.Color.bold(patch_id)}' from release {utils.Color.bold(version)}")
+            click.echo()
+            click.echo("This will:")
+            click.echo(f"  • Remove patch from {version}-patches.toml")
+            click.echo(f"  • Move directory to Patches/orphaned/{patch_id}/")
+            click.echo(f"  • Keep git branch ho-patch/{patch_id}")
+            click.echo()
+            if not click.confirm("Continue?", default=True):
+                click.echo("Cancelled.")
+                return
+
+        # Execute detach
+        result = repo.patch_manager.detach_patch(patch_id)
+
+        click.echo()
+        click.echo(utils.Color.green(f"✓ Patch '{patch_id}' detached from release {version}"))
+        click.echo(f"  Directory moved to: {result['orphaned_path']}")
+        click.echo(f"  Branch preserved: ho-patch/{patch_id}")
+        click.echo()
+        click.echo("To reattach later: half_orm dev release attach-patch <patch_id>")
+
+    except PatchManagerError as e:
+        click.echo(utils.Color.red(f"Error: {e}"), err=True)
+        raise click.Abort()

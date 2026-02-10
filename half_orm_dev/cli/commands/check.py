@@ -153,6 +153,14 @@ def _display_check_results(repo, result: dict, dry_run: bool, verbose: bool):
     elif verbose:
         click.echo(f"\n📦 {utils.Color.bold('Active releases:')} None")
 
+    # Show orphaned patches
+    orphaned_patches = result.get('orphaned_patches', [])
+    if orphaned_patches:
+        click.echo(f"\n🔧 {utils.Color.bold('Orphaned patches')} ({len(orphaned_patches)}):")
+        for patch_id in sorted(orphaned_patches):
+            click.echo(f"  • {patch_id}")
+        click.echo(f"  {utils.Color.blue('(Use \"half_orm dev release attach-patch <id>\" to reattach)')}")
+
     # Show standalone patch branches (not in candidates/stage)
     standalone_patches = [b for b in patch_branches
                          if not _is_patch_in_releases(b['name'], releases_info)]

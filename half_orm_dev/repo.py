@@ -1614,6 +1614,19 @@ class Repo:
                     pass
             result['production_version'] = production_version
 
+            # Get orphaned patches (only if patch_manager already initialized)
+            orphaned_patches = []
+            if self._patch_directory is not None:
+                try:
+                    status_map = self.patch_manager.get_patch_status_map()
+                    orphaned_patches = [
+                        patch_id for patch_id, info in status_map.items()
+                        if info.get('status') == 'orphaned'
+                    ]
+                except Exception:
+                    pass  # Best effort
+            result['orphaned_patches'] = orphaned_patches
+
         except Exception:
             result['active_branches'] = {
                 'current_branch': None,
@@ -1622,6 +1635,7 @@ class Repo:
             }
             result['releases_info'] = {}
             result['production_version'] = None
+            result['orphaned_patches'] = []
 
         # 3. Detect and optionally prune stale branches
         # Always detect stale branches (for display), but only prompt/delete when not silent

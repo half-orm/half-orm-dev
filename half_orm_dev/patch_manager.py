@@ -3005,6 +3005,74 @@ class PatchManager:
                 f"Failed to move patch to staged: {e}"
             )
 
+    def detach_patch(self, patch_id: str) -> dict:
+        """
+        Detach a candidate patch from its release (move to orphaned/).
+
+        Workflow:
+        1. Validate patch is candidate (not staged)
+        2. Remove patch from TOML file
+        3. Move directory to Patches/orphaned/
+        4. Keep git branch as-is (for future reattachment)
+        5. Update cache
+        6. Commit and sync changes
+
+        Args:
+            patch_id: Patch identifier to detach
+
+        Returns:
+            dict with 'patch_id', 'version', 'orphaned_path'
+
+        Raises:
+            PatchManagerError: If patch not found, not candidate, or operation fails
+        """
+        # 1. Get patch status
+        status_map = self.get_patch_status_map()
+        if patch_id not in status_map:
+            raise PatchManagerError(f"Patch '{patch_id}' not found")
+
+        patch_info = status_map[patch_id]
+        status = patch_info.get("status")
+        version = patch_info.get("version")
+
+        # 2. Validate: only candidates can be detached
+        if status == "staged":
+            raise PatchManagerError(
+                f"Cannot detach staged patch '{patch_id}'. "
+                "Only candidate patches can be detached."
+            )
+        if status == "orphaned":
+            raise PatchManagerError(f"Patch '{patch_id}' is already orphaned.")
+
+        # 3. Remove from TOML
+        release_file = ReleaseFile(version, self._releases_dir)
+        release_file.remove_patch(patch_id)
+        self._repo.hgit.add(str(release_file.file_path))
+
+        # 4. Move directory to orphaned/
+        old_path = self.get_patch_directory_path(patch_id)
+        orphaned_dir = self._schema_patches_dir / "orphaned"
+        new_path = orphaned_dir / patch_id
+
+        if old_path.exists():
+            orphaned_dir.mkdir(exist_ok=True)
+            self._repo.hgit.mv(str(old_path), str(new_path))
+
+        # 5. Update cache
+        self._update_patch_status_cache(patch_id, "orphaned")
+
+        # 6. Commit changes (include Patches/ directory in sync)
+        self._repo.commit_and_sync_to_active_branches(
+            message=f"[HOP] detach patch #{patch_id} from release %{version}",
+            files=['Patches/']
+        )
+
+        return {
+            'patch_id': patch_id,
+            'version': version,
+            'orphaned_path': str(new_path)
+        }
+
     def _get_other_candidates(self, version: str, exclude_patch: str) -> List[str]:
         """
         Get list of other candidate patches for a release (excluding one).
