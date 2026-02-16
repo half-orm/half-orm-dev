@@ -35,6 +35,7 @@ class TestValidatePatchBeforeMerge:
     def patch_manager_basic(self, tmp_path):
         """Create basic PatchManager with mocked dependencies."""
         mock_repo = Mock()
+        mock_repo.name = "test_project"
         mock_repo.base_dir = tmp_path
         mock_repo.model_dir = str(tmp_path / ".hop" / "model")
         mock_repo.model = Mock()

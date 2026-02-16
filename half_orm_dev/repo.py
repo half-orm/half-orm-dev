@@ -652,6 +652,24 @@ class Repo:
                 # Checkout to target branch
                 self.hgit.checkout(branch)
 
+                # Reset to origin (source of truth) before syncing .hop/
+                # This avoids non-fast-forward push failures when another
+                # actor has already synced this branch.
+                remote_ref = f"origin/{branch}"
+                try:
+                    synced, status = self.hgit.compare_with_remote(branch)
+                    if not synced and status == "diverged":
+                        print(
+                            f"Warning: branch {branch} has diverged from origin. "
+                            f"Resetting to origin (source of truth).",
+                            file=sys.stderr
+                        )
+                    if not synced:
+                        self.hgit._HGit__git_repo.git.reset('--hard', remote_ref)
+                except Exception:
+                    # Remote branch may not exist yet, continue without reset
+                    pass
+
                 # Reload config for this branch
                 self.__config = Config(self.base_dir)
 
