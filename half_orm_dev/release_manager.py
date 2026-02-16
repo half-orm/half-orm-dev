@@ -2499,16 +2499,14 @@ class ReleaseManager:
             self._repo.hgit.checkout("-b", temp_branch)
 
             # 6. Apply patches to database (validation)
-            # Exclude current version's bootstraps — they run at step 7 after patches
+            # Bootstrap SQL in patches is executed by apply_patch_files.
+            # Bootstraps from bootstrap/ for OTHER versions run during restore.
+            # Bootstraps for THIS version are excluded (already run via patches).
             self._apply_release_patches(
                 version, force_apply=is_prod, exclude_bootstrap_version=version
             )
 
-            # 7. Execute bootstrap scripts for the version being promoted
-            # (excluded from restore at step 6, run now that patches are applied)
-            self._run_bootstrap_scripts(for_version=version)
-
-            # 8. Register version in database
+            # 7. Register version in database
             version_parts = version.split('.')
             major, minor, patch_num = map(int, version_parts)
             if is_prod:

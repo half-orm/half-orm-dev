@@ -572,9 +572,10 @@ class PatchManager:
 
                 if release_schema_path and release_schema_path.exists():
                     # New workflow: restore from release schema (includes all staged patches)
-                    # Bootstrap scripts run automatically, excluding current patch
+                    # Exclude bootstraps for this version — apply_patch_files will
+                    # execute the current patch's bootstrap below.
                     self._repo.restore_database_from_release_schema(
-                        version, exclude_bootstrap_patch_id=patch_id
+                        version, exclude_bootstrap_version=version
                     )
 
                     # Apply only the current patch
@@ -583,9 +584,10 @@ class PatchManager:
                 else:
                     # Backward compatibility: old workflow
                     # Also generates release schema for migration of existing projects
-                    # Bootstrap scripts run automatically, excluding current patch
+                    # Exclude bootstraps for this version — apply_patch_files will
+                    # execute them when applying staged patches below.
                     self._repo.restore_database_from_schema(
-                        exclude_bootstrap_patch_id=patch_id
+                        exclude_bootstrap_version=version
                     )
 
                     # Get and apply all staged release patches
@@ -692,11 +694,6 @@ class PatchManager:
 
         # Apply files in lexicographic order
         for patch_file in structure.files:
-            # Skip bootstrap files - they are executed via run_bootstrap() after merge
-            if is_bootstrap_file(patch_file.path):
-                click.echo(f"  • {patch_file.name} (bootstrap - skipped, will run after merge)")
-                continue
-
             if patch_file.is_sql:
                 click.echo(f"  • {patch_file.name}")
                 try:
@@ -1060,6 +1057,11 @@ class PatchManager:
             # Copy file
             shutil.copy(file_path, dest)
             copied.append(new_name)
+
+            # Record as already executed — the bootstrap SQL was already
+            # run by apply_patch_files during validation, so run_bootstrap
+            # must skip it to avoid double execution.
+            bootstrap_mgr.record_execution(new_name, version)
 
             click.echo(f"  • Copied bootstrap file: {new_name}")
 
