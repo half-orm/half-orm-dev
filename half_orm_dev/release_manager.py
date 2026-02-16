@@ -733,7 +733,7 @@ class ReleaseManager:
 
         return patches
 
-    def _apply_release_patches(self, version: str, hotfix=False, force_apply=False) -> None:
+    def _apply_release_patches(self, version: str, hotfix=False, force_apply=False, exclude_bootstrap_version: str = None) -> None:
         """
         Apply all patches for a release version to the database.
 
@@ -751,6 +751,8 @@ class ReleaseManager:
             hotfix: If True, skip RC patches (hotfix workflow)
             force_apply: If True, always apply patches individually even if
                         release schema exists (used for production validation)
+            exclude_bootstrap_version: If provided, skip bootstrap scripts for
+                this version during restore (they will be run after patches).
 
         Raises:
             ReleaseManagerError: If patch application fails
@@ -759,11 +761,15 @@ class ReleaseManager:
         release_schema_path = self._repo.get_release_schema_path(version)
         if release_schema_path.exists() and not force_apply:
             # New workflow: restore from release schema (already contains all staged patches)
-            self._repo.restore_database_from_release_schema(version)
+            self._repo.restore_database_from_release_schema(
+                version, exclude_bootstrap_version=exclude_bootstrap_version
+            )
             return
 
         # Fallback: old workflow - restore database from baseline
-        self._repo.restore_database_from_schema()
+        self._repo.restore_database_from_schema(
+            exclude_bootstrap_version=exclude_bootstrap_version
+        )
 
         current_branch = self._repo.hgit.branch
 
@@ -821,7 +827,7 @@ class ReleaseManager:
         # Return to original branch
         self._repo.hgit.checkout(current_branch)
 
-    def _run_bootstrap_scripts(self, up_to_version: str = None) -> None:
+    def _run_bootstrap_scripts(self, up_to_version: str = None, for_version: str = None) -> None:
         """
         Execute pending bootstrap scripts after patch application.
 
@@ -830,7 +836,7 @@ class ReleaseManager:
 
         Args:
             up_to_version: If provided, only execute bootstraps for versions <= this.
-                          Used to avoid running bootstraps for future releases.
+            for_version: If provided, only execute bootstraps for exactly this version.
 
         Raises:
             ReleaseManagerError: If bootstrap execution fails
@@ -844,14 +850,14 @@ class ReleaseManager:
             return
 
         # Get pending files (filtered by version if specified)
-        pending = bootstrap_mgr.get_pending_files(up_to_version)
+        pending = bootstrap_mgr.get_pending_files(up_to_version, for_version=for_version)
         if not pending:
             return
 
         print(f"\n📦 Executing {len(pending)} bootstrap script(s)...")
 
         try:
-            result = bootstrap_mgr.run_bootstrap(up_to_version=up_to_version)
+            result = bootstrap_mgr.run_bootstrap(up_to_version=up_to_version, for_version=for_version)
 
             if result['errors']:
                 errors = result['errors']
@@ -2569,10 +2575,14 @@ class ReleaseManager:
             self._repo.hgit.checkout("-b", temp_branch)
 
             # 6. Apply patches to database (validation)
-            self._apply_release_patches(version, force_apply=is_prod)
+            # Exclude current version's bootstraps — they run at step 7 after patches
+            self._apply_release_patches(
+                version, force_apply=is_prod, exclude_bootstrap_version=version
+            )
 
-            # 7. Execute bootstrap scripts (only for this version and earlier)
-            self._run_bootstrap_scripts(up_to_version=version)
+            # 7. Execute bootstrap scripts for the version being promoted
+            # (excluded from restore at step 6, run now that patches are applied)
+            self._run_bootstrap_scripts(for_version=version)
 
             # 8. Register version in database
             version_parts = version.split('.')
@@ -2673,7 +2683,7 @@ class ReleaseManager:
 
                 # Delete temporary branch if it exists
                 try:
-                    self._repo.hgit.delete_local_branch(temp_branch, force=True)
+                    self._repo.hgit.delete_local_branch(temp_branch)
                     print(f"  Deleted temporary branch {temp_branch}")
                 except Exception:
                     pass  # Branch might not exist

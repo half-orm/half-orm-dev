@@ -78,7 +78,12 @@ class BootstrapManager:
             # Schema might not exist yet, ignore
             pass
 
-    def get_bootstrap_files(self, up_to_version: Optional[str] = None) -> List[Path]:
+    def get_bootstrap_files(
+        self,
+        up_to_version: Optional[str] = None,
+        exclude_version: Optional[str] = None,
+        for_version: Optional[str] = None
+    ) -> List[Path]:
         """
         List bootstrap files sorted by numeric prefix.
 
@@ -87,8 +92,11 @@ class BootstrapManager:
 
         Args:
             up_to_version: If provided, only return files with version <= this version.
-                          Used during restore_database_from_schema to avoid executing
-                          bootstraps for future releases.
+            exclude_version: If provided, exclude files for exactly this version.
+                            Used during promote to skip the version being promoted
+                            (its bootstraps run after patches are applied).
+            for_version: If provided, only return files for exactly this version.
+                        Used after patches to run only the promoted version's bootstraps.
 
         Returns:
             List of Path objects for bootstrap files in execution order
@@ -103,11 +111,20 @@ class BootstrapManager:
                 if not re.match(r'^\d+-', file_path.name):
                     continue
 
-                # If up_to_version is specified, filter out files from newer versions
-                if up_to_version:
-                    file_version = self._extract_version_from_filename(file_path.name)
-                    if file_version != 'unknown' and not self._version_le(file_version, up_to_version):
+                file_version = self._extract_version_from_filename(file_path.name)
+
+                # If for_version is specified, only include files for exactly this version
+                if for_version:
+                    if file_version != for_version:
                         continue
+                else:
+                    # If exclude_version is specified, skip files for that version
+                    if exclude_version and file_version == exclude_version:
+                        continue
+                    # If up_to_version is specified, filter out files from newer versions
+                    if up_to_version:
+                        if file_version != 'unknown' and not self._version_le(file_version, up_to_version):
+                            continue
 
                 files.append(file_path)
 
@@ -140,17 +157,24 @@ class BootstrapManager:
             # Table might not exist yet (pre-migration)
             return set()
 
-    def get_pending_files(self, up_to_version: Optional[str] = None) -> List[Path]:
+    def get_pending_files(
+        self,
+        up_to_version: Optional[str] = None,
+        exclude_version: Optional[str] = None,
+        for_version: Optional[str] = None
+    ) -> List[Path]:
         """
         Get bootstrap files not yet executed.
 
         Args:
             up_to_version: If provided, only return files with version <= this version.
+            exclude_version: If provided, exclude files for exactly this version.
+            for_version: If provided, only return files for exactly this version.
 
         Returns:
             List of Path objects for files pending execution
         """
-        all_files = self.get_bootstrap_files(up_to_version)
+        all_files = self.get_bootstrap_files(up_to_version, exclude_version=exclude_version, for_version=for_version)
         executed = self.get_executed_files()
 
         return [f for f in all_files if f.name not in executed]
@@ -201,7 +225,9 @@ class BootstrapManager:
         dry_run: bool = False,
         force: bool = False,
         exclude_patch_id: Optional[str] = None,
-        up_to_version: Optional[str] = None
+        up_to_version: Optional[str] = None,
+        exclude_version: Optional[str] = None,
+        for_version: Optional[str] = None
     ) -> dict:
         """
         Execute pending bootstrap files.
@@ -215,6 +241,8 @@ class BootstrapManager:
             up_to_version: If provided, only execute files with version <= this version.
                           Used during restore_database_from_schema to avoid executing
                           bootstraps for future releases.
+            exclude_version: If provided, exclude files for exactly this version.
+            for_version: If provided, only execute files for exactly this version.
 
         Returns:
             Dict with execution results:
@@ -231,11 +259,11 @@ class BootstrapManager:
         }
 
         if force:
-            files_to_execute = self.get_bootstrap_files(up_to_version)
+            files_to_execute = self.get_bootstrap_files(up_to_version, exclude_version=exclude_version, for_version=for_version)
         else:
-            files_to_execute = self.get_pending_files(up_to_version)
+            files_to_execute = self.get_pending_files(up_to_version, exclude_version=exclude_version, for_version=for_version)
             # Calculate skipped
-            all_files = self.get_bootstrap_files(up_to_version)
+            all_files = self.get_bootstrap_files(up_to_version, exclude_version=exclude_version, for_version=for_version)
             executed = self.get_executed_files()
             result['skipped'] = [f.name for f in all_files if f.name in executed]
 

@@ -2304,7 +2304,7 @@ Each script is executed only once unless `--force` is used.
             self.model.execute_query('CREATE SCHEMA public')
             self.model.execute_query('GRANT ALL ON SCHEMA public TO public')
 
-    def restore_database_from_schema(self, exclude_bootstrap_patch_id: Optional[str] = None) -> None:
+    def restore_database_from_schema(self, exclude_bootstrap_patch_id: Optional[str] = None, exclude_bootstrap_version: Optional[str] = None) -> None:
         """
         Restore database from model/schema.sql, metadata, and data files.
 
@@ -2417,13 +2417,14 @@ Each script is executed only once unless `--force` is used.
             self.model.reconnect(reload=True)
 
             # 7. Execute bootstrap scripts
-            # Note: In patch apply context, we want ALL bootstraps to run
-            # (staged patches + prod). Only the current patch is excluded.
-            # Version filtering is done separately in promote to prod/rc.
+            # In patch apply context: ALL bootstraps run (only current patch excluded).
+            # In promote context: exclude_bootstrap_version skips the version being
+            # promoted (its bootstraps run after patches are applied).
             from half_orm_dev.bootstrap_manager import BootstrapManager
             bootstrap_mgr = BootstrapManager(self)
             bootstrap_mgr.run_bootstrap(
-                exclude_patch_id=exclude_bootstrap_patch_id
+                exclude_patch_id=exclude_bootstrap_patch_id,
+                exclude_version=exclude_bootstrap_version
             )
 
         except RepoError:
@@ -2563,7 +2564,8 @@ Each script is executed only once unless `--force` is used.
     def restore_database_from_release_schema(
         self,
         version: str,
-        exclude_bootstrap_patch_id: Optional[str] = None
+        exclude_bootstrap_patch_id: Optional[str] = None,
+        exclude_bootstrap_version: Optional[str] = None
     ) -> None:
         """
         Restore database from release schema file.
@@ -2578,6 +2580,8 @@ Each script is executed only once unless `--force` is used.
             version: Release version string (e.g., "0.17.1")
             exclude_bootstrap_patch_id: If provided, skip bootstrap files
                 belonging to this patch (used during patch apply)
+            exclude_bootstrap_version: If provided, skip bootstrap files for
+                this version (used during promote)
 
         Raises:
             RepoError: If restoration fails
@@ -2591,7 +2595,10 @@ Each script is executed only once unless `--force` is used.
 
         # Fallback to production schema if release schema doesn't exist
         if not release_schema_path.exists():
-            self.restore_database_from_schema(exclude_bootstrap_patch_id)
+            self.restore_database_from_schema(
+                exclude_bootstrap_patch_id,
+                exclude_bootstrap_version=exclude_bootstrap_version
+            )
             return
 
         try:
@@ -2609,7 +2616,10 @@ Each script is executed only once unless `--force` is used.
             # Execute bootstrap scripts
             from half_orm_dev.bootstrap_manager import BootstrapManager
             bootstrap_mgr = BootstrapManager(self)
-            bootstrap_mgr.run_bootstrap(exclude_patch_id=exclude_bootstrap_patch_id)
+            bootstrap_mgr.run_bootstrap(
+                exclude_patch_id=exclude_bootstrap_patch_id,
+                exclude_version=exclude_bootstrap_version
+            )
 
         except Exception as e:
             raise RepoError(f"Failed to restore from release schema: {e}") from e

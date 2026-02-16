@@ -272,7 +272,7 @@ class TestApplyReleasePatches:
         # Track call order
         call_order = []
 
-        def track_restore():
+        def track_restore(**kwargs):
             call_order.append('restore')
 
         def track_apply(*args):
