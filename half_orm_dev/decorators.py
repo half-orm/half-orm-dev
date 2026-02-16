@@ -4,6 +4,7 @@ Decorators for half-orm-dev.
 Provides common decorators for ReleaseManager and PatchManager.
 """
 
+import signal
 import sys
 import inspect
 from functools import wraps
@@ -12,9 +13,6 @@ from functools import wraps
 def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
     """
     Decorator to protect methods with a dynamic branch lock.
-
-    Unlike with_branch_lock which uses a static branch name, this decorator
-    calls a function to determine the branch name at runtime.
 
     IMPORTANT: Automatically syncs .hop/ directory to all other active branches
     after the decorated method completes (from locked branch to all others).
@@ -77,8 +75,21 @@ def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
                 return result
             finally:
                 # Always release lock (even on error)
+                # Block SIGINT during cleanup to prevent Ctrl+C from
+                # interrupting lock release and leaving an orphan tag.
                 if lock_tag:
-                    self._repo.hgit.release_branch_lock(lock_tag)
+                    interrupted = False
+                    original_handler = signal.getsignal(signal.SIGINT)
+                    signal.signal(signal.SIGINT, lambda s, f: setattr(
+                        wrapper, '_interrupted', True) or None)
+                    wrapper._interrupted = False
+                    try:
+                        self._repo.hgit.release_branch_lock(lock_tag)
+                    finally:
+                        interrupted = wrapper._interrupted
+                        signal.signal(signal.SIGINT, original_handler)
+                    if interrupted:
+                        raise KeyboardInterrupt()
 
         return wrapper
     return decorator
