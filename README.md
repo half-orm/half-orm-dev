@@ -252,7 +252,7 @@ ho-prod (main production branch)
 
 ```bash
 # Create new project (requires git origin)
-half_orm dev init <package_name> --database <db_name> --git-origin <url>
+half_orm dev init <package_name> --git-origin <url>
 
 # Clone existing project
 half_orm dev clone <git_origin>
