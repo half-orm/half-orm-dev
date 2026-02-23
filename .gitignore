@@ -22,3 +22,5 @@ tests/cli_integration/.config/hop_test_devel_*
 
 # Database backups (can be large, machine-specific)
 .hop/backups/
+
+.half_orm

@@ -8,6 +8,13 @@ import tempfile
 import shutil
 from pathlib import Path
 from unittest.mock import Mock, patch
+
+# Set HALFORM_CONF_DIR before importing half_orm modules, as CONF_DIR is
+# resolved at import time. Using setdefault preserves any explicit user setting.
+_half_orm_conf_dir = Path(os.getcwd()) / ".half_orm"
+_half_orm_conf_dir.mkdir(exist_ok=True)
+os.environ.setdefault("HALFORM_CONF_DIR", str(_half_orm_conf_dir))
+
 from half_orm_dev.database import Database
 from half_orm_dev.repo import Repo
 
