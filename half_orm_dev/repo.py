@@ -2437,12 +2437,14 @@ Each script is executed only once unless `--force` is used.
             # 7. Execute bootstrap scripts
             # In patch apply context: ALL bootstraps run (only current patch excluded).
             # In promote context: exclude_bootstrap_version skips the version being
-            # promoted (its bootstraps run after patches are applied).
+            # promoted (its bootstraps don't run during promote, they run via upgrade).
+            # up_to_version prevents bootstraps from future versions from running.
             from half_orm_dev.bootstrap_manager import BootstrapManager
             bootstrap_mgr = BootstrapManager(self)
             bootstrap_mgr.run_bootstrap(
                 exclude_patch_id=exclude_bootstrap_patch_id,
-                exclude_version=exclude_bootstrap_version
+                exclude_version=exclude_bootstrap_version,
+                up_to_version=exclude_bootstrap_version
             )
 
         except RepoError:
@@ -2632,11 +2634,13 @@ Each script is executed only once unless `--force` is used.
             self.model.reconnect(reload=True)
 
             # Execute bootstrap scripts
+            # up_to_version prevents bootstraps from future versions from running.
             from half_orm_dev.bootstrap_manager import BootstrapManager
             bootstrap_mgr = BootstrapManager(self)
             bootstrap_mgr.run_bootstrap(
                 exclude_patch_id=exclude_bootstrap_patch_id,
-                exclude_version=exclude_bootstrap_version
+                exclude_version=exclude_bootstrap_version,
+                up_to_version=exclude_bootstrap_version
             )
 
         except Exception as e:
