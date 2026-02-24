@@ -14,6 +14,8 @@ from pathlib import Path
 from unittest.mock import Mock, MagicMock, patch, call
 from datetime import datetime, timezone
 
+from git.exc import GitCommandError
+
 from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 from half_orm_dev.release_file import ReleaseFile
 
@@ -342,7 +344,7 @@ class TestMigrationErrorHandling:
         mock_repo = Mock()
         mock_repo.branches = []
         mock_hgit.get_repo.return_value = mock_repo
-        mock_hgit.rebase.side_effect = Exception("CONFLICT: Merge conflict in file.sql")
+        mock_hgit.rebase.side_effect = GitCommandError("rebase", "CONFLICT: Merge conflict in file.sql")
         repo.hgit = mock_hgit
 
         # Mock other dependencies

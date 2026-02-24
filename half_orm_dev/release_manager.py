@@ -167,13 +167,9 @@ class ReleaseManager:
         version_from_file = self._parse_version_from_symlink(schema_path)
 
         # Optional validation against database
-        try:
-            version_from_db = self._repo.database.last_release_s
-            if version_from_file != version_from_db:
-                self._repo.restore_database_from_schema()
-        except Exception:
-            # Database not accessible or no metadata: OK, continue
-            pass
+        version_from_db = self._repo.database.last_release_s
+        if version_from_file != version_from_db:
+            self._repo.restore_database_from_schema()
 
         return version_from_file
 
@@ -1046,52 +1042,6 @@ class ReleaseManager:
         return (version, patches_file.name)
 
 
-    def _get_active_patch_branches(self) -> List[str]:
-        """
-        Get list of all active ho-patch/* branches from remote.
-
-        Reads remote refs after fetch to find all branches matching
-        the ho-patch/* pattern. Used for sending resync notifications.
-
-        Prerequisite: fetch_from_origin() must be called first to have
-        up-to-date remote refs.
-
-        Returns:
-            List of branch names (e.g., ["ho-patch/456-user-auth", "ho-patch/789-security"])
-            Empty list if no patch branches exist
-
-        Examples:
-            # Get active patch branches
-            branches = self._get_active_patch_branches()
-            # Returns: [
-            #   "ho-patch/456-user-auth",
-            #   "ho-patch/789-security",
-            #   "ho-patch/234-reports"
-            # ]
-
-            # Used for notifications
-            for branch in self._get_active_patch_branches():
-                if branch != f"ho-patch/{current_patch_id}":
-                    # Send notification to this branch
-                    ...
-        """
-        git_repo = self._repo.hgit._HGit__git_repo
-
-        try:
-            remote = git_repo.remote('origin')
-        except Exception:
-            return []  # No remote or remote not accessible
-
-        pattern = "origin/ho-patch/*"
-
-        branches = [
-            ref.name.replace('origin/', '', 1)
-            for ref in remote.refs
-            if fnmatch.fnmatch(ref.name, pattern)
-        ]
-
-        return branches
-
     def _send_rebase_notifications(
         self,
         version: str,
@@ -1418,7 +1368,7 @@ class ReleaseManager:
             # 6. Always return to original branch (best effort)
             try:
                 self._repo.hgit.checkout(current_branch)
-            except Exception:
+            except GitCommandError:
                 # Best effort - don't fail if checkout back fails
                 pass
 
@@ -1670,7 +1620,7 @@ class ReleaseManager:
             try:
                 version = self.parse_version_from_filename(f"{version_str}.txt")
                 available_versions.append((version_str, version))
-            except Exception:
+            except (ReleaseManagerError, ValueError):
                 continue
 
         # Sort versions
@@ -2195,9 +2145,9 @@ class ReleaseManager:
         # Fetch tags from remote to ensure we have the latest
         try:
             self._repo.hgit.fetch_from_origin()
-        except Exception:
+        except GitCommandError as e:
             # If fetch fails, continue with local tags
-            pass
+            print(f"⚠️  Warning: Failed to fetch tags from origin: {e}")
 
         # Get all production tags (X.Y.Z format, no -rc suffix)
         tags = self._repo.hgit.list_tags()
@@ -2416,7 +2366,7 @@ class ReleaseManager:
                     if ver < new_ver and (best_ver is None or ver > best_ver):
                         best_ver = ver
                         best_match = ver_str
-                except Exception:
+                except ValueError:
                     continue
 
         return best_match
@@ -2597,21 +2547,21 @@ class ReleaseManager:
                 # Try to checkout original branch first
                 try:
                     self._repo.hgit.checkout(original_branch)
-                except Exception:
+                except GitCommandError:
                     # If that fails, try release branch
                     try:
                         self._repo.hgit.checkout(release_branch)
-                    except Exception:
+                    except GitCommandError:
                         pass
 
                 # Delete temporary branch if it exists
                 try:
                     self._repo.hgit.delete_local_branch(temp_branch)
                     print(f"  Deleted temporary branch {temp_branch}")
-                except Exception:
+                except GitCommandError:
                     pass  # Branch might not exist
 
-            except Exception as cleanup_error:
+            except (GitCommandError, TypeError) as cleanup_error:
                 print(f"  Warning: Cleanup failed: {cleanup_error}", file=sys.stderr)
 
             # Re-raise original error
@@ -2663,16 +2613,16 @@ class ReleaseManager:
                 ff_only=True,
                 message=f"[HOP] Merge release %{version} into production"
             )
-        except Exception:
+        except GitCommandError:
             try:
                 self._repo.hgit.merge(
                     release_branch,
                     message=f"[HOP] Merge release %{version} into production"
                 )
-            except Exception as e:
+            except GitCommandError as e:
                 try:
                     self._repo.hgit.merge_abort()
-                except Exception:
+                except GitCommandError:
                     pass
                 raise ReleaseManagerError(
                     f"Failed to merge {release_branch} into ho-prod: {e}\n"
@@ -2853,7 +2803,7 @@ class ReleaseManager:
                     # Try to abort rebase if it failed
                     try:
                         self._repo.hgit.rebase("--abort")
-                    except:
+                    except GitCommandError:
                         pass
 
                     print(f"{utils.Color.red('✗ FAILED')}")
@@ -3032,7 +2982,7 @@ class ReleaseManager:
 
                 try:
                     self._repo.hgit.delete_remote_branch(release_branch)
-                except Exception:
+                except GitCommandError:
                     # Remote branch might not exist, ignore error
                     pass
 
@@ -3246,13 +3196,13 @@ class ReleaseManager:
         try:
             if original_branch:
                 self._repo.hgit.checkout(original_branch)
-        except Exception:
+        except GitCommandError:
             pass  # Best effort
 
         try:
             if validate_branch:
                 self._repo.hgit.delete_branch(validate_branch, force=True)
-        except Exception:
+        except GitCommandError:
             pass  # Best effort
 
     def apply_release(self, run_tests: bool = True) -> dict:
@@ -3336,7 +3286,7 @@ class ReleaseManager:
             # Delete existing validation branch if it exists
             try:
                 self._repo.hgit.delete_branch(validate_branch, force=True)
-            except Exception:
+            except GitCommandError:
                 pass  # Branch doesn't exist, that's fine
 
             # Create and checkout validation branch
@@ -3403,7 +3353,7 @@ class ReleaseManager:
             self._repo.hgit.checkout(original_branch)
             try:
                 self._repo.hgit.delete_branch(validate_branch, force=True)
-            except Exception:
+            except GitCommandError:
                 pass  # Best effort cleanup
 
             # 10. Return results
@@ -3429,7 +3379,7 @@ class ReleaseManager:
             # Restore DB to clean state on failure
             try:
                 self._repo.restore_database_from_schema()
-            except Exception:
-                pass  # Best effort cleanup
+            except Exception as db_error:
+                print(f"⚠️  Warning: Failed to restore database during cleanup: {db_error}", file=sys.stderr)
 
             raise ReleaseManagerError(f"Release apply failed: {e}")
