@@ -122,5 +122,5 @@ def is_bootstrap_file(file_path: Path) -> bool:
                 re.match(r"(--|#)\s*@hop:bootstrap", first_line) is not None or
                 re.match(r"(--|#)\s*@hop:data", first_line) is not None
             )
-    except Exception:
+    except OSError:
         return False
