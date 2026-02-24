@@ -32,7 +32,7 @@ from half_orm_dev.release_manager import ReleaseManager
 from half_orm_dev.migration_manager import MigrationManager, MigrationManagerError
 from half_orm_dev.release_file import ReleaseFile
 
-from .utils import TEMPLATE_DIRS, hop_version, resolve_database_config_name
+from .utils import TEMPLATE_DIRS, hop_version
 
 class RepoError(Exception):
     pass

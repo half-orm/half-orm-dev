@@ -163,8 +163,9 @@ package_name = config_name
         finally:
             shutil.rmtree(parent_temp, ignore_errors=True)
 
-    def test_invalid_config_falls_back_to_directory(self):
-        """Test that corrupted config file doesn't break resolution."""
+    def test_invalid_config_raises(self):
+        """Test that a corrupted config file raises configparser.Error."""
+        import configparser
         parent_temp = tempfile.mkdtemp()
         temp_dir = os.path.join(parent_temp, "my_project")
         os.makedirs(temp_dir)
@@ -179,9 +180,10 @@ package_name = config_name
             config_file = hop_dir / 'config'
             config_file.write_text("This is not valid INI format!!!")
 
-            # Test: should fall back to directory name
-            result = resolve_database_config_name(temp_dir)
-            assert result == "my_project"
+            # Test: a malformed config must raise rather than silently
+            # fall back to the directory name (wrong DB connection otherwise)
+            with pytest.raises(configparser.Error):
+                resolve_database_config_name(temp_dir)
 
         finally:
             shutil.rmtree(parent_temp, ignore_errors=True)

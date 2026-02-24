@@ -1,6 +1,6 @@
 import os
+import configparser
 from pathlib import Path
-from configparser import ConfigParser
 
 PWD = os.path.dirname(__file__)
 HOP_PATH = os.path.join(PWD)
@@ -35,15 +35,15 @@ def resolve_database_config_name(base_dir):
     # Priority 2: package_name in .hop/config (backward compat)
     config_path = base_path / '.hop' / 'config'
     if config_path.exists():
-        config = ConfigParser()
-        try:
-            config.read(config_path)
-            if config.has_option('halfORM', 'package_name'):
-                package_name = config.get('halfORM', 'package_name')
-                if package_name:
-                    return package_name
-        except Exception:
-            pass
+        config = configparser.ConfigParser()
+        # Let configparser.Error propagate: a malformed config file is a real
+        # error and silently falling back to the directory name would cause a
+        # wrong database connection without any warning.
+        config.read(config_path)
+        if config.has_option('halfORM', 'package_name'):
+            package_name = config.get('halfORM', 'package_name')
+            if package_name:
+                return package_name
 
     # Priority 3: directory name
     return base_path.name

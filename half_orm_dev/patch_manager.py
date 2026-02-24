@@ -1475,7 +1475,8 @@ class PatchManager:
         current_branch = None
         try:
             current_branch = self._repo.hgit.branch
-        except Exception:
+        except TypeError:
+            # active_branch raises TypeError when HEAD is detached
             pass
 
         # 1. If patch directory exists, delete it (wherever it is)
