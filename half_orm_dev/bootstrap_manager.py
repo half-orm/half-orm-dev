@@ -72,11 +72,7 @@ class BootstrapManager:
             executed_at TIMESTAMP DEFAULT NOW()
         );
         """
-        try:
-            self._repo.database.model.execute_query(sql)
-        except Exception:
-            # Schema might not exist yet, ignore
-            pass
+        self._repo.database.model.execute_query(sql)
 
     def get_bootstrap_files(
         self,
@@ -145,16 +141,15 @@ class BootstrapManager:
         Returns:
             Set of filename strings that have been executed
         """
-        # Ensure table exists before querying
-        self._ensure_bootstrap_table()
-
+        # If schema or table isn't ready yet (pre-migration state),
+        # return empty set so all bootstrap files are treated as pending.
         try:
+            self._ensure_bootstrap_table()
             result = self._repo.database.model.execute_query(
                 "SELECT filename FROM half_orm_meta.bootstrap"
             )
             return {row[0] for row in result} if result else set()
         except Exception:
-            # Table might not exist yet (pre-migration)
             return set()
 
     def get_pending_files(
