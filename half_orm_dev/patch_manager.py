@@ -216,7 +216,7 @@ class PatchManager:
             # If README creation fails, clean up the directory
             try:
                 shutil.rmtree(patch_path)
-            except:
+            except OSError:
                 pass  # Best effort cleanup
             raise PatchManagerError(f"Failed to create README.md for patch {patch_info.normalized_id}: {e}")
 
@@ -604,8 +604,8 @@ class PatchManager:
                     if version:
                         try:
                             self._repo.generate_release_schema(version)
-                        except Exception:
-                            pass  # Non-critical, continue with apply
+                        except Exception as e:  # RepoError/OSError (circular import prevents narrowing)
+                            click.echo(f"⚠️  Warning: Failed to generate release schema: {e}")
 
                     # If current patch not in release (candidate), apply it now
                     if not patch_was_in_release:
@@ -783,16 +783,12 @@ class PatchManager:
             if '-patches' in txt_file.stem:
                 continue  # Skip TOML companion files
             version = txt_file.stem
-            try:
-                content = txt_file.read_text()
-                for line in content.strip().split('\n'):
-                    patch_id = line.strip()
-                    if patch_id and not patch_id.startswith('#'):
-                        if patch_id not in patch_map:
-                            patch_map[patch_id] = {"status": "staged", "version": version}
-            except Exception:
-                # Skip invalid files
-                continue
+            content = txt_file.read_text()
+            for line in content.strip().split('\n'):
+                patch_id = line.strip()
+                if patch_id and not patch_id.startswith('#'):
+                    if patch_id not in patch_map:
+                        patch_map[patch_id] = {"status": "staged", "version": version}
 
         # 3. Scan subdirectories for staged/orphaned patches on filesystem
         # NOTE: Patches at root (Patches/) are considered "candidate" by default
@@ -1484,14 +1480,14 @@ class PatchManager:
         if patch_dir and patch_dir.exists():
             try:
                 shutil.rmtree(patch_dir)
-            except Exception:
+            except OSError:
                 # Directory deletion may fail (permissions, etc.) - continue
                 pass
 
         # 2. Ensure we're on initial branch (ho-release)
         try:
             self._repo.hgit.checkout(initial_branch)
-        except Exception:
+        except GitCommandError:
             # Continue cleanup even if checkout fails
             pass
 
@@ -1501,14 +1497,14 @@ class PatchManager:
                 # Hard reset to remove the commit
                 # Using git reset --hard HEAD~1
                 self._repo.hgit._HGit__git_repo.git.reset('--hard', 'HEAD~1')
-            except Exception:
+            except GitCommandError:
                 # Continue cleanup even if reset fails
                 pass
 
         # 4. Delete patch branch (may not exist if failure before branch creation)
         try:
             self._repo.hgit.delete_local_branch(branch_name)
-        except Exception:
+        except GitCommandError:
             # Branch may not exist yet or deletion may fail - continue
             pass
 
@@ -1517,7 +1513,7 @@ class PatchManager:
         tag_name = f"ho-patch/{patch_number}"
         try:
             self._repo.hgit.delete_local_tag(tag_name)
-        except Exception:
+        except GitCommandError:
             # Tag may not exist yet or deletion may fail - continue
             pass
 
@@ -1772,7 +1768,7 @@ class PatchManager:
             # Try to return to release branch even on error
             try:
                 self._repo.hgit.checkout(release_branch)
-            except:
+            except GitCommandError:
                 pass
 
             if critical:
@@ -1859,24 +1855,18 @@ class PatchManager:
         patch_dir = Path(self._repo.base_dir) / "Patches" / patch_id
         readme_file = patch_dir / "README.md"
         if readme_file.exists():
-            try:
-                readme = readme_file.read_text(encoding='utf-8').strip()
-            except Exception:
-                pass
+            readme = readme_file.read_text(encoding='utf-8').strip()
 
         # 5. Get patch files
         files = []
-        try:
-            structure = self.get_patch_structure(patch_id)
-            for patch_file in structure.files:
-                file_info = {
-                    'name': patch_file.path.name,
-                    'is_sql': patch_file.is_sql,
-                    'is_python': patch_file.is_python
-                }
-                files.append(file_info)
-        except Exception:
-            pass
+        structure = self.get_patch_structure(patch_id)
+        for patch_file in structure.files:
+            file_info = {
+                'name': patch_file.path.name,
+                'is_sql': patch_file.is_sql,
+                'is_python': patch_file.is_python
+            }
+            files.append(file_info)
 
         # 6. Check synchronization status
         sync_status = self._check_branch_synchronization(current_branch)
@@ -2147,12 +2137,9 @@ class PatchManager:
 
         for toml_file in releases_dir.glob("*-patches.toml"):
             rel_version = toml_file.stem.replace('-patches', '')
-            try:
-                rel_ver = Version(rel_version)
-                if rel_ver > current_ver:
-                    higher_releases.append(rel_version)
-            except Exception:
-                continue
+            rel_ver = Version(rel_version)
+            if rel_ver > current_ver:
+                higher_releases.append(rel_version)
 
         # Sort by version (ascending)
         higher_releases.sort(key=lambda v: Version(v))
@@ -2248,7 +2235,7 @@ class PatchManager:
             if not isinstance(diff_output, str) or not diff_output.strip():
                 return False
             conflicted = diff_output.strip().splitlines()
-        except Exception:
+        except GitCommandError:
             return False
 
         non_generated = [
@@ -2440,7 +2427,7 @@ class PatchManager:
                 try:
                     self._repo.hgit._HGit__git_repo.git.reset('HEAD', '--', f'{package_name}/')
                     self._repo.hgit._HGit__git_repo.git.checkout('--', f'{package_name}/')
-                except Exception:
+                except GitCommandError:
                     pass
 
                 # Return to original branch
@@ -2450,7 +2437,7 @@ class PatchManager:
                 # Delete temp branch if it exists
                 if self._repo.hgit.branch_exists(temp_branch):
                     self._repo.hgit.delete_branch(temp_branch, force=True)
-            except Exception as e:
+            except (GitCommandError, TypeError) as e:
                 # Cleanup errors are non-critical, just warn
                 click.echo(f"⚠️  Warning: Failed to cleanup temp branch {temp_branch}: {e}")
 
