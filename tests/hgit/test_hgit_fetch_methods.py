@@ -87,15 +87,20 @@ class TestHGitTagMethods:
         # Should return False
         assert hgit.tag_exists("ho-patch/456") is False
 
-    def test_tag_exists_exception_handling(self, hgit_mock_only):
-        """Test tag_exists handles exceptions gracefully."""
+    def test_tag_exists_propagates_git_error(self, hgit_mock_only):
+        """Test tag_exists propagates git errors (corrupted repo, etc.)."""
+        from unittest.mock import PropertyMock
+        from git.exc import GitCommandError
         hgit, mock_git_repo = hgit_mock_only
 
-        # Mock tags to raise error
-        mock_git_repo.tags = Mock(side_effect=Exception("Error"))
+        # Use PropertyMock so accessing .tags raises
+        type(mock_git_repo).tags = PropertyMock(
+            side_effect=GitCommandError("git tag", 1)
+        )
 
-        # Should return False gracefully
-        assert hgit.tag_exists("ho-patch/456") is False
+        # A git error must not be swallowed
+        with pytest.raises(GitCommandError):
+            hgit.tag_exists("ho-patch/456")
 
     def test_create_tag_success(self, hgit_mock_only):
         """Test successful tag creation."""

@@ -72,15 +72,19 @@ class TestHGitRemoteMethods:
         # Should return False (we specifically check for 'origin')
         assert hgit.has_remote() is False
 
-    def test_has_remote_exception_handling(self, hgit_mock_only):
-        """Test has_remote handles exceptions gracefully."""
+    def test_has_remote_propagates_git_error(self, hgit_mock_only):
+        """Test has_remote propagates git errors (corrupted repo, etc.)."""
+        from unittest.mock import PropertyMock
         hgit, mock_git_repo = hgit_mock_only
 
-        # Mock remotes to raise exception
-        mock_git_repo.remotes = Mock(side_effect=GitCommandError("git remote", 1))
+        # Use PropertyMock so accessing .remotes raises (not calling it)
+        type(mock_git_repo).remotes = PropertyMock(
+            side_effect=GitCommandError("git remote", 1)
+        )
 
-        # Should return False on exception (graceful handling)
-        assert hgit.has_remote() is False
+        # A git error is a real problem and must not be swallowed
+        with pytest.raises(GitCommandError):
+            hgit.has_remote()
 
     def test_push_branch_with_upstream(self, hgit_mock_only):
         """Test push_branch with upstream tracking."""

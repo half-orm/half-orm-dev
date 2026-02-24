@@ -326,19 +326,8 @@ class HGit:
             else:
                 print("No remote - local repo only")
         """
-        try:
-            # Check if any remotes exist
-            remotes = self.__git_repo.remotes
-
-            # Look specifically for 'origin' remote
-            for remote in remotes:
-                if remote.name == 'origin':
-                    return True
-
-            return False
-        except Exception:
-            # Gracefully handle any git errors
-            return False
+        remotes = self.__git_repo.remotes
+        return any(remote.name == 'origin' for remote in remotes)
 
     def push_branch(self, branch_name: str, set_upstream: bool = True) -> None:
         """
@@ -373,40 +362,28 @@ class HGit:
 
         Updates local knowledge of remote tags for patch number reservation.
 
-        Raises:
-            GitCommandError: If fetch fails
-
         Examples:
             hgit.fetch_tags()
             # Local git now knows about all remote tags
         """
-        try:
-            origin = self.__git_repo.remote('origin')
-            origin.fetch(tags=True)
-        except Exception as e:
-            if isinstance(e, GitCommandError):
-                raise
-            raise GitCommandError(f"git fetch --tags", 1, stderr=str(e))
+        origin = self.__git_repo.remote('origin')
+        origin.fetch(tags=True)
 
     def tag_exists(self, tag_name: str) -> bool:
         """
-        Check if tag exists locally or on remote.
+        Check if tag exists locally.
 
         Args:
             tag_name: Tag name to check (e.g., "ho-patch/456")
 
         Returns:
-            bool: True if tag exists, False otherwise
+            bool: True if tag exists locally, False otherwise
 
         Examples:
             if hgit.tag_exists("ho-patch/456"):
                 print("Patch number 456 reserved")
         """
-        try:
-            # Check in local tags
-            return tag_name in [tag.name for tag in self.__git_repo.tags]
-        except Exception:
-            return False
+        return tag_name in [tag.name for tag in self.__git_repo.tags]
 
     def create_tag(self, tag_name: str, message: str) -> None:
         """
@@ -416,18 +393,10 @@ class HGit:
             tag_name: Tag name (e.g., "ho-patch/456")
             message: Tag message/description
 
-        Raises:
-            GitCommandError: If tag creation fails
-
         Examples:
             hgit.create_tag("ho-patch/456", "Patch 456: User authentication")
         """
-        try:
-            self.__git_repo.create_tag(tag_name, message=message)
-        except Exception as e:
-            if isinstance(e, GitCommandError):
-                raise
-            raise GitCommandError(f"git tag", 1, stderr=str(e))
+        self.__git_repo.create_tag(tag_name, message=message)
 
     def push_tag(self, tag_name: str) -> None:
         """
@@ -435,9 +404,6 @@ class HGit:
 
         Args:
             tag_name: Tag name to push (e.g., "ho-patch/456")
-
-        Raises:
-            GitCommandError: If push fails
 
         Examples:
             hgit.push_tag("ho-patch/456")
@@ -458,21 +424,13 @@ class HGit:
         This is more comprehensive than fetch_tags() which only fetches tags.
         Used before patch creation to ensure up-to-date view of remote state.
 
-        Raises:
-            GitCommandError: If fetch fails (no remote, network, auth, etc.)
-
         Examples:
             hgit.fetch_from_origin()
             # Local git now has complete up-to-date view of origin
             # Stale remote refs (deleted branches on remote) are removed
         """
-        try:
-            origin = self.__git_repo.remote('origin')
-            origin.fetch(prune=True)
-        except Exception as e:
-            if isinstance(e, GitCommandError):
-                raise
-            raise GitCommandError(f"git fetch origin", 1, stderr=str(e))
+        origin = self.__git_repo.remote('origin')
+        origin.fetch(prune=True)
 
     def delete_local_branch(self, branch_name: str) -> None:
         """
@@ -481,19 +439,11 @@ class HGit:
         Args:
             branch_name: Branch name to delete (e.g., "ho-patch/456-user-auth")
 
-        Raises:
-            GitCommandError: If deletion fails
-
         Examples:
             hgit.delete_local_branch("ho-patch/456-user-auth")
             # Branch deleted locally
         """
-        try:
-            self.__git_repo.git.branch('-D', branch_name)
-        except Exception as e:
-            if isinstance(e, GitCommandError):
-                raise
-            raise GitCommandError(f"git branch -D {branch_name}", 1, stderr=str(e))
+        self.__git_repo.git.branch('-D', branch_name)
 
 
     def delete_local_tag(self, tag_name: str) -> None:
@@ -503,19 +453,11 @@ class HGit:
         Args:
             tag_name: Tag name to delete (e.g., "ho-patch/456")
 
-        Raises:
-            GitCommandError: If deletion fails
-
         Examples:
             hgit.delete_local_tag("ho-patch/456")
             # Tag deleted locally
         """
-        try:
-            self.__git_repo.git.tag('-d', tag_name)
-        except Exception as e:
-            if isinstance(e, GitCommandError):
-                raise
-            raise GitCommandError(f"git tag -d {tag_name}", 1, stderr=str(e))
+        self.__git_repo.git.tag('-d', tag_name)
 
     def delete_branch(self, branch_name: str, force: bool = False) -> None:
         """
@@ -525,20 +467,12 @@ class HGit:
             branch_name: Branch name to delete (e.g., "ho-release/1.3.5/456-user-auth")
             force: If True, use -D (force delete), otherwise use -d
 
-        Raises:
-            GitCommandError: If deletion fails
-
         Examples:
             hgit.delete_branch("ho-release/1.3.5/456-user-auth", force=True)
             # Branch deleted locally with force
         """
-        try:
-            flag = '-D' if force else '-d'
-            self.__git_repo.git.branch(flag, branch_name)
-        except Exception as e:
-            if isinstance(e, GitCommandError):
-                raise
-            raise GitCommandError(f"git branch {flag} {branch_name}", 1, stderr=str(e))
+        flag = '-D' if force else '-d'
+        self.__git_repo.git.branch(flag, branch_name)
 
     def delete_remote_branch(self, branch_name: str, remote: str = 'origin') -> None:
         """
@@ -548,20 +482,12 @@ class HGit:
             branch_name: Branch name to delete (e.g., "ho-release/1.3.5/456-user-auth")
             remote: Remote name (default: 'origin')
 
-        Raises:
-            GitCommandError: If deletion fails
-
         Examples:
             hgit.delete_remote_branch("ho-release/1.3.5/456-user-auth")
             # Branch deleted from origin
         """
-        try:
-            origin = self.__git_repo.remote(remote)
-            origin.push(refspec=f":{branch_name}")
-        except Exception as e:
-            if isinstance(e, GitCommandError):
-                raise
-            raise GitCommandError(f"git push {remote} --delete {branch_name}", 1, stderr=str(e))
+        origin = self.__git_repo.remote(remote)
+        origin.push(refspec=f":{branch_name}")
 
     def create_branch(self, branch_name: str, from_branch: str = None) -> None:
         """
@@ -571,22 +497,14 @@ class HGit:
             branch_name: Name of the new branch to create
             from_branch: Branch to create from (default: current HEAD)
 
-        Raises:
-            GitCommandError: If branch creation fails
-
         Examples:
             hgit.create_branch("ho-release/0.1.0", from_branch="ho-prod")
             # Creates ho-release/0.1.0 from ho-prod
         """
-        try:
-            if from_branch:
-                self.__git_repo.git.branch(branch_name, from_branch)
-            else:
-                self.__git_repo.git.branch(branch_name)
-        except Exception as e:
-            if isinstance(e, GitCommandError):
-                raise
-            raise GitCommandError(f"git branch {branch_name}", 1, stderr=str(e))
+        if from_branch:
+            self.__git_repo.git.branch(branch_name, from_branch)
+        else:
+            self.__git_repo.git.branch(branch_name)
 
     def create_branch_from_tag(self, branch_name: str, tag_name: str) -> None:
         """
@@ -596,19 +514,11 @@ class HGit:
             branch_name: Name of the new branch to create
             tag_name: Tag to create branch from
 
-        Raises:
-            GitCommandError: If branch creation fails
-
         Examples:
             hgit.create_branch_from_tag("ho-release/1.3.5", "v1.3.5")
             # Creates ho-release/1.3.5 from tag v1.3.5
         """
-        try:
-            self.__git_repo.git.branch(branch_name, tag_name)
-        except Exception as e:
-            if isinstance(e, GitCommandError):
-                raise
-            raise GitCommandError(f"git branch {branch_name} {tag_name}", 1, stderr=str(e))
+        self.__git_repo.git.branch(branch_name, tag_name)
 
     def rename_branch(self, old_name: str, new_name: str) -> None:
         """
@@ -618,19 +528,11 @@ class HGit:
             old_name: Current branch name
             new_name: New branch name
 
-        Raises:
-            GitCommandError: If rename fails
-
         Examples:
             hgit.rename_branch("ho-patch/001-first", "ho-release/0.1.0/001-first")
             # Renames the branch
         """
-        try:
-            self.__git_repo.git.branch('-m', old_name, new_name)
-        except Exception as e:
-            if isinstance(e, GitCommandError):
-                raise
-            raise GitCommandError(f"git branch -m {old_name} {new_name}", 1, stderr=str(e))
+        self.__git_repo.git.branch('-m', old_name, new_name)
 
     def merge(self, branch_name: str, no_ff: bool = False, ff_only: bool = False,
               message: str = None) -> None:
@@ -643,9 +545,6 @@ class HGit:
             ff_only: Only fast-forward merge (--ff-only)
             message: Custom merge commit message (-m)
 
-        Raises:
-            GitCommandError: If merge fails (including conflicts)
-
         Examples:
             hgit.merge("ho-release/0.1.0/001-first", no_ff=True,
                       message="[HOP] Merge patch 001-first")
@@ -654,21 +553,16 @@ class HGit:
             hgit.merge("ho-release/0.1.0", ff_only=True)
             # Fast-forward only merge
         """
-        try:
-            args = []
-            if no_ff:
-                args.append('--no-ff')
-            if ff_only:
-                args.append('--ff-only')
-            if message:
-                args.extend(['-m', message])
-            args.append(branch_name)
+        args = []
+        if no_ff:
+            args.append('--no-ff')
+        if ff_only:
+            args.append('--ff-only')
+        if message:
+            args.extend(['-m', message])
+        args.append(branch_name)
 
-            self.__git_repo.git.merge(*args)
-        except Exception as e:
-            if isinstance(e, GitCommandError):
-                raise
-            raise GitCommandError(f"git merge {branch_name}", 1, stderr=str(e))
+        self.__git_repo.git.merge(*args)
 
     def branch_exists(self, branch_name: str) -> bool:
         """
@@ -684,11 +578,8 @@ class HGit:
             if hgit.branch_exists("ho-patch/001-first"):
                 print("Branch exists")
         """
-        try:
-            branches = [b.name for b in self.__git_repo.branches]
-            return branch_name in branches
-        except Exception:
-            return False
+        branches = [b.name for b in self.__git_repo.branches]
+        return branch_name in branches
 
     def get_local_commit_hash(self, branch_name: str) -> str:
         """
@@ -703,9 +594,6 @@ class HGit:
         Returns:
             str: Full SHA-1 commit hash (40 characters)
 
-        Raises:
-            GitCommandError: If branch doesn't exist locally
-
         Examples:
             # Get commit hash of ho-prod
             hash_prod = hgit.get_local_commit_hash("ho-prod")
@@ -714,26 +602,16 @@ class HGit:
             # Get commit hash of patch branch
             hash_patch = hgit.get_local_commit_hash("ho-patch/456")
         """
-        try:
-            # Access branch from heads
-            if branch_name not in self.__git_repo.heads:
-                raise GitCommandError(
-                    f"git rev-parse {branch_name}",
-                    1,
-                    stderr=f"Branch '{branch_name}' not found locally"
-                )
-
-            branch = self.__git_repo.heads[branch_name]
-            return branch.commit.hexsha
-
-        except GitCommandError:
-            raise
-        except Exception as e:
+        # Access branch from heads
+        if branch_name not in self.__git_repo.heads:
             raise GitCommandError(
                 f"git rev-parse {branch_name}",
                 1,
-                stderr=str(e)
+                stderr=f"Branch '{branch_name}' not found locally"
             )
+
+        branch = self.__git_repo.heads[branch_name]
+        return branch.commit.hexsha
 
     def get_remote_commit_hash(self, branch_name: str, remote: str = 'origin') -> str:
         """
@@ -750,9 +628,6 @@ class HGit:
         Returns:
             str: Full SHA-1 commit hash (40 characters)
 
-        Raises:
-            GitCommandError: If remote or branch doesn't exist on remote
-
         Examples:
             # Get remote commit hash (after fetch)
             hgit.fetch_from_origin()
@@ -764,30 +639,20 @@ class HGit:
             if hash_local == hash_remote:
                 print("Branch is synced")
         """
-        try:
-            # Get remote
-            remote_obj = self.__git_repo.remote(remote)
+        # Get remote
+        remote_obj = self.__git_repo.remote(remote)
 
-            # Check if branch exists in remote refs
-            if branch_name not in remote_obj.refs:
-                raise GitCommandError(
-                    f"git ls-remote {remote} {branch_name}",
-                    1,
-                    stderr=f"Branch '{branch_name}' not found on remote '{remote}'"
-                )
-
-            # Get commit hash from remote ref
-            remote_ref = remote_obj.refs[branch_name]
-            return remote_ref.commit.hexsha
-
-        except GitCommandError:
-            raise
-        except Exception as e:
+        # Check if branch exists in remote refs
+        if branch_name not in remote_obj.refs:
             raise GitCommandError(
                 f"git ls-remote {remote} {branch_name}",
                 1,
-                stderr=str(e)
+                stderr=f"Branch '{branch_name}' not found on remote '{remote}'"
             )
+
+        # Get commit hash from remote ref
+        remote_ref = remote_obj.refs[branch_name]
+        return remote_ref.commit.hexsha
 
     def is_branch_synced(self, branch_name: str, remote: str = 'origin') -> tuple[bool, str]:
         """
@@ -850,33 +715,28 @@ class HGit:
             return (True, "synced")
 
         # Branches differ - determine if ahead, behind, or diverged
-        try:
-            # Get merge base (common ancestor)
-            local_commit = self.__git_repo.heads[branch_name].commit
-            remote_ref = self.__git_repo.remote(remote).refs[branch_name]
-            remote_commit = remote_ref.commit
+        # Get merge base (common ancestor)
+        local_commit = self.__git_repo.heads[branch_name].commit
+        remote_ref = self.__git_repo.remote(remote).refs[branch_name]
+        remote_commit = remote_ref.commit
 
-            merge_base_commits = self.__git_repo.merge_base(local_commit, remote_commit)
+        merge_base_commits = self.__git_repo.merge_base(local_commit, remote_commit)
 
-            if not merge_base_commits:
-                # No common ancestor - diverged
-                return (False, "diverged")
+        if not merge_base_commits:
+            # No common ancestor - diverged
+            return (False, "diverged")
 
-            merge_base_hash = merge_base_commits[0].hexsha
+        merge_base_hash = merge_base_commits[0].hexsha
 
-            # Compare merge base with local and remote
-            if merge_base_hash == remote_hash:
-                # Merge base = remote → local is ahead
-                return (False, "ahead")
-            elif merge_base_hash == local_hash:
-                # Merge base = local → local is behind
-                return (False, "behind")
-            else:
-                # Merge base different from both → diverged
-                return (False, "diverged")
-
-        except Exception as e:
-            # If merge_base fails, assume diverged
+        # Compare merge base with local and remote
+        if merge_base_hash == remote_hash:
+            # Merge base = remote → local is ahead
+            return (False, "ahead")
+        elif merge_base_hash == local_hash:
+            # Merge base = local → local is behind
+            return (False, "behind")
+        else:
+            # Merge base different from both → diverged
             return (False, "diverged")
 
     def acquire_branch_lock(self, branch_name: str, timeout_minutes: int = 30) -> str:
@@ -937,7 +797,7 @@ class HGit:
                     try:
                         self.__git_repo.git.push("origin", "--delete", existing_locks[0])
                         self.delete_local_tag(existing_locks[0])
-                    except Exception as e:
+                    except GitCommandError as e:
                         print(f"Warning: Failed to delete stale lock: {e}")
                     # Continue to create new lock
                 else:
@@ -960,7 +820,7 @@ class HGit:
         # Push tag (ATOMIC - this is the lock acquisition)
         try:
             self.push_tag(lock_tag)
-        except Exception as e:
+        except GitCommandError as e:
             # Push failed - someone else got the lock first
             # Cleanup local tag
             self.delete_local_tag(lock_tag)
@@ -970,7 +830,7 @@ class HGit:
                 f"Another process acquired it first.\n"
                 f"Retry in a few seconds.",
                 status=1
-            )
+            ) from e
 
         return lock_tag
 
@@ -996,13 +856,13 @@ class HGit:
         try:
             # Delete remote tag
             self.__git_repo.git.push("origin", "--delete", lock_tag)
-        except Exception as e:
+        except GitCommandError as e:
             print(f"⚠️  Warning: Failed to delete remote lock tag {lock_tag}: {e}")
 
         try:
             # Delete local tag
             self.delete_local_tag(lock_tag)
-        except Exception as e:
+        except GitCommandError as e:
             print(f"⚠️  Warning: Failed to delete local lock tag {lock_tag}: {e}")
 
 
@@ -1095,26 +955,14 @@ class HGit:
             - Remote operations may fail due to network or permissions
         """
         # 1. Fetch latest from origin to ensure we have up-to-date refs
-        try:
-            self.fetch_from_origin()
-        except GitCommandError as e:
-            raise GitCommandError(
-                f"Failed to fetch from origin before rename: {e}",
-                status=1
-            )
+        self.fetch_from_origin()
 
         # 2. Check if old branch exists (local or remote)
+        origin = self.__git_repo.remote('origin')
         old_branch_exists_local = old_name in self.__git_repo.heads
-        old_branch_exists_remote = False
-
-        try:
-            origin = self.__git_repo.remote('origin')
-            old_branch_exists_remote = old_name in [
-                ref.name.replace('origin/', '', 1)
-                for ref in origin.refs
-            ]
-        except:
-            pass  # Remote may not exist or may not have the branch
+        old_branch_exists_remote = old_name in [
+            ref.name.replace('origin/', '', 1) for ref in origin.refs
+        ]
 
         if not old_branch_exists_local and not old_branch_exists_remote:
             raise GitCommandError(
@@ -1124,16 +972,9 @@ class HGit:
 
         # 3. Check if new branch already exists
         new_branch_exists_local = new_name in self.__git_repo.heads
-        new_branch_exists_remote = False
-
-        try:
-            origin = self.__git_repo.remote('origin')
-            new_branch_exists_remote = new_name in [
-                ref.name.replace('origin/', '', 1)
-                for ref in origin.refs
-            ]
-        except:
-            pass
+        new_branch_exists_remote = new_name in [
+            ref.name.replace('origin/', '', 1) for ref in origin.refs
+        ]
 
         if new_branch_exists_local or new_branch_exists_remote:
             raise GitCommandError(
@@ -1144,44 +985,25 @@ class HGit:
         # 4. Create new local branch from old branch
         # If old branch only exists on remote, create from remote ref
         if not old_branch_exists_local and old_branch_exists_remote:
-            # Create from remote ref
-            try:
-                self.__git_repo.git.branch(new_name, f"origin/{old_name}")
-            except GitCommandError as e:
-                raise GitCommandError(
-                    f"Failed to create new branch '{new_name}' from remote '{old_name}': {e}",
-                    status=1
-                )
+            self.__git_repo.git.branch(new_name, f"origin/{old_name}")
         else:
-            # Create from local branch
-            try:
-                self.__git_repo.git.branch(new_name, old_name)
-            except GitCommandError as e:
-                raise GitCommandError(
-                    f"Failed to create new branch '{new_name}' from local '{old_name}': {e}",
-                    status=1
-                )
+            self.__git_repo.git.branch(new_name, old_name)
 
         # 5. Push new branch to remote with upstream tracking
         try:
-            origin = self.__git_repo.remote('origin')
             origin.push(f"{new_name}:{new_name}", set_upstream=True)
-        except GitCommandError as e:
+        except GitCommandError:
             # Rollback: delete local new branch
             try:
                 self.__git_repo.git.branch("-D", new_name)
-            except:
+            except GitCommandError:
                 pass  # Best effort
 
-            raise GitCommandError(
-                f"Failed to push new branch '{new_name}' to remote: {e}",
-                status=1
-            )
+            raise
 
         # 6. Delete old branch from remote (if requested)
         if delete_remote_old and old_branch_exists_remote:
             try:
-                origin = self.__git_repo.remote('origin')
                 origin.push(refspec=f":{old_name}")  # Delete remote branch
             except GitCommandError as e:
                 # Non-fatal: log warning but continue
@@ -1229,28 +1051,12 @@ class HGit:
             # Filter for patch branches
             patch_branches = [b for b in branches if 'ho-patch' in b]
         """
-        try:
-            result = subprocess.run(
-                ["git", "branch", "-r"],
-                cwd=self.__base_dir,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-
-            # Parse output: each line is a branch name
-            branches = []
-            for line in result.stdout.strip().split('\n'):
-                branch = line.strip()
-                # Skip empty lines and HEAD references
-                if branch and not 'HEAD' in branch:
-                    branches.append(branch)
-
-            return branches
-
-        except subprocess.CalledProcessError:
-            # If command fails, return empty list
-            return []
+        origin = self.__git_repo.remote('origin')
+        return [
+            ref.name
+            for ref in origin.refs
+            if not ref.name.endswith('/HEAD')
+        ]
 
     def get_local_branches(self, pattern: Optional[str] = None) -> List[str]:
         """
@@ -1276,34 +1082,10 @@ class HGit:
             release_branches = hgit.get_local_branches(pattern="ho-release/*")
             # → ['ho-release/1.0.0/123', 'ho-release/1.0.0/456']
         """
-        try:
-            cmd = ["git", "branch", "--format=%(refname:short)"]
-            result = subprocess.run(
-                cmd,
-                cwd=self.__base_dir,
-                capture_output=True,
-                text=True,
-                check=True
-            )
-
-            # Parse output: each line is a branch name
-            branches = []
-            for line in result.stdout.strip().split('\n'):
-                branch = line.strip()
-                if branch:
-                    # Apply pattern filter if provided
-                    if pattern is None:
-                        branches.append(branch)
-                    else:
-                        # Simple glob pattern matching
-                        if fnmatch.fnmatch(branch, pattern):
-                            branches.append(branch)
-
-            return branches
-
-        except subprocess.CalledProcessError:
-            # If command fails, return empty list
-            return []
+        branches = [head.name for head in self.__git_repo.heads]
+        if pattern is not None:
+            branches = [b for b in branches if fnmatch.fnmatch(b, pattern)]
+        return branches
 
     def prune_local_branches(
         self,
@@ -1345,7 +1127,7 @@ class HGit:
         # Fetch from remote to get up-to-date branch list
         try:
             self.fetch_from_origin()
-        except Exception as e:
+        except GitCommandError as e:
             return {
                 'deleted': [],
                 'skipped': [],
@@ -1357,7 +1139,8 @@ class HGit:
         if exclude_current:
             try:
                 current_branch = str(self.__git_repo.active_branch)
-            except:
+            except TypeError:
+                # active_branch raises TypeError when HEAD is detached
                 pass
 
         # Get local and remote branches
@@ -1396,7 +1179,7 @@ class HGit:
                 try:
                     self.__git_repo.git.branch('-D', branch)
                     deleted.append(branch)
-                except Exception as e:
+                except GitCommandError as e:
                     errors.append((branch, str(e)))
 
         return {
@@ -1453,13 +1236,14 @@ class HGit:
         # Fetch to get latest remote refs
         try:
             self.fetch_from_origin()
-        except Exception:
-            pass  # Best effort
+        except GitCommandError:
+            pass  # Best effort for a status method
 
         # Get current branch
         try:
             current_branch = str(self.__git_repo.active_branch)
-        except Exception:
+        except TypeError:
+            # active_branch raises TypeError when HEAD is detached
             current_branch = None
 
         # Get remote branches
@@ -1500,7 +1284,7 @@ class HGit:
 
                     if ordered_patches:
                         patch_order[version] = ordered_patches
-                except Exception:
+                except (OSError, ValueError):
                     pass
 
         def get_branch_info(branch: str, check_stage: bool = False, is_local: bool = True) -> dict:
@@ -1554,20 +1338,16 @@ class HGit:
 
                     if not is_synced and status in ('ahead', 'behind', 'diverged'):
                         try:
-                            result = subprocess.run(
-                                ["git", "rev-list", "--left-right", "--count",
-                                 f"{branch}...origin/{branch}"],
-                                cwd=self.__base_dir,
-                                capture_output=True,
-                                text=True,
-                                check=True
+                            counts = self.__git_repo.git.rev_list(
+                                '--left-right', '--count',
+                                f'{branch}...origin/{branch}'
                             )
-                            ahead, behind = result.stdout.strip().split()
+                            ahead, behind = counts.strip().split()
                             info['ahead'] = int(ahead)
                             info['behind'] = int(behind)
-                        except Exception:
+                        except (GitCommandError, ValueError):
                             pass
-                except Exception:
+                except GitCommandError:
                     info['sync_status'] = 'error'
 
             return info
@@ -1635,13 +1415,14 @@ class HGit:
         # Save current branch
         try:
             original_branch = str(self.__git_repo.active_branch)
-        except Exception:
+        except TypeError:
+            # active_branch raises TypeError when HEAD is detached
             original_branch = None
 
         # Fetch first to get latest remote state
         try:
             self.__git_repo.remotes.origin.fetch(prune=True)
-        except Exception as e:
+        except GitCommandError as e:
             return {
                 'synced': [],
                 'created': [],
@@ -1686,10 +1467,10 @@ class HGit:
                             self.__git_repo.heads[branch].checkout()
                             self.__git_repo.remotes.origin.pull(branch, ff_only=True)
                             synced.append(branch)
-                        except Exception as e:
+                        except GitCommandError as e:
                             errors.append((branch, str(e)))
 
-                except Exception as e:
+                except GitCommandError as e:
                     errors.append((branch, f"status check failed: {e}"))
             else:
                 # Branch doesn't exist locally - create it tracking remote
@@ -1700,14 +1481,14 @@ class HGit:
                     # Set up tracking
                     self.__git_repo.heads[branch].set_tracking_branch(remote_ref)
                     created.append(branch)
-                except Exception as e:
+                except GitCommandError as e:
                     errors.append((branch, f"create failed: {e}"))
 
         # Return to original branch
         if original_branch:
             try:
                 self.__git_repo.heads[original_branch].checkout()
-            except Exception:
+            except GitCommandError:
                 pass  # Best effort
 
         return {
