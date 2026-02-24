@@ -31,6 +31,7 @@ class TestRepoSyncHop:
         repo.hgit = Mock()
         repo.hgit.branch = 'ho-prod'
         repo.hgit._HGit__git_repo = Mock()
+        repo.hgit.is_branch_synced = Mock(return_value=(True, "synced"))
 
         # Bind the real method to the mock
         repo.sync_hop_to_active_branches = Repo.sync_hop_to_active_branches.__get__(repo, Repo)

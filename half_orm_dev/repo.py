@@ -27,10 +27,11 @@ from half_orm_dev.database import Database
 from half_orm_dev.hgit import HGit
 from half_orm_dev import modules
 from half_orm.model import Model
+from git.exc import GitCommandError
 from half_orm_dev.patch_manager import PatchManager, PatchManagerError
-from half_orm_dev.release_manager import ReleaseManager
+from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 from half_orm_dev.migration_manager import MigrationManager, MigrationManagerError
-from half_orm_dev.release_file import ReleaseFile
+from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
 
 from .utils import TEMPLATE_DIRS, hop_version
 
@@ -254,7 +255,7 @@ class Repo:
             if instance.database and instance.database.model:
                 try:
                     instance.database.model.disconnect()
-                except:
+                except Exception:
                     pass
         cls._instances.clear()
 
@@ -617,7 +618,7 @@ class Repo:
                 source_version_str = source_branch.replace('ho-release/', '')
                 try:
                     source_version = version.parse(source_version_str)
-                except Exception:
+                except ValueError:
                     pass  # Invalid version, skip filtering
 
             # If source is a release branch, filter out release branches with higher versions
@@ -635,7 +636,7 @@ class Repo:
                             # Skip branches with higher version
                             result['skipped_branches'].append(f"{branch} (version > {source_version_str})")
                             continue
-                    except Exception:
+                    except ValueError:
                         pass  # Invalid version, include it
 
                 filtered_branches.append(branch)
@@ -657,7 +658,7 @@ class Repo:
                 # actor has already synced this branch.
                 remote_ref = f"origin/{branch}"
                 try:
-                    synced, status = self.hgit.compare_with_remote(branch)
+                    synced, status = self.hgit.is_branch_synced(branch)
                     if not synced and status == "diverged":
                         print(
                             f"Warning: branch {branch} has diverged from origin. "
@@ -666,7 +667,7 @@ class Repo:
                         )
                     if not synced:
                         self.hgit._HGit__git_repo.git.reset('--hard', remote_ref)
-                except Exception:
+                except GitCommandError:
                     # Remote branch may not exist yet, continue without reset
                     pass
 
@@ -682,7 +683,7 @@ class Repo:
                     for file_path in additional_files:
                         try:
                             self.hgit._HGit__git_repo.git.checkout(source_branch, '--', file_path)
-                        except Exception:
+                        except GitCommandError:
                             # File might not exist in source branch, skip
                             pass
 
@@ -748,7 +749,7 @@ class Repo:
                     for file_path in additional_files:
                         try:
                             self.hgit.add(file_path)
-                        except Exception:
+                        except GitCommandError:
                             pass  # File might not exist
 
                 # Check if there are changes
@@ -867,7 +868,7 @@ class Repo:
             try:
                 if current_branch and git_repo:
                     git_repo.heads[current_branch].checkout()
-            except Exception:
+            except (GitCommandError, IndexError, TypeError):
                 pass
             # Log but don't fail (offline mode, no remote, etc.)
             # Only critical errors (dirty repo, version mismatch) should block
@@ -1429,7 +1430,7 @@ class Repo:
                         latest = version.parse(result['latest_version'])
                         if current < latest:
                             result['update_available'] = True
-                    except Exception:
+                    except ValueError:
                         # Fallback to string comparison if packaging fails
                         if result['current_version'] != result['latest_version']:
                             result['update_available'] = True
@@ -1543,7 +1544,7 @@ class Repo:
                 try:
                     if current_branch and git_repo:
                         git_repo.heads[current_branch].checkout()
-                except Exception:
+                except (GitCommandError, IndexError, TypeError):
                     pass
 
         # 0b. Sync all active branches that are behind remote
@@ -1552,7 +1553,7 @@ class Repo:
         if self.hgit and not dry_run:
             try:
                 sync_result = self.hgit.sync_active_branches(pattern="ho-*")
-            except Exception:
+            except GitCommandError:
                 pass  # Best effort - continue even if sync fails
 
         result['branch_sync'] = sync_result
@@ -1610,11 +1611,11 @@ class Repo:
                                 'staged': release_file.get_patches(status='staged'),
                                 'metadata': metadata
                             }
-                        except Exception:
+                        except (ReleaseFileError, OSError):
                             # Failed to parse TOML - skip this file
                             pass
 
-                except Exception:
+                except OSError:
                     pass  # Silent failure - will result in empty releases_info
 
             result['active_branches'] = self.hgit.get_active_branches_status(
@@ -1627,7 +1628,7 @@ class Repo:
             if hasattr(self, 'release_manager'):
                 try:
                     production_version = self.release_manager._get_production_version()
-                except Exception:
+                except ReleaseManagerError:
                     # No production version available (e.g., model/ doesn't exist yet)
                     pass
             result['production_version'] = production_version
@@ -1641,11 +1642,12 @@ class Repo:
                         patch_id for patch_id, info in status_map.items()
                         if info.get('status') == 'orphaned'
                     ]
-                except Exception:
+                except PatchManagerError:
                     pass  # Best effort
             result['orphaned_patches'] = orphaned_patches
 
-        except Exception:
+        except Exception as e:
+            print(f"⚠️  Warning: Failed to gather status info: {e}", file=sys.stderr)
             result['active_branches'] = {
                 'current_branch': None,
                 'patch_branches': [],

@@ -2499,8 +2499,12 @@ class PatchManager:
                 # Cleanup (temp branch + lock) is protected by finally blocks
             )
 
-            if result.returncode == 0:
-                click.echo(f"  • {utils.Color.green('✓')} Tests passed")
+            if result.returncode in (0, 5):
+                # 0: all tests passed; 5: no tests collected (not a failure)
+                if result.returncode == 0:
+                    click.echo(f"  • {utils.Color.green('✓')} Tests passed")
+                else:
+                    click.echo(f"  • No tests collected (skipping)")
             else:
                 # Tests failed - BLOCK the workflow
                 error_msg = f"Tests failed! Cannot close patch with failing tests.\n\n"
