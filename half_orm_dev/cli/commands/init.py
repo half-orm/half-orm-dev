@@ -272,6 +272,9 @@ def _check_database_status(database_name, connection_options):
 
         return (True, has_metadata)
 
+    except FileNotFoundError:
+        # Config file doesn't exist yet — expected for a new project
+        return (False, False)
     except Exception as e:
         # Database doesn't exist or not accessible yet
         # This is expected for new databases before setup_database runs
