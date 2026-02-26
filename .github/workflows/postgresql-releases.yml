@@ -57,6 +57,7 @@ jobs:
         half_orm --list-extensions
         HALFORM_CONF_DIR=$PWD/.config pytest tests/ -v
     - name: Submit coverage to Coveralls
+      continue-on-error: true
       run: |
         for i in 1 2 3; do
           coveralls && break || sleep 15

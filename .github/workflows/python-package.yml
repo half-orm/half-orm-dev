@@ -74,6 +74,7 @@ jobs:
         COVERALLS_PARALLEL: true
   coveralls:
     name: Indicate completion to coveralls.io
+    continue-on-error: true
     needs: test
     runs-on: ubuntu-latest
     container: python:3-slim
