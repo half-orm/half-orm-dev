@@ -1940,13 +1940,18 @@ class ReleaseManager:
                     f"Use --force to overwrite or remove the file manually."
                 )
 
-        # Create backup using pg_dump
+        # Create backup using pg_dump with explicit connection parameters
         try:
-            self._repo.database.execute_pg_command(
-                'pg_dump',
-                self._repo.database.name,
-                '-f', str(backup_file),
-            )
+            params = self._repo.database._get_connection_params()
+            cmd_args = ['pg_dump']
+            if params.get('host'):
+                cmd_args += ['-h', params['host']]
+                if params.get('port'):
+                    cmd_args += ['-p', str(params['port'])]
+            if params.get('user'):
+                cmd_args += ['-U', params['user']]
+            cmd_args += [self._repo.database.name, '-f', str(backup_file)]
+            self._repo.database.execute_pg_command(*cmd_args)
         except Exception as e:
             raise ReleaseManagerError(
                 f"Failed to create backup {backup_file}: {e}"
