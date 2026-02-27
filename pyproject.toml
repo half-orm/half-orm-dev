@@ -34,7 +34,7 @@ classifiers = [
 requires-python = ">=3.9"
 
 [project.urls]
-Homepage = "https://github.com/collorg/halfORM_dev"
+Homepage = "https://github.com/half-orm/half-orm-dev"
 
 [tool.setuptools.packages.find]
 where = ["."]

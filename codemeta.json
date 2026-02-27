@@ -1,0 +1,117 @@
+{
+    "@context": [
+        "https://w3id.org/codemeta/3.0",
+        "https://w3id.org/software-iodata",
+        "https://raw.githubusercontent.com/jantman/repostatus.org/master/badges/latest/ontology.jsonld",
+        "https://schema.org",
+        "https://w3id.org/software-types"
+    ],
+    "@type": "SoftwareSourceCode",
+    "applicationCategory": "Software Development > Build Tools",
+    "audience": {
+        "@type": "Audience",
+        "audienceType": "Developers"
+    },
+    "author": [
+        {
+            "@type": "Person",
+            "email": "joel.maizi@collorg.org",
+            "familyName": "Maïzi",
+            "givenName": "Joël"
+        }
+    ],
+    "codeRepository": "https://github.com/half-orm/half-orm-dev",
+    "contributor": [
+        {
+            "@type": "Person",
+            "email": "joel.maizi@lirmm.fr",
+            "familyName": "Maizi",
+            "givenName": "Joël"
+        },
+        {
+            "@type": "Person",
+            "email": "maxime.alves@lirmm.fr",
+            "familyName": "Alves LIRMM",
+            "givenName": "Maxime"
+        }
+    ],
+    "dateCreated": "2021-08-26T11:23:32Z+0200",
+    "dateModified": "2026-02-27T09:32:29Z+0100",
+    "description": "half_orm development Framework.",
+    "developmentStatus": "https://www.repostatus.org/#wip",
+    "identifier": "half-orm-dev",
+    "isSourceCodeOf": {
+        "@type": "CommandLineApplication",
+        "name": "half_orm_dev"
+    },
+    "keywords": [
+        "postgres",
+        "relation-object mapping"
+    ],
+    "license": "http://spdx.org/licenses/GPL-3.0-only",
+    "maintainer": {
+        "@type": "Person",
+        "email": "joel.maizi@collorg.org",
+        "familyName": "Maïzi",
+        "givenName": "Joël"
+    },
+    "name": "half_orm_dev",
+    "programmingLanguage": "Python",
+    "runtimePlatform": [
+        "Python 3",
+        "Python 3.10",
+        "Python 3.11",
+        "Python 3.12",
+        "Python 3.13",
+        "Python 3.14",
+        "Python 3.9"
+    ],
+    "softwareRequirements": [
+        {
+            "@type": "SoftwareApplication",
+            "identifier": "GitPython",
+            "name": "GitPython",
+            "runtimePlatform": "Python 3"
+        },
+        {
+            "@type": "SoftwareApplication",
+            "identifier": "click",
+            "name": "click",
+            "runtimePlatform": "Python 3"
+        },
+        {
+            "@type": "SoftwareApplication",
+            "identifier": "half_orm<0.18.0",
+            "name": "half_orm<0.18.0",
+            "runtimePlatform": "Python 3"
+        },
+        {
+            "@type": "SoftwareApplication",
+            "identifier": "pydash",
+            "name": "pydash",
+            "runtimePlatform": "Python 3"
+        },
+        {
+            "@type": "SoftwareApplication",
+            "identifier": "pytest",
+            "name": "pytest",
+            "runtimePlatform": "Python 3"
+        },
+        {
+            "@type": "SoftwareApplication",
+            "identifier": "tomli",
+            "name": "tomli",
+            "runtimePlatform": "Python 3",
+            "version": ">= 2.0.0"
+        },
+        {
+            "@type": "SoftwareApplication",
+            "identifier": "tomli_w",
+            "name": "tomli_w",
+            "runtimePlatform": "Python 3",
+            "version": ">= 1.0.0"
+        }
+    ],
+    "url": "https://github.com/half-orm/half-orm-dev",
+    "version": "0.17.5a7"
+}
