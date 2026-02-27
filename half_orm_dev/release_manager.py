@@ -2380,21 +2380,27 @@ class ReleaseManager:
         """
         Unified promotion method for RC and production releases.
 
-        Uses a temporary branch (ho-promote/{version}-{target}) for validation.
+        Uses a temporary branch (ho-promote/{version}-{target}) for validation only.
         If validation fails, the temporary branch is deleted and the original
-        state is preserved. On success, changes are merged to the target branch.
+        state is preserved.
 
-        Workflow:
+        Prod workflow:
         1. Detect version and validate release file
-        2. Create temporary branch ho-promote/{version}-{target}
-        3. Apply patches and bootstrap scripts (validation)
+        2. Create temporary branch ho-promote/{version}-prod
+        3. Apply patches and run tests (DB validation only)
         4. Register version in database
-        5. Create snapshot files
-        6. For prod: generate schema/data files
-        7. Merge temp branch into target (release branch for RC, ho-prod for prod)
-        8. Create and push tags
-        9. Cleanup: delete temp branch, for prod delete release branch
-        10. For prod: handle candidate migration
+        5. Delete ho-promote (throwaway — never merged)
+        6. Back on ho-release: generate schema/data files and snapshot
+        7. Commit on ho-release/{version}
+        8. Merge ho-release/{version} into ho-prod
+        9. Create and push tags
+        10. Cleanup: delete release branch, handle candidate migration
+
+        RC workflow:
+        1-4. Same validation on ho-promote
+        5. Create RC snapshot on ho-promote
+        6. Commit and merge ho-promote into ho-release/{version}
+        7. Create and push RC tag
 
         On failure at any step, the temporary branch is deleted and the error
         is raised, leaving the repository in its original state.
@@ -2444,11 +2450,13 @@ class ReleaseManager:
             tag = f"v{version}-rc{rc_number}"
             tag_message = f"Release Candidate %{version}"
 
+        commit_msg = f"[HOP] Promote release %{version} to {'production' if is_prod else f'RC {rc_number}'}"
+
         # Save original branch for rollback
         original_branch = self._repo.hgit.branch
 
         try:
-            # 5. Create temporary branch from release branch
+            # 5. Create temporary branch from release branch (validation only)
             print(f"  Creating temporary branch {temp_branch}...")
             self._repo.hgit.checkout(release_branch)
             self._repo.hgit.checkout("-b", temp_branch)
@@ -2473,56 +2481,65 @@ class ReleaseManager:
                     pre_release='rc', pre_release_num=str(rc_number)
                 )
 
-            # 9. For prod: generate schema dump
             model_dir = Path(self._repo.model_dir)
-            if is_prod:
-                self._repo.database._generate_schema_sql(version, model_dir)
 
-            # 10. Create snapshot files on temp branch
-            staged_patches = release_file.get_patches(status="staged")
             if is_prod:
+                # 8. Prod: ho-promote was validation only — discard it
+                print(f"  Validation complete. Discarding {temp_branch}...")
+                self._repo.hgit.checkout(release_branch)
+                self._repo.hgit.delete_local_branch(temp_branch)
+
+                # 9. Merge release branch into ho-prod without committing yet.
+                # Using --no-commit avoids a modify/delete conflict on the TOML:
+                # the TOML was seeded on ho-prod by create_release (making it part
+                # of the common ancestor), then updated on both branches differently.
+                # By merging first (TOML still present on ho-release), then applying
+                # snapshot changes (which delete the TOML), we commit everything as
+                # a single merge commit with no conflict.
+                self._repo.hgit.checkout("ho-prod")
+                self._repo.hgit.merge(release_branch, no_commit=True)
+
+                # 10. Generate schema dump and apply snapshot changes in merge window
+                self._repo.database._generate_schema_sql(version, model_dir)
+                staged_patches = release_file.get_patches(status="staged")
                 self._create_prod_snapshot(version, staged_patches, release_file, model_dir)
+
+                # 11. Commit the merge with all promote changes included
+                self._repo.hgit.add(".")
+                self._repo.hgit.commit("-m", commit_msg)
+
             else:
+                # 8. RC: create snapshot on temp branch, merge into release branch
+                staged_patches = release_file.get_patches(status="staged")
                 self._create_rc_snapshot(version, rc_number, staged_patches, release_file)
 
-            # 11. Commit changes on temp branch
-            commit_msg = f"[HOP] Promote release %{version} to {'production' if is_prod else f'RC {rc_number}'}"
-            self._repo.hgit.add(".")
-            self._repo.hgit.commit("-m", commit_msg)
+                self._repo.hgit.add(".")
+                self._repo.hgit.commit("-m", commit_msg)
 
-            # 12. Merge temp branch into target
-            if is_prod:
-                # Merge into ho-prod
-                self._repo.hgit.checkout("ho-prod")
-                self._merge_release_into_prod(release_branch, version)
-                # Now merge our temp branch changes
-                self._repo.hgit.merge(temp_branch, message=commit_msg)
-            else:
-                # For RC: merge into release branch
                 self._repo.hgit.checkout(release_branch)
                 self._repo.hgit.merge(temp_branch, message=commit_msg)
 
-            # 13. Push changes and sync to active branches
-            # (changes were already committed via merge, just push and sync)
+            # 12. Push changes and sync to active branches
             current_branch = self._repo.hgit.branch
             self._repo.hgit.push_branch(current_branch)
             self._repo.sync_hop_to_active_branches(
                 reason=f"promote {version} to {target}"
             )
 
-            # 14. Create and push tag
+            # 13. Create and push tag
             self._repo.hgit.create_tag(tag, tag_message)
             self._repo.hgit.push_tag(tag)
 
-            # 15. Cleanup temp branch
-            self._repo.hgit.delete_local_branch(temp_branch)
+            # 14. Cleanup temp branch (RC only — prod already deleted it)
+            if not is_prod:
+                self._repo.hgit.delete_local_branch(temp_branch)
 
-            # 16. For prod: delete release branch
+            # 15. For prod: delete release branch
             deleted_branches = []
             if is_prod:
                 deleted_branches = self._cleanup_release_branch(release_branch)
 
-            # 17. For prod: migrate candidates if requested
+            # 16. For prod: migrate candidates if requested
             if is_prod and migrate_candidates and next_patch_version:
                 print(f"\n{utils.Color.bold('🔄 Migrating candidates to ' + next_patch_version + '...')}")
                 self._migrate_candidates_to_new_release(
@@ -2546,25 +2563,30 @@ class ReleaseManager:
             return result
 
         except Exception as e:
-            # Rollback: delete temporary branch and restore original state
+            # Rollback: restore original state
             print(f"\n{utils.Color.red('⚠ Promotion failed, rolling back...')}")
             try:
-                # Try to checkout original branch first
+                # Abort any in-progress merge (--no-commit merge or failed merge)
+                try:
+                    self._repo.hgit.merge_abort()
+                except GitCommandError:
+                    pass
+
+                # Return to original branch
                 try:
                     self._repo.hgit.checkout(original_branch)
                 except GitCommandError:
-                    # If that fails, try release branch
                     try:
                         self._repo.hgit.checkout(release_branch)
                     except GitCommandError:
                         pass
 
-                # Delete temporary branch if it exists
+                # Delete temporary branch if it still exists
                 try:
                     self._repo.hgit.delete_local_branch(temp_branch)
                     print(f"  Deleted temporary branch {temp_branch}")
                 except GitCommandError:
-                    pass  # Branch might not exist
+                    pass  # Already deleted (prod validation complete) or never created
 
             except (GitCommandError, TypeError) as cleanup_error:
                 print(f"  Warning: Cleanup failed: {cleanup_error}", file=sys.stderr)
@@ -2609,30 +2631,6 @@ class ReleaseManager:
                 f"  1. Merge candidate patches: git checkout ho-patch/<patch_id> && half_orm dev patch merge\n"
                 f"  2. Accept candidate migration when prompted"
             )
-
-    def _merge_release_into_prod(self, release_branch: str, version: str) -> None:
-        """Merge release branch into ho-prod."""
-        try:
-            self._repo.hgit.merge(
-                release_branch,
-                ff_only=True,
-                message=f"[HOP] Merge release %{version} into production"
-            )
-        except GitCommandError:
-            try:
-                self._repo.hgit.merge(
-                    release_branch,
-                    message=f"[HOP] Merge release %{version} into production"
-                )
-            except GitCommandError as e:
-                try:
-                    self._repo.hgit.merge_abort()
-                except GitCommandError:
-                    pass
-                raise ReleaseManagerError(
-                    f"Failed to merge {release_branch} into ho-prod: {e}\n"
-                    "ho-prod has been restored to its previous state."
-                )
 
     def _create_rc_snapshot(
         self, version: str, rc_number: int,

@@ -535,7 +535,7 @@ class HGit:
         self.__git_repo.git.branch('-m', old_name, new_name)
 
     def merge(self, branch_name: str, no_ff: bool = False, ff_only: bool = False,
-              message: str = None) -> None:
+              no_commit: bool = False, message: str = None) -> None:
         """
         Merge a branch into current branch.
 
@@ -543,6 +543,7 @@ class HGit:
             branch_name: Branch to merge into current
             no_ff: Force merge commit even if fast-forward (--no-ff)
             ff_only: Only fast-forward merge (--ff-only)
+            no_commit: Stage the merge but do not commit (--no-commit --no-ff)
             message: Custom merge commit message (-m)
 
         Examples:
@@ -552,17 +553,26 @@ class HGit:
 
             hgit.merge("ho-release/0.1.0", ff_only=True)
             # Fast-forward only merge
+
+            hgit.merge("ho-release/0.1.0", no_commit=True)
+            # Stage merge without committing (allows adding changes before commit)
         """
         args = []
         if no_ff:
             args.append('--no-ff')
         if ff_only:
             args.append('--ff-only')
+        if no_commit:
+            args.extend(['--no-commit', '--no-ff'])
         if message:
             args.extend(['-m', message])
         args.append(branch_name)
 
         self.__git_repo.git.merge(*args)
+
+    def merge_abort(self) -> None:
+        """Abort an in-progress merge."""
+        self.__git_repo.git.merge('--abort')
 
     def branch_exists(self, branch_name: str) -> bool:
         """

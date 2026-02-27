@@ -178,11 +178,10 @@ class TestReleaseIntegrationWorkflow:
         # Should checkout ho-prod
         assert call("ho-prod") in mock_hgit_complete.checkout.call_args_list
 
-        # Should merge release branch into ho-prod (fast-forward)
+        # Should merge release branch into ho-prod (single --no-commit merge, no temp branch)
         merge_args = [call for call in mock_hgit_complete.merge.call_args_list]
         assert merge_args == [
-            call('ho-release/0.1.0', ff_only=True, message='[HOP] Merge release %0.1.0 into production'),
-            call('ho-promote/0.1.0-prod', message='[HOP] Promote release %0.1.0 to production')]
+            call('ho-release/0.1.0', no_commit=True)]
 
         # Should create prod tag on ho-prod
         mock_hgit_complete.create_tag.assert_called_once_with('v0.1.0', 'Production release %0.1.0')
