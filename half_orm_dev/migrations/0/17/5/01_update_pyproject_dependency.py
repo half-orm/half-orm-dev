@@ -17,6 +17,7 @@ from pathlib import Path
 import click
 
 from half_orm_dev.utils import TEMPLATE_DIRS, hop_version
+from half_orm_dev.repo import _git_origin_to_https
 from half_orm import utils
 
 
@@ -61,7 +62,8 @@ def migrate(repo):
                 pyproject_content = template.format(
                     dbname=package_name,
                     package_name=package_name,
-                    half_orm_dev_version=current_version
+                    half_orm_dev_version=current_version,
+                    homepage=_git_origin_to_https(repo.git_origin)
                 )
 
                 pyproject_path.write_text(pyproject_content)

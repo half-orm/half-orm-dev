@@ -45,7 +45,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = ""
+Homepage = "{homepage}"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

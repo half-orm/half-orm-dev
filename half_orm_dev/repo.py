@@ -35,6 +35,35 @@ from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
 
 from .utils import TEMPLATE_DIRS, hop_version
 
+def _git_origin_to_https(git_origin: str) -> str:
+    """Convert a git remote URL to its HTTPS equivalent for use as Homepage.
+
+    Handles:
+      - git@<host>:<path>  → https://<host>/<path>
+      - https://...        → unchanged
+      - git://...          → https://...
+      - ssh://git@<host>/  → https://<host>/
+    Strips trailing .git suffix.
+    """
+    if not git_origin:
+        return ''
+    url = git_origin.strip().removesuffix('.git')
+    if url.startswith('git@'):
+        # git@github.com:user/repo → https://github.com/user/repo
+        url = url[len('git@'):]
+        url = url.replace(':', '/', 1)
+        return f'https://{url}'
+    if url.startswith('git://'):
+        return 'https://' + url[len('git://'):]
+    if url.startswith('ssh://'):
+        # ssh://git@github.com/user/repo → https://github.com/user/repo
+        url = url[len('ssh://'):]
+        if url.startswith('git@'):
+            url = url[len('git@'):]
+        return f'https://{url}'
+    return url
+
+
 class RepoError(Exception):
     pass
 
@@ -2156,7 +2185,8 @@ Each script is executed only once unless `--force` is used.
         pyproject = pyproject_template.format(
             dbname=package_name,
             package_name=package_name,
-            half_orm_dev_version=hop_version()
+            half_orm_dev_version=hop_version(),
+            homepage=_git_origin_to_https(self.git_origin)
         )
 
         readme = readme_template.format(
