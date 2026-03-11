@@ -23,7 +23,7 @@ from half_orm import utils
 from half_orm_dev import modules
 from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
 from half_orm_dev.file_executor import (
-    execute_sql_file, execute_python_file, is_bootstrap_file,
+    execute_sql_file, execute_python_file, is_bootstrap_file, has_misplaced_bootstrap_marker,
     FileExecutionError
 )
 from .patch_validator import PatchValidator, PatchInfo
@@ -694,6 +694,12 @@ class PatchManager:
 
         # Apply files in lexicographic order
         for patch_file in structure.files:
+            if (patch_file.is_sql or patch_file.is_python) and has_misplaced_bootstrap_marker(patch_file.path):
+                click.echo(
+                    f"  ⚠️  Warning: {patch_file.name} contains a @HOP:bootstrap marker "
+                    f"but it is not on the first line — it will be ignored. "
+                    f"Move the marker to the first line to enable bootstrap tracking."
+                )
             if patch_file.is_sql:
                 click.echo(f"  • {patch_file.name}")
                 try:

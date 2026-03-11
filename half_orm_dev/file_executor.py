@@ -98,6 +98,9 @@ def execute_python_file(file_path: Path, cwd: Optional[Path] = None) -> str:
         raise FileExecutionError(f"Failed to execute Python file {file_path.name}: {e}") from e
 
 
+_HOP_MARKER = re.compile(r"(--|#)\s*@hop:(bootstrap|data)")
+
+
 def is_bootstrap_file(file_path: Path) -> bool:
     """
     Check if file has @HOP:bootstrap or @HOP:data marker on first line.
@@ -112,15 +115,37 @@ def is_bootstrap_file(file_path: Path) -> bool:
         file_path: Path to file to check
 
     Returns:
-        True if file has bootstrap marker, False otherwise
+        True if file has bootstrap marker on first line, False otherwise
     """
     try:
         with file_path.open('r', encoding='utf-8') as f:
             first_line = f.readline().strip().lower()
-            # Match both @HOP:bootstrap and @HOP:data (alias for backwards compat)
-            return (
-                re.match(r"(--|#)\s*@hop:bootstrap", first_line) is not None or
-                re.match(r"(--|#)\s*@hop:data", first_line) is not None
-            )
+            return _HOP_MARKER.match(first_line) is not None
     except OSError:
         return False
+
+
+def has_misplaced_bootstrap_marker(file_path: Path) -> bool:
+    """
+    Check if file has a @HOP:bootstrap or @HOP:data marker NOT on the first line.
+
+    Used to warn the user during patch apply when the marker is present in the
+    file but will be ignored because it is not on the first line.
+
+    Args:
+        file_path: Path to file to check
+
+    Returns:
+        True if a misplaced marker is found, False otherwise
+    """
+    if is_bootstrap_file(file_path):
+        return False
+    try:
+        with file_path.open('r', encoding='utf-8') as f:
+            f.readline()  # skip first line
+            for line in f:
+                if _HOP_MARKER.search(line.strip().lower()):
+                    return True
+    except OSError:
+        pass
+    return False

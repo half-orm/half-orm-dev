@@ -324,17 +324,27 @@ half_orm dev upgrade --dry-run
 
 ### Data Bootstrap
 
-Mark patch files with `-- @HOP:bootstrap` (SQL) or `# @HOP:bootstrap` (Python) to declare reference data:
+Mark patch files with `-- @HOP:bootstrap` (SQL) or `# @HOP:bootstrap` (Python) to declare reference data.
+The marker **must be on the first line** of the file:
 
 ```sql
 -- @HOP:bootstrap
 INSERT INTO roles (name) VALUES ('admin'), ('user') ON CONFLICT DO NOTHING;
 ```
 
+```python
+# @HOP:bootstrap
+# (no shebang — the file is executed directly by half-orm-dev)
+MyModel(field='value').ho_insert()
+```
+
 These files are automatically:
 - Copied to `bootstrap/` during `patch merge`
 - Executed during production `upgrade`
 - Tracked in database (each script runs once)
+
+> **Note:** If the marker is not on the first line it is silently ignored.
+> A warning is displayed during `patch apply` to help catch this mistake.
 
 **Note:** Use `half_orm dev <command> --help` for detailed help on each command.
 
