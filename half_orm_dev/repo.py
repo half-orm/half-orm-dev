@@ -1306,8 +1306,8 @@ class Repo:
             - Git branch naming updated (hop_main → ho-prod)
             - git_origin is now mandatory (was optional/auto-discovered)
         """
-        # Step 1: Validate package name
-        self._validate_package_name(package_name)
+        # Step 1: Validate and normalize package name (e.g. hyphens → underscores)
+        package_name = self._validate_package_name(package_name)
 
         # Step 1b: Validate git origin URL (EARLY validation)
         self._validate_git_origin_url(git_origin)

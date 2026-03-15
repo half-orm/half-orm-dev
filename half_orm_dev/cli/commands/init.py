@@ -96,7 +96,9 @@ def init(project_name, host, port, user, password, git_origin, production, force
     """
     try:
         database_name = project_name
-        package_name = project_name
+        package_name = project_name.replace('-', '_')
+        if package_name != project_name:
+            click.echo(f"ℹ️  Package name: '{project_name}' → '{package_name}' (hyphens replaced by underscores)")
 
         click.echo(f"🚀 Initializing half_orm project '{project_name}'...")
         click.echo()
