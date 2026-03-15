@@ -23,7 +23,8 @@ from half_orm import utils
 from half_orm_dev import modules
 from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
 from half_orm_dev.file_executor import (
-    execute_sql_file, execute_python_file, is_bootstrap_file, has_misplaced_bootstrap_marker,
+    execute_sql_file, execute_sql_file_psql, execute_python_file,
+    is_bootstrap_file, has_misplaced_bootstrap_marker,
     FileExecutionError
 )
 from .patch_validator import PatchValidator, PatchInfo
@@ -53,6 +54,7 @@ class PatchFile:
     extension: str
     is_sql: bool
     is_python: bool
+    is_psql: bool
     exists: bool
 
 
@@ -276,6 +278,7 @@ class PatchManager:
                 extension = item.suffix.lower().lstrip('.')
                 is_sql = extension == 'sql'
                 is_python = extension in ['py', 'python']
+                is_psql = extension == 'psql'
 
                 patch_file = PatchFile(
                     name=item.name,
@@ -283,6 +286,7 @@ class PatchManager:
                     extension=extension,
                     is_sql=is_sql,
                     is_python=is_python,
+                    is_psql=is_psql,
                     exists=True
                 )
 
@@ -704,6 +708,13 @@ class PatchManager:
                 click.echo(f"  • {patch_file.name}")
                 try:
                     execute_sql_file(patch_file.path, database_model)
+                except FileExecutionError as e:
+                    raise PatchManagerError(str(e)) from e
+                applied_files.append(patch_file.name)
+            elif patch_file.is_psql:
+                click.echo(f"  • {patch_file.name} (psql)")
+                try:
+                    execute_sql_file_psql(patch_file.path, self._repo.database, self._repo.database_name)
                 except FileExecutionError as e:
                     raise PatchManagerError(str(e)) from e
                 applied_files.append(patch_file.name)
