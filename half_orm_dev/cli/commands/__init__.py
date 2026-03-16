@@ -13,6 +13,7 @@ from .release import release
 from .update import update
 from .upgrade import upgrade
 from .check import check
+from .set_git_origin import set_git_origin
 from .migrate import migrate
 from .bootstrap import bootstrap
 from .todo import apply_release
@@ -32,6 +33,7 @@ ALL_COMMANDS = {
     'update': update,          # Adapted for production
     'upgrade': upgrade,          # Adapted for production
     'check': check,            # Project health check and updates
+    'set-git-origin': set_git_origin,  # Update git remote origin URL
     'migrate': migrate,        # Repository migration after upgrade
     'bootstrap': bootstrap,    # Execute data initialization scripts
     # 🚧 (stubs)
