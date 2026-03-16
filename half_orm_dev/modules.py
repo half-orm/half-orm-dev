@@ -25,6 +25,7 @@ import re
 import shutil
 import sys
 import time
+import re as _re
 from keyword import iskeyword
 from pathlib import Path
 from typing import Any
@@ -72,6 +73,22 @@ TEST_PREFIX = 'test_'
 TEST_SUFFIX = '.py'
 
 MODEL = None
+
+
+def _to_valid_identifier(name: str) -> str:
+    """Return a valid Python identifier from a PostgreSQL relation/schema name.
+
+    Rules applied in order:
+    - Non-alphanumeric characters (except '_') → replaced by '_'
+    - Starts with a digit → prefixed with '_'
+    - Python keyword → suffixed with '_'
+    """
+    sanitized = _re.sub(r'[^a-zA-Z0-9_]', '_', name)
+    if sanitized and sanitized[0].isdigit():
+        sanitized = f'_{sanitized}'
+    if iskeyword(sanitized):
+        sanitized = f'{sanitized}_'
+    return sanitized
 
 
 def __get_test_directory_path(schema_name, table_name, base_dir):
@@ -320,8 +337,10 @@ def __update_this_module(
     path[0] = package_dir
     path[1] = path[1].replace('.', os.sep)
 
-    path = [iskeyword(elt) and f'{elt}_' or elt for elt in path]
+    path = [_to_valid_identifier(elt).lower() if i >= 2 else elt for i, elt in enumerate(path)]
     class_name = camel_case(path[-1])
+    if class_name and class_name[0].isdigit():
+        class_name = f'_{class_name}'
     module_path = f"{os.path.join(*path)}.py"
     path_1 = os.path.join(*path[:-1])
     if not os.path.exists(path_1):
@@ -359,10 +378,12 @@ def __update_this_module(
         test_file_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Generate test file
+        # Build module path from the transformed path (lowercased, valid identifiers)
+        module_dotpath = '.'.join([package_name] + path[1].replace(os.sep, '.').split('.') + [path[-1]])
         with open(test_file_path, 'w', encoding='utf-8') as file_:
             file_.write(TEST.format(
                 package_name=package_name,
-                module=f"{package_name}.{fqtn}",
+                module=module_dotpath,
                 class_name=class_name))
 
     HO_DATACLASSES.append(__gen_dataclass(
