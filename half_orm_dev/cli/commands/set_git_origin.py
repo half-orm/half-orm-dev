@@ -53,7 +53,7 @@ def set_git_origin(new_origin):
         )
         if new_content != content:
             pyproject_path.write_text(new_content)
-            additional_files.append(str(pyproject_path))
+            additional_files.append('pyproject.toml')
             click.echo(f"  ✓ pyproject.toml Homepage → '{new_homepage}'")
 
     # 3. Update git remote
@@ -64,34 +64,63 @@ def set_git_origin(new_origin):
         click.echo(f"  ⚠️  Could not update git remote: {e}", err=True)
         click.echo(f"     Run manually: git remote set-url origin {new_origin}", err=True)
 
-    # 4. Commit, push and sync all active branches
-    # The pre-commit hook on ho-prod requires an active lock tag.
+    # 3.5. Push ho-prod to the new remote before acquiring the lock.
+    # The lock mechanism pushes a tag — this requires the remote to already
+    # have at least one ref. Pushing ho-prod first seeds the new remote.
+    try:
+        repo.hgit._HGit__git_repo.git.push('--force', 'origin', 'ho-prod')
+        click.echo(f"  ✓ ho-prod pushed to new remote")
+    except Exception as e:
+        click.echo(f"  ⚠️  Could not push ho-prod to new remote: {e}", err=True)
+        click.echo(f"     Run manually: git push --force origin ho-prod", err=True)
+
+    # 4. Commit on ho-prod (requires the lock for the pre-commit hook).
     lock_tag = None
+    commit_hash = None
     try:
         lock_tag = repo.hgit.acquire_branch_lock('ho-prod')
-        repo.commit_and_sync_to_active_branches(
-            message=f"[HOP] set git-origin to {new_origin}",
-            files=additional_files
-        )
-        click.echo(f"  ✓ Changes committed and branches synchronized")
+
+        all_files = ['.hop/'] + additional_files
+        for f in all_files:
+            repo.hgit.add(f)
+
+        repo.hgit.commit('-m', f"[HOP] set git-origin to {new_origin}")
+        commit_hash = repo.hgit._HGit__git_repo.git.rev_parse('HEAD')
+        repo.hgit.push_branch('ho-prod')
+        click.echo(f"  ✓ Committed on ho-prod ({commit_hash[:8]})")
     except Exception as e:
-        click.echo(f"  ⚠️  Commit/sync failed: {e}", err=True)
+        click.echo(f"  ⚠️  Commit on ho-prod failed: {e}", err=True)
     finally:
         if lock_tag:
             repo.hgit.release_branch_lock(lock_tag)
 
-    # 5. Push all active ho-* branches to the new remote
-    branches_status = repo.hgit.get_active_branches_status()
-    active_branches = (
-        branches_status.get('patch_branches', []) +
-        branches_status.get('release_branches', [])
-    )
-    for branch_info in active_branches:
-        branch = branch_info['name']
+    # 5. Cherry-pick the ho-prod commit onto every active branch and push.
+    # This is the simplest and most reliable way to ensure the same change
+    # (new git-origin) appears on every branch, not just on ho-prod.
+    if commit_hash:
+        branches_status = repo.hgit.get_active_branches_status()
+        active_branches = (
+            branches_status.get('patch_branches', []) +
+            branches_status.get('release_branches', [])
+        )
+        for branch_info in active_branches:
+            branch = branch_info['name']
+            try:
+                repo.hgit.checkout(branch)
+                repo.hgit._HGit__git_repo.git.cherry_pick(commit_hash)
+                repo.hgit.push_branch(branch)
+                click.echo(f"  ✓ {branch} updated and pushed")
+            except Exception as e:
+                click.echo(f"  ⚠️  Could not update {branch}: {e}", err=True)
+                # Abort cherry-pick if it left the repo in a bad state
+                try:
+                    repo.hgit._HGit__git_repo.git.cherry_pick('--abort')
+                except Exception:
+                    pass
+        # Return to ho-prod
         try:
-            repo.hgit.push_branch(branch)
-            click.echo(f"  ✓ Pushed {branch}")
-        except Exception as e:
-            click.echo(f"  ⚠️  Could not push {branch}: {e}", err=True)
+            repo.hgit.checkout('ho-prod')
+        except Exception:
+            pass
 
     click.echo(f"\n✓ git-origin: '{old_origin}' → '{new_origin}'")
