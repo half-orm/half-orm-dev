@@ -1836,33 +1836,41 @@ class ReleaseManager:
                 'final_version': upgrade_path[-1] if upgrade_path else current_version
             }
 
-        # === 5. Pull ho-prod to get release files ===
-        # update_production only fetches tags, we need the actual release files
-        try:
-            self._repo.hgit.pull('origin', 'ho-prod')
-        except Exception as e:
-            raise ReleaseManagerError(f"Failed to pull ho-prod branch: {e}")
-
-        # === 6. Apply releases sequentially ===
+        # === 5. Acquire lock, pull ho-prod, apply releases ===
+        # The lock ensures the pull does not fetch a partial state left by a
+        # push in progress on ho-prod (e.g. patch merge or release promote
+        # pushing files in several steps).
+        lock_tag = None
         patches_applied = {}
-
         try:
-            for version in upgrade_path:
-                # Apply release and collect patches
-                applied_patches = self._apply_release_to_production(version)
-                patches_applied[version] = applied_patches
+            lock_tag = self._repo.hgit.acquire_branch_lock('ho-prod')
 
-        except Exception as e:
-            # On error, provide rollback instructions
-            raise ReleaseManagerError(
-                f"Failed to apply release {version}: {e}\n\n"
-                f"ROLLBACK INSTRUCTIONS:\n"
-                f"1. Restore database: psql -d {self._repo.database.name} -f {backup_path}\n"
-                f"2. Verify restoration: SELECT * FROM half_orm_meta.hop_release ORDER BY id DESC LIMIT 1;\n"
-                f"3. Fix the failing patch and retry upgrade"
-            ) from e
+            # Pull ho-prod to get release files
+            # update_production only fetches tags, we need the actual release files
+            try:
+                self._repo.hgit.pull('origin', 'ho-prod')
+            except Exception as e:
+                raise ReleaseManagerError(f"Failed to pull ho-prod branch: {e}")
 
-        # === 7. Build success result ===
+            # Apply releases sequentially
+            try:
+                for version in upgrade_path:
+                    applied_patches = self._apply_release_to_production(version)
+                    patches_applied[version] = applied_patches
+            except Exception as e:
+                raise ReleaseManagerError(
+                    f"Failed to apply release {version}: {e}\n\n"
+                    f"ROLLBACK INSTRUCTIONS:\n"
+                    f"1. Restore database: psql -d {self._repo.database.name} -f {backup_path}\n"
+                    f"2. Verify restoration: SELECT * FROM half_orm_meta.hop_release ORDER BY id DESC LIMIT 1;\n"
+                    f"3. Fix the failing patch and retry upgrade"
+                ) from e
+
+        finally:
+            if lock_tag:
+                self._repo.hgit.release_branch_lock(lock_tag)
+
+        # === 6. Build success result ===
         final_version = upgrade_path[-1] if upgrade_path else current_version
 
         return {
