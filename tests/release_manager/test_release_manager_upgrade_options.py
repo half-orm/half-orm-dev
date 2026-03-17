@@ -53,6 +53,7 @@ def release_manager_with_options(tmp_path):
     mock_database.execute_pg_command = Mock()
     mock_database.register_release = Mock()
     mock_database._get_connection_params = Mock(return_value={'host': '', 'port': 5432, 'user': '', 'password': ''})
+    mock_database.has_createdb_privilege = Mock(return_value=False)
     mock_repo.database = mock_database
 
     # Mock HGit

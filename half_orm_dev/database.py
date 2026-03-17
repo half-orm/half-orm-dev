@@ -1275,6 +1275,66 @@ class Database:
         self.__connection_params_cache = config
         return config
 
+    def has_createdb_privilege(self) -> bool:
+        """Check if the current PostgreSQL user has the CREATEDB privilege."""
+        params = self._get_connection_params()
+        result = self._execute_pg_command(
+            'postgres', params,
+            'psql', '-d', 'postgres', '-t', '-c',
+            "SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user"
+        )
+        return result.stdout.strip().lower() == 't'
+
+    def terminate_active_connections(self) -> int:
+        """Terminate all connections to this database.
+
+        Connects to the maintenance database (postgres) so that our own
+        connection to the target database is also terminated.
+
+        Returns:
+            Number of connections terminated.
+        """
+        params = self._get_connection_params()
+        sql = (
+            f"SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity "
+            f"WHERE datname = '{self.__name}'"
+        )
+        result = self._execute_pg_command(
+            'postgres', params,
+            'psql', '-d', 'postgres', '-t', '-c', sql
+        )
+        try:
+            return int(result.stdout.strip())
+        except ValueError:
+            return 0
+
+    def create_snapshot(self, snapshot_name: str) -> None:
+        """Create an instant database snapshot via CREATE DATABASE ... TEMPLATE.
+
+        Requires no active connections to the source database — call
+        terminate_active_connections() first, then reconnect afterwards.
+
+        Args:
+            snapshot_name: Name for the new snapshot database.
+        """
+        params = self._get_connection_params()
+        self._execute_pg_command(
+            'postgres', params,
+            'createdb', '-T', self.__name, snapshot_name
+        )
+
+    def drop_snapshot(self, snapshot_name: str) -> None:
+        """Drop a snapshot database created by create_snapshot().
+
+        Args:
+            snapshot_name: Name of the snapshot database to drop.
+        """
+        params = self._get_connection_params()
+        self._execute_pg_command(
+            'postgres', params,
+            'dropdb', '--if-exists', snapshot_name
+        )
+
     def get_postgres_version(self) -> tuple:
         """
         Get PostgreSQL server version.

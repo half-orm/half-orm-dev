@@ -57,6 +57,7 @@ def release_manager_for_upgrade(tmp_path):
     mock_database._get_connection_params = Mock(return_value={'host': '', 'port': 5432, 'user': '', 'password': ''})
     mock_database.model = Mock()
     mock_database.model.execute_query = Mock(return_value=[])
+    mock_database.has_createdb_privilege = Mock(return_value=False)
     mock_repo.database = mock_database
 
     # Mock HGit
@@ -84,6 +85,17 @@ def release_manager_for_upgrade(tmp_path):
     # Create ReleaseManager
     release_mgr = ReleaseManager(mock_repo)
 
+    return release_mgr, mock_repo, tmp_path, releases_dir, backups_dir
+
+
+@pytest.fixture
+def release_manager_for_snapshot(release_manager_for_upgrade):
+    """Variant of release_manager_for_upgrade with CREATEDB privilege available."""
+    release_mgr, mock_repo, tmp_path, releases_dir, backups_dir = release_manager_for_upgrade
+    mock_repo.database.has_createdb_privilege = Mock(return_value=True)
+    mock_repo.database.terminate_active_connections = Mock(return_value=1)
+    mock_repo.database.create_snapshot = Mock()
+    mock_repo.database.drop_snapshot = Mock()
     return release_mgr, mock_repo, tmp_path, releases_dir, backups_dir
 
 
@@ -311,3 +323,92 @@ class TestUpgradeProductionUpToDate:
 
         # Backup should still be created
         assert result['backup_created'] is not None
+
+
+# ============================================================================
+# SNAPSHOT TESTS
+# ============================================================================
+
+class TestUpgradeProductionSnapshot:
+    """Test snapshot-based backup (CREATE DATABASE ... TEMPLATE)."""
+
+    def test_snapshot_used_when_createdb_available(self, release_manager_for_snapshot):
+        """Test snapshot path taken when CREATEDB privilege is available."""
+        release_mgr, mock_repo, _, _, _ = release_manager_for_snapshot
+
+        result = release_mgr.upgrade_production()
+
+        mock_repo.database.create_snapshot.assert_called_once()
+        assert result['snapshot_used'] == "test_db_hop_snap_1_3_5"
+        assert result['backup_created'] is None
+
+    def test_snapshot_name_format(self, release_manager_for_snapshot):
+        """Test snapshot name is {db}_hop_snap_{version_with_underscores}."""
+        release_mgr, mock_repo, _, _, _ = release_manager_for_snapshot
+
+        release_mgr.upgrade_production()
+
+        snap_name = mock_repo.database.create_snapshot.call_args[0][0]
+        assert snap_name == "test_db_hop_snap_1_3_5"
+
+    def test_connections_terminated_before_snapshot(self, release_manager_for_snapshot):
+        """Test active connections are terminated before snapshot creation."""
+        release_mgr, mock_repo, _, _, _ = release_manager_for_snapshot
+        call_order = []
+        mock_repo.database.terminate_active_connections.side_effect = lambda: call_order.append('terminate')
+        mock_repo.database.create_snapshot.side_effect = lambda n: call_order.append('snapshot')
+
+        release_mgr.upgrade_production()
+
+        assert call_order.index('terminate') < call_order.index('snapshot')
+
+    def test_reconnect_after_snapshot(self, release_manager_for_snapshot):
+        """Test model reconnects after connections are terminated."""
+        release_mgr, mock_repo, _, _, _ = release_manager_for_snapshot
+
+        release_mgr.upgrade_production()
+
+        mock_repo.database._Database__model.reconnect.assert_called_with(reload=True)
+
+    def test_snapshot_dropped_on_success(self, release_manager_for_snapshot):
+        """Test snapshot is dropped after a successful upgrade."""
+        release_mgr, mock_repo, _, _, _ = release_manager_for_snapshot
+
+        release_mgr.upgrade_production()
+
+        mock_repo.database.drop_snapshot.assert_called_with("test_db_hop_snap_1_3_5")
+
+    def test_snapshot_not_dropped_on_failure(self, release_manager_for_snapshot):
+        """Test snapshot is kept when upgrade fails (needed for rollback)."""
+        release_mgr, mock_repo, _, _, _ = release_manager_for_snapshot
+        mock_repo.patch_manager.apply_patch_files.side_effect = Exception("SQL error")
+
+        with pytest.raises(Exception):
+            release_mgr.upgrade_production()
+
+        mock_repo.database.drop_snapshot.assert_not_called()
+
+    def test_force_drops_existing_snapshot_first(self, release_manager_for_snapshot):
+        """Test force_backup=True drops any existing snapshot before creating new one."""
+        release_mgr, mock_repo, _, _, _ = release_manager_for_snapshot
+        call_order = []
+        mock_repo.database.drop_snapshot.side_effect = lambda n: call_order.append('drop')
+        mock_repo.database.create_snapshot.side_effect = lambda n: call_order.append('create')
+
+        release_mgr.upgrade_production(force_backup=True)
+
+        assert 'drop' in call_order
+        assert call_order.index('drop') < call_order.index('create')
+
+    def test_fallback_to_pg_dump_without_createdb(self, release_manager_for_upgrade):
+        """Test falls back to pg_dump when CREATEDB privilege is absent."""
+        release_mgr, mock_repo, _, _, _ = release_manager_for_upgrade
+        # has_createdb_privilege already returns False in this fixture
+
+        result = release_mgr.upgrade_production()
+
+        assert result['snapshot_used'] is None
+        assert result['backup_created'] is not None
+        mock_repo.database.execute_pg_command.assert_any_call(
+            'pg_dump', 'test_db', '-f', ANY
+        )

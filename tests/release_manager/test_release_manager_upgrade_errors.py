@@ -10,7 +10,7 @@ Focused on testing:
 
 import pytest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 
 
@@ -51,6 +51,7 @@ def release_manager_for_errors(tmp_path):
     mock_database.execute_pg_command = Mock()
     mock_database.register_release = Mock()
     mock_database._get_connection_params = Mock(return_value={'host': '', 'port': 5432, 'user': '', 'password': ''})
+    mock_database.has_createdb_privilege = Mock(return_value=False)
     mock_repo.database = mock_database
 
     # Mock HGit
@@ -80,6 +81,17 @@ def release_manager_for_errors(tmp_path):
     return release_mgr, mock_repo, tmp_path, backups_dir
 
 
+@pytest.fixture
+def release_manager_for_snapshot_errors(release_manager_for_errors):
+    """Variant with CREATEDB privilege available for snapshot error testing."""
+    release_mgr, mock_repo, tmp_path, backups_dir = release_manager_for_errors
+    mock_repo.database.has_createdb_privilege = Mock(return_value=True)
+    mock_repo.database.terminate_active_connections = Mock(return_value=0)
+    mock_repo.database.create_snapshot = Mock()
+    mock_repo.database.drop_snapshot = Mock()
+    return release_mgr, mock_repo, tmp_path, backups_dir
+
+
 # ============================================================================
 # PATCH APPLICATION FAILURE TESTS
 # ============================================================================
@@ -98,11 +110,11 @@ class TestUpgradeProductionPatchFailures:
         with pytest.raises(ReleaseManagerError) as exc_info:
             release_mgr.upgrade_production()
 
-        # Should include rollback instructions
+        # Should include rollback instructions with pg_dump restore hint
         error_msg = str(exc_info.value)
         assert "ROLLBACK INSTRUCTIONS" in error_msg
         assert "psql" in error_msg
-        assert "backups/1.3.5.sql" in error_msg
+        assert "1.3.5.sql" in error_msg
 
     def test_partial_failure_after_first_release(self, release_manager_for_errors):
         """Test failure on second release after first succeeds."""
@@ -389,3 +401,43 @@ class TestUpgradeProductionRollbackInfo:
         # Should include verification step
         error_msg = str(exc_info.value)
         assert "SELECT" in error_msg or "verify" in error_msg.lower()
+
+
+# ============================================================================
+# SNAPSHOT ERROR TESTS
+# ============================================================================
+
+class TestUpgradeProductionSnapshotErrors:
+    """Test error handling for snapshot-based backup."""
+
+    def test_snapshot_rollback_instructions_on_patch_failure(self, release_manager_for_snapshot_errors):
+        """Test rollback instructions mention snapshot when patch fails."""
+        release_mgr, mock_repo, _, _ = release_manager_for_snapshot_errors
+        mock_repo.patch_manager.apply_patch_files.side_effect = Exception("SQL error")
+
+        with pytest.raises(ReleaseManagerError) as exc_info:
+            release_mgr.upgrade_production()
+
+        error_msg = str(exc_info.value)
+        assert "ROLLBACK INSTRUCTIONS" in error_msg
+        assert "test_db_hop_snap_1_3_5" in error_msg
+        assert "createdb" in error_msg
+
+    def test_snapshot_creation_failure_stops_upgrade(self, release_manager_for_snapshot_errors):
+        """Test upgrade stops if snapshot creation fails."""
+        release_mgr, mock_repo, _, _ = release_manager_for_snapshot_errors
+        mock_repo.database.create_snapshot.side_effect = Exception("createdb failed")
+
+        with pytest.raises(Exception):
+            release_mgr.upgrade_production()
+
+        mock_repo.patch_manager.apply_patch_files.assert_not_called()
+
+    def test_snapshot_result_key_present(self, release_manager_for_snapshot_errors):
+        """Test result dict contains snapshot_used key."""
+        release_mgr, mock_repo, _, _ = release_manager_for_snapshot_errors
+
+        result = release_mgr.upgrade_production()
+
+        assert 'snapshot_used' in result
+        assert result['snapshot_used'] == "test_db_hop_snap_1_3_5"

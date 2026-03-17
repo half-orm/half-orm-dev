@@ -1767,13 +1767,31 @@ class ReleaseManager:
         # Get current version
         current_version = self._repo.database.last_release_s
 
-        # === 1. BACKUP FIRST (unless dry_run or skip_backup) ===
+        # === 1. SNAPSHOT OR BACKUP (unless dry_run or skip_backup) ===
+        # Preferred: instant snapshot via CREATE DATABASE ... TEMPLATE (requires CREATEDB).
+        # Fallback: full pg_dump.
+        # Connections are terminated before the snapshot — this is intentional:
+        # we want no application traffic during the schema migration anyway.
+        snapshot_name = None
         backup_path = None
         if not dry_run and not skip_backup:
-            backup_path = self._create_production_backup(
-                current_version,
-                force=force_backup
-            )
+            db = self._repo.database
+            version_slug = current_version.replace('.', '_').replace('-', '_')
+            snap_name = f"{db.name}_hop_snap_{version_slug}"
+
+            if db.has_createdb_privilege():
+                if force_backup:
+                    db.drop_snapshot(snap_name)
+                db.terminate_active_connections()
+                db.create_snapshot(snap_name)
+                snapshot_name = snap_name
+                # Our psycopg2 connection was terminated above — reconnect.
+                db._Database__model.reconnect(reload=True)
+            else:
+                backup_path = self._create_production_backup(
+                    current_version,
+                    force=force_backup
+                )
 
         # === 2. Validate environment ===
         self._validate_production_upgrade()
@@ -1787,6 +1805,7 @@ class ReleaseManager:
                 'status': 'success',
                 'dry_run': False,
                 'backup_created': backup_path,
+                'snapshot_used': snapshot_name,
                 'current_version': current_version,
                 'target_version': to_version,
                 'releases_applied': [],
@@ -1858,17 +1877,32 @@ class ReleaseManager:
                     applied_patches = self._apply_release_to_production(version)
                     patches_applied[version] = applied_patches
             except Exception as e:
+                db_name = self._repo.database.name
+                if snapshot_name:
+                    restore_hint = (
+                        f"Restore snapshot: dropdb {db_name} && "
+                        f"createdb -T {snapshot_name} {db_name}"
+                    )
+                else:
+                    restore_hint = f"Restore dump: psql -d {db_name} -f {backup_path}"
                 raise ReleaseManagerError(
                     f"Failed to apply release {version}: {e}\n\n"
                     f"ROLLBACK INSTRUCTIONS:\n"
-                    f"1. Restore database: psql -d {self._repo.database.name} -f {backup_path}\n"
-                    f"2. Verify restoration: SELECT * FROM half_orm_meta.hop_release ORDER BY id DESC LIMIT 1;\n"
+                    f"1. {restore_hint}\n"
+                    f"2. Verify: SELECT * FROM half_orm_meta.hop_release ORDER BY id DESC LIMIT 1;\n"
                     f"3. Fix the failing patch and retry upgrade"
                 ) from e
 
         finally:
             if lock_tag:
                 self._repo.hgit.release_branch_lock(lock_tag)
+
+        # Drop snapshot now that upgrade succeeded (non-fatal if it fails)
+        if snapshot_name:
+            try:
+                self._repo.database.drop_snapshot(snapshot_name)
+            except Exception:
+                pass  # User can run: dropdb {snapshot_name}
 
         # === 6. Build success result ===
         final_version = upgrade_path[-1] if upgrade_path else current_version
@@ -1877,6 +1911,7 @@ class ReleaseManager:
             'status': 'success',
             'dry_run': False,
             'backup_created': backup_path,
+            'snapshot_used': snapshot_name,
             'current_version': current_version,
             'target_version': to_version,
             'releases_applied': upgrade_path,
