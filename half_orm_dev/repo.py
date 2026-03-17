@@ -2201,6 +2201,10 @@ Each script is executed only once unless `--force` is used.
         utils.write(os.path.join(self.__base_dir, '.gitignore'), git_ignore)
 
     def _dump_initial_schema(self):
+        # Schema dump is only meaningful in development mode (model_dir exists).
+        # In sync-only mode the .hop/model/ directory is never created.
+        if not self.devel:
+            return
         self.database._generate_schema_sql("0.0.0", Path(self.model_dir))
 
     def _validate_git_origin_url(self, git_origin_url):
