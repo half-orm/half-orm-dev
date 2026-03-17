@@ -6,6 +6,7 @@ a subclass of half_orm.relation.Relation
 Fixtures are provided by tests/conftest.py
 """
 
+from half_orm.relation import Relation
 from {module} import {class_name}
 
 
@@ -21,3 +22,12 @@ def test_is_relation(relation_class):
     Uses relation_class fixture from tests/conftest.py
     """
     assert issubclass({class_name}, relation_class)
+
+
+def test_fkeys():
+    """Each FK alias defined in Fkeys should return a Relation instance."""
+    rel = {class_name}()
+    for key in getattr({class_name}, 'Fkeys', {{}}):
+        assert isinstance(rel.__dict__[key](), Relation), (
+            f"{{key!r}} is not a Relation (got {{type(rel.__dict__[key]())}})"
+        )

@@ -191,12 +191,12 @@ def __gen_dataclass(relation, fkeys):
         fields.append(__get_field_desc(field_name, field))
         post_init.append(f'        self.{field_name}: Field = None')
 
-    fkeys = {value:key for key, value in fkeys.items() if key != ''}
-    for key, value in rel()._ho_fkeys.items():
-        if key in fkeys:
-            fkey_alias = fkeys[key]
-            fdc_name = f'{value._FKey__relation._ho_dataclass_name()}'
-            post_init.append(f"        self.{fkey_alias} = {fdc_name}")
+    # Invert user-defined aliases: constraint_name → alias
+    aliases = {constraint: alias for alias, constraint in fkeys.items() if alias != ''}
+    for constraint_name, fkey in rel()._ho_fkeys.items():
+        attr_name = aliases.get(constraint_name, constraint_name)
+        fdc_name = fkey._FKey__relation._ho_dataclass_name()
+        post_init.append(f"        self.{attr_name} = {fdc_name}")
     return '\n'.join([f'@dataclasses.dataclass\nclass {dc_name}(DC_Relation):'] + fields + post_init)
 
 
@@ -276,8 +276,7 @@ def __get_fkeys(repo, class_name, module_path):
 
 
 def __assemble_module_template(module_path):
-    """Construct the module after slicing it if it already exists.
-    """
+    """Construct the module after slicing it if it already exists."""
     ALT_BEGIN_CODE = "#>>> PLACE YOUR CODE BELLOW THIS LINE. DO NOT REMOVE THIS LINE!\n"
     user_s_code = ""
     global_user_s_code = "\n"
@@ -292,7 +291,8 @@ def __assemble_module_template(module_path):
         global_user_s_code = module_code.rsplit(utils.END_CODE)[0].split(utils.BEGIN_CODE)[1]
         global_user_s_code = global_user_s_code.replace('{', '{{').replace('}', '}}')
         user_s_class_attr = module_code.split(utils.BEGIN_CODE)[2].split(f'    {utils.END_CODE}')[0]
-        user_s_class_attr = user_s_class_attr.replace('{', '{{').replace('}', '}}')
+
+    user_s_class_attr = user_s_class_attr.replace('{', '{{').replace('}', '}}')
     return module_template.format(
         rt1=MODULE_TEMPLATE_1, rt2=MODULE_TEMPLATE_2, rt3=MODULE_TEMPLATE_3,
         bc_=utils.BEGIN_CODE, ec_=utils.END_CODE,
@@ -346,6 +346,9 @@ def __update_this_module(
     if not os.path.exists(path_1):
         os.makedirs(path_1)
 
+    # Read user-defined Fkeys aliases (for dataclass generation only).
+    existing_fkeys = __get_fkeys(repo, class_name, module_path)
+
     module_template = __assemble_module_template(module_path)
     inheritance_import, inherited_classes = __get_inheritance_info(
         rel, package_name)
@@ -386,8 +389,7 @@ def __update_this_module(
                 module=module_dotpath,
                 class_name=class_name))
 
-    HO_DATACLASSES.append(__gen_dataclass(
-        rel, __get_fkeys(repo, class_name, module_path)))
+    HO_DATACLASSES.append(__gen_dataclass(rel, existing_fkeys))
 
     return module_path
 
