@@ -10,12 +10,12 @@ from half_orm.relation import Relation
 from {module} import {class_name}
 
 
-def test_instanciate_relation():
+async def test_instanciate_relation():
     """It should instanciate {class_name}."""
     {class_name}()
 
 
-def test_is_relation(relation_class):
+async def test_is_relation(relation_class):
     """
     {class_name} should be a subclass of half_orm.Relation.
 
@@ -24,10 +24,15 @@ def test_is_relation(relation_class):
     assert issubclass({class_name}, relation_class)
 
 
-def test_fkeys():
-    """Each FK alias defined in Fkeys should return a Relation instance."""
+async def test_fkeys():
+    """Each FK alias defined in Fkeys should point to a valid constraint and return a Relation."""
     rel = {class_name}()
-    for key in getattr({class_name}, 'Fkeys', {{}}):
-        assert isinstance(rel.__dict__[key](), Relation), (
-            f"{{key!r}} is not a Relation (got {{type(rel.__dict__[key]())}})"
+    fkeys = getattr({class_name}, 'Fkeys', {{}})
+    ho_fkeys = rel._ho_fkeys
+    for alias, constraint in fkeys.items():
+        assert constraint in ho_fkeys, (
+            f"{{constraint!r}} (alias {{alias!r}}) is not a valid FK of {class_name}"
+        )
+        assert isinstance(rel.__dict__[alias](), Relation), (
+            f"{{alias!r}} is not a Relation (got {{type(rel.__dict__[alias]())}})"
         )

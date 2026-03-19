@@ -258,7 +258,7 @@ When modifying, update both `ReleaseManager` and corresponding CLI commands.
 ### Adding Database Operations
 
 Database operations go in `Database` class (`database.py`):
-- Use `psycopg2` for connections
+- Use `psycopg` (psycopg 3) for connections
 - Always use transactions for schema changes
 - Support both production and development modes
 - Avoid requiring superuser privileges when possible

@@ -18,7 +18,7 @@ import warnings
 from typing import Optional
 from pathlib import Path
 from configparser import ConfigParser
-from psycopg2 import OperationalError
+from psycopg import OperationalError
 from packaging import version
 
 import half_orm

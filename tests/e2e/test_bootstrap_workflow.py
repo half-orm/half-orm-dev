@@ -281,9 +281,9 @@ class TestBootstrapPythonExecution:
         bootstrap_dir = project_dir / 'bootstrap'
         py_file = bootstrap_dir / '1-seed-data-0.1.0.py'
         py_file.write_text(f'''
-import psycopg2
+import psycopg
 
-conn = psycopg2.connect(dbname="{db_name}", host="localhost")
+conn = psycopg.connect(dbname="{db_name}", host="localhost")
 cur = conn.cursor()
 cur.execute("""
     CREATE TABLE IF NOT EXISTS public.python_bootstrap_test (

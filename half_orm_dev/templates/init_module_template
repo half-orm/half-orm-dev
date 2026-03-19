@@ -9,3 +9,25 @@ _project_dir = _package_dir.parent  # Go up to project root where .hop/ lives
 _config_name = resolve_database_config_name(_project_dir)
 
 MODEL = Model(_config_name, scope=__name__)
+
+
+async def aconnect():
+    """Establish the async connection pool.
+
+    Call once at application startup (tests: handled by conftest.py fixture).
+    Cannot be called at module level — requires a running event loop.
+
+    Example:
+        async def main():
+            await {package_name}.aconnect()
+            try:
+                ...
+            finally:
+                await {package_name}.adisconnect()
+    """
+    await MODEL.aconnect()
+
+
+async def adisconnect():
+    """Close the async connection pool. Call at application shutdown."""
+    await MODEL.adisconnect()

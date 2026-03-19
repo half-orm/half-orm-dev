@@ -506,7 +506,7 @@ Core dependencies (see `setup.py`):
 - **pytest**: Testing framework
 - **half_orm**: ORM layer (version constraint calculated dynamically)
 - **tomli/tomli_w**: TOML parsing (tomli only for Python < 3.11)
-- **psycopg2**: PostgreSQL adapter
+- **psycopg**: PostgreSQL adapter (psycopg 3)
 
 ### Version Constraints
 

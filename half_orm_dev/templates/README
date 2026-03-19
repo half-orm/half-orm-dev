@@ -233,6 +233,58 @@ ON CONFLICT DO NOTHING;
 
 ---
 
+## ⚡ Async Usage
+
+The generated package supports both synchronous and asynchronous access to the database.
+
+### Sync
+
+```python
+from {package_name}.public.users import Users
+
+user = Users(username='john').ho_get()
+users = list(Users(is_active=True).ho_select())
+```
+
+### Async
+
+```python
+import asyncio
+from {package_name} import aconnect, adisconnect
+from {package_name}.public.users import Users
+
+async def main():
+    await aconnect()
+    try:
+        user = await Users(username='john').ho_aget()
+        users = await Users(is_active=True).ho_aselect()
+    finally:
+        await adisconnect()
+
+asyncio.run(main())
+```
+
+### REST API (FastAPI)
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+import {package_name}
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await {package_name}.aconnect()
+    yield
+    await {package_name}.adisconnect()
+
+app = FastAPI(lifespan=lifespan)
+```
+
+The async connection pool is established automatically during tests via the `_async_pool`
+fixture in `tests/conftest.py`.
+
+---
+
 ## 📚 Documentation
 
 - **half-orm-dev**: https://github.com/half-orm/half-orm-dev

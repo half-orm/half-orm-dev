@@ -9,7 +9,7 @@ import sys
 from configparser import ConfigParser
 
 from pathlib import Path
-from psycopg2 import OperationalError
+from psycopg import OperationalError
 from half_orm.model import Model, CONF_DIR
 from half_orm.model_errors import UnknownRelation
 from half_orm import utils

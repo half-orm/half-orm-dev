@@ -17,7 +17,7 @@ import unittest.mock
 import tempfile
 from unittest.mock import Mock, patch, MagicMock, call
 from configparser import ConfigParser
-from psycopg2 import OperationalError
+from psycopg import OperationalError
 
 from half_orm_dev.database import Database
 

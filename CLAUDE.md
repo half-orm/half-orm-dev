@@ -146,7 +146,7 @@ Update `ReleaseManager` methods and corresponding CLI commands:
 ### Adding Database Operations
 
 Add methods to `Database` class (`database.py`):
-- Use `psycopg2` for connections
+- Use `psycopg` (psycopg 3) for connections
 - Use transactions for schema changes
 - Support both production/development modes
 - **Avoid requiring superuser privileges**

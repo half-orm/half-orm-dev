@@ -1785,7 +1785,7 @@ class ReleaseManager:
                 db.terminate_active_connections()
                 db.create_snapshot(snap_name)
                 snapshot_name = snap_name
-                # Our psycopg2 connection was terminated above — reconnect.
+                # Our psycopg connection was terminated above — reconnect.
                 db._Database__model.reconnect(reload=True)
             else:
                 backup_path = self._create_production_backup(
