@@ -287,3 +287,42 @@ def project_with_release(initialized_project):
     env['release_version'] = '0.1.0'
 
     yield env
+
+
+@pytest.fixture(scope="function")
+def project_with_fk_patch(project_with_release):
+    """
+    Create a project with a patch introducing two FK-related tables.
+
+    Creates:
+      - public.author(id SERIAL PK, name TEXT)
+      - public.post(id SERIAL PK, title TEXT, author_id INT → author.id)
+
+    Yields:
+        dict with all project_with_release keys plus:
+        - patch_id: The applied patch identifier
+    """
+    env = project_with_release
+    run = env['run']
+    project_dir = env['project_dir']
+
+    patch_id = '1-author-post'
+    run(['half_orm', 'dev', 'patch', 'create', patch_id])
+
+    patch_dir = project_dir / 'Patches' / patch_id
+    (patch_dir / '01_create_tables.sql').write_text(
+        "CREATE TABLE author (\n"
+        "    id   SERIAL PRIMARY KEY,\n"
+        "    name TEXT NOT NULL\n"
+        ");\n"
+        "CREATE TABLE post (\n"
+        "    id        SERIAL PRIMARY KEY,\n"
+        "    title     TEXT NOT NULL,\n"
+        "    author_id INT REFERENCES author(id)\n"
+        ");\n"
+    )
+
+    run(['half_orm', 'dev', 'patch', 'apply'])
+
+    env['patch_id'] = patch_id
+    yield env
