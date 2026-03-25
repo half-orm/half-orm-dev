@@ -193,9 +193,13 @@ def __gen_dataclass(relation, fkeys):
 
     # Invert user-defined aliases: constraint_name → alias
     aliases = {constraint: alias for alias, constraint in fkeys.items() if alias != ''}
-    for constraint_name, fkey in rel()._ho_fkeys.items():
+    for constraint_name, fkey in rel._ho_fkeys.items():
         attr_name = aliases.get(constraint_name, constraint_name)
-        fdc_name = fkey._FKey__relation._ho_dataclass_name()
+        try:
+            fk_fqrn = list(fkey()._t_fqrn)
+            fdc_name = f'DC_{__get_full_class_name(fk_fqrn[1], fk_fqrn[2])}'
+        except Exception:
+            fdc_name = dc_name  # fallback: host class
         post_init.append(f"        self.{attr_name} = {fdc_name}")
     return '\n'.join([f'@dataclasses.dataclass\nclass {dc_name}(DC_Relation):'] + fields + post_init)
 
@@ -349,36 +353,6 @@ def __update_this_module(
     # Read user-defined Fkeys aliases (for dataclass generation only).
     existing_fkeys = __get_fkeys(repo, class_name, module_path)
 
-    # FK annotations for IDE completion: derive package module path from FK's FQRN
-    aliases = {v: k for k, v in existing_fkeys.items() if k}
-    fk_lines = []
-    fk_imports = set()  # {(module_path, class_name), ...}
-    for constraint_name, fkey in rel._ho_fkeys.items():
-        attr_name = aliases.get(constraint_name, constraint_name)
-        try:
-            fk_fqrn = list(fkey()._t_fqrn)
-            schema_part = fk_fqrn[1].replace('.', os.sep)
-            table_part = _to_valid_identifier(fk_fqrn[2]).lower()
-            cls_module = f"{package_name}.{schema_part.replace(os.sep, '.')}.{table_part}"
-            cls_name = camel_case(table_part)
-            if cls_name and cls_name[0].isdigit():
-                cls_name = f'_{cls_name}'
-            fk_imports.add((cls_module, cls_name))
-            fk_lines.append(f"\n        self.{attr_name}: '{cls_name}'")
-        except Exception:
-            fk_lines.append(f"\n        self.{attr_name}: object")
-    fk_annotations = ''.join(fk_lines)
-
-    # Generate TYPE_CHECKING block for FK type imports
-    if fk_imports:
-        tc_lines = ['from typing import TYPE_CHECKING',
-                     'if TYPE_CHECKING:']
-        for mod, cls in sorted(fk_imports):
-            tc_lines.append(f'    from {mod} import {cls}')
-        fk_type_imports = '\n'.join(tc_lines)
-    else:
-        fk_type_imports = ''
-
     module_template = __assemble_module_template(module_path)
     inheritance_import, inherited_classes = __get_inheritance_info(
         rel, package_name)
@@ -399,8 +373,6 @@ def __update_this_module(
                 fqtn=fqtn,
                 kwargs=kwargs,
                 arg_names=arg_names,
-                fk_type_imports=fk_type_imports,
-                fk_annotations=fk_annotations,
                 warning=WARNING_TEMPLATE.format(package_name=package_name)))
 
     # Generate test file in tests/ directory structure

@@ -11,4 +11,4 @@ from __future__ import annotations
 from half_orm.model import register
 from {package_name} import MODEL, ho_dataclasses
 fields_aliases=None
-{fk_type_imports}
+
