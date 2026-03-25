@@ -23,8 +23,16 @@ check-repo-clean:
 clean_build:
 	rm -rf dist
 
+.PHONY: test
+test:
+	@echo "Running unit and integration tests..."
+	pytest -x -m "not e2e"
+	@echo "Running e2e tests..."
+	pytest -x -m e2e tests/e2e
+	@echo "✓ All tests passed"
+
 .PHONY: build
-build: check-main-branch check-repo-clean clean_build
+build: check-main-branch check-repo-clean test clean_build
 	@echo "✓ On main branch"
 	@echo "✓ Repository is clean"
 	@echo "Building package..."
