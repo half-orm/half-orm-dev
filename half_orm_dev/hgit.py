@@ -791,34 +791,52 @@ class HGit:
         existing_locks = self.list_tags(pattern=lock_pattern)
 
         if existing_locks:
-            # Extract timestamp from first lock
-            match = re.search(r'-(\d+)$', existing_locks[0])
-            if match:
-                lock_timestamp_ms = int(match.group(1))
-                lock_time = datetime.fromtimestamp(lock_timestamp_ms / 1000.0, tz=timezone.utc)
-                current_time = datetime.now(timezone.utc)
+            lock_name = existing_locks[0]
 
-                # Check if lock is stale
-                age_minutes = (current_time - lock_time).total_seconds() / 60
+            # Check if the lock tag still exists on remote.
+            # A local-only tag is an orphan left by a failed release_branch_lock
+            # and must be cleaned up immediately regardless of age.
+            remote_ref = self.__git_repo.git.ls_remote(
+                '--tags', 'origin', f'refs/tags/{lock_name}'
+            ).strip()
 
-                if age_minutes > timeout_minutes:
-                    # Stale lock - delete it
-                    print(f"⚠️  Cleaning up stale lock: {existing_locks[0]} (age: {age_minutes:.1f} min)")
-                    try:
-                        self.__git_repo.git.push("origin", "--delete", existing_locks[0])
-                        self.delete_local_tag(existing_locks[0])
-                    except GitCommandError as e:
-                        print(f"Warning: Failed to delete stale lock: {e}")
-                    # Continue to create new lock
-                else:
-                    # Recent lock - respect it
-                    raise GitCommandError(
-                        f"Branch '{branch_name}' is locked by another process.\n"
-                        f"Lock: {existing_locks[0]}\n"
-                        f"Age: {age_minutes:.1f} minutes\n"
-                        f"Wait a few minutes and retry, or manually delete the lock tag if the process died.",
-                        status=1
-                    )
+            if not remote_ref:
+                # Orphaned local tag — remote was already deleted
+                print(f"⚠️  Cleaning up orphaned local lock tag: {lock_name}")
+                try:
+                    self.delete_local_tag(lock_name)
+                except GitCommandError as e:
+                    print(f"Warning: Failed to delete orphaned local lock: {e}")
+                # Continue to create new lock
+            else:
+                # Extract timestamp from first lock
+                match = re.search(r'-(\d+)$', lock_name)
+                if match:
+                    lock_timestamp_ms = int(match.group(1))
+                    lock_time = datetime.fromtimestamp(lock_timestamp_ms / 1000.0, tz=timezone.utc)
+                    current_time = datetime.now(timezone.utc)
+
+                    # Check if lock is stale
+                    age_minutes = (current_time - lock_time).total_seconds() / 60
+
+                    if age_minutes > timeout_minutes:
+                        # Stale lock - delete it
+                        print(f"⚠️  Cleaning up stale lock: {lock_name} (age: {age_minutes:.1f} min)")
+                        try:
+                            self.__git_repo.git.push("origin", "--delete", lock_name)
+                            self.delete_local_tag(lock_name)
+                        except GitCommandError as e:
+                            print(f"Warning: Failed to delete stale lock: {e}")
+                        # Continue to create new lock
+                    else:
+                        # Recent lock - respect it
+                        raise GitCommandError(
+                            f"Branch '{branch_name}' is locked by another process.\n"
+                            f"Lock: {lock_name}\n"
+                            f"Age: {age_minutes:.1f} minutes\n"
+                            f"Wait a few minutes and retry, or manually delete the lock tag if the process died.",
+                            status=1
+                        )
 
         # Create new lock with UTC timestamp in milliseconds
         timestamp_ms = int(time.time() * 1000)
