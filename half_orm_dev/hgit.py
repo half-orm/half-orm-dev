@@ -534,6 +534,30 @@ class HGit:
         """
         self.__git_repo.git.branch('-m', old_name, new_name)
 
+    def rename_branch_with_remote(self, old_name: str, new_name: str, remote: str = 'origin') -> None:
+        """
+        Rename a branch locally and on the remote.
+
+        Sequence:
+          1. git branch -m old_name new_name  (local rename; works even when
+             old_name is the current branch)
+          2. git push origin new_name         (publish new branch)
+          3. git push origin :old_name        (delete old remote branch)
+
+        Args:
+            old_name: Current branch name (e.g., "ho-patch/001-first")
+            new_name: New branch name (e.g., "ho-staged/001-first")
+            remote: Remote name (default: 'origin')
+
+        Examples:
+            hgit.rename_branch_with_remote("ho-patch/001-first", "ho-staged/001-first")
+            # ho-patch/001-first → ho-staged/001-first locally and on origin
+        """
+        self.__git_repo.git.branch('-m', old_name, new_name)
+        origin = self.__git_repo.remote(remote)
+        origin.push(new_name)
+        origin.push(refspec=f":{old_name}")
+
     def merge(self, branch_name: str, no_ff: bool = False, ff_only: bool = False,
               no_commit: bool = False, message: str = None) -> None:
         """
@@ -1285,6 +1309,12 @@ class HGit:
         # Combine local and remote, avoiding duplicates
         all_patch_branches = list(set(local_patch_branches + remote_patch_branches))
 
+        # Get ho-staged branches (patches merged into a release, awaiting prod promotion)
+        local_staged_branches = self.get_local_branches(pattern="ho-staged/*")
+        remote_staged_branches = [b.replace('origin/', '') for b in remote_branches
+                                  if b.startswith('origin/ho-staged/')]
+        all_staged_branches = list(set(local_staged_branches + remote_staged_branches))
+
         # Get ho-release branches (local + remote)
         local_release_branches = self.get_local_branches(pattern="ho-release/*")
         remote_release_branches = [b.replace('origin/', '') for b in remote_branches
@@ -1386,6 +1416,11 @@ class HGit:
             is_local = branch in local_patch_branches
             patch_branch_infos.append(get_branch_info(branch, is_local=is_local))
 
+        staged_branch_infos = []
+        for branch in all_staged_branches:
+            is_local = branch in local_staged_branches
+            staged_branch_infos.append(get_branch_info(branch, is_local=is_local))
+
         release_branch_infos = []
         for branch in all_release_branches:
             is_local = branch in local_release_branches
@@ -1394,6 +1429,7 @@ class HGit:
         return {
             'current_branch': current_branch,
             'patch_branches': patch_branch_infos,
+            'staged_branches': staged_branch_infos,
             'release_branches': release_branch_infos
         }
 

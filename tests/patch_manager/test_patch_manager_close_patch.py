@@ -60,6 +60,7 @@ def patch_manager(tmp_path):
     repo.hgit.branch_exists = Mock(return_value=True)
     repo.hgit.delete_local_branch = Mock()
     repo.hgit.delete_remote_branch = Mock()
+    repo.hgit.rename_branch_with_remote = Mock()
     repo.hgit.last_commit = Mock(return_value="abc12345")
 
     # Create PatchManager
@@ -178,8 +179,8 @@ class TestClosePatch:
         assert '123-test' in str(commit_call)
         assert 'candidate to stage' in str(commit_call)
 
-    def test_merge_patch_deletes_branch(self, patch_manager):
-        """Test that merge_patch deletes patch branch locally and remotely."""
+    def test_merge_patch_renames_branch_to_staged(self, patch_manager):
+        """Test that merge_patch renames ho-patch/X to ho-staged/X instead of deleting."""
         pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
 
         # Setup
@@ -195,9 +196,11 @@ class TestClosePatch:
             with patch.object(pm, '_sync_release_files_to_ho_prod'):
                 result = pm.merge_patch()
 
-        # Verify branch deletion
-        repo.hgit.delete_local_branch.assert_called_once_with('ho-patch/123-test')
-        repo.hgit.delete_remote_branch.assert_called_once_with('ho-patch/123-test')
+        # Verify branch was renamed, not deleted
+        repo.hgit.rename_branch_with_remote.assert_called_once_with(
+            'ho-patch/123-test', 'ho-staged/123-test'
+        )
+        assert result['staged_branch'] == 'ho-staged/123-test'
 
     def test_merge_patch_uses_commit_and_sync(self, patch_manager):
         """Test that merge_patch uses commit_and_sync_to_active_branches."""

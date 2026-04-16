@@ -2088,19 +2088,22 @@ class PatchManager:
         # 7b. Propagate release schema to higher version releases (now that commit is done)
         self._propagate_release_schema_to_higher_versions(version)
 
-        # 8. Delete patch branch (local and remote)
+        # 8. Rename patch branch ho-patch/X → ho-staged/X (local + remote).
+        # The branch is preserved as a reference until production promotion,
+        # at which point _cleanup_release_branch removes all ho-staged/ branches.
+        staged_branch = f"ho-staged/{patch_id}"
         try:
-            self._repo.hgit.delete_local_branch(patch_branch)
-            self._repo.hgit.delete_remote_branch(patch_branch)
+            self._repo.hgit.rename_branch_with_remote(patch_branch, staged_branch)
         except Exception as e:
-            # Non-critical - branch deletion can fail
-            click.echo(f"⚠️  Warning: Failed to delete branch {patch_branch}: {e}")
+            # Non-critical — the patch is already merged and committed.
+            click.echo(f"⚠️  Warning: Failed to rename branch {patch_branch} → {staged_branch}: {e}")
 
         return {
             'version': version,
             'patch_id': patch_id,
             'patches_file': f"releases/{version}-patches.toml",
-            'merged_into': release_branch
+            'merged_into': release_branch,
+            'staged_branch': staged_branch,
         }
 
     def _update_release_schemas(self, version: str) -> None:

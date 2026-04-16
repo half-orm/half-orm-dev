@@ -2711,14 +2711,34 @@ class ReleaseManager:
             release_schema_file.unlink()
 
     def _cleanup_release_branch(self, release_branch: str) -> list:
-        """Delete release branch after production promotion."""
+        """Delete release branch and its ho-staged/* branches after production promotion."""
         deleted_branches = []
+
+        # Delete the release branch itself
         try:
             self._repo.hgit.delete_branch(release_branch, force=True)
             self._repo.hgit.delete_remote_branch(release_branch)
             deleted_branches.append(release_branch)
         except Exception as e:
             print(f"Warning: Failed to delete release branch {release_branch}: {e}", file=sys.stderr)
+
+        # Delete ho-staged/X branches for all patches that were in this release.
+        # These were created by merge_patch (renamed from ho-patch/X) and are no
+        # longer needed once the release reaches production.
+        version = release_branch.replace('ho-release/', '')
+        release_file = ReleaseFile(version, self._releases_dir)
+        if release_file.exists():
+            staged_patch_ids = release_file.get_patches(status="staged")
+            for patch_id in staged_patch_ids:
+                staged_branch = f"ho-staged/{patch_id}"
+                try:
+                    if self._repo.hgit.branch_exists(staged_branch):
+                        self._repo.hgit.delete_local_branch(staged_branch)
+                    self._repo.hgit.delete_remote_branch(staged_branch)
+                    deleted_branches.append(staged_branch)
+                except Exception as e:
+                    print(f"Warning: Failed to delete {staged_branch}: {e}", file=sys.stderr)
+
         return deleted_branches
 
     @with_dynamic_branch_lock(lambda self: "ho-prod")
