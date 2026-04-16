@@ -12,6 +12,43 @@ import tempfile
 import shutil
 from pathlib import Path
 
+from packaging.version import Version
+from half_orm_dev.utils import hop_version as installed_hop_version
+
+
+def _one_pre_release_below(installed: str) -> str:
+    """Return a version string one pre-release step below *installed*.
+
+    The returned version shares the same release tuple (major.minor.micro) so
+    that no real migration scripts exist between the two versions — meaning
+    ``get_pending_migrations`` will detect a version mismatch (triggering a
+    sync commit) without trying to run any interactive migration script.
+
+    Examples::
+
+        '0.18.0-a2' → '0.18.0-a1'
+        '0.18.0-a1' → '0.18.0-a0'
+        '1.0.0'     → '1.0.0-a0'   (stable release → invent a pre-release)
+    """
+    v = Version(installed)
+    if v.pre and v.pre[1] > 0:
+        kind, num = v.pre
+        return f"{v.major}.{v.minor}.{v.micro}-{kind}{num - 1}"
+    return f"{v.major}.{v.minor}.{v.micro}-a0"
+
+
+@pytest.fixture(scope="session")
+def old_hop_version():
+    """Version one pre-release step below the installed hop version.
+
+    Use this fixture in any e2e test that needs to simulate a project whose
+    .hop/config was written by a slightly older version of hop, so that
+    ``half_orm dev migrate`` (or any command that checks the version) sees a
+    mismatch and triggers the sync logic — without running real migration
+    scripts.
+    """
+    return _one_pre_release_below(installed_hop_version())
+
 
 def run_cmd(cmd, cwd=None, env=None, input_text=None, check=True):
     """

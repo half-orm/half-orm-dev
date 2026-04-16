@@ -3065,23 +3065,31 @@ class PatchManager:
         release_file = ReleaseFile(version, self._releases_dir)
 
         try:
-            # 1. Verify patch directory exists (STRICT)
-            old_path = self.get_patch_directory_path(patch_id)
-            if not old_path.exists():
+            # 1. Update TOML status
+            release_file.move_to_staged(patch_id, merge_commit)
+            self._repo.hgit.add(str(release_file.file_path))
+
+            # 2. Move directory to staged/
+            # Use explicit status to avoid filesystem auto-detection:
+            # get_patch_directory_path(patch_id) would return Patches/staged/X
+            # if the directory is already there, making old_path == new_path.
+            old_path = self.get_patch_directory_path(patch_id, "candidate")
+            new_path = self.get_patch_directory_path(patch_id, "staged")
+
+            if old_path.exists():
+                staged_dir = new_path.parent
+                staged_dir.mkdir(exist_ok=True)
+                self._repo.hgit.mv(str(old_path), str(new_path))
+            elif new_path.exists():
+                # Directory already in staged position — a previous partial run moved it
+                # but the commit was never completed (e.g. interrupted by hop migrate).
+                # Nothing to move; the TOML update above is sufficient.
+                pass
+            else:
                 raise PatchManagerError(
                     f"CRITICAL: Patch directory not found: {old_path}\n"
                     f"The patch '{patch_id}' must exist in Patches/ before merge."
                 )
-
-            # 2. Update TOML status
-            release_file.move_to_staged(patch_id, merge_commit)
-            self._repo.hgit.add(str(release_file.file_path))
-
-            # 3. Move directory to staged/
-            new_path = self.get_patch_directory_path(patch_id, "staged")
-            staged_dir = new_path.parent
-            staged_dir.mkdir(exist_ok=True)
-            self._repo.hgit.mv(str(old_path), str(new_path))
 
             # 4. Update cache
             self._update_patch_status_cache(patch_id, "staged", merge_commit)
