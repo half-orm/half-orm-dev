@@ -58,21 +58,29 @@ class TestMigrateCLIBreakingChanges:
         repo.run_migrations_if_needed.assert_called_once()
 
     def test_breaking_changes_content_is_displayed(self, runner):
-        """Breaking changes content is printed before the confirmation prompt."""
+        """Breaking changes content is sent to the pager before the confirmation prompt.
+
+        The section header uses the installed version (hop_version), not the
+        version from the filename.
+        """
         repo = _make_mock_repo()
         bc = [{'component': 'hop', 'version': '1.0.0', 'content': 'Removed old API.'}]
 
         with patch('half_orm_dev.cli.commands.migrate.Repo', return_value=repo), \
-             patch('half_orm_dev.utils.hop_version', return_value='1.0.0'), \
-             patch('half_orm_dev.cli.commands.migrate.MigrationManager') as MockMgr:
+             patch('half_orm_dev.utils.hop_version', return_value='1.0.0-a1'), \
+             patch('half_orm_dev.cli.commands.migrate.MigrationManager') as MockMgr, \
+             patch('half_orm_dev.cli.commands.migrate.click.echo_via_pager') as mock_pager:
 
             MockMgr.return_value.get_breaking_changes.return_value = bc
 
-            result = runner.invoke(migrate, input='yes\n')
+            runner.invoke(migrate, input='yes\n')
 
-        assert 'BREAKING CHANGES' in result.output
-        assert 'Removed old API.' in result.output
-        assert 'half-orm-dev 1.0.0' in result.output
+        mock_pager.assert_called_once()
+        pager_text = mock_pager.call_args[0][0]
+        assert 'BREAKING CHANGES' in pager_text
+        assert 'Removed old API.' in pager_text
+        # header shows installed version, not the filename version
+        assert 'half-orm-dev 1.0.0-a1' in pager_text
 
     def test_breaking_changes_require_yes_to_proceed(self, runner):
         """Typing "yes" when breaking changes are present runs the migration."""
@@ -81,11 +89,12 @@ class TestMigrateCLIBreakingChanges:
 
         with patch('half_orm_dev.cli.commands.migrate.Repo', return_value=repo), \
              patch('half_orm_dev.utils.hop_version', return_value='1.0.0'), \
-             patch('half_orm_dev.cli.commands.migrate.MigrationManager') as MockMgr:
+             patch('half_orm_dev.cli.commands.migrate.MigrationManager') as MockMgr, \
+             patch('half_orm_dev.cli.commands.migrate.click.echo_via_pager'):
 
             MockMgr.return_value.get_breaking_changes.return_value = bc
 
-            result = runner.invoke(migrate, input='yes\n')
+            runner.invoke(migrate, input='yes\n')
 
         repo.run_migrations_if_needed.assert_called_once()
 
@@ -96,7 +105,8 @@ class TestMigrateCLIBreakingChanges:
 
         with patch('half_orm_dev.cli.commands.migrate.Repo', return_value=repo), \
              patch('half_orm_dev.utils.hop_version', return_value='1.0.0'), \
-             patch('half_orm_dev.cli.commands.migrate.MigrationManager') as MockMgr:
+             patch('half_orm_dev.cli.commands.migrate.MigrationManager') as MockMgr, \
+             patch('half_orm_dev.cli.commands.migrate.click.echo_via_pager'):
 
             MockMgr.return_value.get_breaking_changes.return_value = bc
 
@@ -111,7 +121,8 @@ class TestMigrateCLIBreakingChanges:
 
         with patch('half_orm_dev.cli.commands.migrate.Repo', return_value=repo), \
              patch('half_orm_dev.utils.hop_version', return_value='1.0.0'), \
-             patch('half_orm_dev.cli.commands.migrate.MigrationManager') as MockMgr:
+             patch('half_orm_dev.cli.commands.migrate.MigrationManager') as MockMgr, \
+             patch('half_orm_dev.cli.commands.migrate.click.echo_via_pager'):
 
             MockMgr.return_value.get_breaking_changes.return_value = bc
 
@@ -121,17 +132,20 @@ class TestMigrateCLIBreakingChanges:
         assert 'pip install' in result.output
 
     def test_half_orm_component_label_displayed(self, runner):
-        """half_orm component shows as "half-orm" in the output."""
+        """half_orm component shows installed half-orm version in the pager header."""
         repo = _make_mock_repo()
         bc = [{'component': 'half_orm', 'version': '1.0.0', 'content': 'ho_get changed.'}]
 
         with patch('half_orm_dev.cli.commands.migrate.Repo', return_value=repo), \
              patch('half_orm_dev.utils.hop_version', return_value='1.0.0'), \
-             patch('half_orm_dev.cli.commands.migrate.MigrationManager') as MockMgr:
+             patch('half_orm_dev.cli.commands.migrate.MigrationManager') as MockMgr, \
+             patch('half_orm_dev.cli.commands.migrate.click.echo_via_pager') as mock_pager, \
+             patch('importlib.metadata.version', return_value='1.0.0rc1'):
 
             MockMgr.return_value.get_breaking_changes.return_value = bc
 
-            result = runner.invoke(migrate, input='yes\n')
+            runner.invoke(migrate, input='yes\n')
 
-        assert 'half-orm 1.0.0' in result.output
-        assert 'ho_get changed.' in result.output
+        pager_text = mock_pager.call_args[0][0]
+        assert 'half-orm 1.0.0rc1' in pager_text
+        assert 'ho_get changed.' in pager_text

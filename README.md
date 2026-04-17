@@ -15,7 +15,7 @@ Modern development workflow for PostgreSQL databases with automatic code generat
 
 ---
 
-## 📖 What is half-orm-dev?
+## What is half-orm-dev?
 
 `half-orm-dev` provides a complete development lifecycle for database-driven applications:
 

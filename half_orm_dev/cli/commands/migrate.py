@@ -82,17 +82,29 @@ def migrate(verbose: bool) -> None:
 
         needs_explicit_confirm = False
         if breaking_changes:
+            import importlib.metadata
+            try:
+                half_orm_installed = importlib.metadata.version('half-orm')
+            except importlib.metadata.PackageNotFoundError:
+                half_orm_installed = None
+
             width = 70
-            click.echo(f"{'━' * width}")
-            click.echo(f"  {'⚠️  BREAKING CHANGES'}")
-            click.echo(f"{'━' * width}")
+            lines = []
+            lines.append('━' * width)
+            lines.append(f"  ⚠️  BREAKING CHANGES")
+            lines.append('━' * width)
             for bc in breaking_changes:
-                label = 'half-orm-dev' if bc['component'] == 'hop' else 'half-orm'
-                click.echo(f"\n  ━━━ {label} {bc['version']} {'━' * max(0, width - len(label) - len(bc['version']) - 7)}")
+                if bc['component'] == 'hop':
+                    label = 'half-orm-dev'
+                    display_version = installed_version
+                else:
+                    label = 'half-orm'
+                    display_version = half_orm_installed or bc['version']
+                lines.append(f"\n  ━━━ {label} {display_version} {'━' * max(0, width - len(label) - len(display_version) - 7)}")
                 for line in bc['content'].splitlines():
-                    click.echo(f"  {line}")
-            click.echo(f"\n{'━' * width}")
-            click.echo()
+                    lines.append(f"  {line}")
+            lines.append(f"\n{'━' * width}")
+            click.echo_via_pager('\n'.join(lines) + '\n')
             needs_explicit_confirm = True
 
         # Run migrations

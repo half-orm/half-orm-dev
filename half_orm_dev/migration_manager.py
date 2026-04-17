@@ -498,6 +498,11 @@ class MigrationManager:
         try:
             current = version.parse(current_version)
             target = version.parse(target_version)
+            # Use base versions (major.minor.micro, no pre/post/dev) for range
+            # bounds so that a file named '1.0.0' is included when migrating to
+            # '1.0.0-a1' (whose base version is also '1.0.0').
+            current_base = version.parse(current.base_version)
+            target_base = version.parse(target.base_version)
         except Exception:
             return results
 
@@ -512,7 +517,7 @@ class MigrationManager:
                     file_version = version.parse(raw)
                 except Exception:
                     continue
-                if current < file_version <= target:
+                if current_base < file_version <= target_base:
                     results.append({
                         'component': component,
                         'version': raw,

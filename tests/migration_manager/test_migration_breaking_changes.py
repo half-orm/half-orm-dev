@@ -138,6 +138,35 @@ class TestGetBreakingChanges:
         assert len(result) == 1
         assert result[0]['version'] == '1.0.0-a1'
 
+    def test_stable_file_included_when_target_is_prerelease(self, mgr_with_bc_dir):
+        """A file named '1.0.0' is shown when migrating to '1.0.0-a1'.
+
+        base_version comparison: 0.18.0 < 1.0.0 <= 1.0.0 (base of 1.0.0-a1) → True.
+        This is the expected usage pattern: breaking-changes files are named
+        after the stable series (e.g. 1.0.0) even when the first release is a
+        pre-release (1.0.0-a1).
+        """
+        mgr, bc_root = mgr_with_bc_dir
+        (bc_root / 'hop' / 'BREAKING_CHANGES-1.0.0.md').write_text('series change')
+
+        result = mgr.get_breaking_changes('0.18.0-a1', '1.0.0-a1')
+
+        assert len(result) == 1
+        assert result[0]['version'] == '1.0.0'
+
+    def test_stable_file_not_repeated_when_already_on_prerelease(self, mgr_with_bc_dir):
+        """When current is 1.0.0-a1 → 1.0.0-a2, the '1.0.0' BC file is NOT shown again.
+
+        base_version of 1.0.0-a1 is 1.0.0, so current_base = 1.0.0.
+        The condition 1.0.0 < 1.0.0 is False → file excluded.
+        """
+        mgr, bc_root = mgr_with_bc_dir
+        (bc_root / 'hop' / 'BREAKING_CHANGES-1.0.0.md').write_text('series change')
+
+        result = mgr.get_breaking_changes('1.0.0-a1', '1.0.0-a2')
+
+        assert result == []
+
     def test_missing_component_dir_is_skipped(self, mgr_with_bc_dir):
         """If one component directory is absent, the other still works."""
         mgr, bc_root = mgr_with_bc_dir
