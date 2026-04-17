@@ -31,9 +31,9 @@ Perfect for teams managing evolving PostgreSQL schemas with Python applications.
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-### 🧪 Systematic Test Validation (Core Safety Feature)
+### Systematic Test Validation (Core Safety Feature)
 
 **Tests run automatically before patch integration and block merges if they fail.**
 
@@ -59,22 +59,22 @@ half_orm dev patch merge
 
 **Cannot be disabled** - it's a core safety feature.
 
-### 🔧 Development Workflow
+### Development Workflow
 
 - **Patch-based development**: Isolated branches for each database change
 - **Automatic code generation**: half-orm Python classes from schema
 - **Complete testing**: Apply patches with full release context
 - **Conflict detection**: Distributed locks prevent concurrent modifications
 
-### 📦 Release Management
+### Release Management
 
 - **Semantic versioning**: patch/minor/major increments
 - **Sequential promotion**: stage → rc → production workflow
 - **Release candidates**: RC validation before production
 - **Hotfix support**: Reopen last released version for urgent fixes
-- **Branch cleanup**: Automatic deletion after promotion
+- **Branch cleanup**: `ho-staged/ID` branches deleted automatically at `release promote prod`
 
-### 🚀 Production
+### Production
 
 - **Safe upgrades**: Automatic database backups before changes
 - **Incremental deployment**: Apply releases sequentially
@@ -83,7 +83,7 @@ half_orm dev patch merge
 
 ---
 
-## 🚀 Installation
+## Installation
 
 ### Prerequisites
 
@@ -105,7 +105,7 @@ half_orm dev --help
 
 ---
 
-## 📖 Quick Start
+## Quick Start
 
 ### Initialize New Project
 
@@ -170,6 +170,7 @@ half_orm dev patch merge
 # → Creates temp validation branch
 # → Runs pytest automatically
 # → If tests pass: merges into ho-release/0.1.0, status → "staged"
+#                  branch renamed: ho-patch/1-users → ho-staged/1-users
 # → If tests fail: aborts, nothing committed
 
 # 9. Promote to production
@@ -179,7 +180,7 @@ half_orm dev release promote prod  # Merge to ho-prod + create tag
 
 ---
 
-## 💻 Core Workflow
+## Core Workflow
 
 ### Branch Strategy
 
@@ -187,18 +188,19 @@ half_orm dev release promote prod  # Merge to ho-prod + create tag
 ho-prod (main production branch)
 │
 ├── ho-release/0.17.0 (integration branch, deleted after prod)
-│   ├── ho-patch/6-feature-x    (temporary, deleted after merge)
-│   ├── ho-patch/7-bugfix-y     (temporary, deleted after merge)
-│   └── ho-patch/8-auth-z       (temporary, deleted after merge)
+│   ├── ho-patch/6-feature-x    → ho-staged/6-feature-x  (after merge)
+│   ├── ho-patch/7-bugfix-y     → ho-staged/7-bugfix-y   (after merge)
+│   └── ho-patch/8-auth-z       → ho-staged/8-auth-z     (after merge)
 │
 └── ho-release/0.18.0 (next version in parallel)
-    └── ho-patch/10-new-api     (temporary, deleted after merge)
+    └── ho-patch/10-new-api     (in development)
 ```
 
 **Branch Types:**
 - **ho-prod**: Stable production branch (source of truth)
-- **ho-release/X.Y.Z**: Integration branches (temporary)
-- **ho-patch/ID**: Patch development branches (temporary)
+- **ho-release/X.Y.Z**: Integration branches (temporary, deleted after prod)
+- **ho-patch/ID**: Patch development branches (renamed to `ho-staged/ID` after merge)
+- **ho-staged/ID**: Staged patch branches (preserved for debugging, deleted at `release promote prod`)
 
 ### Release Files
 
@@ -227,6 +229,8 @@ ho-prod (main production branch)
 │ 3. patch apply             Apply & test changes             │
 │ 4. patch merge             Merge into release (TESTS!)      │
 │                            ✅ Tests pass → integrated       │
+│                               branch: ho-patch/X →          │
+│                                       ho-staged/X           │
 │                            ❌ Tests fail → aborted          │
 │                                                             │
 │ RELEASE PROMOTION                                           │
@@ -246,7 +250,7 @@ ho-prod (main production branch)
 
 ---
 
-## 📖 Command Reference
+## Command Reference
 
 ### Init & Clone
 
@@ -269,6 +273,33 @@ half_orm dev check --dry-run
 ```
 
 **Note:** This command runs automatically before other commands (git hooks, configuration, stale branches cleanup).
+
+When a newer version of `half-orm-dev` is available, the output includes a link to the PyPI release page where you can review breaking changes before upgrading.
+
+### Migrate
+
+When `half-orm-dev` is updated, run `migrate` once to apply any repository migrations:
+
+```bash
+half_orm dev migrate
+```
+
+If the new version introduces **breaking changes**, they are displayed before the confirmation prompt and you must type `yes` (not just `y`) to proceed:
+
+```
+╔══════════════════════════════════════════════════╗
+║              BREAKING CHANGES                    ║
+╚══════════════════════════════════════════════════╝
+
+--- half-orm-dev 1.0.0 ---
+# hop 1.0.0 — Breaking Changes
+...
+
+Type "yes" to confirm you have read the breaking changes and want to proceed.
+Proceed? [no]:
+```
+
+For non-breaking upgrades a standard `y/n` prompt is shown instead.
 
 ### Release Commands
 
@@ -350,7 +381,7 @@ These files are automatically:
 
 ---
 
-## 🎯 Example: Team Collaboration
+## Example: Team Collaboration
 
 ```bash
 # Integration Manager: Create release
@@ -363,6 +394,7 @@ half_orm dev patch create 456-dashboard
 git checkout ho-patch/456-dashboard
 half_orm dev patch merge  # Tests run automatically
 # → Status: "staged" in 0.17.0-patches.toml
+# → Branch renamed: ho-patch/456-dashboard → ho-staged/456-dashboard
 
 # Developer B: Sync and create patch
 git checkout ho-release/0.17.0
@@ -378,7 +410,7 @@ half_orm dev patch merge
 
 ---
 
-## 🎓 Development Philosophy
+## Development Philosophy
 
 half-orm-dev combines **Domain-Driven Design** with **Test-Driven Development**, integrated into Git:
 
@@ -392,7 +424,7 @@ This approach ensures that every schema change is tested in the full release con
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development setup, testing, contribution guidelines
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Technical architecture and implementation details
@@ -402,7 +434,7 @@ For detailed technical documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTU
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### Error: "Must be on ho-release/* branch"
 ```bash
@@ -488,7 +520,7 @@ For more troubleshooting, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
@@ -514,7 +546,7 @@ pytest -m integration       # Integration tests only
 
 ---
 
-## 📞 Getting Help
+## Getting Help
 
 - **Issues**: [GitHub Issues](https://github.com/half-orm/half-orm-dev/issues)
 - **Documentation**: [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
@@ -522,10 +554,6 @@ pytest -m integration       # Integration tests only
 
 ---
 
-## 📄 License
+## License
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
-
----
-
-**Made with ❤️ by the half-orm team**
+This project is licensed under the [GPL-3.0](LICENSE) license.
