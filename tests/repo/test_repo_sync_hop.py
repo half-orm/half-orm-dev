@@ -253,6 +253,73 @@ class TestRepoSyncHop:
         # Should be called twice: once for branch, once to return
         assert repo.hgit.checkout.call_count == 2
 
+    def test_sync_does_not_reset_ahead_branch(self, mock_repo):
+        """Regression: a branch 'ahead' of origin must NOT be reset --hard.
+
+        When a patch branch has local commits not yet pushed (e.g. the
+        'Create patch directory' commit created by `hop patch create`),
+        sync_hop_to_active_branches must add the .hop/ sync commit ON TOP of
+        those commits — not destroy them via `git reset --hard origin/<branch>`.
+
+        Previously the code did `if not synced: reset --hard`, which fired for
+        'ahead' status and orphaned any unpushed commit on the patch branch.
+        """
+        repo, tmp_path = mock_repo
+        repo.hgit.branch = 'ho-prod'
+
+        repo.hgit.get_active_branches_status.return_value = {
+            'patch_branches': [{'name': 'ho-patch/8-fkeys'}],
+            'release_branches': [],
+            'staged_branches': [],
+        }
+
+        # The patch branch has a local commit not yet on remote → "ahead"
+        repo.hgit.is_branch_synced = Mock(return_value=(False, "ahead"))
+
+        repo.hgit.checkout = Mock()
+        repo.hgit.add = Mock()
+        repo.hgit.commit = Mock()
+        repo.hgit.push_branch = Mock()
+        repo.hgit._HGit__git_repo.git.checkout = Mock()
+        repo.hgit._HGit__git_repo.git.reset = Mock()
+        repo.hgit._HGit__git_repo.git.status = Mock(return_value='M .hop/config\n')
+
+        with patch('half_orm_dev.repo.Config') as MockConfig:
+            MockConfig.return_value = repo._Repo__config
+            repo.sync_hop_to_active_branches("migration 0.18.0-a2 → 1.0.0-a1")
+
+        # reset --hard must NOT have been called — that would orphan unpushed commits
+        repo.hgit._HGit__git_repo.git.reset.assert_not_called()
+
+    def test_sync_does_reset_behind_branch(self, mock_repo):
+        """A branch 'behind' origin IS reset --hard (pull fast-forward equivalent)."""
+        repo, tmp_path = mock_repo
+        repo.hgit.branch = 'ho-prod'
+
+        repo.hgit.get_active_branches_status.return_value = {
+            'patch_branches': [{'name': 'ho-patch/9-other'}],
+            'release_branches': [],
+            'staged_branches': [],
+        }
+
+        repo.hgit.is_branch_synced = Mock(return_value=(False, "behind"))
+
+        repo.hgit.checkout = Mock()
+        repo.hgit.add = Mock()
+        repo.hgit.commit = Mock()
+        repo.hgit.push_branch = Mock()
+        repo.hgit._HGit__git_repo.git.checkout = Mock()
+        repo.hgit._HGit__git_repo.git.reset = Mock()
+        repo.hgit._HGit__git_repo.git.status = Mock(return_value='M .hop/config\n')
+
+        with patch('half_orm_dev.repo.Config') as MockConfig:
+            MockConfig.return_value = repo._Repo__config
+            repo.sync_hop_to_active_branches("migration")
+
+        repo.hgit._HGit__git_repo.git.reset.assert_called_once_with(
+            '--hard', 'origin/ho-patch/9-other'
+        )
+
     def test_sync_commit_message_format(self, mock_repo):
         """Test sync commit message includes reason."""
         repo, tmp_path = mock_repo

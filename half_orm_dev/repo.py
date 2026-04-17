@@ -695,7 +695,12 @@ class Repo:
                             f"Resetting to origin (source of truth).",
                             file=sys.stderr
                         )
-                    if not synced:
+                    # Only reset when the remote is ahead of local ("behind") or
+                    # branches have diverged.  Never reset an "ahead" branch —
+                    # that would orphan local commits that have not been pushed
+                    # yet (e.g. the "Create patch directory" commit from
+                    # `hop patch create` before the first push).
+                    if not synced and status in ("behind", "diverged"):
                         self.hgit._HGit__git_repo.git.reset('--hard', remote_ref)
                 except GitCommandError:
                     # Remote branch may not exist yet, continue without reset
