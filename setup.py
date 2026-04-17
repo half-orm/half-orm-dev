@@ -25,22 +25,34 @@ def get_half_orm_version_constraint():
     Calculate half_orm version constraint from half_orm_dev version.
 
     For version X.Y.Z[-xxx], returns: half_orm>=X.Y.MIN,<X.(Y+1).0
-    where MIN is determined by HALF_ORM_MIN_VERSIONS or defaults to 0
+    where MIN is determined by HALF_ORM_MIN_VERSIONS or defaults to 0.
+
+    When half_orm_dev is a pre-release (e.g. 1.0.0-a1), the lower bound
+    is set to X.Y.Za1 instead of X.Y.0 so that half-orm pre-releases of
+    the same series are accepted by pip.  In PEP 440 all pre-releases
+    satisfy: X.Y.Za1 <= X.Y.Zrc1 <= X.Y.Z, so using X.Y.Za1 is the
+    most permissive lower bound within the intended series.
     """
     version_file = Path(__file__).parent / "half_orm_dev" / "version.txt"
     version_text = version_file.read_text(encoding="utf-8").strip()
 
     # Parse version with regex to handle X.Y.Z[-suffix]
-    match = re.match(r'^(\d+)\.(\d+)\.(\d+)(?:-.*)?$', version_text)
+    match = re.match(r'^(\d+)\.(\d+)\.(\d+)(?:-(.*))?$', version_text)
 
     if not match:
         raise ValueError(f"Invalid version format in version.txt: {version_text}")
 
-    major, minor, patch = match.groups()
+    major, minor, patch, pre_release = match.groups()
     major, minor, patch = int(major), int(minor), int(patch)
 
     # Check for special minimum version requirements
-    min_version = f"{major}.{minor}.0"  # Default
+    if pre_release:
+        # Pre-release of half_orm_dev: allow half-orm pre-releases of the
+        # same X.Y.Z series.  Use X.Y.Za1 as the earliest possible bound.
+        min_version = f"{major}.{minor}.{patch}a1"
+    else:
+        min_version = f"{major}.{minor}.0"  # Default for stable releases
+
     for req_major, req_minor, min_patch, max_patch, required_version in HALF_ORM_MIN_VERSIONS:
         if major == req_major and minor == req_minor:
             # Check if patch is in range [min_patch, max_patch)
