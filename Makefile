@@ -38,7 +38,7 @@ check-half-orm-release:
 	@python scripts/check_half_orm_release.py
 
 .PHONY: build
-build: check-main-branch check-repo-clean check-half-orm-release test clean_build
+build: check-main-branch check-half-orm-release check-repo-clean test clean_build
 	@echo "✓ On main branch"
 	@echo "✓ Repository is clean"
 	@echo "Building package..."

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Verify that a half-orm release compatible with the current half-orm-dev
-version constraint exists on PyPI.
+version constraint exists on PyPI.  Also keeps requirements.txt in sync
+with the computed constraint.
 
 Exits with code 1 (and prints an error) if no compatible release is found.
 """
@@ -15,6 +16,7 @@ from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
 ROOT = Path(__file__).parent.parent
+REQUIREMENTS = ROOT / 'requirements.txt'
 
 
 def _compute_constraint() -> str:
@@ -33,6 +35,29 @@ def _compute_constraint() -> str:
     return f'>={min_ver},<{max_ver}'
 
 
+def _sync_requirements(constraint: str) -> None:
+    """Update the half-orm line in requirements.txt if it differs from *constraint*."""
+    expected_line = f'half-orm{constraint}'
+    lines = REQUIREMENTS.read_text(encoding='utf-8').splitlines()
+    new_lines = []
+    updated = False
+    for line in lines:
+        if re.match(r'^half-orm[>=<!]', line):
+            if line != expected_line:
+                new_lines.append(expected_line)
+                updated = True
+            else:
+                new_lines.append(line)
+        else:
+            new_lines.append(line)
+
+    if updated:
+        REQUIREMENTS.write_text('\n'.join(new_lines) + '\n', encoding='utf-8')
+        print(f'  requirements.txt updated: half-orm{constraint}')
+    else:
+        print(f'✓ requirements.txt is up to date (half-orm{constraint})')
+
+
 def _pypi_versions(package: str) -> list[Version]:
     """Return all versions of *package* available on PyPI."""
     url = f'https://pypi.org/pypi/{package}/json'
@@ -47,8 +72,10 @@ def _pypi_versions(package: str) -> list[Version]:
 
 def main() -> None:
     constraint = _compute_constraint()
-    spec = SpecifierSet(constraint, prereleases=True)
 
+    _sync_requirements(constraint)
+
+    spec = SpecifierSet(constraint, prereleases=True)
     versions = _pypi_versions('half-orm')
     compatible = sorted([v for v in versions if v in spec], reverse=True)
 
