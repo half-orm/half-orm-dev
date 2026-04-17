@@ -86,6 +86,9 @@ def _display_check_results(repo, result: dict, dry_run: bool, verbose: bool):
             click.echo(f"Latest version:  {utils.Color.green(utils.Color.bold(latest))}")
             click.echo()
             click.echo(f"To update, run: {utils.Color.bold('pip install --upgrade half_orm_dev')}")
+            click.echo()
+            click.echo(f"Before upgrading, check for breaking changes:")
+            click.echo(f"  https://pypi.org/project/half-orm-dev/{latest}/")
             click.echo(f"{'='*70}")
             click.echo()
 

@@ -473,3 +473,52 @@ class MigrationManager:
                 UserWarning
             )
             return False
+
+    def get_breaking_changes(self, current_version: str, target_version: str) -> List[Dict]:
+        """
+        Collect breaking-changes documents for all versions in ]current, target].
+
+        Looks in two subdirectories of the migrations root:
+          - hop/       BREAKING_CHANGES-X.Y.Z.md  (half-orm-dev changes)
+          - half_orm/  BREAKING_CHANGES-X.Y.Z.md  (half-orm library changes)
+
+        Both are keyed by hop version (same major.minor family).
+
+        Args:
+            current_version: Current hop version (exclusive lower bound)
+            target_version:  Target hop version (inclusive upper bound)
+
+        Returns:
+            List of dicts ordered by version, each with keys:
+                - component: 'hop' or 'half_orm'
+                - version:   version string from filename
+                - content:   file content
+        """
+        results = []
+        try:
+            current = version.parse(current_version)
+            target = version.parse(target_version)
+        except Exception:
+            return results
+
+        for component in ('hop', 'half_orm'):
+            bc_dir = self._migrations_root / component
+            if not bc_dir.is_dir():
+                continue
+            for bc_file in sorted(bc_dir.glob('BREAKING_CHANGES-*.md')):
+                # filename: BREAKING_CHANGES-X.Y.Z.md  (hyphens in pre-release OK)
+                raw = bc_file.stem[len('BREAKING_CHANGES-'):]  # e.g. '1.0.0' or '1.0.0-rc1'
+                try:
+                    file_version = version.parse(raw)
+                except Exception:
+                    continue
+                if current < file_version <= target:
+                    results.append({
+                        'component': component,
+                        'version': raw,
+                        'content': bc_file.read_text(encoding='utf-8'),
+                    })
+
+        # Sort by version, then by component for a stable display order
+        results.sort(key=lambda r: (version.parse(r['version']), r['component']))
+        return results

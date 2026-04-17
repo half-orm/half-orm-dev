@@ -48,7 +48,9 @@ half_orm_dev = [
     "db_patch_system/*",
     "patches/**/*",
     "scripts/*",
-    "version.txt"
+    "version.txt",
+    "migrations/hop/*.md",
+    "migrations/half_orm/*.md"
 ]
 
 [tool.setuptools.dynamic]

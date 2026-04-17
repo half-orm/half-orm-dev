@@ -7,6 +7,7 @@ is newer than the repository's hop_version in .hop/config.
 
 import click
 from half_orm_dev.repo import Repo, RepoError
+from half_orm_dev.migration_manager import MigrationManager
 from half_orm import utils
 
 
@@ -75,15 +76,40 @@ def migrate(verbose: bool) -> None:
         click.echo(f"  Current branch: {current_branch}")
         click.echo()
 
+        # Check for breaking changes between current and target version
+        mgr = MigrationManager(repo)
+        breaking_changes = mgr.get_breaking_changes(config_version, installed_version)
+
+        needs_explicit_confirm = False
+        if breaking_changes:
+            width = 70
+            click.echo(f"{'━' * width}")
+            click.echo(f"  {'⚠️  BREAKING CHANGES'}")
+            click.echo(f"{'━' * width}")
+            for bc in breaking_changes:
+                label = 'half-orm-dev' if bc['component'] == 'hop' else 'half-orm'
+                click.echo(f"\n  ━━━ {label} {bc['version']} {'━' * max(0, width - len(label) - len(bc['version']) - 7)}")
+                for line in bc['content'].splitlines():
+                    click.echo(f"  {line}")
+            click.echo(f"\n{'━' * width}")
+            click.echo()
+            needs_explicit_confirm = True
 
         # Run migrations
-        if not click.confirm("Do you want to proceed?", default=False):
+        if needs_explicit_confirm:
+            click.echo("Type \"yes\" to confirm you have read the breaking changes and want to proceed.")
+            answer = click.prompt("Proceed?", default="no")
+            confirmed = answer.strip().lower() == "yes"
+        else:
+            confirmed = click.confirm("Do you want to proceed?", default=False)
+
+        if not confirmed:
             click.echo()
             click.echo("If you want to revert half_orm_dev run:")
             click.echo(f"  pip install half-orm-dev=={config_version}")
         else:
             try:
-                click.echo(f"  Running migrations...")
+                click.echo("  Running migrations...")
                 result = repo.run_migrations_if_needed(silent=False)
 
                 if result['migration_run']:
