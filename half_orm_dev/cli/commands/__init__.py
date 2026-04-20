@@ -15,6 +15,7 @@ from .upgrade import upgrade
 from .check import check
 from .set_git_origin import set_git_origin
 from .migrate import migrate
+from .revert_migration import revert_migration
 from .bootstrap import bootstrap
 from .todo import apply_release
 from .todo import rollback
@@ -35,6 +36,7 @@ ALL_COMMANDS = {
     'check': check,            # Project health check and updates
     'set-git-origin': set_git_origin,  # Update git remote origin URL
     'migrate': migrate,        # Repository migration after upgrade
+    'revert-migration': revert_migration,  # Revert last migration
     'bootstrap': bootstrap,    # Execute data initialization scripts
     # 🚧 (stubs)
     'apply_release': apply_release,

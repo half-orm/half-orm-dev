@@ -80,6 +80,8 @@ class TestCandidateMigrationPrompt:
         # Mock HGit and other dependencies
         mock_hgit = Mock()
         mock_hgit.get_repo.return_value = Mock()
+        mock_hgit._HGit__git_repo = Mock()
+        mock_hgit._HGit__git_repo.tags = []
         repo.hgit = mock_hgit
         repo.patch_manager = Mock()
         repo.patch_manager._collect_data_files_from_patches = Mock(return_value=[])  # No data files
@@ -116,6 +118,7 @@ class TestCandidateMigration:
         mock_hgit = Mock()
         mock_hgit.get_repo.return_value.head.commit.hexsha = "a1b2c3d4e5f6"
         mock_hgit.get_repo.return_value.branches = []
+        mock_hgit._HGit__git_repo.tags = []
         repo.hgit = mock_hgit
 
         # Mock other dependencies
@@ -157,6 +160,7 @@ class TestCandidateMigration:
         mock_repo.head.commit.hexsha = "a1b2c3d4e5f6789012345678"
         mock_repo.branches = []
         mock_hgit.get_repo.return_value = mock_repo
+        mock_hgit._HGit__git_repo.tags = []
         repo.hgit = mock_hgit
 
         # Mock other dependencies
@@ -204,6 +208,7 @@ class TestCandidateMigration:
         mock_repo.head = mock_head
         mock_repo.branches = []
         mock_hgit.get_repo.return_value = mock_repo
+        mock_hgit._HGit__git_repo.tags = []
         repo.hgit = mock_hgit
 
         # Mock other dependencies
@@ -248,6 +253,7 @@ class TestCandidateMigration:
         mock_repo.head.commit.hexsha = "a1b2c3d4e5f6789012345678"
         mock_repo.branches = []
         mock_hgit.get_repo.return_value = mock_repo
+        mock_hgit._HGit__git_repo.tags = []
         repo.hgit = mock_hgit
 
         # Mock other dependencies
@@ -301,6 +307,7 @@ class TestMigrationVersionCalculation:
             mock_repo.head.commit.hexsha = "a1b2c3d4e5f6789012345678"
             mock_repo.branches = []
             mock_hgit.get_repo.return_value = mock_repo
+            mock_hgit._HGit__git_repo.tags = []
             repo.hgit = mock_hgit
 
             # Mock other dependencies
@@ -344,6 +351,7 @@ class TestMigrationErrorHandling:
         mock_repo = Mock()
         mock_repo.branches = []
         mock_hgit.get_repo.return_value = mock_repo
+        mock_hgit._HGit__git_repo.tags = []
         mock_hgit.rebase.side_effect = GitCommandError("rebase", "CONFLICT: Merge conflict in file.sql")
         repo.hgit = mock_hgit
 

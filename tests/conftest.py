@@ -146,6 +146,7 @@ def mock_hgit_complete():
     # Git repo access for reset operations
     mock_git_repo = Mock()
     mock_git_repo.git.reset.return_value = None
+    mock_git_repo.tags = []
     mock_hgit._HGit__git_repo = mock_git_repo
 
     return mock_hgit

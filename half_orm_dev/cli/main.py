@@ -62,7 +62,8 @@ class Hop:
             return ['update', 'upgrade', 'bootstrap']
         else:
             # DEVELOPMENT ENVIRONMENT - Patch development
-            return ['patch', 'release', 'check', 'bootstrap', 'set-git-origin']
+            return ['patch', 'release', 'check', 'bootstrap', 'set-git-origin',
+                    'revert-migration']
 
     @property
     def repo_checked(self):

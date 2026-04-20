@@ -2600,6 +2600,16 @@ class ReleaseManager:
                 result['deleted_branches'] = deleted_branches
                 result['migrated_to'] = next_patch_version if migrate_candidates else None
                 result['migrated_patches'] = candidates if migrate_candidates else []
+
+                # Lock migration revert: delete all ho-migration/* tags so that
+                # revert_migration() is no longer possible after going to production.
+                for tag in list(self._repo.hgit._HGit__git_repo.tags):
+                    if tag.name.startswith('ho-migration/'):
+                        self._repo.hgit.delete_local_tag(tag.name)
+                        try:
+                            self._repo.hgit.delete_remote_tag(tag.name)
+                        except Exception:
+                            pass  # remote tag may already be gone
             else:
                 result['branch'] = release_branch
 

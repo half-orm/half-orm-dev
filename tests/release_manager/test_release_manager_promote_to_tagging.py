@@ -127,6 +127,8 @@ def release_manager_for_prod_tagging(tmp_path):
     mock_hgit.delete_remote_branch = Mock()
     mock_hgit.add = Mock()
     mock_hgit.commit = Mock()
+    mock_hgit._HGit__git_repo = Mock()
+    mock_hgit._HGit__git_repo.tags = []
 
     mock_repo.hgit = mock_hgit
 

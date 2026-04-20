@@ -365,6 +365,11 @@ class MigrationManager:
                 result['commit_pushed'] = True
                 result['sync_result'] = sync_result
 
+                # Create annotated tag encoding all commit SHAs for potential revert
+                self._create_migration_tag(
+                    current_version, target_version, sync_result
+                )
+
             except Exception as e:
                 # Don't fail migration if commit fails
                 result['errors'].append(f"Failed to create commit: {e}")
@@ -375,6 +380,67 @@ class MigrationManager:
         # operations on ho-prod, ensuring .hop/ is always synced.
 
         return result
+
+    @with_dynamic_branch_lock(lambda self, *args, **kwargs: 'ho-prod')
+    def revert_migration(self) -> None:
+        """
+        Revert the most recently tagged migration.
+
+        Acquires a lock on ho-prod (via decorator), finds the ho-migration/*
+        tag with the highest version, and runs `git revert --no-edit` on each
+        affected branch (active branches first, then ho-prod).  The tag is
+        deleted (local + remote) after a successful revert.
+
+        Raises:
+            MigrationManagerError: if no migration tag exists (never migrated,
+                or already locked by a production promotion).
+        """
+        git_repo = self._repo.hgit._HGit__git_repo
+
+        migration_tags = sorted(
+            [t for t in git_repo.tags if t.name.startswith('ho-migration/')],
+            key=lambda t: version.parse(t.name[len('ho-migration/'):]),
+            reverse=True,
+        )
+        if not migration_tags:
+            raise MigrationManagerError(
+                "No migration tag found — revert is not possible "
+                "(migration was never run, or already locked by a "
+                "production promotion)."
+            )
+        tag = migration_tags[0]
+
+        # Parse annotation: "Migration from X to Y\nho-prod:<sha>\nbranch:<sha>…"
+        shas: Dict = {}
+        for line in tag.tag.message.splitlines()[1:]:
+            if ':' in line:
+                branch, sha = line.split(':', 1)
+                shas[branch.strip()] = sha.strip()
+
+        if 'ho-prod' not in shas:
+            raise MigrationManagerError(
+                f"Migration tag {tag.name} is malformed (missing ho-prod SHA)."
+            )
+
+        # Revert sync commits on active branches first
+        for branch, sha in shas.items():
+            if branch == 'ho-prod':
+                continue
+            git_repo.git.checkout(branch)
+            git_repo.git.revert(sha, '--no-edit')
+            self._repo.hgit.push_branch(branch)
+
+        # Revert migration commit on ho-prod last
+        git_repo.git.checkout('ho-prod')
+        git_repo.git.revert(shas['ho-prod'], '--no-edit')
+        self._repo.hgit.push_branch('ho-prod')
+
+        # Remove tag (local + remote)
+        self._repo.hgit.delete_local_tag(tag.name)
+        try:
+            self._repo.hgit.delete_remote_tag(tag.name)
+        except Exception:
+            pass  # remote tag may already be gone
 
     def _create_migration_commit_message(
         self,
@@ -409,6 +475,42 @@ class MigrationManager:
             lines.append("No migration scripts needed (version update only)")
 
         return '\n'.join(lines)
+
+    def _create_migration_tag(
+        self, from_version: str, to_version: str, sync_result: Dict
+    ) -> None:
+        """
+        Create annotated tag ho-migration/{to_version} encoding commit SHAs.
+
+        The annotation stores the ho-prod commit SHA and the SHA of each sync
+        commit on active branches, enabling revert_migration() to undo the
+        migration precisely.
+
+        If the tag already exists (e.g. a previous failed migration left it),
+        it is deleted first.
+        """
+        tag_name = f"ho-migration/{to_version}"
+
+        # Remove stale tag if present
+        if self._repo.hgit.tag_exists(tag_name):
+            self._repo.hgit.delete_local_tag(tag_name)
+            try:
+                self._repo.hgit.delete_remote_tag(tag_name)
+            except Exception:
+                pass  # remote tag may not exist
+
+        ho_prod_sha = self._repo.hgit._HGit__git_repo.head.commit.hexsha
+        branch_commits = (
+            sync_result.get('sync_result', {}).get('branch_commits', {})
+        )
+
+        lines = [f"Migration from {from_version} to {to_version}"]
+        lines.append(f"ho-prod:{ho_prod_sha}")
+        for branch, sha in branch_commits.items():
+            lines.append(f"{branch}:{sha}")
+
+        self._repo.hgit.create_tag(tag_name, message='\n'.join(lines))
+        self._repo.hgit.push_tag(tag_name)
 
     def _update_pyproject_dependency_version(self, target_version: str) -> None:
         """

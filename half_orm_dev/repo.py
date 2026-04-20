@@ -621,7 +621,8 @@ class Repo:
         result = {
             'synced_branches': [],
             'skipped_branches': [],
-            'errors': []
+            'errors': [],
+            'branch_commits': {},  # branch → commit SHA of the sync commit created
         }
 
         if not self.hgit:
@@ -797,6 +798,11 @@ class Repo:
                 # Commit changes
                 commit_msg = f"[HOP] Sync .hop/ from {source_branch} ({reason})"
                 self.hgit.commit('-m', commit_msg)
+
+                # Record the SHA of the sync commit for potential revert
+                result['branch_commits'][branch] = (
+                    self.hgit._HGit__git_repo.head.commit.hexsha
+                )
 
                 # Push to remote
                 self.hgit.push_branch(branch)
@@ -987,6 +993,11 @@ class Repo:
         result['sync_result'] = sync_result
 
         return result
+
+    def revert_migration(self) -> None:
+        """Revert the most recently tagged migration. Delegates to MigrationManager."""
+        mgr = MigrationManager(self)
+        mgr.revert_migration()
 
     @property
     def base_dir(self):

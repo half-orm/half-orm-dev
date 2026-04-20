@@ -411,6 +411,19 @@ class HGit:
         origin = self.__git_repo.remote('origin')
         origin.push(tag_name)
 
+    def delete_remote_tag(self, tag_name: str) -> None:
+        """
+        Delete tag from remote.
+
+        Args:
+            tag_name: Tag name to delete (e.g., "ho-migration/1.0.0")
+
+        Examples:
+            hgit.delete_remote_tag("ho-migration/1.0.0")
+        """
+        origin = self.__git_repo.remote('origin')
+        origin.push(refspec=f':refs/tags/{tag_name}')
+
     def fetch_from_origin(self) -> None:
         """
         Fetch all references from origin remote with pruning.
