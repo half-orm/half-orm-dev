@@ -200,22 +200,38 @@ class MigrationManager:
                         f"Migration {migration_file.name} missing migrate() function"
                     )
 
-                # Execute migration and collect sync_files if returned
+                # Execute migration.
+                # The repo is guaranteed clean before migration starts, so the
+                # git index is empty here.  Everything staged by this script is
+                # exclusively a migration-induced change.
                 migration_result = module.migrate(self._repo)
 
                 result['applied_files'].append(migration_file.name)
 
-                # Collect sync_files from migration result
-                if isinstance(migration_result, dict):
-                    sync_files = migration_result.get('sync_files', [])
-                    if sync_files:
-                        result['sync_files'].extend(sync_files)
+                # Auto-detect files staged by the script (via hgit.add()).
+                # Since the index was empty before migration, git diff --cached
+                # returns exactly the files this script modified.
+                git_repo = self._repo.hgit._HGit__git_repo
+                auto_staged = set(
+                    git_repo.git.diff('--cached', '--name-only').splitlines()
+                )
+
+                # Merge with sync_files explicitly declared by the script.
+                declared = (
+                    list(migration_result.get('sync_files', []))
+                    if isinstance(migration_result, dict) else []
+                )
+                all_sync = list(dict.fromkeys(declared + list(auto_staged)))
+                if all_sync:
+                    result['sync_files'].extend(all_sync)
 
             except Exception as e:
                 error_msg = f"Error in {migration_file.name}: {e}"
                 result['errors'].append(error_msg)
                 raise MigrationManagerError(error_msg) from e
 
+        # Deduplicate across all scripts (git diff --cached is cumulative)
+        result['sync_files'] = list(dict.fromkeys(result['sync_files']))
         return result
 
     @with_dynamic_branch_lock(lambda self, *args, **kwargs: 'ho-prod')

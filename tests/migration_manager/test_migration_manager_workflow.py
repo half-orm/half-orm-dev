@@ -28,10 +28,15 @@ def mock_repo_with_migration_files(tmp_path):
     mock_local_config.backups_dir = None
     mock_repo._Repo__local_config = mock_local_config
 
-    # Mock hgit
+    # Mock hgit — wire git.diff so auto-detection of staged files works
+    mock_git = Mock()
+    mock_git.diff.return_value = ''  # no staged files by default
+    mock_git_repo = Mock()
+    mock_git_repo.git = mock_git
     mock_hgit = Mock()
     mock_hgit.add = Mock()
     mock_hgit.commit = Mock()
+    mock_hgit._HGit__git_repo = mock_git_repo
     mock_repo.hgit = mock_hgit
 
     # Mock commit_and_sync_to_active_branches
