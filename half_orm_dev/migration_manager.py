@@ -31,6 +31,11 @@ from typing import List, Dict, Optional, Tuple
 from half_orm import utils
 from half_orm_dev.decorators import with_dynamic_branch_lock
 
+try:
+    from half_orm.migrations import get_breaking_changes_dir
+except (ImportError, AttributeError):
+    get_breaking_changes_dir = None  # type: ignore[assignment]
+
 
 class MigrationManagerError(Exception):
     """Base exception for MigrationManager operations."""
@@ -506,8 +511,14 @@ class MigrationManager:
         except Exception:
             return results
 
-        for component in ('hop', 'half_orm'):
-            bc_dir = self._migrations_root / component
+        component_dirs = {'hop': self._migrations_root / 'hop'}
+        if get_breaking_changes_dir is not None:
+            try:
+                component_dirs['half_orm'] = get_breaking_changes_dir()
+            except Exception:
+                pass  # older half-orm — ignore silently
+
+        for component, bc_dir in component_dirs.items():
             if not bc_dir.is_dir():
                 continue
             for bc_file in sorted(bc_dir.glob('BREAKING_CHANGES-*.md')):
