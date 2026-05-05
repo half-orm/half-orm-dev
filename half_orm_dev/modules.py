@@ -48,6 +48,8 @@ HO_DATACLASSES = [
 from half_orm.relation import DC_Relation
 from half_orm.field import Field''']
 HO_DATACLASSES_IMPORTS = set()
+HO_TYPEDICTS: list = []
+HO_TYPEDICTS_IMPORTS: set = set()
 INIT_MODULE_TEMPLATE = read_template('init_module_template')
 MODULE_TEMPLATE_1 = read_template('module_template_1')
 MODULE_TEMPLATE_2 = read_template('module_template_2')
@@ -194,7 +196,12 @@ def __gen_dataclass(relation, fkeys):
     # Invert user-defined aliases: constraint_name → alias
     aliases = {constraint: alias for alias, constraint in fkeys.items() if alias != ''}
     for constraint_name, fkey in rel._ho_fkeys.items():
-        attr_name = aliases.get(constraint_name, constraint_name)
+        if constraint_name in aliases:
+            attr_name = aliases[constraint_name]
+        elif constraint_name.startswith('_reverse_fkey_'):
+            attr_name = 'rfk_' + constraint_name[len('_reverse_fkey_'):]
+        else:
+            attr_name = 'fk_' + constraint_name
         try:
             fk_fqrn = list(fkey()._t_fqrn)
             fdc_name = f'DC_{__get_full_class_name(fk_fqrn[1], fk_fqrn[2])}'
@@ -202,6 +209,87 @@ def __gen_dataclass(relation, fkeys):
             fdc_name = dc_name  # fallback: host class
         post_init.append(f"        self.{attr_name} = {fdc_name}")
     return '\n'.join([f'@dataclasses.dataclass\nclass {dc_name}(DC_Relation):'] + fields + post_init)
+
+
+def __get_type_annotation(field) -> tuple:
+    """Return (type_str, extra_imports) for a TypedDict field annotation.
+
+    Array types (SQL prefix '_') map to List[T].
+    """
+    sql_type = field._metadata['fieldtype']
+    is_array = sql_type.startswith('_')
+    base_sql_type = sql_type[1:] if is_array else sql_type
+
+    py_type = SQL_ADAPTER.get(base_sql_type)
+    imports: set = set()
+
+    if py_type is None or py_type is Any:
+        type_str = 'Any'
+    elif py_type.__module__ != 'builtins':
+        imports.add(py_type.__module__)
+        name = py_type.__name__ if hasattr(py_type, '__name__') else 'Any'
+        type_str = f'{py_type.__module__}.{name}'
+    else:
+        type_str = py_type.__name__
+
+    if is_array:
+        return f'List[{type_str}]', imports
+    return type_str, imports
+
+
+def __gen_typedict(relation, fkeys) -> str:
+    """Generate a TypedDict class for a relation.
+
+    FK fields ending in '_rfk' (reverse) are typed List['TargetDict'];
+    all other FK fields are typed 'TargetDict'.
+    """
+    rel = relation()
+    t_qrn = list(rel._t_fqrn)[1:]
+    dict_class_name = f'{__get_full_class_name(*t_qrn)}Dict'
+
+    fields = []
+    for field_name, field in rel._ho_fields.items():
+        type_str, imports = __get_type_annotation(field)
+        HO_TYPEDICTS_IMPORTS.update(imports)
+        line = f"    {field_name}: Optional[{type_str}]"
+        error = utils.check_attribute_name(field_name)
+        if error:
+            line = f"# {line}  # FIX ME! {error}"
+        fields.append(line)
+
+    aliases = {constraint: alias for alias, constraint in fkeys.items() if alias != ''}
+    for constraint_name, fkey in rel._ho_fkeys.items():
+        if constraint_name in aliases:
+            attr_name = aliases[constraint_name]
+        elif constraint_name.startswith('_reverse_fkey_'):
+            attr_name = 'rfk_' + constraint_name[len('_reverse_fkey_'):]
+        else:
+            attr_name = 'fk_' + constraint_name
+        try:
+            fk_fqrn = list(fkey()._t_fqrn)
+            target_name = f'{__get_full_class_name(fk_fqrn[1], fk_fqrn[2])}Dict'
+        except Exception:
+            target_name = dict_class_name
+        if attr_name.startswith('rfk_'):
+            fields.append(f"    {attr_name}: Optional[List['{target_name}']]")
+        else:
+            fields.append(f"    {attr_name}: Optional['{target_name}']")
+
+    body = '\n'.join(fields) if fields else '    pass'
+    return f"class {dict_class_name}(TypedDict, total=False):\n{body}"
+
+
+def __gen_typedicts(package_dir: str, package_name: str) -> None:
+    with open(os.path.join(package_dir, "ho_typeddicts.py"), "w", encoding='utf-8') as file_:
+        file_.write(f"# TypedDicts for {package_name}\n\n")
+        file_.write("from __future__ import annotations\n")
+        file_.write("from typing import TypedDict, Optional, List, Any\n")
+        td_imports = sorted(HO_TYPEDICTS_IMPORTS)
+        for mod in td_imports:
+            file_.write(f"import {mod}\n")
+        file_.write("\n")
+        for td in HO_TYPEDICTS:
+            file_.write(f"\n{td}\n")
 
 
 def __get_modules_list(dir, files_list, files):
@@ -394,6 +482,7 @@ def __update_this_module(
                 class_name=class_name))
 
     HO_DATACLASSES.append(__gen_dataclass(rel, existing_fkeys))
+    HO_TYPEDICTS.append(__gen_typedict(rel, existing_fkeys))
 
     return module_path
 
@@ -469,6 +558,7 @@ def generate(repo):
             # Tests are no longer added to files_list (they live in tests/ directory)
 
     __gen_dataclasses(str(package_dir), package_name)
+    __gen_typedicts(str(package_dir), package_name)
 
     if len(NO_APAPTER):
         print("MISSING ADAPTER FOR SQL TYPE")
