@@ -355,8 +355,20 @@ def project_with_fk_patch(project_with_release):
         "CREATE TABLE post (\n"
         "    id        SERIAL PRIMARY KEY,\n"
         "    title     TEXT NOT NULL,\n"
-        "    author_id INT REFERENCES author(id)\n"
+        "    author_id INT REFERENCES author(id),\n"
+        "    metadata  jsonb\n"
         ");\n"
+        "COMMENT ON COLUMN post.metadata IS 'Post metadata.\n"
+        "@json\n"
+        "```yaml\n"
+        "lang:  text\n"
+        "views: integer\n"
+        "tags:  [text]\n"
+        "items:\n"
+        "  - id:    integer\n"
+        "    title: text\n"
+        "```\n"
+        "';\n"
     )
 
     run(['half_orm', 'dev', 'patch', 'apply'])

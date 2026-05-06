@@ -237,20 +237,95 @@ def __get_type_annotation(field) -> tuple:
     return type_str, imports
 
 
-def __gen_typedict(relation, fkeys) -> str:
-    """Generate a TypedDict class for a relation.
+def __json_scalar_type(sql_type_name: str) -> str:
+    """Map a JSON schema scalar type name to a Python type string.
 
-    FK fields ending in '_rfk' (reverse) are typed List['TargetDict'];
+    Updates HO_TYPEDICTS_IMPORTS as needed.
+    """
+    py_type = SQL_ADAPTER.get(sql_type_name.lower())
+    if py_type is None or py_type is Any:
+        return 'Any'
+    if py_type.__module__ != 'builtins':
+        HO_TYPEDICTS_IMPORTS.add(py_type.__module__)
+        name = py_type.__name__ if hasattr(py_type, '__name__') else 'Any'
+        return f'{py_type.__module__}.{name}'
+    return py_type.__name__
+
+
+def __gen_json_typedicts(name_prefix: str, schema) -> tuple:
+    """Recursively generate TypedDict classes from a Field.json_schema structure.
+
+    Returns (class_strings, top_class_name).
+    class_strings are in dependency order (nested classes before the class using them).
+
+    YAML value conventions:
+        scalar string  → SQL type name  (e.g. 'text', 'integer', 'uuid')
+        [scalar]       → List[T]
+        [dict]         → List[NestedDict]
+        dict           → NestedDict
+    """
+    if not isinstance(schema, dict):
+        return [], 'Any'
+
+    classes = []
+    fields = []
+
+    for key, val in schema.items():
+        if isinstance(val, str):
+            type_str = __json_scalar_type(val)
+            fields.append(f"    {key}: Optional[{type_str}]")
+        elif isinstance(val, list) and len(val) == 1:
+            item = val[0]
+            if isinstance(item, str):
+                inner = __json_scalar_type(item)
+                fields.append(f"    {key}: Optional[List[{inner}]]")
+            elif isinstance(item, dict):
+                child_prefix = name_prefix + ''.join(w.capitalize() for w in key.split('_'))
+                nested, child_name = __gen_json_typedicts(child_prefix, item)
+                classes.extend(nested)
+                fields.append(f"    {key}: Optional[List['{child_name}']]")
+            else:
+                fields.append(f"    {key}: Optional[Any]")
+        elif isinstance(val, dict):
+            child_prefix = name_prefix + ''.join(w.capitalize() for w in key.split('_'))
+            nested, child_name = __gen_json_typedicts(child_prefix, val)
+            classes.extend(nested)
+            fields.append(f"    {key}: Optional['{child_name}']")
+        else:
+            fields.append(f"    {key}: Optional[Any]")
+
+    class_name = f'{name_prefix}Dict'
+    body = '\n'.join(fields) if fields else '    pass'
+    classes.append(f'class {class_name}(TypedDict, total=False):\n{body}')
+    return classes, class_name
+
+
+def __gen_typedict(relation, fkeys) -> list:
+    """Generate TypedDict class(es) for a relation.
+
+    Returns a list of class strings: nested JSON TypedDicts first, then the main class.
+    FK fields starting with 'rfk_' (reverse) are typed List['TargetDict'];
     all other FK fields are typed 'TargetDict'.
+    json/jsonb fields with a json_schema generate nested TypedDict classes.
     """
     rel = relation()
     t_qrn = list(rel._t_fqrn)[1:]
     dict_class_name = f'{__get_full_class_name(*t_qrn)}Dict'
 
+    extra_classes = []
     fields = []
     for field_name, field in rel._ho_fields.items():
-        type_str, imports = __get_type_annotation(field)
-        HO_TYPEDICTS_IMPORTS.update(imports)
+        json_schema = getattr(field, 'json_schema', None)
+        if json_schema is not None and isinstance(json_schema, dict):
+            field_cc = ''.join(w.capitalize() for w in field_name.split('_'))
+            json_classes, top_name = __gen_json_typedicts(
+                f'{dict_class_name[:-4]}{field_cc}', json_schema
+            )
+            extra_classes.extend(json_classes)
+            type_str = top_name
+        else:
+            type_str, imports = __get_type_annotation(field)
+            HO_TYPEDICTS_IMPORTS.update(imports)
         line = f"    {field_name}: Optional[{type_str}]"
         error = utils.check_attribute_name(field_name)
         if error:
@@ -276,7 +351,8 @@ def __gen_typedict(relation, fkeys) -> str:
             fields.append(f"    {attr_name}: Optional['{target_name}']")
 
     body = '\n'.join(fields) if fields else '    pass'
-    return f"class {dict_class_name}(TypedDict, total=False):\n{body}"
+    main_class = f'class {dict_class_name}(TypedDict, total=False):\n{body}'
+    return extra_classes + [main_class]
 
 
 def __gen_typedicts(package_dir: str, package_name: str) -> None:
@@ -482,7 +558,7 @@ def __update_this_module(
                 class_name=class_name))
 
     HO_DATACLASSES.append(__gen_dataclass(rel, existing_fkeys))
-    HO_TYPEDICTS.append(__gen_typedict(rel, existing_fkeys))
+    HO_TYPEDICTS.extend(__gen_typedict(rel, existing_fkeys))
 
     return module_path
 

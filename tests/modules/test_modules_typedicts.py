@@ -13,9 +13,20 @@ import half_orm_dev.modules as _mod
 _get_type_annotation = _mod.__dict__['_half_orm_dev__get_type_annotation'] \
     if '_half_orm_dev__get_type_annotation' in _mod.__dict__ \
     else _mod.__dict__['__get_type_annotation']
-_gen_typedict = _mod.__dict__['_half_orm_dev__gen_typedict'] \
+_gen_typedict_raw = _mod.__dict__['_half_orm_dev__gen_typedict'] \
     if '_half_orm_dev__gen_typedict' in _mod.__dict__ \
     else _mod.__dict__['__gen_typedict']
+_gen_json_typedicts = _mod.__dict__['_half_orm_dev__gen_json_typedicts'] \
+    if '_half_orm_dev__gen_json_typedicts' in _mod.__dict__ \
+    else _mod.__dict__['__gen_json_typedicts']
+_json_scalar_type = _mod.__dict__['_half_orm_dev__json_scalar_type'] \
+    if '_half_orm_dev__json_scalar_type' in _mod.__dict__ \
+    else _mod.__dict__['__json_scalar_type']
+
+
+def _gen_typedict(relation, fkeys):
+    """Wrapper: joins the list returned by __gen_typedict into a single string."""
+    return '\n\n'.join(_gen_typedict_raw(relation, fkeys))
 
 
 # ---------------------------------------------------------------------------
@@ -219,3 +230,75 @@ class TestGenTypedict:
         relation = _make_relation('public', 'counter', {'n': 'integer'})
         _gen_typedict(relation, {})
         assert _mod.HO_TYPEDICTS_IMPORTS == set()
+
+
+# ---------------------------------------------------------------------------
+# Tests for __gen_json_typedicts
+# ---------------------------------------------------------------------------
+
+class TestGenJsonTypedict:
+
+    def test_simple_scalar_fields(self):
+        classes, top = _gen_json_typedicts('Prefix', {'lang': 'text', 'views': 'integer'})
+        assert top == 'PrefixDict'
+        assert len(classes) == 1
+        body = classes[0]
+        assert 'class PrefixDict(TypedDict, total=False):' in body
+        assert '    lang: Optional[str]' in body
+        assert '    views: Optional[int]' in body
+
+    def test_array_of_scalars(self):
+        classes, top = _gen_json_typedicts('Post', {'tags': ['text']})
+        assert len(classes) == 1
+        assert '    tags: Optional[List[str]]' in classes[0]
+
+    def test_nested_dict_generates_child_class(self):
+        classes, top = _gen_json_typedicts('Post', {'meta': {'created': 'timestamp'}})
+        assert len(classes) == 2
+        assert classes[0].startswith('class PostMetaDict(TypedDict, total=False):')
+        assert classes[1].startswith('class PostDict(TypedDict, total=False):')
+        assert "    meta: Optional['PostMetaDict']" in classes[1]
+
+    def test_array_of_objects_generates_child_class(self):
+        classes, top = _gen_json_typedicts('Post', {'items': [{'id': 'uuid', 'name': 'text'}]})
+        assert len(classes) == 2
+        assert classes[0].startswith('class PostItemsDict(TypedDict, total=False):')
+        assert "    items: Optional[List['PostItemsDict']]" in classes[1]
+
+    def test_deep_nesting_dependency_order(self):
+        schema = {'outer': {'inner': {'val': 'integer'}}}
+        classes, top = _gen_json_typedicts('Root', schema)
+        assert len(classes) == 3
+        assert classes[0].startswith('class RootOuterInnerDict')
+        assert classes[1].startswith('class RootOuterDict')
+        assert classes[2].startswith('class RootDict')
+
+    def test_non_dict_schema_returns_any(self):
+        classes, top = _gen_json_typedicts('Post', 'not a dict')
+        assert classes == []
+        assert top == 'Any'
+
+    def test_empty_schema_generates_pass(self):
+        classes, top = _gen_json_typedicts('Empty', {})
+        assert len(classes) == 1
+        assert '    pass' in classes[0]
+
+    def test_uuid_type_adds_import(self):
+        _gen_json_typedicts('Token', {'id': 'uuid'})
+        assert 'uuid' in _mod.HO_TYPEDICTS_IMPORTS
+
+    def test_timestamp_type_adds_import(self):
+        _gen_json_typedicts('Event', {'created_at': 'timestamp'})
+        assert 'datetime' in _mod.HO_TYPEDICTS_IMPORTS
+
+    def test_plain_scalar_no_import(self):
+        _gen_json_typedicts('Counter', {'n': 'integer'})
+        assert _mod.HO_TYPEDICTS_IMPORTS == set()
+
+    def test_snake_case_key_builds_camel_prefix(self):
+        classes, top = _gen_json_typedicts('Post', {'some_data': {'val': 'text'}})
+        assert classes[0].startswith('class PostSomeDataDict')
+
+    def test_unknown_sql_type_falls_back_to_any(self):
+        classes, top = _gen_json_typedicts('X', {'col': 'custom_pg_type'})
+        assert '    col: Optional[Any]' in classes[0]
