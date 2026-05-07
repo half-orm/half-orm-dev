@@ -180,41 +180,44 @@ class TestGenTypedict:
         result = _gen_typedict(relation, {})
         assert '    pass' in result
 
-    def test_forward_fk_gets_fk_prefix(self):
-        """Raw constraint name gets fk_ prefix (half-orm auto-expose convention)."""
+    def test_forward_fk_not_in_typedict(self):
+        """FK accessor attributes are not part of a row dict — excluded from TypedDict."""
         relation = _make_relation(
             'public', 'post', {'id': 'integer'},
             fkeys={'post_author_id_fkey': ('public', 'author')}
         )
         result = _gen_typedict(relation, {})
-        assert "    fk_post_author_id_fkey: Optional['PublicAuthorDict']" in result
+        assert 'fk_post_author_id_fkey' not in result
+        assert 'PublicAuthorDict' not in result
 
-    def test_reverse_fk_gets_rfk_prefix(self):
-        """_reverse_fkey_* constraint name gets rfk_ prefix (half-orm convention)."""
+    def test_reverse_fk_not_in_typedict(self):
+        """Reverse FK accessor attributes are not part of a row dict — excluded."""
         relation = _make_relation(
             'public', 'author', {'id': 'integer'},
             fkeys={'_reverse_fkey_public_post_author_id': ('public', 'post')}
         )
         result = _gen_typedict(relation, {})
-        assert "    rfk_public_post_author_id: Optional[List['PublicPostDict']]" in result
+        assert 'rfk_public_post_author_id' not in result
+        assert 'PublicPostDict' not in result
 
-    def test_fk_with_alias_overrides_auto_prefix(self):
-        """User alias from Fkeys class takes precedence over fk_/rfk_ auto-naming."""
+    def test_fk_alias_not_in_typedict(self):
+        """User-defined FK aliases are also excluded from TypedDict."""
         relation = _make_relation(
             'public', 'post', {'id': 'integer'},
             fkeys={'post_author_id_fkey': ('public', 'author')}
         )
         result = _gen_typedict(relation, {'writer': 'post_author_id_fkey'})
-        assert "    writer: Optional['PublicAuthorDict']" in result
-        assert 'fk_post_author_id_fkey' not in result
+        assert 'writer' not in result
+        assert 'PublicAuthorDict' not in result
 
-    def test_self_referential_fk(self):
+    def test_self_referential_fk_not_in_typedict(self):
+        """Self-referential FKs are also excluded from TypedDict."""
         relation = _make_relation(
             'public', 'category', {'id': 'integer'},
             fkeys={'category_parent_fkey': ('public', 'category')}
         )
         result = _gen_typedict(relation, {})
-        assert "    fk_category_parent_fkey: Optional['PublicCategoryDict']" in result
+        assert 'fk_category_parent_fkey' not in result
 
     def test_datetime_field_populates_imports(self):
         relation = _make_relation('public', 'event', {'created_at': 'timestamp'})

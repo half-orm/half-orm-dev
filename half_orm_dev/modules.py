@@ -304,8 +304,7 @@ def __gen_typedict(relation, fkeys) -> list:
     """Generate TypedDict class(es) for a relation.
 
     Returns a list of class strings: nested JSON TypedDicts first, then the main class.
-    FK fields starting with 'rfk_' (reverse) are typed List['TargetDict'];
-    all other FK fields are typed 'TargetDict'.
+    Only database columns are included — FK accessor attributes are not part of a row dict.
     json/jsonb fields with a json_schema generate nested TypedDict classes.
     """
     rel = relation()
@@ -331,24 +330,6 @@ def __gen_typedict(relation, fkeys) -> list:
         if error:
             line = f"# {line}  # FIX ME! {error}"
         fields.append(line)
-
-    aliases = {constraint: alias for alias, constraint in fkeys.items() if alias != ''}
-    for constraint_name, fkey in rel._ho_fkeys.items():
-        if constraint_name in aliases:
-            attr_name = aliases[constraint_name]
-        elif constraint_name.startswith('_reverse_fkey_'):
-            attr_name = 'rfk_' + constraint_name[len('_reverse_fkey_'):]
-        else:
-            attr_name = 'fk_' + constraint_name
-        try:
-            fk_fqrn = list(fkey()._t_fqrn)
-            target_name = f'{__get_full_class_name(fk_fqrn[1], fk_fqrn[2])}Dict'
-        except Exception:
-            target_name = dict_class_name
-        if attr_name.startswith('rfk_'):
-            fields.append(f"    {attr_name}: Optional[List['{target_name}']]")
-        else:
-            fields.append(f"    {attr_name}: Optional['{target_name}']")
 
     body = '\n'.join(fields) if fields else '    pass'
     main_class = f'class {dict_class_name}(TypedDict, total=False):\n{body}'
@@ -521,6 +502,9 @@ def __update_this_module(
     inheritance_import, inherited_classes = __get_inheritance_info(
         rel, package_name)
 
+    t_qrn = list(rel._t_fqrn)[1:]
+    dict_class_name = f'{__get_full_class_name(*t_qrn)}Dict'
+
     # Generate Python module
     with open(module_path, 'w', encoding='utf-8') as file_:
         documentation = "\n".join([line and f"    {line}" or "" for line in str(rel).split("\n")[1:]])
@@ -534,6 +518,7 @@ def __update_this_module(
                 inherited_classes=inherited_classes,
                 class_name=class_name,
                 dc_name=rel._ho_dataclass_name(),
+                dict_class_name=dict_class_name,
                 fqtn=fqtn,
                 kwargs=kwargs,
                 arg_names=arg_names,

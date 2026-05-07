@@ -136,40 +136,23 @@ def test_post_author_id_is_optional_int(td_classes):
 
 
 # ---------------------------------------------------------------------------
-# Tests — FK references
+# Tests — FK fields excluded from TypedDict
 # ---------------------------------------------------------------------------
 
 @pytest.mark.e2e
-def test_post_has_forward_fk_to_author(td_classes):
-    """PublicPostDict has a _fk field referencing PublicAuthorDict."""
+def test_post_has_no_fk_fields_in_typedict(td_classes):
+    """FK accessor attributes are not row data — excluded from PublicPostDict."""
     fields = td_classes.get('PublicPostDict', {})
-    fk_fields = {k: v for k, v in fields.items() if k.startswith('fk_')}
-    assert fk_fields, "No fk_ field found in PublicPostDict"
-    for attr, annotation in fk_fields.items():
-        assert "PublicAuthorDict" in annotation, (
-            f"PublicPostDict.{attr} should reference PublicAuthorDict, got {annotation!r}"
-        )
-        assert annotation.startswith("Optional["), (
-            f"PublicPostDict.{attr} should be Optional, got {annotation!r}"
-        )
-        assert "List[" not in annotation, (
-            f"Forward FK {attr} should not be a List"
-        )
+    fk_fields = [k for k in fields if k.startswith('fk_')]
+    assert not fk_fields, f"fk_ fields should not appear in PublicPostDict: {fk_fields}"
 
 
 @pytest.mark.e2e
-def test_author_has_reverse_fk_to_post(td_classes):
-    """PublicAuthorDict has a _rfk field referencing List['PublicPostDict']."""
+def test_author_has_no_rfk_fields_in_typedict(td_classes):
+    """Reverse FK accessor attributes are not row data — excluded from PublicAuthorDict."""
     fields = td_classes.get('PublicAuthorDict', {})
-    rfk_fields = {k: v for k, v in fields.items() if k.startswith('rfk_')}
-    assert rfk_fields, "No rfk_ field found in PublicAuthorDict"
-    for attr, annotation in rfk_fields.items():
-        assert "PublicPostDict" in annotation, (
-            f"PublicAuthorDict.{attr} should reference PublicPostDict, got {annotation!r}"
-        )
-        assert "List[" in annotation, (
-            f"Reverse FK {attr} should be List[...], got {annotation!r}"
-        )
+    rfk_fields = [k for k in fields if k.startswith('rfk_')]
+    assert not rfk_fields, f"rfk_ fields should not appear in PublicAuthorDict: {rfk_fields}"
 
 
 @pytest.mark.e2e

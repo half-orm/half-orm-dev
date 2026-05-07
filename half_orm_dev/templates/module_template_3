@@ -1,3 +1,6 @@
     #pylint: disable=line-too-long, too-many-arguments, redefined-builtin, too-many-positional-arguments
     def __init__(self, {kwargs}):
         super().__init__({arg_names}, **kwargs)
+
+    def __iter__(self) -> 'Iterator[{dict_class_name}]':
+        return super().__iter__()
