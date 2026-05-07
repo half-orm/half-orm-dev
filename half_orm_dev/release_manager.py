@@ -2497,6 +2497,12 @@ class ReleaseManager:
 
         # Save original branch for rollback
         original_branch = self._repo.hgit.branch
+        # Save schema.sql symlink target so rollback can restore it if
+        # _generate_schema_sql updates it before a failure.
+        _schema_sql = Path(self._repo.model_dir) / 'schema.sql'
+        original_schema_link = (
+            os.readlink(str(_schema_sql)) if _schema_sql.is_symlink() else None
+        )
 
         try:
             # 5. Create temporary branch from release branch (validation only)
@@ -2546,6 +2552,15 @@ class ReleaseManager:
                 self._repo.database._generate_schema_sql(version, model_dir)
                 staged_patches = release_file.get_patches(status="staged")
                 self._create_prod_snapshot(version, staged_patches, release_file, model_dir)
+
+                # 10b. Passe 2: validate all bootstrap scripts against final schema.
+                # schema.sql now points to schema-X.Y.Z.sql (just generated).
+                # restore_database_from_schema() resets the DB and runs ALL pending
+                # bootstrap scripts in order — exactly what a fresh clone does.
+                # Any failure here aborts promotion before the commit.
+                print(f"\n🔍 Validating bootstrap scripts against schema {version}...")
+                self._repo.restore_database_from_schema()
+                print(f"✓ Bootstrap validation passed")
 
                 # 11. Commit the merge with all promote changes included
                 self._repo.hgit.add(".")
@@ -2625,6 +2640,15 @@ class ReleaseManager:
                 except GitCommandError:
                     pass
 
+                # Restore tracked files deleted/modified outside of git control
+                # during the merge window (by _generate_schema_sql and
+                # _create_prod_snapshot). merge_abort resets the index but
+                # not working-tree files that were deleted directly on disk.
+                try:
+                    self._repo.hgit.checkout('HEAD', '--', '.')
+                except GitCommandError:
+                    pass
+
                 # Return to original branch
                 try:
                     self._repo.hgit.checkout(original_branch)
@@ -2640,6 +2664,17 @@ class ReleaseManager:
                     print(f"  Deleted temporary branch {temp_branch}")
                 except GitCommandError:
                     pass  # Already deleted (prod validation complete) or never created
+
+                # Restore schema.sql symlink if _generate_schema_sql changed it
+                # before the failure (merge_abort does not undo symlink changes
+                # made outside of the merge commit itself).
+                if original_schema_link is not None:
+                    try:
+                        if _schema_sql.is_symlink() and os.readlink(str(_schema_sql)) != original_schema_link:
+                            _schema_sql.unlink()
+                            _schema_sql.symlink_to(original_schema_link)
+                    except OSError:
+                        pass
 
             except (GitCommandError, TypeError) as cleanup_error:
                 print(f"  Warning: Cleanup failed: {cleanup_error}", file=sys.stderr)

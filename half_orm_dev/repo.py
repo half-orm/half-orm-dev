@@ -868,12 +868,14 @@ class Repo:
 
             # Check if working directory is clean
             if git_repo.is_dirty(untracked_files=False):
+                status = git_repo.git.status('--short')
                 raise RepoError(
                     f"Working directory has uncommitted changes.\n"
                     f"Please commit or stash your changes before running this command:\n"
                     f"  git stash\n"
                     f"  OR\n"
-                    f"  git add . && git commit -m \"your message\""
+                    f"  git add . && git commit -m \"your message\"\n"
+                    f"Dirty files:\n{status}"
                 )
 
             # Switch to ho-prod temporarily
@@ -2494,11 +2496,14 @@ Each script is executed only once unless `--force` is used.
             # up_to_version prevents bootstraps from future versions from running.
             from half_orm_dev.bootstrap_manager import BootstrapManager
             bootstrap_mgr = BootstrapManager(self)
-            bootstrap_mgr.run_bootstrap(
+            result = bootstrap_mgr.run_bootstrap(
                 exclude_patch_id=exclude_bootstrap_patch_id,
                 exclude_version=exclude_bootstrap_version,
                 up_to_version=exclude_bootstrap_version
             )
+            if result['errors']:
+                error_msg = "\n".join([f"  • {f}: {e}" for f, e in result['errors']])
+                raise RepoError(f"Bootstrap execution failed:\n{error_msg}")
 
         except RepoError:
             # Re-raise RepoError as-is
