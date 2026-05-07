@@ -643,6 +643,13 @@ def __gen_dataclasses(package_dir, package_name):
 
 def generate(repo):
     """Synchronize the modules with the structure of the relation in PG."""
+    # Reset accumulators — allows safe repeated calls in the same process
+    HO_DATACLASSES.clear()
+    HO_DATACLASSES_IMPORTS.clear()
+    HO_TYPEDICTS.clear()
+    HO_TYPEDICTS_IMPORTS.clear()
+    NO_APAPTER.clear()
+
     package_name = repo.name
     base_dir = Path(repo.base_dir)
     package_dir = base_dir / package_name

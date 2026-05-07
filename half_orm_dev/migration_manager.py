@@ -370,6 +370,16 @@ class MigrationManager:
                     current_version, target_version, sync_result
                 )
 
+                # Pseudo-patch: regenerate modules and sync to active branches
+                try:
+                    self._regenerate_modules_after_migration(
+                        current_version, target_version
+                    )
+                except Exception as regen_err:
+                    result['errors'].append(
+                        f"Module regeneration after migration failed: {regen_err}"
+                    )
+
             except Exception as e:
                 # Don't fail migration if commit fails
                 result['errors'].append(f"Failed to create commit: {e}")
@@ -441,6 +451,70 @@ class MigrationManager:
             self._repo.hgit.delete_remote_tag(tag.name)
         except Exception:
             pass  # remote tag may already be gone
+
+    def _regenerate_modules_after_migration(
+        self, from_version: str, to_version: str
+    ) -> None:
+        """Regenerate the project modules after a migration and sync to all active branches.
+
+        Runs generate(), commits the changed files on ho-prod, then replays those
+        changes on every active branch by checking out the package directory from ho-prod.
+        Skips silently if generate() produced no changes.
+        """
+        from half_orm_dev import modules as _modules
+
+        repo = self._repo
+        git_repo = repo.hgit._HGit__git_repo
+        package_name = repo.name
+        package_dir = str(Path(repo.base_dir) / package_name)
+
+        # Regenerate all modules (idempotent thanks to global reset in generate())
+        _modules.generate(repo)
+
+        # Stage the entire package directory
+        repo.hgit.add(package_dir)
+
+        # Nothing changed — nothing to do
+        staged = git_repo.git.diff('--cached', '--name-only')
+        if not staged.strip():
+            return
+
+        # Commit on ho-prod
+        commit_msg = (
+            f"[HOP] Regenerate modules (migration {from_version} → {to_version})"
+        )
+        repo.hgit.commit('-m', commit_msg)
+        repo.hgit.push_branch('ho-prod')
+
+        # Sync to all active branches
+        try:
+            branches_status = repo.hgit.get_active_branches_status()
+        except Exception:
+            return
+
+        patch_branches = [b['name'] for b in branches_status.get('patch_branches', [])]
+        release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
+        staged_branches = [b['name'] for b in branches_status.get('staged_branches', [])]
+        target_branches = release_branches + patch_branches + staged_branches
+
+        sync_msg = (
+            f"[HOP] Sync modules from ho-prod (migration {from_version} → {to_version})"
+        )
+        for branch in target_branches:
+            try:
+                repo.hgit.checkout(branch)
+                git_repo.git.checkout('ho-prod', '--', package_name)
+                repo.hgit.add(package_dir)
+                if not git_repo.git.status('--porcelain').strip():
+                    continue
+                repo.hgit.commit('-m', sync_msg)
+                repo.hgit.push_branch(branch)
+            except Exception as e:
+                sys.stderr.write(
+                    f"Warning: could not sync modules to {branch}: {e}\n"
+                )
+
+        repo.hgit.checkout('ho-prod')
 
     def _create_migration_commit_message(
         self,
