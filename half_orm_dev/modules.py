@@ -54,6 +54,7 @@ INIT_MODULE_TEMPLATE = read_template('init_module_template')
 MODULE_TEMPLATE_1 = read_template('module_template_1')
 MODULE_TEMPLATE_2 = read_template('module_template_2')
 MODULE_TEMPLATE_3 = read_template('module_template_3')
+MODULE_STUB_TEMPLATE = read_template('module_stub_template')
 WARNING_TEMPLATE = read_template('warning')
 CONFTEST = read_template('conftest_template')
 TEST = read_template('relation_test')
@@ -336,6 +337,18 @@ def __gen_typedict(relation, fkeys) -> list:
     return extra_classes + [main_class]
 
 
+def __gen_stub_file(module_path: str, class_name: str, dict_class_name: str, package_name: str) -> str:
+    """Generate a .pyi stub alongside the module for IDE type inference."""
+    stub_path = module_path[:-3] + '.pyi'
+    with open(stub_path, 'w', encoding='utf-8') as f:
+        f.write(MODULE_STUB_TEMPLATE.format(
+            package_name=package_name,
+            dict_class_name=dict_class_name,
+            class_name=class_name,
+        ))
+    return stub_path
+
+
 def __gen_typedicts(package_dir: str, package_name: str) -> None:
     with open(os.path.join(package_dir, "ho_typeddicts.py"), "w", encoding='utf-8') as file_:
         file_.write(f"# TypedDicts for {package_name}\n\n")
@@ -545,7 +558,9 @@ def __update_this_module(
     HO_DATACLASSES.append(__gen_dataclass(rel, existing_fkeys))
     HO_TYPEDICTS.extend(__gen_typedict(rel, existing_fkeys))
 
-    return module_path
+    stub_path = __gen_stub_file(module_path, class_name, dict_class_name, package_name)
+
+    return [module_path, stub_path]
 
 
 def __reset_dataclasses(repo, package_dir):
@@ -613,10 +628,9 @@ def generate(repo):
 
     # Generate modules for each relation
     for relation in repo.database.model._relations():
-        module_path = __update_this_module(repo, relation, str(package_dir), package_name)
-        if module_path:
-            files_list.append(module_path)
-            # Tests are no longer added to files_list (they live in tests/ directory)
+        paths = __update_this_module(repo, relation, str(package_dir), package_name)
+        if paths:
+            files_list.extend(paths)
 
     __gen_dataclasses(str(package_dir), package_name)
     __gen_typedicts(str(package_dir), package_name)
