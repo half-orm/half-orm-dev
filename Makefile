@@ -53,18 +53,28 @@ publish: build
 .PHONY: release
 release: check-main-branch check-repo-clean
 	@CURRENT=$$(cat half_orm_dev/version.txt | tr -d '[:space:]'); \
-	echo "Current version: $$CURRENT"; \
-	printf "New version: "; \
+	echo "Current half-orm-dev version: $$CURRENT"; \
+	printf "Minimum half-orm version required (e.g. 1.0.0rc1): "; \
+	read MIN_HALF_ORM; \
+	if [ -z "$$MIN_HALF_ORM" ]; then echo "Aborted."; exit 1; fi; \
+	printf "New half-orm-dev version: "; \
 	read NEW_VERSION; \
 	if [ -z "$$NEW_VERSION" ]; then echo "Aborted."; exit 1; fi; \
-	echo "$$NEW_VERSION" > half_orm_dev/version.txt; \
-	echo "Checking half-orm PyPI release compatibility for $$NEW_VERSION..."; \
-	if ! python scripts/check_half_orm_release.py; then \
-		echo "$$CURRENT" > half_orm_dev/version.txt; \
-		echo "Version reverted to $$CURRENT"; \
+	HO_XY=$$(echo "$$MIN_HALF_ORM" | sed 's/^\([0-9]*\.[0-9]*\).*/\1/'); \
+	DEV_XY=$$(echo "$$NEW_VERSION" | sed 's/^\([0-9]*\.[0-9]*\).*/\1/'); \
+	if [ "$$HO_XY" != "$$DEV_XY" ]; then \
+		echo "ERROR: version mismatch — half-orm $$MIN_HALF_ORM ($$HO_XY) and half-orm-dev $$NEW_VERSION ($$DEV_XY) must share the same X.Y"; \
 		exit 1; \
 	fi; \
-	git add half_orm_dev/version.txt; \
+	echo "$$NEW_VERSION" > half_orm_dev/version.txt; \
+	echo "Checking half-orm PyPI release compatibility..."; \
+	if ! python scripts/check_half_orm_release.py --min-half-orm "$$MIN_HALF_ORM"; then \
+		echo "$$CURRENT" > half_orm_dev/version.txt; \
+		git checkout requirements.txt; \
+		echo "Reverted to $$CURRENT"; \
+		exit 1; \
+	fi; \
+	git add half_orm_dev/version.txt requirements.txt; \
 	git commit -m "[release] $$NEW_VERSION"; \
 	git tag "$$NEW_VERSION"; \
 	echo "✓ Committed and tagged $$NEW_VERSION"
