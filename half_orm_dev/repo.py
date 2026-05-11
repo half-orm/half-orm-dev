@@ -544,6 +544,14 @@ class Repo:
                 result['migration_run'] = True
                 result['errors'] = migration_result.get('errors', [])
 
+                # Clean up orphaned ho-staged/* branches (patch IDs in .txt = already in production)
+                if hasattr(self, 'release_manager'):
+                    try:
+                        deleted = self.release_manager.cleanup_orphaned_staged_branches()
+                        result['orphaned_staged_deleted'] = deleted
+                    except Exception:
+                        result['orphaned_staged_deleted'] = []
+
                 # Log success if not silent
                 if not silent:
                     if migration_result.get('migrations_applied'):
@@ -1519,28 +1527,8 @@ class Repo:
             result = repo.check_and_update(force_check=True)
         """
 
-        # Check cache (only if not forced and silent mode)
-        cache_file = Path(self.__base_dir) / '.git' / '.half_orm_check_cache'
-        cache_hit = False
 
-        if silent and not force_check and cache_file.exists():
-            try:
-                last_check = float(cache_file.read_text().strip())
-                # Check once per day (86400 seconds)
-                if time.time() - last_check < 86400:
-                    cache_hit = True
-                    return {
-                        'hooks': {'installed': False, 'action': 'skipped'},
-                        'branches': {},
-                        'cache_hit': True
-                    }
-            except (ValueError, IOError):
-                pass
-
-        # Perform checks
-        result = {
-            'cache_hit': False
-        }
+        result = {}
 
         # 0. Update ho-prod from remote and fetch all branches
         # This ensures we have the latest hop_version and branch status
@@ -1715,18 +1703,20 @@ class Repo:
 
         result['stale_branches'] = stale_branches_result
 
+        # 3b. Delete orphaned ho-staged/* branches (patch in a .txt = already in production)
+        orphaned_staged_deleted = []
+        if not dry_run and hasattr(self, 'release_manager'):
+            try:
+                orphaned_staged_deleted = self.release_manager.cleanup_orphaned_staged_branches()
+            except Exception:
+                pass  # Best effort
+        result['orphaned_staged_deleted'] = orphaned_staged_deleted
+
         # 4. Check version (only for explicit checks, not silent)
         if not silent:
             result['version'] = self._check_version_update()
         else:
             result['version'] = None
-
-        # Update cache
-        if not dry_run and silent:
-            try:
-                cache_file.write_text(str(time.time()))
-            except IOError:
-                pass  # Best effort
 
         return result
 

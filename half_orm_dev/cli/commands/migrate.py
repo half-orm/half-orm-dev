@@ -134,6 +134,10 @@ def migrate(verbose: bool) -> None:
                             click.echo(f"  • {error}")
 
                     click.echo(f"\n✓ Synced .hop/ to active branches")
+
+                    deleted = result.get('orphaned_staged_deleted', [])
+                    if deleted:
+                        click.echo(f"✓ Deleted {len(deleted)} orphaned ho-staged branch(es)")
                 else:
                     click.echo(f"✓ {utils.Color.green('Repository is up to date')}")
 

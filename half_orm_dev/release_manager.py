@@ -2768,13 +2768,17 @@ class ReleaseManager:
             print(f"Warning: Failed to delete release branch {release_branch}: {e}", file=sys.stderr)
 
         # Delete ho-staged/X branches for all patches that were in this release.
-        # These were created by merge_patch (renamed from ho-patch/X) and are no
-        # longer needed once the release reaches production.
+        # At this point the X.Y.Z-patches.toml is already gone (replaced by
+        # X.Y.Z.txt during production promotion), so we read the .txt file.
         version = release_branch.replace('ho-release/', '')
-        release_file = ReleaseFile(version, self._releases_dir)
-        if release_file.exists():
-            staged_patch_ids = release_file.get_patches(status="staged")
-            for patch_id in staged_patch_ids:
+        prod_txt = Path(self._releases_dir) / f"{version}.txt"
+        if prod_txt.exists():
+            patch_ids = [
+                line.strip()
+                for line in prod_txt.read_text(encoding='utf-8').splitlines()
+                if line.strip()
+            ]
+            for patch_id in patch_ids:
                 staged_branch = f"ho-staged/{patch_id}"
                 try:
                     if self._repo.hgit.branch_exists(staged_branch):
@@ -2785,6 +2789,49 @@ class ReleaseManager:
                     print(f"Warning: Failed to delete {staged_branch}: {e}", file=sys.stderr)
 
         return deleted_branches
+
+    def cleanup_orphaned_staged_branches(self) -> list:
+        """Delete every ho-staged/* branch whose patch ID is in any .txt release file.
+
+        A ho-staged/* branch is orphaned when its release has been promoted to
+        production (the patch ID appears in a X.Y.Z.txt file) but the branch
+        was never cleaned up — e.g. due to an interrupted promotion.
+
+        Returns:
+            List of deleted branch names.
+        """
+        releases_dir = Path(self._releases_dir)
+        git_repo = self._repo.hgit._HGit__git_repo
+
+        # Collect all patch IDs that are in production (.txt files)
+        prod_patch_ids: set = set()
+        for txt_file in releases_dir.glob("*.txt"):
+            for line in txt_file.read_text(encoding='utf-8').splitlines():
+                patch_id = line.strip()
+                if patch_id:
+                    prod_patch_ids.add(patch_id)
+
+        if not prod_patch_ids:
+            return []
+
+        deleted = []
+        for branch in list(git_repo.branches):
+            if not branch.name.startswith('ho-staged/'):
+                continue
+            patch_id = branch.name[len('ho-staged/'):]
+            if patch_id not in prod_patch_ids:
+                continue
+            try:
+                self._repo.hgit.delete_local_branch(branch.name)
+                self._repo.hgit.delete_remote_branch(branch.name)
+                deleted.append(branch.name)
+            except Exception as e:
+                print(
+                    f"Warning: Failed to delete orphaned {branch.name}: {e}",
+                    file=sys.stderr,
+                )
+
+        return deleted
 
     @with_dynamic_branch_lock(lambda self: "ho-prod")
     def promote_to_rc(self) -> dict:
