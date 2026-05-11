@@ -37,6 +37,11 @@ def mock_repo_with_migration_files(tmp_path):
     mock_hgit.add = Mock()
     mock_hgit.commit = Mock()
     mock_hgit._HGit__git_repo = mock_git_repo
+    mock_hgit.get_active_branches_status.return_value = {
+        'patch_branches': [],
+        'release_branches': [],
+        'staged_branches': [],
+    }
     mock_repo.hgit = mock_hgit
 
     # Mock commit_and_sync_to_active_branches
@@ -244,3 +249,94 @@ def get_description():
 
         # Check result
         assert len(result['migrations_applied']) == 1
+
+
+def _make_minimal_repo(active_branches_status=None):
+    """Build a minimal mock repo for _ensure_active_branches_synced tests."""
+    mock_repo = Mock()
+    mock_git_repo = Mock()
+    mock_git_repo.active_branch.name = 'ho-prod'
+    mock_hgit = Mock()
+    mock_hgit._HGit__git_repo = mock_git_repo
+    mock_hgit.get_active_branches_status.return_value = active_branches_status or {
+        'patch_branches': [],
+        'release_branches': [],
+        'staged_branches': [],
+    }
+    mock_repo.hgit = mock_hgit
+    return mock_repo
+
+
+class TestEnsureActiveBranchesSynced:
+    """Tests for _ensure_active_branches_synced error messages."""
+
+    def _mgr(self, active_branches_status=None):
+        repo = _make_minimal_repo(active_branches_status)
+        return MigrationManager(repo)
+
+    def test_all_synced_no_error(self):
+        mgr = self._mgr({
+            'patch_branches': [{'name': 'ho-patch/1-foo'}],
+            'release_branches': [],
+            'staged_branches': [],
+        })
+        mgr._repo.hgit.is_branch_synced.return_value = (True, 'synced')
+        mgr._ensure_active_branches_synced()  # must not raise
+
+    def test_behind_branch_is_fast_forwarded(self):
+        mgr = self._mgr({
+            'patch_branches': [{'name': 'ho-patch/1-foo'}],
+            'release_branches': [],
+            'staged_branches': [],
+        })
+        mgr._repo.hgit.is_branch_synced.return_value = (False, 'behind')
+        mgr._ensure_active_branches_synced()
+        mgr._repo.hgit._HGit__git_repo.git.merge.assert_called_once_with(
+            '--ff-only', 'origin/ho-patch/1-foo'
+        )
+
+    def test_ahead_branch_blocks_with_push_hint(self):
+        mgr = self._mgr({
+            'patch_branches': [{'name': 'ho-patch/2-bar'}],
+            'release_branches': [],
+            'staged_branches': [],
+        })
+        mgr._repo.hgit.is_branch_synced.return_value = (False, 'ahead')
+        with pytest.raises(MigrationManagerError) as exc_info:
+            mgr._ensure_active_branches_synced()
+        msg = str(exc_info.value)
+        assert 'ahead' in msg
+        assert 'git push origin ho-patch/2-bar' in msg
+
+    def test_diverged_branch_blocks_with_rebase_hint(self):
+        mgr = self._mgr({
+            'patch_branches': [{'name': 'ho-patch/3-baz'}],
+            'release_branches': [],
+            'staged_branches': [],
+        })
+        mgr._repo.hgit.is_branch_synced.return_value = (False, 'diverged')
+        with pytest.raises(MigrationManagerError) as exc_info:
+            mgr._ensure_active_branches_synced()
+        msg = str(exc_info.value)
+        assert 'diverged' in msg
+        assert 'ho-patch/3-baz' in msg
+
+    def test_mixed_ahead_and_diverged_both_reported(self):
+        mgr = self._mgr({
+            'patch_branches': [
+                {'name': 'ho-patch/1-ahead'},
+                {'name': 'ho-patch/2-diverged'},
+            ],
+            'release_branches': [],
+            'staged_branches': [],
+        })
+        def is_synced(branch):
+            if 'ahead' in branch:
+                return (False, 'ahead')
+            return (False, 'diverged')
+        mgr._repo.hgit.is_branch_synced.side_effect = is_synced
+        with pytest.raises(MigrationManagerError) as exc_info:
+            mgr._ensure_active_branches_synced()
+        msg = str(exc_info.value)
+        assert 'git push origin ho-patch/1-ahead' in msg
+        assert 'ho-patch/2-diverged' in msg

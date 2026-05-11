@@ -313,6 +313,9 @@ class MigrationManager:
                 f"Continuing with migration attempt."
             )
 
+        # Ensure all active branches are in sync with origin before touching anything
+        self._ensure_active_branches_synced()
+
         # Get pending migrations
         pending = self.get_pending_migrations(current_version, target_version)
 
@@ -451,6 +454,72 @@ class MigrationManager:
             self._repo.hgit.delete_remote_tag(tag.name)
         except Exception:
             pass  # remote tag may already be gone
+
+    def _ensure_active_branches_synced(self) -> None:
+        """Verify all active branches are in sync with origin before migration.
+
+        Branches that are behind are fast-forwarded automatically (no local commits
+        at risk).  Branches that are ahead or diverged block the migration — the
+        developer must push or resolve before proceeding.
+
+        Raises:
+            MigrationManagerError: if any active branch is ahead or diverged.
+        """
+        repo = self._repo
+        git_repo = repo.hgit._HGit__git_repo
+        current_branch = git_repo.active_branch.name
+
+        try:
+            branches_status = repo.hgit.get_active_branches_status()
+        except Exception:
+            return  # can't determine status, proceed cautiously
+
+        patch_branches = [b['name'] for b in branches_status.get('patch_branches', [])]
+        release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
+        staged_branches = [b['name'] for b in branches_status.get('staged_branches', [])]
+        active_branches = release_branches + patch_branches + staged_branches
+
+        blocked = []
+        for branch in active_branches:
+            try:
+                synced, status = repo.hgit.is_branch_synced(branch)
+                if synced:
+                    continue
+                if status == 'behind':
+                    # Fast-forward: no local commits at risk
+                    repo.hgit.checkout(branch)
+                    git_repo.git.merge('--ff-only', f'origin/{branch}')
+                elif status in ('ahead', 'diverged'):
+                    blocked.append((branch, status))
+            except Exception:
+                pass  # branch may not exist locally, skip
+
+        # Return to original branch
+        try:
+            repo.hgit.checkout(current_branch)
+        except Exception:
+            pass
+
+        if blocked:
+            ahead = [(b, s) for b, s in blocked if s == 'ahead']
+            diverged = [(b, s) for b, s in blocked if s == 'diverged']
+            parts = []
+            if ahead:
+                branch_list = ', '.join(b for b, _ in ahead)
+                parts.append(
+                    f"  Branches ahead of origin (unpushed commits) — push first:\n"
+                    + '\n'.join(f"    git push origin {b}" for b, _ in ahead)
+                )
+            if diverged:
+                parts.append(
+                    f"  Branches diverged from origin (local and remote have diverged) "
+                    f"— rebase or merge to resolve:\n"
+                    + '\n'.join(f"    {b}" for b, _ in diverged)
+                )
+            raise MigrationManagerError(
+                f"Migration blocked: active branches are not in sync with origin.\n"
+                + '\n'.join(parts)
+            )
 
     def _regenerate_modules_after_migration(
         self, from_version: str, to_version: str
