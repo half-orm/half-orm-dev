@@ -54,8 +54,10 @@ publish: build
 release: check-main-branch check-repo-clean
 	@CURRENT=$$(cat half_orm_dev/version.txt | tr -d '[:space:]'); \
 	echo "Current half-orm-dev version: $$CURRENT"; \
-	printf "Minimum half-orm version required (e.g. 1.0.0rc1): "; \
+	CURRENT_MIN=$$(grep -oP '(?<=half-orm>=)[^,<]+' requirements.txt); \
+	printf "Minimum half-orm version required [$$CURRENT_MIN]: "; \
 	read MIN_HALF_ORM; \
+	if [ -z "$$MIN_HALF_ORM" ]; then MIN_HALF_ORM="$$CURRENT_MIN"; fi; \
 	if [ -z "$$MIN_HALF_ORM" ]; then echo "Aborted."; exit 1; fi; \
 	printf "New half-orm-dev version: "; \
 	read NEW_VERSION; \
