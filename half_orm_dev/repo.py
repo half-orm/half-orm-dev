@@ -690,18 +690,10 @@ class Repo:
                 remote_ref = f"origin/{branch}"
                 try:
                     synced, status = self.hgit.is_branch_synced(branch)
-                    if not synced and status == "diverged":
-                        print(
-                            f"Warning: branch {branch} has diverged from origin. "
-                            f"Resetting to origin (source of truth).",
-                            file=sys.stderr
-                        )
-                    # Only reset when the remote is ahead of local ("behind") or
-                    # branches have diverged.  Never reset an "ahead" branch —
-                    # that would orphan local commits that have not been pushed
-                    # yet (e.g. the "Create patch directory" commit from
-                    # `hop patch create` before the first push).
-                    if not synced and status in ("behind", "diverged"):
+                    # Only fast-forward when origin is strictly ahead (no local commits
+                    # at risk). Never reset on diverged branches — that would destroy
+                    # unmerged local work.
+                    if not synced and status == "behind":
                         self.hgit._HGit__git_repo.git.reset('--hard', remote_ref)
                 except GitCommandError:
                     # Remote branch may not exist yet, continue without reset

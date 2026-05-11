@@ -468,50 +468,41 @@ class MigrationManager:
         package_name = repo.name
         package_dir = str(Path(repo.base_dir) / package_name)
 
-        # Regenerate all modules (idempotent thanks to global reset in generate())
-        _modules.generate(repo)
-
-        # Stage the entire package directory
-        repo.hgit.add(package_dir)
-
-        # Nothing changed — nothing to do
-        staged = git_repo.git.diff('--cached', '--name-only')
-        if not staged.strip():
-            return
-
-        # Commit on ho-prod
         commit_msg = (
             f"[HOP] Regenerate modules (migration {from_version} → {to_version})"
         )
-        repo.hgit.commit('-m', commit_msg)
-        repo.hgit.push_branch('ho-prod')
 
-        # Sync to all active branches
+        # Collect active branches before moving around
         try:
             branches_status = repo.hgit.get_active_branches_status()
         except Exception:
-            return
+            branches_status = {}
 
         patch_branches = [b['name'] for b in branches_status.get('patch_branches', [])]
         release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
         staged_branches = [b['name'] for b in branches_status.get('staged_branches', [])]
-        target_branches = release_branches + patch_branches + staged_branches
+        # ho-prod first, then active branches
+        all_branches = ['ho-prod'] + release_branches + patch_branches + staged_branches
 
-        sync_msg = (
-            f"[HOP] Sync modules from ho-prod (migration {from_version} → {to_version})"
-        )
-        for branch in target_branches:
+        for branch in all_branches:
             try:
                 repo.hgit.checkout(branch)
-                git_repo.git.checkout('ho-prod', '--', package_name)
+                # generate() reads existing files and preserves developer code sections
+                _modules.generate(repo)
                 repo.hgit.add(package_dir)
-                if not git_repo.git.status('--porcelain').strip():
+                if not git_repo.git.diff('--cached', '--name-only').strip():
                     continue
-                repo.hgit.commit('-m', sync_msg)
-                repo.hgit.push_branch(branch)
+                repo.hgit.commit('-m', commit_msg)
+                try:
+                    repo.hgit.push_branch(branch)
+                except Exception as push_err:
+                    sys.stderr.write(
+                        f"Warning: could not push {branch} after module regeneration "
+                        f"(diverged branch?): {push_err}\n"
+                    )
             except Exception as e:
                 sys.stderr.write(
-                    f"Warning: could not sync modules to {branch}: {e}\n"
+                    f"Warning: could not regenerate modules on {branch}: {e}\n"
                 )
 
         repo.hgit.checkout('ho-prod')
