@@ -48,6 +48,17 @@ def _read_constraint() -> str:
     sys.exit(1)
 
 
+def _read_current_min_version() -> str:
+    """Extract the lower-bound version from the current half-orm constraint.
+
+    e.g. '>=1.0.0rc1,<1.1.0' → '1.0.0rc1'
+    Returns empty string if not found or unparseable.
+    """
+    constraint = _read_constraint()
+    match = re.search(r'>=([^,<\s]+)', constraint)
+    return match.group(1) if match else ''
+
+
 def _sync_requirements(constraint: str) -> None:
     """Update the half-orm line in requirements.txt."""
     expected_line = f'half-orm{constraint}'
@@ -84,10 +95,15 @@ def _pypi_versions(package: str) -> list:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    current_min = _read_current_min_version()
     parser.add_argument(
         '--min-half-orm',
         metavar='VERSION',
-        help='Minimum half-orm version (e.g. 1.0.0rc1). Updates requirements.txt.',
+        default=current_min or None,
+        help=(
+            f'Minimum half-orm version. Updates requirements.txt. '
+            f'(current: {current_min or "none"})'
+        ),
     )
     args = parser.parse_args()
 
