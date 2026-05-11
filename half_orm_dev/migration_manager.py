@@ -476,8 +476,8 @@ class MigrationManager:
 
         patch_branches = [b['name'] for b in branches_status.get('patch_branches', [])]
         release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
-        staged_branches = [b['name'] for b in branches_status.get('staged_branches', [])]
-        active_branches = release_branches + patch_branches + staged_branches
+        # ho-staged/* branches are frozen after merge — excluded from sync checks
+        active_branches = release_branches + patch_branches
 
         blocked = []
         for branch in active_branches:
@@ -549,9 +549,8 @@ class MigrationManager:
 
         patch_branches = [b['name'] for b in branches_status.get('patch_branches', [])]
         release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
-        staged_branches = [b['name'] for b in branches_status.get('staged_branches', [])]
-        # ho-prod first, then active branches
-        all_branches = ['ho-prod'] + release_branches + patch_branches + staged_branches
+        # ho-staged/* branches are frozen after merge — excluded from module regeneration
+        all_branches = ['ho-prod'] + release_branches + patch_branches
 
         for branch in all_branches:
             try:

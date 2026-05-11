@@ -638,9 +638,8 @@ class Repo:
             patch_branches = [b['name'] for b in branches_status.get('patch_branches', [])]
             release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
 
-            # All branches = ho-prod + release branches + patch branches + staged branches
-            staged_branches = [b['name'] for b in branches_status.get('staged_branches', [])]
-            all_branches = ['ho-prod'] + release_branches + patch_branches + staged_branches
+            # ho-staged/* branches are frozen after merge — excluded from sync
+            all_branches = ['ho-prod'] + release_branches + patch_branches
 
             # Filter release branches to avoid syncing to future versions
             # Extract version from source branch if it's a release branch
