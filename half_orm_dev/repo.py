@@ -652,10 +652,11 @@ class Repo:
             release_branches = [b['name'] for b in branches_status.get('release_branches', [])
                                 if b.get('exists_on_remote', True)]
 
-            # ho-staged/* and ho-prod are excluded from sync targets.
-            # ho-prod is a protected branch: its pre-commit hook blocks direct
-            # commits and its state is updated exclusively through promotion.
-            all_branches = release_branches + patch_branches
+            # ho-staged/* branches are frozen after merge — excluded from sync.
+            # ho-prod is included but may have a protective hook (e.g. blocking
+            # direct commits); a commit failure on it is treated as a soft skip
+            # rather than aborting the whole sync (see Phase 1 loop below).
+            all_branches = ['ho-prod'] + release_branches + patch_branches
 
             # Filter release branches to avoid syncing to future versions
             # Extract version from source branch if it's a release branch
@@ -796,13 +797,25 @@ class Repo:
                 committed_branches.append(branch)
 
             except Exception as e:
-                # A commit failed — roll back every local commit and abort.
-                _rollback_phase1()
-                raise RepoError(
-                    f"Sync commit failed on '{branch}': {e}\n"
-                    f"All local sync commits have been rolled back.\n"
-                    f"Run 'hop check' to diagnose."
-                ) from e
+                if branch == 'ho-prod':
+                    # ho-prod may have a protective hook that blocks direct
+                    # commits. Clean up staged state so the next checkout
+                    # succeeds, then skip gracefully.
+                    try:
+                        self.hgit._HGit__git_repo.git.reset('HEAD')
+                        self.hgit._HGit__git_repo.git.checkout('--', '.hop/')
+                    except Exception:
+                        pass
+                    original_shas.pop('ho-prod', None)
+                    result['errors'].append(f"ho-prod: sync skipped (commit blocked): {e}")
+                else:
+                    # Any other branch failure aborts and rolls back all local commits.
+                    _rollback_phase1()
+                    raise RepoError(
+                        f"Sync commit failed on '{branch}': {e}\n"
+                        f"All local sync commits have been rolled back.\n"
+                        f"Run 'hop check' to diagnose."
+                    ) from e
 
         # Return to source branch before pushing
         try:

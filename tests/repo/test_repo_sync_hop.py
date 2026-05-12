@@ -63,13 +63,12 @@ class TestRepoSyncHop:
 
             result = repo.sync_hop_to_active_branches("test")
 
-        # Should sync to ho-release and other patch branch (not self, not ho-prod)
-        # ho-prod is excluded — it is updated only through the promotion workflow.
-        assert len(result['synced_branches']) == 2
+        # Should sync to ho-prod, ho-release and other patch branch (not self)
+        assert len(result['synced_branches']) == 3
+        assert 'ho-prod' in result['synced_branches']
         assert 'ho-release/0.17.0' in result['synced_branches']
         assert 'ho-patch/456-other' in result['synced_branches']
         assert 'ho-patch/123-test' not in result['synced_branches']  # Not self
-        assert 'ho-prod' not in result['synced_branches']  # Protected branch
 
     def test_sync_no_active_branches(self, mock_repo):
         """Test sync with no active branches."""
@@ -185,9 +184,12 @@ class TestRepoSyncHop:
         assert 'ho-release/0.17.0' in result['synced_branches']
 
     def test_sync_branch_checkout_error_raises(self, mock_repo):
-        """Phase 1 checkout failure raises RepoError and rolls back — no silent continuation."""
+        """Phase 1 checkout failure on a non-ho-prod branch raises RepoError and rolls back."""
         from half_orm_dev.repo import RepoError
         repo, tmp_path = mock_repo
+        # Use ho-prod as source so it is excluded from targets; only patch
+        # branches remain, keeping ordering predictable.
+        repo.hgit.branch = 'ho-prod'
 
         repo.hgit.get_active_branches_status.return_value = {
             'patch_branches': [
@@ -197,11 +199,8 @@ class TestRepoSyncHop:
             'release_branches': []
         }
 
-        call_count = [0]
-
         def checkout_side_effect(branch):
-            call_count[0] += 1
-            if call_count[0] == 1:  # First target branch fails
+            if branch == 'ho-patch/123-test':
                 raise Exception("Checkout failed")
 
         repo.hgit.checkout = Mock(side_effect=checkout_side_effect)
@@ -217,8 +216,7 @@ class TestRepoSyncHop:
             with pytest.raises(RepoError, match="Sync commit failed on 'ho-patch/123-test'"):
                 repo.sync_hop_to_active_branches("test sync")
 
-        # ho-patch/456-feature was never checked out (rollback may have called
-        # checkout on source_branch, but the second target was never touched)
+        # ho-patch/456-feature was never checked out
         checked_out = [str(c) for c in repo.hgit.checkout.call_args_list]
         assert not any('456-feature' in c for c in checked_out)
         # No push happened (Phase 2 never reached)
@@ -438,3 +436,44 @@ class TestSyncHopStaleAndErrors:
 
         # Second branch was never attempted, no push ever happened
         repo.hgit.push_branch.assert_not_called()
+
+    def test_ho_prod_commit_failure_is_soft_skip(self, mock_repo):
+        """ho-prod commit failure is non-fatal: staged state cleaned, loop continues."""
+        repo, tmp_path = mock_repo
+
+        repo.hgit.get_active_branches_status.return_value = {
+            'patch_branches': [{'name': 'ho-patch/151-active', 'exists_on_remote': True}],
+            'release_branches': [],
+        }
+        repo.hgit.add = Mock()
+        repo.hgit.push_branch = Mock()
+        repo.hgit._HGit__git_repo.git.checkout = Mock()
+        repo.hgit._HGit__git_repo.git.status = Mock(return_value='M .hop/config\n')
+        repo.hgit._HGit__git_repo.git.reset = Mock()
+        repo.hgit._HGit__git_repo.head.commit.hexsha = 'abc123'
+
+        # Track which branch was last checked out to simulate per-branch commit behaviour
+        last_branch = ['']
+
+        def checkout_side_effect(branch):
+            last_branch[0] = branch
+
+        repo.hgit.checkout = Mock(side_effect=checkout_side_effect)
+
+        def commit_side_effect(*args, **kwargs):
+            if last_branch[0] == 'ho-prod':
+                raise Exception("Direct commits on ho-prod are not allowed")
+            return 'sha-151'
+
+        repo.hgit.commit = Mock(side_effect=commit_side_effect)
+
+        with patch('half_orm_dev.repo.Config') as MockConfig:
+            MockConfig.return_value = repo._Repo__config
+            result = repo.sync_hop_to_active_branches("test")
+
+        # Patch branch synced despite ho-prod failure
+        assert 'ho-patch/151-active' in result['synced_branches']
+        # ho-prod error collected as warning, not raised
+        assert any('ho-prod' in e for e in result['errors'])
+        # staged state was cleaned (reset HEAD called)
+        repo.hgit._HGit__git_repo.git.reset.assert_any_call('HEAD')
