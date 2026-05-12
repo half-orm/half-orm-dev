@@ -435,6 +435,41 @@ def __get_fkeys(repo, class_name, module_path):
     return {}
 
 
+def __apply_fkey_aliases_to_doc(documentation: str, rel, existing_fkeys: dict) -> str:
+    """Replace the Fkeys block in the docstring using the developer's aliases.
+
+    For each constraint already aliased in existing_fkeys the alias is preserved.
+    New constraints (not yet aliased) fall back to the default rfk_/fk_ name.
+    This prevents spurious diffs when generate() runs automatically on branches
+    where the developer has already defined aliases.
+    """
+    import re
+    if not rel._ho_fkeys:
+        return documentation
+
+    # Invert existing_fkeys: constraint_name → alias (skip empty aliases)
+    aliases = {constraint: alias for alias, constraint in existing_fkeys.items() if alias}
+
+    lines = ["        Fkeys = {"]
+    for constraint_name in rel._ho_fkeys:
+        if constraint_name in aliases:
+            key = aliases[constraint_name]
+        elif constraint_name.startswith('_reverse_fkey_'):
+            key = 'rfk_' + constraint_name[len('_reverse_fkey_'):]
+        else:
+            key = 'fk_' + constraint_name
+        lines.append(f"            '{key}': '{constraint_name}',")
+    lines.append("        }")
+    new_block = '\n'.join(lines)
+
+    return re.sub(
+        r'        Fkeys = \{[^}]*\}',
+        new_block,
+        documentation,
+        flags=re.DOTALL,
+    )
+
+
 def __assemble_module_template(module_path):
     """Construct the module after slicing it if it already exists."""
     ALT_BEGIN_CODE = "#>>> PLACE YOUR CODE BELLOW THIS LINE. DO NOT REMOVE THIS LINE!\n"
@@ -506,7 +541,7 @@ def __update_this_module(
     if not os.path.exists(path_1):
         os.makedirs(path_1)
 
-    # Read user-defined Fkeys aliases (for dataclass generation only).
+    # Read user-defined Fkeys aliases (for docstring and dataclass generation).
     existing_fkeys = __get_fkeys(repo, class_name, module_path)
 
     module_template = __assemble_module_template(module_path)
@@ -519,6 +554,7 @@ def __update_this_module(
     # Generate Python module
     with open(module_path, 'w', encoding='utf-8') as file_:
         documentation = "\n".join([line and f"    {line}" or "" for line in str(rel).split("\n")[1:]])
+        documentation = __apply_fkey_aliases_to_doc(documentation, rel, existing_fkeys)
         file_.write(
             module_template.format(
                 hop_release = hop_version(),
