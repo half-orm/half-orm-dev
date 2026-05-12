@@ -423,14 +423,27 @@ def __get_inheritance_info(rel, package_name):
 
 
 def __get_fkeys(repo, class_name, module_path):
+    """Read the Fkeys dict from the module file using AST, without importing.
+
+    Importing via importlib requires the project package to be on sys.path,
+    which is not guaranteed during `hop migrate`.  Parsing with ast reads
+    directly from the file on disk regardless of installation state.
+    """
+    if not os.path.exists(module_path):
+        return {}
     try:
-        mod_path = module_path.replace(str(repo.base_dir), '').replace(os.path.sep, '.')[1:-3]
-        mod = importlib.import_module(mod_path)
-        importlib.reload(mod)
-        cls = mod.__dict__[class_name]
-        fkeys = cls.__dict__.get('Fkeys', {})
-        return fkeys
-    except ModuleNotFoundError:
+        import ast
+        source = utils.read(module_path)
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == class_name:
+                for stmt in node.body:
+                    if (isinstance(stmt, ast.Assign)
+                            and len(stmt.targets) == 1
+                            and isinstance(stmt.targets[0], ast.Name)
+                            and stmt.targets[0].id == 'Fkeys'):
+                        return ast.literal_eval(stmt.value)
+    except Exception:
         pass
     return {}
 
