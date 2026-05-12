@@ -463,7 +463,8 @@ def __apply_fkey_aliases_to_doc(documentation: str, rel, existing_fkeys: dict) -
     # Invert existing_fkeys: constraint_name → alias (skip empty aliases)
     aliases = {constraint: alias for alias, constraint in existing_fkeys.items() if alias}
 
-    lines = ["        Fkeys = {"]
+    # documentation adds 4 spaces to each line from str(rel), so Fkeys = { is at 4 spaces
+    lines = ["    Fkeys = {"]
     for constraint_name in rel._ho_fkeys:
         if constraint_name in aliases:
             key = aliases[constraint_name]
@@ -471,12 +472,12 @@ def __apply_fkey_aliases_to_doc(documentation: str, rel, existing_fkeys: dict) -
             key = 'rfk_' + constraint_name[len('_reverse_fkey_'):]
         else:
             key = 'fk_' + constraint_name
-        lines.append(f"            '{key}': '{constraint_name}',")
-    lines.append("        }")
+        lines.append(f"        '{key}': '{constraint_name}',")
+    lines.append("    }")
     new_block = '\n'.join(lines)
 
     return re.sub(
-        r'        Fkeys = \{[^}]*\}',
+        r'    Fkeys = \{[^}]*\}',
         new_block,
         documentation,
         flags=re.DOTALL,

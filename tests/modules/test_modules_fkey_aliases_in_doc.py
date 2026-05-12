@@ -27,11 +27,15 @@ def _make_rel(fkey_names):
 
 
 def _make_doc(fkeys_dict):
-    """Build a documentation string with a Fkeys block matching fkeys_dict."""
-    lines = ["    Some relation description.\n", "        Fkeys = {"]
+    """Build a documentation string with a Fkeys block matching fkeys_dict.
+
+    Indentation mirrors what generate() produces: str(rel) lines get +4 spaces,
+    so Fkeys = { lands at 4 spaces and entries at 8 spaces.
+    """
+    lines = ["    Some relation description.\n", "    Fkeys = {"]
     for alias, constraint in fkeys_dict.items():
-        lines.append(f"            '{alias}': '{constraint}',")
-    lines.append("        }")
+        lines.append(f"        '{alias}': '{constraint}',")
+    lines.append("    }")
     return '\n'.join(lines)
 
 
