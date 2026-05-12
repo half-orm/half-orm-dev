@@ -188,20 +188,25 @@ class TestRepoCommitAndSync:
         # Verify only .hop/ was added
         repo.hgit.add.assert_called_once_with('.hop/')
 
-    def test_commit_and_sync_raises_on_sync_errors(self, mock_repo):
-        """Test that sync errors cause commit_and_sync to raise RepoError."""
-        from half_orm_dev.repo import RepoError
+    def test_commit_and_sync_preserves_phase2_push_errors(self, mock_repo):
+        """Phase 2 push errors are collected in result but do not raise an exception."""
         repo, tmp_path = mock_repo
 
-        # Mock sync to return errors
+        # Simulate Phase 2 (push) errors — lock is held so these are unexpected
+        # but non-fatal; the local commits already succeeded.
         repo.sync_hop_to_active_branches.return_value = {
             'synced_branches': ['ho-prod'],
             'skipped_branches': [],
-            'errors': ['Failed to sync to ho-patch/456-test: checkout failed']
+            'errors': ['ho-patch/456-test: push failed: remote rejected']
         }
 
-        with pytest.raises(RepoError, match="Sync to active branches failed"):
-            repo.commit_and_sync_to_active_branches(message="[HOP] Test")
+        result = repo.commit_and_sync_to_active_branches(message="[HOP] Test")
+
+        # Push errors land in sync_result but no exception is raised
+        assert result['sync_result']['errors'] == [
+            'ho-patch/456-test: push failed: remote rejected'
+        ]
+        assert result['commit_hash'] == 'abc123'
 
     def test_commit_and_sync_return_structure(self, mock_repo):
         """Test that return structure is complete and correct."""

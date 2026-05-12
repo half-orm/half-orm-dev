@@ -63,12 +63,13 @@ class TestRepoSyncHop:
 
             result = repo.sync_hop_to_active_branches("test")
 
-        # Should sync to ho-prod, ho-release, and other patch branch (not self)
-        assert len(result['synced_branches']) == 3
-        assert 'ho-prod' in result['synced_branches']
+        # Should sync to ho-release and other patch branch (not self, not ho-prod)
+        # ho-prod is excluded — it is updated only through the promotion workflow.
+        assert len(result['synced_branches']) == 2
         assert 'ho-release/0.17.0' in result['synced_branches']
         assert 'ho-patch/456-other' in result['synced_branches']
         assert 'ho-patch/123-test' not in result['synced_branches']  # Not self
+        assert 'ho-prod' not in result['synced_branches']  # Protected branch
 
     def test_sync_no_active_branches(self, mock_repo):
         """Test sync with no active branches."""
@@ -183,11 +184,11 @@ class TestRepoSyncHop:
         assert 'ho-patch/456-feature' in result['synced_branches']
         assert 'ho-release/0.17.0' in result['synced_branches']
 
-    def test_sync_branch_error_continues(self, mock_repo):
-        """Test sync continues on error for one branch."""
+    def test_sync_branch_checkout_error_raises(self, mock_repo):
+        """Phase 1 checkout failure raises RepoError and rolls back — no silent continuation."""
+        from half_orm_dev.repo import RepoError
         repo, tmp_path = mock_repo
 
-        # Mock get_active_branches_status
         repo.hgit.get_active_branches_status.return_value = {
             'patch_branches': [
                 {'name': 'ho-patch/123-test'},
@@ -196,12 +197,11 @@ class TestRepoSyncHop:
             'release_branches': []
         }
 
-        # Mock git operations
         call_count = [0]
 
         def checkout_side_effect(branch):
             call_count[0] += 1
-            if call_count[0] == 1:  # First branch fails
+            if call_count[0] == 1:  # First target branch fails
                 raise Exception("Checkout failed")
 
         repo.hgit.checkout = Mock(side_effect=checkout_side_effect)
@@ -209,19 +209,20 @@ class TestRepoSyncHop:
         repo.hgit.commit = Mock()
         repo.hgit.push_branch = Mock()
         repo.hgit._HGit__git_repo.git.checkout = Mock()
+        repo.hgit._HGit__git_repo.git.reset = Mock()
         repo.hgit._HGit__git_repo.git.status = Mock(return_value='M .hop/config\n')
 
-        # Mock Config reload
         with patch('half_orm_dev.repo.Config') as MockConfig:
             MockConfig.return_value = repo._Repo__config
+            with pytest.raises(RepoError, match="Sync commit failed on 'ho-patch/123-test'"):
+                repo.sync_hop_to_active_branches("test sync")
 
-            result = repo.sync_hop_to_active_branches("test sync")
-
-        # Verify first branch failed, second succeeded
-        assert len(result['errors']) >= 1
-        assert 'ho-patch/123-test' in result['errors'][0]
-        # Second branch should succeed (checkout is called 3 times: fail, success, return)
-        assert call_count[0] >= 2
+        # ho-patch/456-feature was never checked out (rollback may have called
+        # checkout on source_branch, but the second target was never touched)
+        checked_out = [str(c) for c in repo.hgit.checkout.call_args_list]
+        assert not any('456-feature' in c for c in checked_out)
+        # No push happened (Phase 2 never reached)
+        repo.hgit.push_branch.assert_not_called()
 
     def test_sync_returns_to_original_branch(self, mock_repo):
         """Test sync returns to original branch after completion."""
@@ -401,11 +402,10 @@ class TestSyncHopStaleAndErrors:
         checked_out = [str(c) for c in repo.hgit.checkout.call_args_list]
         assert not any('144-stale' in c for c in checked_out)
 
-    def test_failed_commit_cleans_staged_state(self, mock_repo):
-        """After a failed commit, git index is reset so next checkout succeeds."""
+    def test_failed_commit_raises_and_rolls_back(self, mock_repo):
+        """Phase 1 commit failure raises RepoError and rolls back via git reset --hard."""
+        from half_orm_dev.repo import RepoError
         repo, tmp_path = mock_repo
-        # Use ho-prod as source so it is excluded from targets — only the two
-        # patch branches remain, giving us predictable commit call ordering.
         repo.hgit.branch = 'ho-prod'
 
         repo.hgit.get_active_branches_status.return_value = {
@@ -422,17 +422,19 @@ class TestSyncHopStaleAndErrors:
         repo.hgit._HGit__git_repo.git.status = Mock(return_value='M .hop/config\n')
         repo.hgit._HGit__git_repo.git.reset = Mock()
 
-        # commit raises on first call (ho-patch/100-fails), succeeds on second
-        repo.hgit.commit = Mock(side_effect=[Exception("pre-commit hook rejected"), "sha-101"])
+        rollback_sha = 'deadbeef1234'
+        repo.hgit._HGit__git_repo.head.commit.hexsha = rollback_sha
+
+        # commit always raises (first call — ho-patch/100-fails)
+        repo.hgit.commit = Mock(side_effect=Exception("pre-commit hook rejected"))
 
         with patch('half_orm_dev.repo.Config') as MockConfig:
             MockConfig.return_value = repo._Repo__config
-            result = repo.sync_hop_to_active_branches("test")
+            with pytest.raises(RepoError, match="Sync commit failed on 'ho-patch/100-fails'"):
+                repo.sync_hop_to_active_branches("test")
 
-        # First branch errored, second synced
-        assert len(result['errors']) == 1
-        assert 'ho-patch/100-fails' in result['errors'][0]
-        assert 'ho-patch/101-ok' in result['synced_branches']
+        # Rollback: git reset --hard was called with the recorded SHA
+        repo.hgit._HGit__git_repo.git.reset.assert_called_with('--hard', rollback_sha)
 
-        # reset HEAD was called to clean staged state after failure
-        repo.hgit._HGit__git_repo.git.reset.assert_any_call('HEAD')
+        # Second branch was never attempted, no push ever happened
+        repo.hgit.push_branch.assert_not_called()

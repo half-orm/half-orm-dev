@@ -652,8 +652,10 @@ class Repo:
             release_branches = [b['name'] for b in branches_status.get('release_branches', [])
                                 if b.get('exists_on_remote', True)]
 
-            # ho-staged/* branches are frozen after merge — excluded from sync
-            all_branches = ['ho-prod'] + release_branches + patch_branches
+            # ho-staged/* and ho-prod are excluded from sync targets.
+            # ho-prod is a protected branch: its pre-commit hook blocks direct
+            # commits and its state is updated exclusively through promotion.
+            all_branches = release_branches + patch_branches
 
             # Filter release branches to avoid syncing to future versions
             # Extract version from source branch if it's a release branch
@@ -691,148 +693,133 @@ class Repo:
             result['errors'].append(f"Failed to get active branches: {e}")
             return result
 
-        # Sync each target branch
+        # Phase 1 — local commits only (no push yet).
+        # All commits are made locally first so that a failure on any branch
+        # can be fully rolled back via git reset --hard, leaving a clean state.
+        original_shas = {}   # branch → SHA recorded after checkout/fast-forward
+        committed_branches = []  # branches that received a new local commit
+        commit_msg = f"[HOP] Sync .hop/ from {source_branch} ({reason})"
+
+        def _rollback_phase1():
+            """Undo all local commits made during Phase 1."""
+            for rb, sha in original_shas.items():
+                try:
+                    self.hgit.checkout(rb)
+                    self.hgit._HGit__git_repo.git.reset('--hard', sha)
+                except Exception:
+                    pass
+            try:
+                self.hgit.checkout(source_branch)
+                self.__config = Config(self.base_dir)
+            except Exception:
+                pass
+
         for branch in target_branches:
             try:
-                # Checkout to target branch
                 self.hgit.checkout(branch)
 
-                # Reset to origin (source of truth) before syncing .hop/
-                # This avoids non-fast-forward push failures when another
-                # actor has already synced this branch.
+                # Fast-forward if behind remote (safe — no local commits lost)
                 remote_ref = f"origin/{branch}"
                 try:
                     synced, status = self.hgit.is_branch_synced(branch)
-                    # Only fast-forward when origin is strictly ahead (no local commits
-                    # at risk). Never reset on diverged branches — that would destroy
-                    # unmerged local work.
                     if not synced and status == "behind":
                         self.hgit._HGit__git_repo.git.reset('--hard', remote_ref)
                 except GitCommandError:
-                    # Remote branch may not exist yet, continue without reset
                     pass
 
-                # Reload config for this branch
+                # Record SHA after fast-forward: this is the rollback target
+                original_shas[branch] = self.hgit._HGit__git_repo.head.commit.hexsha
+
                 self.__config = Config(self.base_dir)
 
-                # Use git checkout to copy .hop/ from source branch
-                # This updates/adds files but doesn't remove deleted files
+                # Copy .hop/ from source branch
                 self.hgit._HGit__git_repo.git.checkout(source_branch, '--', '.hop/')
 
-                # Also checkout additional files if specified
                 if additional_files:
                     for file_path in additional_files:
                         try:
                             self.hgit._HGit__git_repo.git.checkout(source_branch, '--', file_path)
                         except GitCommandError:
-                            # File might not exist in source branch, skip
                             pass
 
-                # Find files that exist in target but not in source and remove them
-                # IMPORTANT: Only remove files for versions that exist in source
-                # Don't remove release files (*-patches.toml, *.txt) for other versions
+                # Remove files that exist in target but no longer in source
                 try:
-                    # Get list of files in .hop/ on current branch (target)
                     target_files_output = self.hgit._HGit__git_repo.git.ls_files('.hop/')
                     target_files = set(f for f in target_files_output.split('\n') if f.strip())
-
-                    # Get list of files in .hop/ on source branch
                     source_files_output = self.hgit._HGit__git_repo.git.ls_tree('-r', '--name-only', source_branch, '.hop/')
                     source_files = set(f for f in source_files_output.split('\n') if f.strip())
-
-                    # Get versions present in source (from .toml and .txt release files)
                     source_versions = set()
                     for file_path in source_files:
-                        # Extract version from release files
                         if file_path.startswith('.hop/releases/'):
                             filename = file_path.replace('.hop/releases/', '')
-                            # Match patterns: X.Y.Z-patches.toml, X.Y.Z.txt, X.Y.Z-rcN.txt, X.Y.Z-hotfixN.txt
                             match = re.match(r'^(\d+\.\d+\.\d+)[-.]', filename)
                             if match:
                                 source_versions.add(match.group(1))
-
-                    # Files to delete = in target but not in source
-                    files_to_delete = target_files - source_files
-
-                    # Filter: only delete files for versions present in source
-                    # This prevents deleting release files for unrelated versions
                     safe_to_delete = []
-                    for file_path in files_to_delete:
+                    for file_path in target_files - source_files:
                         if not file_path:
                             continue
-                        # Check if it's a release file
                         if file_path.startswith('.hop/releases/'):
                             filename = file_path.replace('.hop/releases/', '')
                             match = re.match(r'^(\d+\.\d+\.\d+)[-.]', filename)
                             if match:
-                                file_version = match.group(1)
-                                # Only delete if this version exists in source
-                                if file_version in source_versions:
+                                if match.group(1) in source_versions:
                                     safe_to_delete.append(file_path)
                             else:
-                                # Not a versioned file, safe to delete
                                 safe_to_delete.append(file_path)
                         else:
-                            # Not in releases/, safe to delete
                             safe_to_delete.append(file_path)
-
-                    # Remove files
                     for file_path in safe_to_delete:
                         self.hgit._HGit__git_repo.git.rm(file_path)
-                except Exception as e:
-                    # If something fails in deletion detection, log but continue
-                    # The checkout already happened, so we have the updates
+                except Exception:
                     pass
 
-                # Stage all changes
                 self.hgit.add('.hop/')
                 if additional_files:
                     for file_path in additional_files:
                         try:
                             self.hgit.add(file_path)
                         except GitCommandError:
-                            pass  # File might not exist
+                            pass
 
-                # Check if there are changes
                 status = self.hgit._HGit__git_repo.git.status('--porcelain')
                 if not status.strip():
-                    # No changes, skip
                     result['skipped_branches'].append(branch)
+                    del original_shas[branch]  # nothing to roll back for this branch
                     continue
 
-                # Commit changes
-                commit_msg = f"[HOP] Sync .hop/ from {source_branch} ({reason})"
                 self.hgit.commit('-m', commit_msg)
 
-                # Record the SHA of the sync commit for potential revert
                 result['branch_commits'][branch] = (
                     self.hgit._HGit__git_repo.head.commit.hexsha
                 )
-
-                # Push to remote
-                self.hgit.push_branch(branch)
-
-                result['synced_branches'].append(branch)
+                committed_branches.append(branch)
 
             except Exception as e:
-                result['errors'].append(f"{branch}: {str(e)}")
-                # Reset staged changes so the next branch checkout doesn't fail.
-                # A failed commit (e.g. pre-commit hook rejection) leaves .hop/
-                # staged but uncommitted; git refuses to checkout another branch
-                # when there are staged changes that conflict.
-                try:
-                    self.hgit._HGit__git_repo.git.reset('HEAD')
-                    self.hgit._HGit__git_repo.git.checkout('--', '.hop/')
-                except Exception:
-                    pass
+                # A commit failed — roll back every local commit and abort.
+                _rollback_phase1()
+                raise RepoError(
+                    f"Sync commit failed on '{branch}': {e}\n"
+                    f"All local sync commits have been rolled back.\n"
+                    f"Run 'hop check' to diagnose."
+                ) from e
 
-        # Return to source branch
+        # Return to source branch before pushing
         try:
             self.hgit.checkout(source_branch)
-            # Reload config for source branch
             self.__config = Config(self.base_dir)
         except Exception as e:
             result['errors'].append(f"Failed to return to {source_branch}: {e}")
+
+        # Phase 2 — push all committed branches.
+        # The distributed lock ensures no conflicting pushes; errors here are
+        # unexpected but collected rather than raised.
+        for branch in committed_branches:
+            try:
+                self.hgit.push_branch(branch)
+                result['synced_branches'].append(branch)
+            except Exception as e:
+                result['errors'].append(f"{branch}: push failed: {e}")
 
         return result
 
@@ -1007,14 +994,6 @@ class Repo:
             additional_files=additional_files if additional_files else None
         )
         result['sync_result'] = sync_result
-
-        if sync_result.get('errors'):
-            error_lines = '\n'.join(f"  • {e}" for e in sync_result['errors'])
-            raise RepoError(
-                f"Sync to active branches failed — some branches were not updated:\n"
-                f"{error_lines}\n"
-                f"Run 'hop check' to diagnose and fix."
-            )
 
         return result
 
