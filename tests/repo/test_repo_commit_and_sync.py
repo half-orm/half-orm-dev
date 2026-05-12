@@ -188,8 +188,9 @@ class TestRepoCommitAndSync:
         # Verify only .hop/ was added
         repo.hgit.add.assert_called_once_with('.hop/')
 
-    def test_commit_and_sync_preserves_sync_errors(self, mock_repo):
-        """Test that sync errors are preserved in result."""
+    def test_commit_and_sync_raises_on_sync_errors(self, mock_repo):
+        """Test that sync errors cause commit_and_sync to raise RepoError."""
+        from half_orm_dev.repo import RepoError
         repo, tmp_path = mock_repo
 
         # Mock sync to return errors
@@ -199,13 +200,8 @@ class TestRepoCommitAndSync:
             'errors': ['Failed to sync to ho-patch/456-test: checkout failed']
         }
 
-        result = repo.commit_and_sync_to_active_branches(
-            message="[HOP] Test"
-        )
-
-        # Verify errors are in sync_result
-        assert len(result['sync_result']['errors']) == 1
-        assert 'Failed to sync to ho-patch/456-test' in result['sync_result']['errors'][0]
+        with pytest.raises(RepoError, match="Sync to active branches failed"):
+            repo.commit_and_sync_to_active_branches(message="[HOP] Test")
 
     def test_commit_and_sync_return_structure(self, mock_repo):
         """Test that return structure is complete and correct."""

@@ -350,3 +350,89 @@ class TestRepoSyncHop:
         commit_msg = commit_call[0][1]  # Second argument to commit()
         assert "[HOP] Sync .hop/ from ho-prod" in commit_msg
         assert "migration 0.17.0 → 0.17.1" in commit_msg
+
+
+class TestSyncHopStaleAndErrors:
+    """Regression tests for stale-branch cascade and error recovery in sync."""
+
+    @pytest.fixture
+    def mock_repo(self, tmp_path):
+        hop_dir = tmp_path / '.hop'
+        hop_dir.mkdir()
+        (hop_dir / 'config').write_text('[halfORM]\nhop_version = "0.17.0"\n')
+
+        repo = Mock(spec=Repo)
+        repo.base_dir = str(tmp_path)
+        repo._Repo__config = Mock()
+        repo._Repo__config.hop_version = "0.17.0"
+        repo.hgit = Mock()
+        repo.hgit.branch = 'ho-release/0.17.0'
+        repo.hgit._HGit__git_repo = Mock()
+        repo.hgit.is_branch_synced = Mock(return_value=(True, "synced"))
+        repo.sync_hop_to_active_branches = Repo.sync_hop_to_active_branches.__get__(repo, Repo)
+        return repo, tmp_path
+
+    def test_stale_branch_skipped(self, mock_repo):
+        """Branch with exists_on_remote=False is excluded from sync targets."""
+        repo, tmp_path = mock_repo
+
+        repo.hgit.get_active_branches_status.return_value = {
+            'patch_branches': [
+                {'name': 'ho-patch/144-stale', 'exists_on_remote': False},
+                {'name': 'ho-patch/151-active', 'exists_on_remote': True},
+            ],
+            'release_branches': [],
+        }
+        repo.hgit.checkout = Mock()
+        repo.hgit.add = Mock()
+        repo.hgit.commit = Mock()
+        repo.hgit.push_branch = Mock()
+        repo.hgit._HGit__git_repo.git.checkout = Mock()
+        repo.hgit._HGit__git_repo.git.status = Mock(return_value='M .hop/config\n')
+
+        with patch('half_orm_dev.repo.Config') as MockConfig:
+            MockConfig.return_value = repo._Repo__config
+            result = repo.sync_hop_to_active_branches("test")
+
+        synced = result['synced_branches']
+        assert 'ho-patch/151-active' in synced
+        assert 'ho-patch/144-stale' not in synced
+        # Checkout was never attempted for the stale branch
+        checked_out = [str(c) for c in repo.hgit.checkout.call_args_list]
+        assert not any('144-stale' in c for c in checked_out)
+
+    def test_failed_commit_cleans_staged_state(self, mock_repo):
+        """After a failed commit, git index is reset so next checkout succeeds."""
+        repo, tmp_path = mock_repo
+        # Use ho-prod as source so it is excluded from targets — only the two
+        # patch branches remain, giving us predictable commit call ordering.
+        repo.hgit.branch = 'ho-prod'
+
+        repo.hgit.get_active_branches_status.return_value = {
+            'patch_branches': [
+                {'name': 'ho-patch/100-fails', 'exists_on_remote': True},
+                {'name': 'ho-patch/101-ok',    'exists_on_remote': True},
+            ],
+            'release_branches': [],
+        }
+        repo.hgit.checkout = Mock()
+        repo.hgit.add = Mock()
+        repo.hgit.push_branch = Mock()
+        repo.hgit._HGit__git_repo.git.checkout = Mock()
+        repo.hgit._HGit__git_repo.git.status = Mock(return_value='M .hop/config\n')
+        repo.hgit._HGit__git_repo.git.reset = Mock()
+
+        # commit raises on first call (ho-patch/100-fails), succeeds on second
+        repo.hgit.commit = Mock(side_effect=[Exception("pre-commit hook rejected"), "sha-101"])
+
+        with patch('half_orm_dev.repo.Config') as MockConfig:
+            MockConfig.return_value = repo._Repo__config
+            result = repo.sync_hop_to_active_branches("test")
+
+        # First branch errored, second synced
+        assert len(result['errors']) == 1
+        assert 'ho-patch/100-fails' in result['errors'][0]
+        assert 'ho-patch/101-ok' in result['synced_branches']
+
+        # reset HEAD was called to clean staged state after failure
+        repo.hgit._HGit__git_repo.git.reset.assert_any_call('HEAD')

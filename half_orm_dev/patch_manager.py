@@ -2002,6 +2002,25 @@ class PatchManager:
             result = patch_mgr.merge_patch()
             # Merges into ho-release/0.17.0, moves to stage
         """
+        # 0. Remove stale local ho-* branches before any state change.
+        #    A stale branch (local but no longer on remote) causes
+        #    sync_hop_to_active_branches to leave staged-but-uncommitted
+        #    .hop/ changes that block subsequent checkouts, silently
+        #    skipping branches that should receive the TOML update.
+        try:
+            stale_result = self._repo.hgit.prune_local_branches(
+                pattern="ho-*",
+                dry_run=False,
+                exclude_current=True,
+            )
+            if stale_result.get('deleted'):
+                click.echo(
+                    f"  ℹ Removed {len(stale_result['deleted'])} stale local "
+                    f"branch(es): {', '.join(stale_result['deleted'])}"
+                )
+        except Exception as e:
+            raise PatchManagerError(f"Failed to clean up stale branches: {e}")
+
         # 1. Extract patch_id from current branch
         current_branch = self._repo.hgit.branch
         if not current_branch.startswith('ho-patch/'):

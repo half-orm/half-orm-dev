@@ -62,6 +62,7 @@ def patch_manager(tmp_path):
     repo.hgit.delete_remote_branch = Mock()
     repo.hgit.rename_branch_with_remote = Mock()
     repo.hgit.last_commit = Mock(return_value="abc12345")
+    repo.hgit.prune_local_branches = Mock(return_value={'deleted': [], 'skipped': [], 'errors': []})
 
     # Create PatchManager
     pm = PatchManager(repo)
@@ -321,3 +322,61 @@ class TestClosePatch:
         # Verify merge used full patch ID
         merge_call = repo.hgit.merge.call_args
         assert '124-add-user-auth' in str(merge_call)
+
+
+class TestMergePatchPreflightCleanup:
+    """Regression tests for stale-branch pre-flight cleanup in merge_patch."""
+
+    def test_merge_patch_calls_prune_before_state_change(self, patch_manager):
+        """prune_local_branches must be called before any git state modification."""
+        pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
+
+        call_order = []
+        repo.hgit.prune_local_branches.side_effect = lambda **kw: (
+            call_order.append('prune') or {'deleted': [], 'skipped': [], 'errors': []}
+        )
+        repo.hgit.checkout.side_effect = lambda *a, **kw: call_order.append('checkout')
+
+        release_file = ReleaseFile('0.17.0', releases_dir)
+        release_file.create_empty()
+        release_file.add_patch('123-test')
+
+        with patch.object(pm, '_validate_patch_before_merge'):
+            with patch.object(pm, '_sync_release_files_to_ho_prod'):
+                pm.merge_patch()
+
+        assert call_order.index('prune') < call_order.index('checkout')
+
+    def test_merge_patch_reports_deleted_stale_branches(self, patch_manager, capsys):
+        """Deleted stale branches are reported on stdout."""
+        pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
+
+        repo.hgit.prune_local_branches.return_value = {
+            'deleted': ['ho-patch/144-stale', 'ho-patch/145-also-stale'],
+            'skipped': [],
+            'errors': [],
+        }
+
+        release_file = ReleaseFile('0.17.0', releases_dir)
+        release_file.create_empty()
+        release_file.add_patch('123-test')
+
+        with patch.object(pm, '_validate_patch_before_merge'):
+            with patch.object(pm, '_sync_release_files_to_ho_prod'):
+                pm.merge_patch()
+
+        out = capsys.readouterr().out
+        assert 'stale' in out.lower() or 'Removed' in out
+        assert '2' in out
+
+    def test_merge_patch_aborts_if_prune_raises(self, patch_manager):
+        """If prune_local_branches raises, merge_patch must abort with PatchManagerError."""
+        pm, repo, tmp_path, releases_dir, patches_dir = patch_manager
+
+        repo.hgit.prune_local_branches.side_effect = Exception("git error")
+
+        with pytest.raises(PatchManagerError, match="Failed to clean up stale branches"):
+            pm.merge_patch()
+
+        # No checkout should have happened — we aborted before any state change
+        repo.hgit.checkout.assert_not_called()

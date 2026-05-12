@@ -643,8 +643,14 @@ class Repo:
         # Get all active branches (including ho-prod, release branches, and patch branches)
         try:
             branches_status = self.hgit.get_active_branches_status()
-            patch_branches = [b['name'] for b in branches_status.get('patch_branches', [])]
-            release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
+            # Only sync branches that still exist on remote — stale local
+            # branches (e.g. ho-patch/X renamed to ho-staged/X) leave
+            # staged-but-uncommitted .hop/ changes after a failed pre-commit
+            # hook, blocking checkout of subsequent branches in the loop.
+            patch_branches = [b['name'] for b in branches_status.get('patch_branches', [])
+                              if b.get('exists_on_remote', True)]
+            release_branches = [b['name'] for b in branches_status.get('release_branches', [])
+                                if b.get('exists_on_remote', True)]
 
             # ho-staged/* branches are frozen after merge — excluded from sync
             all_branches = ['ho-prod'] + release_branches + patch_branches
@@ -810,6 +816,15 @@ class Repo:
 
             except Exception as e:
                 result['errors'].append(f"{branch}: {str(e)}")
+                # Reset staged changes so the next branch checkout doesn't fail.
+                # A failed commit (e.g. pre-commit hook rejection) leaves .hop/
+                # staged but uncommitted; git refuses to checkout another branch
+                # when there are staged changes that conflict.
+                try:
+                    self.hgit._HGit__git_repo.git.reset('HEAD')
+                    self.hgit._HGit__git_repo.git.checkout('--', '.hop/')
+                except Exception:
+                    pass
 
         # Return to source branch
         try:
@@ -992,6 +1007,14 @@ class Repo:
             additional_files=additional_files if additional_files else None
         )
         result['sync_result'] = sync_result
+
+        if sync_result.get('errors'):
+            error_lines = '\n'.join(f"  • {e}" for e in sync_result['errors'])
+            raise RepoError(
+                f"Sync to active branches failed — some branches were not updated:\n"
+                f"{error_lines}\n"
+                f"Run 'hop check' to diagnose and fix."
+            )
 
         return result
 
