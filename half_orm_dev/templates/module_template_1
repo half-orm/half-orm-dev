@@ -6,7 +6,10 @@ WARNING!
 
 {warning}
 """
+from typing import TYPE_CHECKING, Iterator
 from half_orm.model import register
 from {package_name} import MODEL, ho_dataclasses
+if TYPE_CHECKING:
+    from {package_name}.ho_typeddicts import {dict_class_name}
 fields_aliases=None
 

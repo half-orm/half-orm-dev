@@ -1,3 +1,12 @@
     #pylint: disable=line-too-long, too-many-arguments, redefined-builtin, too-many-positional-arguments
     def __init__(self, {kwargs}):
         super().__init__({arg_names}, **kwargs)
+
+    def __iter__(self) -> 'Iterator[{dict_class_name}]':
+        return super().__iter__()
+
+    def ho_get(self, *args) -> '{dict_class_name}':
+        return super().ho_get(*args)
+
+    async def ho_aget(self, *args) -> '{dict_class_name}':
+        return await super().ho_aget(*args)
