@@ -6,7 +6,7 @@ WARNING!
 
 {warning}
 """
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING, Iterator, List, Optional
 from half_orm.model import register
 from {package_name} import MODEL, ho_dataclasses
 if TYPE_CHECKING:
