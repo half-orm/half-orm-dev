@@ -1,24 +1,3 @@
     #pylint: disable=line-too-long, too-many-arguments, redefined-builtin, too-many-positional-arguments
     def __init__(self, {kwargs}):
         super().__init__({arg_names}, **kwargs)
-
-    def __iter__(self) -> 'Iterator[{dict_class_name}]':
-        return super().__iter__()
-
-    def ho_select(self, *args, distinct: bool = False, order_by: str = None, limit: int = None, offset: int = None, json_agg=None) -> 'Iterator[{dict_class_name}]':
-        return super().ho_select(*args, distinct=distinct, order_by=order_by, limit=limit, offset=offset, json_agg=json_agg)
-
-    def ho_get(self, *args) -> '{dict_class_name}':
-        return super().ho_get(*args)
-
-    def ho_insert(self, *args, upsert: Optional[bool] = False) -> '{dict_class_name}':
-        return super().ho_insert(*args, upsert=upsert)
-
-    async def ho_aselect(self, *args, distinct: bool = False, order_by: str = None, limit: int = None, offset: int = None) -> 'List[{dict_class_name}]':
-        return await super().ho_aselect(*args, distinct=distinct, order_by=order_by, limit=limit, offset=offset)
-
-    async def ho_aget(self, *args) -> '{dict_class_name}':
-        return await super().ho_aget(*args)
-
-    async def ho_ainsert(self, *args, upsert: bool = False) -> '{dict_class_name}':
-        return await super().ho_ainsert(*args, upsert=upsert)
