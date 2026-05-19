@@ -556,13 +556,24 @@ class MigrationManager:
     def _regenerate_modules_after_migration(
         self, from_version: str, to_version: str
     ) -> None:
-        """Regenerate the project modules after a migration and sync to all active branches.
+        """Regenerate the project modules after a migration on all active branches.
 
-        Runs generate(), commits the changed files on ho-prod, then replays those
-        changes on every active branch by checking out the package directory from ho-prod.
-        Skips silently if generate() produced no changes.
+        Each branch is regenerated against the DB schema that matches its state:
+        - ho-prod          → production schema (schema.sql)
+        - ho-release/X.Y.Z → release schema (release-X.Y.Z.sql), no bootstrap
+        - ho-patch/*       → production schema (schema.sql)
+
+        Bootstrap scripts are NOT run during this restore: the modules may be in
+        an inconsistent state (that is precisely what we are fixing), and running
+        bootstrap would fail trying to import them.
+
+        Stale local branches (no longer on remote) are skipped to avoid pre-commit
+        hook failures.
         """
+        import re as _re
         from half_orm_dev import modules as _modules
+
+        _RELEASE_RE = _re.compile(r'^ho-release/(.+)$')
 
         repo = self._repo
         git_repo = repo.hgit._HGit__git_repo
@@ -573,21 +584,42 @@ class MigrationManager:
             f"[HOP] Regenerate modules (migration {from_version} → {to_version})"
         )
 
-        # Collect active branches before moving around
+        # Collect active branches, filtering out stale ones (no remote counterpart)
         try:
             branches_status = repo.hgit.get_active_branches_status()
         except Exception:
             branches_status = {}
 
-        patch_branches = [b['name'] for b in branches_status.get('patch_branches', [])]
-        release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
-        # ho-staged/* branches are frozen after merge — excluded from module regeneration
+        patch_branches = [
+            b['name'] for b in branches_status.get('patch_branches', [])
+            if b.get('exists_on_remote', True)
+        ]
+        release_branches = [
+            b['name'] for b in branches_status.get('release_branches', [])
+            if b.get('exists_on_remote', True)
+        ]
         all_branches = ['ho-prod'] + release_branches + patch_branches
 
         for branch in all_branches:
             try:
                 repo.hgit.checkout(branch)
-                # generate() reads existing files and preserves developer code sections
+
+                # Restore the DB to the schema appropriate for this branch so
+                # generate() introspects the right set of relations.
+                m = _RELEASE_RE.match(branch)
+                if m:
+                    release_version = m.group(1)
+                    release_schema = repo.get_release_schema_path(release_version)
+                    if release_schema.exists():
+                        repo.restore_database_from_release_schema(
+                            release_version, skip_bootstrap=True
+                        )
+                    else:
+                        repo.restore_database_from_schema(skip_bootstrap=True)
+                else:
+                    # ho-prod and ho-patch/*: use production schema
+                    repo.restore_database_from_schema(skip_bootstrap=True)
+
                 _modules.generate(repo)
                 repo.hgit.add(package_dir)
                 if not git_repo.git.diff('--cached', '--name-only').strip():
@@ -597,8 +629,8 @@ class MigrationManager:
                     repo.hgit.push_branch(branch)
                 except Exception as push_err:
                     sys.stderr.write(
-                        f"Warning: could not push {branch} after module regeneration "
-                        f"(diverged branch?): {push_err}\n"
+                        f"Warning: could not push {branch} after module regeneration: "
+                        f"{push_err}\n"
                     )
             except Exception as e:
                 sys.stderr.write(

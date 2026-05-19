@@ -32,6 +32,7 @@ from half_orm_dev.patch_manager import PatchManager, PatchManagerError
 from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 from half_orm_dev.migration_manager import MigrationManager, MigrationManagerError
 from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
+from half_orm_dev.bootstrap_manager import BootstrapManager
 
 from .utils import TEMPLATE_DIRS, hop_version
 
@@ -2394,7 +2395,7 @@ Each script is executed only once unless `--force` is used.
             self.model.execute_query('CREATE SCHEMA public')
             self.model.execute_query('GRANT ALL ON SCHEMA public TO public')
 
-    def restore_database_from_schema(self, exclude_bootstrap_patch_id: Optional[str] = None, exclude_bootstrap_version: Optional[str] = None) -> None:
+    def restore_database_from_schema(self, exclude_bootstrap_patch_id: Optional[str] = None, exclude_bootstrap_version: Optional[str] = None, skip_bootstrap: bool = False) -> None:
         """
         Restore database from model/schema.sql, metadata, and data files.
 
@@ -2511,16 +2512,18 @@ Each script is executed only once unless `--force` is used.
             # In promote context: exclude_bootstrap_version skips the version being
             # promoted (its bootstraps don't run during promote, they run via upgrade).
             # up_to_version prevents bootstraps from future versions from running.
-            from half_orm_dev.bootstrap_manager import BootstrapManager
-            bootstrap_mgr = BootstrapManager(self)
-            result = bootstrap_mgr.run_bootstrap(
-                exclude_patch_id=exclude_bootstrap_patch_id,
-                exclude_version=exclude_bootstrap_version,
-                up_to_version=exclude_bootstrap_version
-            )
-            if result['errors']:
-                error_msg = "\n".join([f"  • {f}: {e}" for f, e in result['errors']])
-                raise RepoError(f"Bootstrap execution failed:\n{error_msg}")
+            # skip_bootstrap=True is used when regenerating modules after migration
+            # (bootstrap validation belongs only in patch merge / release promote prod).
+            if not skip_bootstrap:
+                bootstrap_mgr = BootstrapManager(self)
+                result = bootstrap_mgr.run_bootstrap(
+                    exclude_patch_id=exclude_bootstrap_patch_id,
+                    exclude_version=exclude_bootstrap_version,
+                    up_to_version=exclude_bootstrap_version
+                )
+                if result['errors']:
+                    error_msg = "\n".join([f"  • {f}: {e}" for f, e in result['errors']])
+                    raise RepoError(f"Bootstrap execution failed:\n{error_msg}")
 
         except RepoError:
             # Re-raise RepoError as-is
@@ -2660,7 +2663,8 @@ Each script is executed only once unless `--force` is used.
         self,
         version: str,
         exclude_bootstrap_patch_id: Optional[str] = None,
-        exclude_bootstrap_version: Optional[str] = None
+        exclude_bootstrap_version: Optional[str] = None,
+        skip_bootstrap: bool = False
     ) -> None:
         """
         Restore database from release schema file.
@@ -2708,15 +2712,15 @@ Each script is executed only once unless `--force` is used.
             # Reload half_orm metadata cache
             self.model.reconnect(reload=True)
 
-            # Execute bootstrap scripts
-            # up_to_version prevents bootstraps from future versions from running.
-            from half_orm_dev.bootstrap_manager import BootstrapManager
-            bootstrap_mgr = BootstrapManager(self)
-            bootstrap_mgr.run_bootstrap(
-                exclude_patch_id=exclude_bootstrap_patch_id,
-                exclude_version=exclude_bootstrap_version,
-                up_to_version=exclude_bootstrap_version
-            )
+            # Execute bootstrap scripts (skip during module regeneration — the
+            # modules may be in an inconsistent state at that point)
+            if not skip_bootstrap:
+                bootstrap_mgr = BootstrapManager(self)
+                bootstrap_mgr.run_bootstrap(
+                    exclude_patch_id=exclude_bootstrap_patch_id,
+                    exclude_version=exclude_bootstrap_version,
+                    up_to_version=exclude_bootstrap_version
+                )
 
         except Exception as e:
             raise RepoError(f"Failed to restore from release schema: {e}") from e
