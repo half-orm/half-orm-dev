@@ -25,7 +25,9 @@ import re
 import subprocess
 import sys
 import importlib.util
+from configparser import ConfigParser
 from packaging import version
+import click
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from half_orm import utils
@@ -283,14 +285,44 @@ class MigrationManager:
                 )
                 ahead, behind = map(int, result_check.stdout.strip().split())
                 if behind > 0:
+                    # Check whether the migration was already applied on origin/ho-prod.
+                    already_done = False
+                    try:
+                        remote_config_text = self._repo.hgit._HGit__git_repo.git.show(
+                            'origin/ho-prod:.hop/config'
+                        )
+                        _cp = ConfigParser()
+                        _cp.read_string(remote_config_text)
+                        remote_version = _cp['halfORM'].get('hop_version', '')
+                        if remote_version == target_version:
+                            already_done = True
+                    except Exception:
+                        pass
+
+                    if already_done:
+                        # Another developer already ran the migration.
+                        # Pull and sync all active branches, then return.
+                        click.echo(
+                            f"  ℹ Migration to {target_version} already applied by another developer.\n"
+                            f"  Pulling and syncing all active branches..."
+                        )
+                        self._repo.hgit._HGit__git_repo.remotes.origin.pull('ho-prod')
+                        self._repo.hgit.sync_active_branches(pattern="ho-*")
+                        # Reload config so the rest of the tool sees the new version
+                        self._repo._Repo__config.read()
+                        result['already_synced'] = True
+                        return result
+
                     raise MigrationManagerError(
                         f"ho-prod is {behind} commits behind origin/ho-prod. "
                         f"Please pull changes first: git pull origin ho-prod"
                     )
                 if ahead > 0:
                     result['errors'].append(f"Warning: ho-prod is {ahead} commits ahead of origin/ho-prod")
-            except subprocess.CalledProcessError as e:
-                # Could not compare - maybe origin/ho-prod doesn't exist yet
+            except (MigrationManagerError, subprocess.CalledProcessError):
+                raise
+            except Exception:
+                # Could not compare — maybe origin/ho-prod doesn't exist yet
                 pass
 
         # Get current version from .hop/config

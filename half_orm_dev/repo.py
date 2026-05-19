@@ -541,23 +541,31 @@ class Repo:
                     create_commit=True
                 )
 
-                result['migration_run'] = True
                 result['errors'] = migration_result.get('errors', [])
 
-                # Clean up orphaned ho-staged/* branches (patch IDs in .txt = already in production)
-                if hasattr(self, 'release_manager'):
-                    try:
-                        deleted = self.release_manager.cleanup_orphaned_staged_branches()
-                        result['orphaned_staged_deleted'] = deleted
-                    except Exception:
-                        result['orphaned_staged_deleted'] = []
+                if migration_result.get('already_synced'):
+                    # Migration was already done by another developer; branches are now synced.
+                    result['migration_run'] = False
+                    result['already_synced'] = True
+                    if not silent:
+                        print(f"✓ Branches synced to migration {current_version} (applied by another developer)")
+                else:
+                    result['migration_run'] = True
 
-                # Log success if not silent
-                if not silent:
-                    if migration_result.get('migrations_applied'):
-                        print(f"✓ Applied {len(migration_result['migrations_applied'])} migration(s)")
-                    else:
-                        print(f"✓ Updated repository version to {current_version}")
+                    # Clean up orphaned ho-staged/* branches (patch IDs in .txt = already in production)
+                    if hasattr(self, 'release_manager'):
+                        try:
+                            deleted = self.release_manager.cleanup_orphaned_staged_branches()
+                            result['orphaned_staged_deleted'] = deleted
+                        except Exception:
+                            result['orphaned_staged_deleted'] = []
+
+                    # Log success if not silent
+                    if not silent:
+                        if migration_result.get('migrations_applied'):
+                            print(f"✓ Applied {len(migration_result['migrations_applied'])} migration(s)")
+                        else:
+                            print(f"✓ Updated repository version to {current_version}")
 
             finally:
                 # Always try to return to original branch if we switched
@@ -1599,6 +1607,19 @@ class Repo:
                 pass  # Best effort - continue even if sync fails
 
         result['branch_sync'] = sync_result
+
+        # 0c. Reload config and validate version after pull/sync.
+        # Another developer may have run the migration and pushed a new hop_version.
+        # The pull + sync above may have updated .hop/config on the current branch;
+        # we must detect that before any further operation.
+        if self.hgit:
+            try:
+                self.__config = Config(self.__base_dir)
+                self._validate_version()
+            except OutdatedHalfORMDevError:
+                raise
+            except Exception:
+                pass  # offline or version parsing error — don't block
 
         # 1. Check and update Git hooks
         if not dry_run:
