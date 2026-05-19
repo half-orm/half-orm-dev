@@ -931,6 +931,28 @@ class HGit:
             print(f"⚠️  Warning: Failed to delete local lock tag {lock_tag}: {e}")
 
 
+    def is_branch_locked(self, branch_name: str, timeout_minutes: int = 30) -> bool:
+        """Return True if a valid (non-stale) lock tag for branch_name exists on origin."""
+        self.fetch_tags()
+        safe_branch_name = branch_name.replace('/', '-')
+        lock_pattern = f"lock-{safe_branch_name}-*"
+        existing_locks = self.list_tags(pattern=lock_pattern)
+        if not existing_locks:
+            return False
+        lock_name = existing_locks[0]
+        remote_ref = self.__git_repo.git.ls_remote(
+            '--tags', 'origin', f'refs/tags/{lock_name}'
+        ).strip()
+        if not remote_ref:
+            return False
+        match = re.search(r'-(\d+)$', lock_name)
+        if not match:
+            return True
+        lock_timestamp_ms = int(match.group(1))
+        lock_time = datetime.fromtimestamp(lock_timestamp_ms / 1000.0, tz=timezone.utc)
+        age_minutes = (datetime.now(timezone.utc) - lock_time).total_seconds() / 60
+        return age_minutes <= timeout_minutes
+
     def list_tags(self, pattern: Optional[str] = None) -> List[str]:
         """
         List tags matching glob pattern.

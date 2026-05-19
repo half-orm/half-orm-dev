@@ -1430,6 +1430,31 @@ class ReleaseManager:
                 f"Cannot read current production version from database: {e}"
             )
 
+        # Migration: production servers that still track ho-prod instead of
+        # ho-current. Create ho-current from the current version's immutable tag
+        # and switch to it — local-only, no push to origin.
+        if (
+            self._repo.production
+            and self._repo.hgit.branch == 'ho-prod'
+            and not self._repo.hgit.branch_exists('ho-current')
+        ):
+            current_tag = f'v{current_version}'
+            tag_exists = any(
+                t.name == current_tag
+                for t in self._repo.hgit._HGit__git_repo.tags
+            )
+            if not tag_exists:
+                raise ReleaseManagerError(
+                    f"Cannot migrate to ho-current: tag {current_tag} not found locally.\n"
+                    f"Run 'hop update' again after ensuring tags are fetched."
+                )
+            self._repo.hgit.create_branch_from_tag('ho-current', current_tag)
+            self._repo.hgit._HGit__git_repo.heads['ho-current'].checkout()
+            click.echo(
+                f"  ℹ Migrated to ho-current (created from {current_tag}, local only).\n"
+                f"    Production servers should now use ho-current instead of ho-prod."
+            )
+
         # 3. Build list of available releases with details
         available_releases = []
 
@@ -1855,25 +1880,31 @@ class ReleaseManager:
                 'final_version': upgrade_path[-1] if upgrade_path else current_version
             }
 
-        # === 5. Acquire lock, pull ho-prod, apply releases ===
-        # The lock ensures the pull does not fetch a partial state left by a
-        # push in progress on ho-prod (e.g. patch merge or release promote
-        # pushing files in several steps).
+        # === 5. Get release files and apply releases ===
+        # ho-prod:     acquire lock + pull (rolling branch, needs lock against partial pushes)
+        # ho-current:  fetch + reset --hard vX.Y.Z per version (immutable tags, no lock needed)
         lock_tag = None
         patches_applied = {}
+        on_ho_current = self._repo.hgit.branch == "ho-current"
         try:
-            lock_tag = self._repo.hgit.acquire_branch_lock('ho-prod')
-
-            # Pull ho-prod to get release files
-            # update_production only fetches tags, we need the actual release files
-            try:
-                self._repo.hgit.pull('origin', 'ho-prod')
-            except Exception as e:
-                raise ReleaseManagerError(f"Failed to pull ho-prod branch: {e}")
+            if on_ho_current:
+                try:
+                    self._repo.hgit.fetch_tags()
+                    self._repo.hgit._HGit__git_repo.remotes.origin.fetch()
+                except Exception as e:
+                    raise ReleaseManagerError(f"Failed to fetch from origin: {e}")
+            else:
+                lock_tag = self._repo.hgit.acquire_branch_lock('ho-prod')
+                try:
+                    self._repo.hgit.pull('origin', 'ho-prod')
+                except Exception as e:
+                    raise ReleaseManagerError(f"Failed to pull ho-prod branch: {e}")
 
             # Apply releases sequentially
             try:
                 for version in upgrade_path:
+                    if on_ho_current:
+                        self._repo.hgit._HGit__git_repo.git.reset('--hard', f'v{version}')
                     applied_patches = self._apply_release_to_production(version)
                     patches_applied[version] = applied_patches
             except Exception as e:
@@ -2033,11 +2064,20 @@ class ReleaseManager:
             # → Raises: "Repository has uncommitted changes"
         """
         # Check branch
-        if self._repo.hgit.branch != "ho-prod":
+        current_branch = self._repo.hgit.branch
+        if current_branch not in ("ho-prod", "ho-current"):
             raise ReleaseManagerError(
-                f"Must be on ho-prod branch for production upgrade. "
-                f"Current branch: {self._repo.hgit.branch}"
+                f"Must be on ho-prod or ho-current branch for production upgrade. "
+                f"Current branch: {current_branch}"
             )
+
+        # For ho-current: reject if a lock is held on ho-prod (dev operation in progress)
+        if current_branch == "ho-current":
+            if self._repo.hgit.is_branch_locked("ho-prod"):
+                raise ReleaseManagerError(
+                    "Cannot upgrade: ho-prod is currently locked by a development operation.\n"
+                    "Wait for the operation to complete and retry."
+                )
 
         # Check repo is clean
         if not self._repo.hgit.repos_is_clean():
