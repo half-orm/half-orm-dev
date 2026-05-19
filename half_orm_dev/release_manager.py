@@ -2586,7 +2586,34 @@ class ReleaseManager:
                 # snapshot changes (which delete the TOML), we commit everything as
                 # a single merge commit with no conflict.
                 self._repo.hgit.checkout("ho-prod")
-                self._repo.hgit.merge(release_branch, no_commit=True)
+                try:
+                    self._repo.hgit.merge(release_branch, no_commit=True)
+                except GitCommandError:
+                    # ho_baseclasses.py is auto-generated and may conflict when the
+                    # file was introduced by a half_orm_dev migration AFTER the release
+                    # branch was cut (CONFLICT add/add).  The release branch always
+                    # holds the correct post-patch version, so we take --theirs.
+                    git_repo = self._repo.hgit._HGit__git_repo
+                    conflicted = git_repo.git.diff(
+                        '--name-only', '--diff-filter=U'
+                    ).splitlines()
+                    package = self._repo.name
+                    auto_generated = {f'{package}/ho_baseclasses.py'}
+                    unexpected = set(conflicted) - auto_generated
+                    if unexpected:
+                        raise ReleaseManagerError(
+                            f"Merge conflict(s) in non-auto-generated file(s): "
+                            + ', '.join(sorted(unexpected))
+                        )
+                    if not conflicted:
+                        raise  # no conflicted files listed — unexpected state
+                    for path in conflicted:
+                        git_repo.git.checkout('--theirs', path)
+                        git_repo.git.add(path)
+                    click.echo(
+                        f"  ℹ Resolved add/add conflict in {', '.join(conflicted)} "
+                        f"(took release branch version)"
+                    )
 
                 # 10. Generate schema dump and apply snapshot changes in merge window
                 self._repo.database._generate_schema_sql(version, model_dir)
