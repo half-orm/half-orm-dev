@@ -181,11 +181,13 @@ class TestCloneRepoSuccess:
     @patch('os.chdir')
     @patch('pathlib.Path.cwd')
     @patch('pathlib.Path.exists')
+    @patch('pathlib.Path.mkdir')
+    @patch('pathlib.Path.touch')
     @patch('half_orm_dev.repo.Config')
     @patch('half_orm_dev.database.Database.setup_database')
     def test_clone_repo_uses_production_parameter(
-        self, mock_setup_db, mock_config, mock_exists, mock_cwd,
-        mock_chdir, mock_subprocess
+        self, mock_setup_db, mock_config, mock_touch, mock_mkdir,
+        mock_exists, mock_cwd, mock_chdir, mock_subprocess
     ):
         """Test production parameter is passed to Database.setup_database."""
         mock_cwd.return_value = Path('/current/dir')
@@ -210,3 +212,6 @@ class TestCloneRepoSuccess:
         call_kwargs = mock_setup_db.call_args[1]
         assert call_kwargs['connection_options']['production'] is True
         assert call_kwargs['create_db'] is False
+
+        # Verify .hop/production marker was created
+        mock_touch.assert_called()

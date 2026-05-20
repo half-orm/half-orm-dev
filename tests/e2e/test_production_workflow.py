@@ -419,6 +419,60 @@ class TestProductionUpgradeWithNewRelease:
 
 
 @pytest.mark.integration
+class TestProductionReadOnlyGuards:
+    """Test that production servers are read-only (no git commit or push)."""
+
+    def test_production_marker_created_on_clone(self, production_environment):
+        """hop clone --production creates .hop/production marker."""
+        prod_project_dir = production_environment['prod_project_dir']
+        assert (prod_project_dir / '.hop' / 'production').exists()
+
+    def test_production_marker_in_gitignore(self, production_environment):
+        """install_git_hooks adds .hop/production to .gitignore."""
+        prod_project_dir = production_environment['prod_project_dir']
+        gitignore = (prod_project_dir / '.gitignore').read_text()
+        assert '.hop/production' in gitignore
+
+    def test_git_commit_blocked_on_production(self, production_environment):
+        """pre-commit hook blocks git commit on production server."""
+        run_prod = production_environment['run_prod']
+        prod_project_dir = production_environment['prod_project_dir']
+
+        # Create a dummy file to stage
+        dummy = prod_project_dir / 'dummy_test_file.txt'
+        dummy.write_text('test')
+        run_prod(['git', 'add', 'dummy_test_file.txt'])
+
+        result = run_prod(['git', 'commit', '-m', 'should be blocked'], check=False)
+
+        assert result.returncode != 0
+        assert 'production' in result.stderr.lower() or 'read-only' in result.stderr.lower()
+
+        # Cleanup
+        run_prod(['git', 'reset', 'HEAD', 'dummy_test_file.txt'], check=False)
+        dummy.unlink(missing_ok=True)
+
+    def test_git_push_blocked_on_production(self, production_environment):
+        """pre-push hook blocks git push on production server."""
+        run_prod = production_environment['run_prod']
+
+        # Use explicit remote/branch so git reaches the pre-push hook
+        result = run_prod(['git', 'push', 'origin', 'ho-current'], check=False)
+
+        assert result.returncode != 0
+        assert 'production' in result.stderr.lower() or 'read-only' in result.stderr.lower()
+
+    def test_git_tag_blocked_on_production(self, production_environment):
+        """reference-transaction hook blocks git tag on production server."""
+        run_prod = production_environment['run_prod']
+
+        result = run_prod(['git', 'tag', 'ho-patch/test-tag'], check=False)
+
+        assert result.returncode != 0
+        assert 'production' in result.stderr.lower() or 'read-only' in result.stderr.lower()
+
+
+@pytest.mark.integration
 class TestProductionUpgradeToSpecificVersion:
     """Test upgrading to a specific version."""
 

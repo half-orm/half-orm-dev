@@ -1457,6 +1457,15 @@ class Repo:
                 if action == 'installed' or overall_action == 'skipped':
                     overall_action = action
 
+        # Ensure .hop/production is listed in .gitignore (idempotent).
+        gitignore_path = Path(self.__base_dir) / '.gitignore'
+        entry = '.hop/production'
+        if gitignore_path.exists():
+            content = gitignore_path.read_text()
+            if entry not in content.splitlines():
+                with gitignore_path.open('a') as f:
+                    f.write(f'\n{entry}\n')
+
         return {
             'installed': any_installed,
             'action': overall_action
@@ -3018,6 +3027,10 @@ Each script is executed only once unless `--force` is used.
 
         # Step 9: Set up ho-current for production servers
         if connection_options.get('production'):
+            # Mark this clone as production (read-only): blocks git commit/push via hooks.
+            production_marker = Path(dest_path) / '.hop' / 'production'
+            production_marker.parent.mkdir(parents=True, exist_ok=True)
+            production_marker.touch()
             try:
                 repo.release_manager.ensure_ho_current()
             except Exception as e:
