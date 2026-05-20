@@ -122,6 +122,7 @@ class TestCommandBlocking:
             mock_repo = Mock()
             mock_repo.checked = True
             mock_repo.needs_migration.return_value = True
+            mock_repo.database.production = False
             MockRepo.return_value = mock_repo
 
             from half_orm_dev.cli.main import Hop

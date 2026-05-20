@@ -484,6 +484,13 @@ class Repo:
             'errors': []
         }
 
+        if self.production:
+            raise RepoError(
+                "Repository migration is not available on a production server.\n\n"
+                "  Production servers are read-only: no commits or pushes to origin.\n"
+                "  Run 'hop migrate' on a development machine first, then deploy."
+            )
+
         try:
             # Create migration manager
             migration_mgr = MigrationManager(self)

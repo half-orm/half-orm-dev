@@ -4,6 +4,8 @@ Main CLI module - Creates and configures the CLI group
 
 import click
 import functools
+import os
+import subprocess
 import sys
 from half_orm_dev.repo import Repo, OutdatedHalfORMDevError
 from half_orm import utils
@@ -39,14 +41,15 @@ class Hop:
         but will be blocked by the decorator at execution time.
         """
         if self.needs_hop_upgrade:
-            # Version downgrade detected - return a minimal set of commands
-            # Commands will be blocked by decorator, but we need them in the list
-            # so Click doesn't show "No such command" error
-            return ['check', 'migrate']
+            return []  # handled at invocation time in the dev group callback
 
         if not self.repo_checked:
             # Outside hop repository - commands for project initialization
             return ['init', 'clone']
+
+        # PRODUCTION ENVIRONMENT — read-only, no migrations, no dev commands
+        if self.__repo.database.production:
+            return ['update', 'upgrade', 'bootstrap']
 
         if self.__repo.needs_migration():
             return ['migrate']
@@ -56,14 +59,9 @@ class Hop:
             # Sync-only mode (no metadata)
             return ['sync-package', 'check']
 
-        # Development mode (metadata present)
-        if self.__repo.database.production:
-            # PRODUCTION ENVIRONMENT - Release deployment only
-            return ['update', 'upgrade', 'bootstrap']
-        else:
-            # DEVELOPMENT ENVIRONMENT - Patch development
-            return ['patch', 'release', 'check', 'bootstrap', 'set-git-origin',
-                    'revert-migration']
+        # DEVELOPMENT ENVIRONMENT - Patch development
+        return ['patch', 'release', 'check', 'bootstrap', 'set-git-origin',
+                'revert-migration']
 
     @property
     def repo_checked(self):
@@ -137,9 +135,28 @@ def create_cli_group():
 
     @click.group(cls=VersionCheckGroup, invoke_without_command=True)
     @click.pass_context
-    @check_version_before_invoke
     def dev(ctx):
         """halfORM development tools - Git-centric patch management and database synchronization"""
+        if hop.needs_hop_upgrade:
+            error = hop.hop_upgrade_error
+            required = error.required_version
+            installed = error.installed_version
+            click.echo(f"\n  Ce dépôt requiert half-orm-dev {required} "
+                       f"(installé : {installed}).")
+            click.echo(f"  Installation de la version requise...")
+            try:
+                subprocess.run(
+                    [sys.executable, '-m', 'pip', 'install', f'half-orm-dev=={required}'],
+                    check=True,
+                )
+            except subprocess.CalledProcessError:
+                click.echo(f"\n  Échec de l'installation.", err=True)
+                click.echo(f"  Lancez manuellement : pip install half-orm-dev=={required}", err=True)
+                sys.exit(1)
+            click.echo(f"  ✓ half-orm-dev {required} installé. Relance en cours...\n")
+            os.execv(sys.argv[0], sys.argv)
+            return
+
         if ctx.invoked_subcommand is None:
             # Show repo state when no subcommand is provided
             if hop.repo_checked:

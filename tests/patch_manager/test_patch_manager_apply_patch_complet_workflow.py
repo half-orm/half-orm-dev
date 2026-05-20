@@ -59,6 +59,7 @@ def mock_workflow_with_release_context(patch_manager):
     # Mock Database.execute_pg_command
     mock_execute = Mock()
     repo.database.execute_pg_command = mock_execute
+    repo.database.production = False
 
     # Mock modules.generate
     mock_generate = Mock()

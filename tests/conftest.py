@@ -61,6 +61,7 @@ def temp_repo():
     repo.base_dir = temp_dir
     repo.releases_dir = str(releases_dir)
     repo.devel = True
+    repo.production = False
     repo.name = "test_database"
     repo.database_name = "test_database"  # Used for PostgreSQL commands
     repo.git_origin = "https://github.com/test/repo.git"
