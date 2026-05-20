@@ -40,7 +40,7 @@ class TestReleaseManagerCalculateNext:
 
     def test_first_release_from_0_0_0(self, release_manager_basic):
         """Test first release after init-database (from 0.0.0)."""
-        current = Version(0, 0, 0)
+        current = Version("0.0.0")
 
         # patch: 0.0.0 -> 0.0.1
         assert release_manager_basic.calculate_next_version(current, 'patch') == "0.0.1"
@@ -53,7 +53,7 @@ class TestReleaseManagerCalculateNext:
 
     def test_increment_patch_simple(self, release_manager_basic):
         """Test patch increment: X.Y.Z -> X.Y.(Z+1)."""
-        current = Version(1, 3, 5)
+        current = Version("1.3.5")
 
         result = release_manager_basic.calculate_next_version(current, 'patch')
 
@@ -61,7 +61,7 @@ class TestReleaseManagerCalculateNext:
 
     def test_increment_minor_resets_patch(self, release_manager_basic):
         """Test minor increment: X.Y.Z -> X.(Y+1).0."""
-        current = Version(1, 3, 5)
+        current = Version("1.3.5")
 
         result = release_manager_basic.calculate_next_version(current, 'minor')
 
@@ -69,7 +69,7 @@ class TestReleaseManagerCalculateNext:
 
     def test_increment_major_resets_minor_and_patch(self, release_manager_basic):
         """Test major increment: X.Y.Z -> (X+1).0.0."""
-        current = Version(1, 3, 5)
+        current = Version("1.3.5")
 
         result = release_manager_basic.calculate_next_version(current, 'major')
 
@@ -77,7 +77,7 @@ class TestReleaseManagerCalculateNext:
 
     def test_increment_patch_from_zero_patch(self, release_manager_basic):
         """Test patch increment when patch is already 0."""
-        current = Version(1, 4, 0)
+        current = Version("1.4.0")
 
         result = release_manager_basic.calculate_next_version(current, 'patch')
 
@@ -85,7 +85,7 @@ class TestReleaseManagerCalculateNext:
 
     def test_increment_minor_from_zero_minor(self, release_manager_basic):
         """Test minor increment when minor is 0."""
-        current = Version(2, 0, 0)
+        current = Version("2.0.0")
 
         result = release_manager_basic.calculate_next_version(current, 'minor')
 
@@ -93,7 +93,7 @@ class TestReleaseManagerCalculateNext:
 
     def test_increment_major_from_large_version(self, release_manager_basic):
         """Test major increment with large version numbers."""
-        current = Version(9, 99, 99)
+        current = Version("9.99.99")
 
         result = release_manager_basic.calculate_next_version(current, 'major')
 
@@ -101,7 +101,7 @@ class TestReleaseManagerCalculateNext:
 
     def test_increment_patch_from_large_patch(self, release_manager_basic):
         """Test patch increment with large patch number."""
-        current = Version(1, 3, 99)
+        current = Version("1.3.99")
 
         result = release_manager_basic.calculate_next_version(current, 'patch')
 
@@ -109,7 +109,7 @@ class TestReleaseManagerCalculateNext:
 
     def test_increment_minor_from_large_minor(self, release_manager_basic):
         """Test minor increment with large minor number."""
-        current = Version(1, 99, 5)
+        current = Version("1.99.5")
 
         result = release_manager_basic.calculate_next_version(current, 'minor')
 
@@ -117,7 +117,7 @@ class TestReleaseManagerCalculateNext:
 
     def test_increment_from_version_with_stage_ignores_stage(self, release_manager_basic):
         """Test that stage info is ignored in calculation."""
-        current = Version(1, 3, 5, stage="rc2")
+        current = Version("1.3.5")
 
         result = release_manager_basic.calculate_next_version(current, 'patch')
 
@@ -126,21 +126,21 @@ class TestReleaseManagerCalculateNext:
 
     def test_increment_invalid_type_raises_error(self, release_manager_basic):
         """Test error with invalid increment type."""
-        current = Version(1, 3, 5)
+        current = Version("1.3.5")
 
         with pytest.raises(ReleaseVersionError, match="Invalid.*increment.*type|unknown.*level"):
             release_manager_basic.calculate_next_version(current, 'invalid')
 
     def test_increment_empty_string_raises_error(self, release_manager_basic):
         """Test error with empty increment type."""
-        current = Version(1, 3, 5)
+        current = Version("1.3.5")
 
         with pytest.raises(ReleaseVersionError, match="Invalid.*increment.*type|empty"):
             release_manager_basic.calculate_next_version(current, '')
 
     def test_increment_case_sensitivity(self, release_manager_basic):
         """Test that increment type is case-sensitive (lowercase required)."""
-        current = Version(1, 3, 5)
+        current = Version("1.3.5")
 
         # Uppercase should fail
         with pytest.raises(ReleaseVersionError, match="Invalid.*increment.*type"):
@@ -151,7 +151,7 @@ class TestReleaseManagerCalculateNext:
 
     def test_increment_from_zero_version(self, release_manager_basic):
         """Test increment from 0.0.1 (typical first release)."""
-        current = Version(0, 0, 1)
+        current = Version("0.0.1")
 
         # Patch: 0.0.1 -> 0.0.2
         assert release_manager_basic.calculate_next_version(current, 'patch') == "0.0.2"
@@ -165,9 +165,9 @@ class TestReleaseManagerCalculateNext:
     def test_increment_patch_sequence(self, release_manager_basic):
         """Test sequence of patch increments."""
         versions = [
-            Version(1, 3, 5),
-            Version(1, 3, 6),
-            Version(1, 3, 7),
+            Version("1.3.5"),
+            Version("1.3.6"),
+            Version("1.3.7"),
         ]
 
         for i, current in enumerate(versions[:-1]):
@@ -177,7 +177,7 @@ class TestReleaseManagerCalculateNext:
 
     def test_return_type_is_string(self, release_manager_basic):
         """Test that return value is always a string."""
-        current = Version(1, 3, 5)
+        current = Version("1.3.5")
 
         for increment_type in ['patch', 'minor', 'major']:
             result = release_manager_basic.calculate_next_version(current, increment_type)

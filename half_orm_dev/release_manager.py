@@ -13,15 +13,16 @@ import subprocess
 
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Literal
-from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import click
 
 from git.exc import GitCommandError
+from packaging.version import Version, InvalidVersion
 from half_orm_dev.decorators import with_dynamic_branch_lock
 from half_orm import utils
 from half_orm_dev.release_file import ReleaseFile
+
 
 class ReleaseManagerError(Exception):
     """Base exception for ReleaseManager operations."""
@@ -36,69 +37,6 @@ class ReleaseVersionError(ReleaseManagerError):
 class ReleaseFileError(ReleaseManagerError):
     """Raised when release file operations fail."""
     pass
-
-
-@dataclass
-class Version:
-    """Semantic version with stage information."""
-    major: int
-    minor: int
-    patch: int
-    stage: Optional[str] = None  # None, "stage", "rc1", "rc2", "hotfix1", etc.
-
-    def __str__(self) -> str:
-        """String representation of version."""
-        base = f"{self.major}.{self.minor}.{self.patch}"
-        if self.stage:
-            return f"{base}-{self.stage}"
-        return base
-
-    def __lt__(self, other: 'Version') -> bool:
-        """Compare versions for sorting."""
-        # Compare base version first
-        if (self.major, self.minor, self.patch) != (other.major, other.minor, other.patch):
-            return (self.major, self.minor, self.patch) < (other.major, other.minor, other.patch)
-
-        # If base versions equal, compare stages
-        # Priority: production (None) > rc > stage > hotfix
-        stage_priority = {
-            None: 4,           # Production (highest)
-            'rc': 3,           # Release candidate
-            'stage': 2,        # Development stage
-            'hotfix': 1        # Hotfix (lowest)
-        }
-
-        # Extract stage type (rc1 → rc, hotfix2 → hotfix)
-        self_stage_type = self._get_stage_type()
-        other_stage_type = other._get_stage_type()
-
-        self_priority = stage_priority.get(self_stage_type, 0)
-        other_priority = stage_priority.get(other_stage_type, 0)
-
-        # If different stage types, compare by priority
-        if self_priority != other_priority:
-            return self_priority < other_priority
-
-        # Same stage type - compare stage strings for RC/hotfix numbers
-        # rc2 > rc1, hotfix2 > hotfix1
-        if self.stage and other.stage:
-            return self.stage < other.stage
-
-        return False
-
-    def _get_stage_type(self) -> Optional[str]:
-        """Extract stage type from stage string."""
-        if not self.stage:
-            return None
-
-        if self.stage == 'stage':
-            return 'stage'
-        elif self.stage.startswith('rc'):
-            return 'rc'
-        elif self.stage.startswith('hotfix'):
-            return 'hotfix'
-
-        return None
 
 
 class ReleaseManager:
@@ -474,21 +412,16 @@ class ReleaseManager:
         if not release_files:
             return None
 
-        # Parse all valid versions
         versions = []
-        for release_file in release_files:
+        for f in release_files:
             try:
-                version = self.parse_version_from_filename(release_file.name)
-                versions.append(version)
-            except ReleaseVersionError:
-                # Ignore files with invalid format
+                versions.append(Version(f.stem))
+            except InvalidVersion:
                 continue
 
         if not versions:
             return None
 
-        # Sort versions and return latest
-        # Version.__lt__ handles sorting with stage priority
         return max(versions)
 
 
@@ -559,82 +492,10 @@ class ReleaseManager:
         elif increment_type == 'minor':
             return f"{current_version.major}.{current_version.minor + 1}.0"
         elif increment_type == 'patch':
-            return f"{current_version.major}.{current_version.minor}.{current_version.patch + 1}"
+            return f"{current_version.major}.{current_version.minor}.{current_version.micro + 1}"
 
         # Should never reach here due to validation above
         raise ReleaseVersionError(f"Unexpected increment type: {increment_type}")
-
-    @classmethod
-    def parse_version_from_filename(cls, filename: str) -> Version:
-        """
-        Parse version from release filename.
-
-        Extracts semantic version and stage from release filename.
-
-        Supported formats:
-        - X.Y.Z.txt → Version(X, Y, Z, stage=None)
-        - X.Y.Z-stage.txt → Version(X, Y, Z, stage="stage")
-        - X.Y.Z-rc1.txt → Version(X, Y, Z, stage="rc1")
-        - X.Y.Z-hotfix1.txt → Version(X, Y, Z, stage="hotfix1")
-
-        Args:
-            filename: Release filename (e.g., "1.3.5-rc2.txt")
-
-        Returns:
-            Version: Parsed version object
-
-        Raises:
-            ReleaseVersionError: If filename format invalid
-
-        Examples:
-            ver = release_mgr.parse_version_from_filename("1.3.5.txt")
-            # Version(1, 3, 5, stage=None)
-
-            ver = release_mgr.parse_version_from_filename("1.4.0-stage.txt")
-            # Version(1, 4, 0, stage="stage")
-
-            ver = release_mgr.parse_version_from_filename("1.3.5-rc2.txt")
-            # Version(1, 3, 5, stage="rc2")
-        """
-        # Extract just filename if path provided
-        filename = Path(filename).name
-
-        # Validate not empty
-        if not filename:
-            raise ReleaseVersionError("Invalid format: empty filename")
-
-        # Must end with .txt
-        if not filename.endswith('.txt'):
-            raise ReleaseVersionError(f"Invalid format: missing .txt extension in '{filename}'")
-
-        # Remove .txt extension
-        version_str = filename[:-4]
-
-        # Pattern: X.Y.Z or X.Y.Z-stage or X.Y.Z-rc1 or X.Y.Z-hotfix1
-        pattern = r'^(\d+)\.(\d+)\.(\d+)(?:-(stage|rc\d+|hotfix\d+))?$'
-
-        match = re.match(pattern, version_str)
-
-        if not match:
-            raise ReleaseVersionError(
-                f"Invalid format: '{filename}' does not match X.Y.Z[-stage].txt pattern"
-            )
-
-        major, minor, patch, stage = match.groups()
-
-        # Convert to integers
-        try:
-            major = int(major)
-            minor = int(minor)
-            patch = int(patch)
-        except ValueError:
-            raise ReleaseVersionError(f"Invalid format: non-numeric version components in '{filename}'")
-
-        # Validate non-negative
-        if major < 0 or minor < 0 or patch < 0:
-            raise ReleaseVersionError(f"Invalid format: negative version numbers in '{filename}'")
-
-        return Version(major, minor, patch, stage)
 
     def get_next_release_version(self) -> Optional[str]:
         """
@@ -646,8 +507,7 @@ class ReleaseManager:
         production_str = self._get_production_version()
 
         for level in ['patch', 'minor', 'major']:
-            next_version = self.calculate_next_version(
-                self.parse_version_from_filename(f"{production_str}.txt"), level)
+            next_version = self.calculate_next_version(Version(production_str), level)
 
             # Cherche RC ou patches TOML pour cette version
             rc_pattern = f"{next_version}-rc*.txt"
@@ -662,12 +522,12 @@ class ReleaseManager:
         """
         Liste tous les fichiers <label> pour une version, triés par numéro.
 
-        Returns:
-            Liste triée (ex: ["1.3.6-rc1.txt", "1.3.6-rc2.txt"])
+        RC uses hyphen separator (1.3.6-rc1.txt).
+        Post-releases use dot separator (1.3.6.post1.txt).
         """
-        pattern = f"{version}-{label}*.txt"
-        reg_ex = rf'-{label}(\d+)\.txt$'
-        label_pattern = re.compile(reg_ex)
+        sep = '.' if label == 'post' else '-'
+        pattern = f"{version}{sep}{label}*.txt"
+        label_pattern = re.compile(rf'[.-]{label}(\d+)\.txt$')
         files = list(self._releases_dir.glob(pattern))
 
         return sorted(files, key=lambda f: int(re.search(label_pattern, f.name).group(1)))
@@ -806,7 +666,7 @@ class ReleaseManager:
         else:
             # Production: read from hotfix snapshot if it exists
             # This handles the case where we're applying a hotfix release
-            hotfix_files = sorted(self._releases_dir.glob(f"{version}-hotfix*.txt"))
+            hotfix_files = sorted(self._releases_dir.glob(f"{version}.post*.txt"))
             if hotfix_files:
                 # Apply the latest hotfix
                 stage_patches = self.read_release_patches(hotfix_files[-1].name)
@@ -892,7 +752,7 @@ class ReleaseManager:
         all_patches.extend(self.read_release_patches(base_file))
 
         # 2. Hotfix patches in order
-        hotfix_files = sorted(self._releases_dir.glob(f"{version}-hotfix*.txt"))
+        hotfix_files = sorted(self._releases_dir.glob(f"{version}.post*.txt"))
         for hotfix_file in hotfix_files:
             all_patches.extend(self.read_release_patches(hotfix_file.name))
 
@@ -1483,7 +1343,7 @@ class ReleaseManager:
                     patches = [line.strip() for line in content.split('\n') if line.strip()]
 
             # Only include releases newer than current version
-            if self._version_is_newer(version, current_version):
+            if Version(version) > Version(current_version):
                 available_releases.append({
                     'tag': tag,
                     'version': version,
@@ -1550,43 +1410,19 @@ class ReleaseManager:
         except Exception as e:
             raise ReleaseManagerError(f"Failed to read tags from repository: {e}")
 
-        # Filter for release tags (v*.*.*) with optional -rc or -hotfix suffix
-        release_pattern = re.compile(r'^v\d+\.\d+\.\d+(-rc\d+|-hotfix\d+)?$')
+        # Filter for release tags: v1.3.5, v1.3.5-rc1, v1.3.5.post1
+        release_pattern = re.compile(r'^v\d+\.\d+\.\d+(-rc\d+|\.post\d+)?$')
         release_tags = []
 
         for tag in all_tags:
             tag_name = tag.name
             if release_pattern.match(tag_name):
-                # Filter RC tags unless explicitly allowed
                 if '-rc' in tag_name and not allow_rc:
                     continue
                 release_tags.append(tag_name)
 
-        # Sort tags by version (semantic versioning)
-        def version_key(tag_name):
-            """Extract sortable version tuple from tag name."""
-            # Remove 'v' prefix
-            version_str = tag_name[1:]
-
-            # Split version and suffix
-            if '-rc' in version_str:
-                base_ver, rc_suffix = version_str.split('-rc')
-                rc_num = int(rc_suffix)
-                suffix_weight = (1, rc_num)  # RC comes before production
-            elif '-hotfix' in version_str:
-                base_ver, hotfix_suffix = version_str.split('-hotfix')
-                hotfix_num = int(hotfix_suffix)
-                suffix_weight = (2, hotfix_num)  # Hotfix comes after production
-            else:
-                base_ver = version_str
-                suffix_weight = (1.5, 0)  # Production between RC and hotfix
-
-            # Parse base version
-            major, minor, patch = map(int, base_ver.split('.'))
-
-            return (major, minor, patch, suffix_weight)
-
-        release_tags.sort(key=version_key)
+        # Sort using packaging.version (PEP 440 ordering)
+        release_tags.sort(key=lambda t: Version(t[1:]))
 
         return release_tags
 
@@ -1621,76 +1457,30 @@ class ReleaseManager:
             path = mgr._calculate_upgrade_path("1.4.0", "1.4.0")
             # → []
         """
-        # Parse versions
-        current_version = self.parse_version_from_filename(f"{current}.txt")
-        target_version = self.parse_version_from_filename(f"{target}.txt")
+        current_version = Version(current)
+        target_version = Version(target)
 
-        # If same version, no upgrade needed
         if current == target:
             return []
 
-        # Get all available release tags (production only)
         available_tags = self._get_available_release_tags(allow_rc=False)
 
-        # Extract versions from tags and parse them
         available_versions = []
         for tag in available_tags:
-            # Remove 'v' prefix: v1.3.6 → 1.3.6
             version_str = tag[1:] if tag.startswith('v') else tag
-
-            # Skip if not a valid production version format
-            if not re.match(r'^\d+\.\d+\.\d+$', version_str):
-                continue
-
             try:
-                version = self.parse_version_from_filename(f"{version_str}.txt")
-                available_versions.append((version_str, version))
-            except (ReleaseManagerError, ValueError):
+                available_versions.append((version_str, Version(version_str)))
+            except InvalidVersion:
                 continue
 
-        # Sort versions
-        available_versions.sort(key=lambda x: (x[1].major, x[1].minor, x[1].patch))
+        available_versions.sort(key=lambda x: x[1])
 
-        # Build sequential path from current to target
         path = []
         for version_str, version in available_versions:
-            # Skip versions <= current
-            if (version.major, version.minor, version.patch) <= \
-               (current_version.major, current_version.minor, current_version.patch):
-                continue
-
-            # Add versions <= target
-            if (version.major, version.minor, version.patch) <= \
-               (target_version.major, target_version.minor, target_version.patch):
+            if current_version < version <= target_version:
                 path.append(version_str)
 
         return path
-
-    def _version_is_newer(self, version1: str, version2: str) -> bool:
-        """
-        Compare two version strings to check if version1 is newer than version2.
-
-        Args:
-            version1: First version (e.g., "1.3.6", "1.3.6-rc1")
-            version2: Second version (e.g., "1.3.5")
-
-        Returns:
-            bool: True if version1 > version2
-
-        Examples:
-            _version_is_newer("1.3.6", "1.3.5")  # → True
-            _version_is_newer("1.3.5", "1.3.6")  # → False
-            _version_is_newer("1.3.6-rc1", "1.3.5")  # → True
-        """
-        # Extract base versions (remove suffix)
-        base1 = version1.split('-')[0]
-        base2 = version2.split('-')[0]
-
-        # Parse versions
-        parts1 = tuple(map(int, base1.split('.')))
-        parts2 = tuple(map(int, base2.split('.')))
-
-        return parts1 > parts2
 
     def upgrade_production(
         self,
@@ -2431,8 +2221,6 @@ class ReleaseManager:
         Returns:
             Version string of base release, or None if should use prod schema
         """
-        from packaging.version import Version
-
         new_ver = Version(new_version)
         model_dir = Path(self._repo.model_dir)
 
@@ -3114,7 +2902,7 @@ class ReleaseManager:
             return 1
 
         last_file = files[-1].name
-        reg_ex = rf'-{label}(\d+)\.txt'
+        reg_ex = rf'[.-]{label}(\d+)\.txt'
         match = re.search(reg_ex, last_file)
         if match:
             last_num = int(match.group(1))
@@ -3303,26 +3091,26 @@ class ReleaseManager:
                         f"  3. OR move to another release (edit patches file manually)"
                     )
 
-            # 3. Determine next hotfix number
-            hotfix_num = self._get_latest_label_number(version, 'hotfix')
-            hotfix_tag = f"v{version}-hotfix{hotfix_num}"
+            # 3. Determine next post-release number
+            post_num = self._get_latest_label_number(version, 'post')
+            hotfix_tag = f"v{version}.post{post_num}"
 
             # 4. Switch to ho-prod and merge
             self._repo.hgit.checkout("ho-prod")
 
             # Merge ho-release/X.Y.Z into ho-prod
-            merge_msg = f"[release] Merge hotfix %{version}-hotfix{hotfix_num}"
+            merge_msg = f"[release] Merge hotfix %{version}.post{post_num}"
             self._repo.hgit.merge(current_branch, message=merge_msg)
 
-            # 5. Create hotfix snapshot file from staged patches
+            # 5. Create post-release snapshot file from staged patches
             toml_file = self._releases_dir / f"{version}-patches.toml"
-            hotfix_file = self._releases_dir / f"{version}-hotfix{hotfix_num}.txt"
+            hotfix_file = self._releases_dir / f"{version}.post{post_num}.txt"
 
             if release_file.exists():
                 # Get staged patches from TOML file
                 staged_patches = release_file.get_patches(status="staged")
 
-                # Write snapshot to hotfix TXT file (production format)
+                # Write snapshot to post-release TXT file (production format)
                 hotfix_file.write_text("\n".join(staged_patches) + "\n" if staged_patches else "", encoding='utf-8')
                 # Delete TOML patches file (no longer needed)
                 if toml_file.exists():
@@ -3333,12 +3121,12 @@ class ReleaseManager:
 
             # 7. Commit release file changes and sync to active branches
             sync_result = self._repo.commit_and_sync_to_active_branches(
-                message=f"[HOP] Finalize hotfix %{version}-hotfix{hotfix_num} release files",
-                reason=f"hotfix {version}-hotfix{hotfix_num}"
+                message=f"[HOP] Finalize hotfix %{version}.post{post_num} release files",
+                reason=f"hotfix {version}.post{post_num}"
             )
 
-            # 8. Create hotfix tag on ho-prod
-            self._repo.hgit.create_tag(hotfix_tag, f"Hotfix release %{version}-hotfix{hotfix_num}")
+            # 8. Create post-release tag on ho-prod
+            self._repo.hgit.create_tag(hotfix_tag, f"Hotfix release %{version}.post{post_num}")
             self._repo.hgit.push_tag(hotfix_tag)
 
             deleted_branches = []

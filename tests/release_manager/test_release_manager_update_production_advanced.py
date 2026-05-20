@@ -241,11 +241,11 @@ class TestUpdateProductionReleaseTypes:
         release_mgr, mock_repo, mock_hgit, releases_dir = release_manager_with_releases
 
         # Create hotfix release file
-        (releases_dir / "1.3.5-hotfix1.txt").write_text("999-critical\n")
+        (releases_dir / "1.3.5.post1.txt").write_text("999-critical\n")
 
         # Mock hotfix tag
         mock_tag = Mock()
-        mock_tag.name = "v1.3.5-hotfix1"
+        mock_tag.name = "v1.3.5.post1"
         mock_hgit._HGit__git_repo = Mock()
         mock_hgit._HGit__git_repo.tags = [mock_tag]
 

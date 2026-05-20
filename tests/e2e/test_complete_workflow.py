@@ -353,5 +353,5 @@ class TestHotfixWorkflow:
         run(['half_orm', 'dev', 'release', 'promote', 'hotfix'])
 
         # Verify hotfix file exists
-        hotfix_file = project_dir / '.hop' / 'releases' / '0.1.0-hotfix1.txt'
+        hotfix_file = project_dir / '.hop' / 'releases' / '0.1.0.post1.txt'
         assert hotfix_file.exists()

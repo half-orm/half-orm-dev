@@ -175,7 +175,7 @@ class TestDetermineRCNumber:
         # Create various non-RC files
         (releases_dir / "1.3.5-stage.txt").touch()
         (releases_dir / "1.3.5.txt").touch()  # Production
-        (releases_dir / "1.3.5-hotfix1.txt").touch()
+        (releases_dir / "1.3.5.post1.txt").touch()
         (releases_dir / "README.md").touch()
 
         version = "1.3.5"

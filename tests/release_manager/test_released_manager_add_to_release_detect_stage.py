@@ -176,7 +176,7 @@ class TestDetectTargetStageFile:
         release_mgr, releases_dir = release_manager_with_files
 
         # Create hotfix and stage files
-        (releases_dir / "1.3.5-hotfix1.txt").touch()
+        (releases_dir / "1.3.5.post1.txt").touch()
         from half_orm_dev.release_file import ReleaseFile
         release_file = ReleaseFile("1.3.6", releases_dir)
         release_file.create_empty()  # Only this should count
@@ -193,7 +193,7 @@ class TestDetectTargetStageFile:
 
         # Create mixed files
         (releases_dir / "1.3.4.txt").touch()           # Production
-        (releases_dir / "1.3.4-hotfix1.txt").touch()   # Hotfix
+        (releases_dir / "1.3.4.post1.txt").touch()   # Hotfix
         (releases_dir / "1.3.5-rc1.txt").touch()       # RC
         (releases_dir / "1.3.5-rc2.txt").touch()       # RC
         from half_orm_dev.release_file import ReleaseFile

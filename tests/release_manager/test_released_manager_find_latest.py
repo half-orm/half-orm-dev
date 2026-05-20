@@ -1,264 +1,117 @@
 """
 Tests for ReleaseManager.find_latest_version() method.
 
-Focused on testing:
-- No release files (returns None)
-- Single release file
-- Multiple releases with version sorting
-- Stage priority (production > rc > stage > hotfix for same base version)
-- Mixed versions and stages
+find_latest_version() returns a packaging.version.Version (or None).
+PEP 440 ordering applies: post-releases (hotfixes) > production > rc > dev.
+Files with invalid PEP 440 version strings are silently ignored.
 """
 
 import pytest
 from pathlib import Path
 from unittest.mock import Mock
 
-from half_orm_dev.release_manager import ReleaseManager, ReleaseFileError, Version
+from half_orm_dev.release_manager import ReleaseManager, ReleaseFileError
+
+
+@pytest.fixture
+def rm(tmp_path):
+    """ReleaseManager with an empty releases/ directory."""
+    mock_repo = Mock()
+    mock_repo.base_dir = str(tmp_path)
+    mock_repo.model_dir = str(tmp_path / ".hop" / "model")
+    releases_dir = tmp_path / ".hop" / "releases"
+    releases_dir.mkdir(parents=True, exist_ok=True)
+    mock_repo.releases_dir = str(releases_dir)
+    mgr = ReleaseManager(mock_repo)
+    return mgr, releases_dir
 
 
 class TestReleaseManagerFindLatest:
-    """Test find_latest_version() method."""
 
-    @pytest.fixture
-    def release_manager_with_files(self, tmp_path):
-        """Create ReleaseManager with releases/ directory."""
-        mock_repo = Mock()
-        mock_repo.base_dir = str(tmp_path)
-        mock_repo.model_dir = str(tmp_path / ".hop" / "model")
+    def test_empty_directory_returns_none(self, rm):
+        mgr, _ = rm
+        assert mgr.find_latest_version() is None
 
-        # Create releases/ directory
-        releases_dir = tmp_path / ".hop" / "releases"
-        releases_dir.mkdir(parents=True, exist_ok=True)
-        mock_repo.releases_dir = str(releases_dir)
+    def test_single_production_release(self, rm):
+        mgr, d = rm
+        (d / "1.3.5.txt").touch()
+        assert str(mgr.find_latest_version()) == "1.3.5"
 
-        release_mgr = ReleaseManager(mock_repo)
+    def test_multiple_production_releases(self, rm):
+        mgr, d = rm
+        for v in ("1.3.3", "1.3.5", "1.3.4"):
+            (d / f"{v}.txt").touch()
+        assert str(mgr.find_latest_version()) == "1.3.5"
 
-        return release_mgr, releases_dir
+    def test_major_takes_precedence(self, rm):
+        mgr, d = rm
+        for v in ("1.9.9", "2.0.0", "1.10.10"):
+            (d / f"{v}.txt").touch()
+        assert str(mgr.find_latest_version()) == "2.0.0"
 
-    def test_no_release_files_returns_none(self, release_manager_with_files):
-        """Test returns None when no release files exist."""
-        release_mgr, releases_dir = release_manager_with_files
+    def test_minor_takes_precedence_over_patch(self, rm):
+        mgr, d = rm
+        for v in ("1.3.99", "1.4.0", "1.3.100"):
+            (d / f"{v}.txt").touch()
+        assert str(mgr.find_latest_version()) == "1.4.0"
 
-        # Empty releases/ directory
-        result = release_mgr.find_latest_version()
+    def test_production_greater_than_rc_same_version(self, rm):
+        """1.3.5 > 1.3.5rc2 in PEP 440."""
+        mgr, d = rm
+        (d / "1.3.5-rc2.txt").touch()
+        (d / "1.3.5.txt").touch()
+        assert str(mgr.find_latest_version()) == "1.3.5"
 
-        assert result is None
+    def test_rc_greater_than_rc_lower_number(self, rm):
+        mgr, d = rm
+        for rc in ("rc1", "rc3", "rc2"):
+            (d / f"1.3.5-{rc}.txt").touch()
+        result = mgr.find_latest_version()
+        assert result.pre == ("rc", 3)
 
-    def test_single_production_release(self, release_manager_with_files):
-        """Test with single production release file."""
-        release_mgr, releases_dir = release_manager_with_files
+    def test_post_release_greater_than_production(self, rm):
+        """Hotfix (post-release) is newer than the base production release."""
+        mgr, d = rm
+        (d / "1.3.4.txt").touch()
+        (d / "1.3.4.post1.txt").touch()
+        (d / "1.3.4.post2.txt").touch()
+        result = mgr.find_latest_version()
+        assert result.post == 2
+        assert str(result) == "1.3.4.post2"
 
-        # Create single release file
-        (releases_dir / "1.3.5.txt").touch()
+    def test_post_release_higher_base_version_wins(self, rm):
+        mgr, d = rm
+        (d / "1.3.4.txt").touch()
+        (d / "1.3.4.post1.txt").touch()
+        (d / "1.3.5.txt").touch()
+        assert str(mgr.find_latest_version()) == "1.3.5"
 
-        result = release_mgr.find_latest_version()
+    def test_ignores_non_txt_files(self, rm):
+        mgr, d = rm
+        (d / "1.3.5.txt").touch()
+        (d / "1.3.6.sql").touch()
+        (d / "1.3.7.md").touch()
+        assert str(mgr.find_latest_version()) == "1.3.5"
 
-        assert result.major == 1
-        assert result.minor == 3
-        assert result.patch == 5
-        assert result.stage is None
+    def test_ignores_invalid_pep440_filenames(self, rm):
+        mgr, d = rm
+        (d / "1.3.5.txt").touch()
+        (d / "README.txt").touch()
+        (d / "1.2.txt").touch()
+        (d / "1.3.5-invalid.txt").touch()
+        assert str(mgr.find_latest_version()) == "1.3.5"
 
-    def test_single_stage_release(self, release_manager_with_files):
-        """Test with single stage release file."""
-        release_mgr, releases_dir = release_manager_with_files
+    def test_only_invalid_files_returns_none(self, rm):
+        mgr, d = rm
+        (d / "README.txt").touch()
+        (d / "1.3.5-stage.txt").touch()   # not valid PEP 440
+        assert mgr.find_latest_version() is None
 
-        (releases_dir / "1.4.0-stage.txt").touch()
-
-        result = release_mgr.find_latest_version()
-
-        assert result.major == 1
-        assert result.minor == 4
-        assert result.patch == 0
-        assert result.stage == "stage"
-
-    def test_multiple_production_releases_returns_latest(self, release_manager_with_files):
-        """Test returns highest version among multiple production releases."""
-        release_mgr, releases_dir = release_manager_with_files
-
-        (releases_dir / "1.3.4.txt").touch()
-        (releases_dir / "1.3.5.txt").touch()
-        (releases_dir / "1.3.3.txt").touch()
-
-        result = release_mgr.find_latest_version()
-
-        assert result.major == 1
-        assert result.minor == 3
-        assert result.patch == 5
-        assert result.stage is None
-
-    def test_version_sorting_major_takes_precedence(self, release_manager_with_files):
-        """Test version sorting: major version takes precedence."""
-        release_mgr, releases_dir = release_manager_with_files
-
-        (releases_dir / "1.9.9.txt").touch()
-        (releases_dir / "2.0.0.txt").touch()
-        (releases_dir / "1.10.10.txt").touch()
-
-        result = release_mgr.find_latest_version()
-
-        assert result.major == 2
-        assert result.minor == 0
-        assert result.patch == 0
-
-    def test_version_sorting_minor_takes_precedence(self, release_manager_with_files):
-        """Test version sorting: minor version takes precedence over patch."""
-        release_mgr, releases_dir = release_manager_with_files
-
-        (releases_dir / "1.3.99.txt").touch()
-        (releases_dir / "1.4.0.txt").touch()
-        (releases_dir / "1.3.100.txt").touch()
-
-        result = release_mgr.find_latest_version()
-
-        assert result.major == 1
-        assert result.minor == 4
-        assert result.patch == 0
-
-    def test_stage_priority_production_over_rc(self, release_manager_with_files):
-        """Test stage priority: production > rc for same version."""
-        release_mgr, releases_dir = release_manager_with_files
-
-        (releases_dir / "1.3.5-rc2.txt").touch()
-        (releases_dir / "1.3.5.txt").touch()
-
-        result = release_mgr.find_latest_version()
-
-        # Production should win
-        assert result.major == 1
-        assert result.minor == 3
-        assert result.patch == 5
-        assert result.stage is None
-
-    def test_stage_priority_rc_over_stage(self, release_manager_with_files):
-        """Test stage priority: rc > stage for same version."""
-        release_mgr, releases_dir = release_manager_with_files
-
-        (releases_dir / "1.3.5-stage.txt").touch()
-        (releases_dir / "1.3.5-rc1.txt").touch()
-
-        result = release_mgr.find_latest_version()
-
-        # RC should win
-        assert result.major == 1
-        assert result.minor == 3
-        assert result.patch == 5
-        assert result.stage == "rc1"
-
-    def test_stage_priority_stage_over_hotfix(self, release_manager_with_files):
-        """Test stage priority: stage > hotfix for same version."""
-        release_mgr, releases_dir = release_manager_with_files
-
-        (releases_dir / "1.3.5-hotfix1.txt").touch()
-        (releases_dir / "1.3.5-stage.txt").touch()
-
-        result = release_mgr.find_latest_version()
-
-        # Stage should win
-        assert result.major == 1
-        assert result.minor == 3
-        assert result.patch == 5
-        assert result.stage == "stage"
-
-    def test_higher_rc_number_wins(self, release_manager_with_files):
-        """Test among RCs, higher number wins."""
-        release_mgr, releases_dir = release_manager_with_files
-
-        (releases_dir / "1.3.5-rc1.txt").touch()
-        (releases_dir / "1.3.5-rc3.txt").touch()
-        (releases_dir / "1.3.5-rc2.txt").touch()
-
-        result = release_mgr.find_latest_version()
-
-        assert result.major == 1
-        assert result.minor == 3
-        assert result.patch == 5
-        assert result.stage == "rc3"
-
-    def test_mixed_versions_and_stages(self, release_manager_with_files):
-        """Test complex scenario with mixed versions and stages."""
-        release_mgr, releases_dir = release_manager_with_files
-
-        # Create various releases
-        (releases_dir / "1.3.4.txt").touch()        # Old production
-        (releases_dir / "1.3.5-rc2.txt").touch()    # Current RC
-        (releases_dir / "1.3.5-stage.txt").touch()  # Current stage
-        (releases_dir / "1.4.0-stage.txt").touch()  # Future stage
-
-        result = release_mgr.find_latest_version()
-
-        # 1.4.0-stage should win (highest base version)
-        assert result.major == 1
-        assert result.minor == 4
-        assert result.patch == 0
-        assert result.stage == "stage"
-
-    def test_ignores_non_txt_files(self, release_manager_with_files):
-        """Test ignores files without .txt extension."""
-        release_mgr, releases_dir = release_manager_with_files
-
-        (releases_dir / "1.3.5.txt").touch()
-        (releases_dir / "1.3.6.sql").touch()     # Should be ignored
-        (releases_dir / "1.3.7.md").touch()      # Should be ignored
-        (releases_dir / "README.txt").touch()    # Invalid format, ignored
-
-        result = release_mgr.find_latest_version()
-
-        assert result.major == 1
-        assert result.minor == 3
-        assert result.patch == 5
-
-    def test_ignores_invalid_format_files(self, release_manager_with_files):
-        """Test ignores files with invalid version format."""
-        release_mgr, releases_dir = release_manager_with_files
-
-        (releases_dir / "1.3.5.txt").touch()
-        (releases_dir / "invalid.txt").touch()
-        (releases_dir / "1.2.txt").touch()       # Missing patch
-
-        result = release_mgr.find_latest_version()
-
-        assert result.major == 1
-        assert result.minor == 3
-        assert result.patch == 5
-
-    def test_with_hotfix_releases(self, release_manager_with_files):
-        """Test with hotfix releases in mix."""
-        release_mgr, releases_dir = release_manager_with_files
-
-        (releases_dir / "1.3.4.txt").touch()
-        (releases_dir / "1.3.4-hotfix1.txt").touch()
-        (releases_dir / "1.3.4-hotfix2.txt").touch()
-
-        result = release_mgr.find_latest_version()
-
-        # Production 1.3.4 should win over hotfixes
-        assert result.major == 1
-        assert result.minor == 3
-        assert result.patch == 4
-        assert result.stage is None
-
-    def test_releases_directory_not_exists(self, tmp_path):
-        """Test error when releases/ directory doesn't exist."""
+    def test_releases_directory_missing_raises(self, tmp_path):
         mock_repo = Mock()
         mock_repo.base_dir = str(tmp_path)
         mock_repo.releases_dir = str(tmp_path / ".hop" / "releases")
         mock_repo.model_dir = str(tmp_path / ".hop" / "model")
-
-        # Don't create releases/ directory
-        release_mgr = ReleaseManager(mock_repo)
-
-        with pytest.raises(ReleaseFileError, match="Releases.*not found|does not exist"):
-            release_mgr.find_latest_version()
-
-    def test_first_release_scenario(self, release_manager_with_files):
-        """Test typical first release scenario (0.0.1-stage.txt)."""
-        release_mgr, releases_dir = release_manager_with_files
-
-        (releases_dir / "0.0.1-stage.txt").touch()
-
-        result = release_mgr.find_latest_version()
-
-        assert result.major == 0
-        assert result.minor == 0
-        assert result.patch == 1
-        assert result.stage == "stage"
+        mgr = ReleaseManager(mock_repo)
+        with pytest.raises(ReleaseFileError):
+            mgr.find_latest_version()

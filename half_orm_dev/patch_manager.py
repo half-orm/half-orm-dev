@@ -18,6 +18,7 @@ from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass
 import click
 from git.exc import GitCommandError
+from packaging.version import Version, InvalidVersion
 
 from half_orm import utils
 from half_orm_dev import modules
@@ -2146,9 +2147,6 @@ class PatchManager:
            - Commit the updated schema
         4. Return to original branch
         """
-        from packaging.version import Version
-        from half_orm_dev.release_file import ReleaseFile
-
         original_branch = self._repo.hgit.branch
         current_ver = Version(version)
 
@@ -2197,9 +2195,6 @@ class PatchManager:
         Args:
             version: Current release version that was just updated
         """
-        from packaging.version import Version
-        from half_orm_dev.release_file import ReleaseFile
-
         if not hasattr(self, '_pending_higher_releases') or not self._pending_higher_releases:
             return
 
