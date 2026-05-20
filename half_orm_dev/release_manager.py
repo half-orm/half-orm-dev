@@ -1232,6 +1232,52 @@ class ReleaseManager:
                 # Best effort - don't fail if checkout back fails
                 pass
 
+    def ensure_ho_current(self) -> bool:
+        """
+        Set up ho-current branch for production servers if not already done.
+
+        Creates ho-current from the current production version's immutable tag
+        and checks it out. Local-only, never pushed to origin.
+
+        Returns:
+            True if ho-current was created and checked out, False otherwise.
+
+        Raises:
+            ReleaseManagerError: If the required version tag is not found locally.
+        """
+        if not (
+            self._repo.production
+            and self._repo.hgit.branch == 'ho-prod'
+            and not self._repo.hgit.branch_exists('ho-current')
+        ):
+            return False
+
+        try:
+            current_version = self._repo.database.last_release_s
+        except Exception as e:
+            raise ReleaseManagerError(
+                f"Cannot read current production version from database: {e}"
+            )
+
+        current_tag = f'v{current_version}'
+        tag_exists = any(
+            t.name == current_tag
+            for t in self._repo.hgit._HGit__git_repo.tags
+        )
+        if not tag_exists:
+            raise ReleaseManagerError(
+                f"Cannot set up ho-current: tag {current_tag} not found locally.\n"
+                f"Run 'hop update' to fetch tags first."
+            )
+
+        self._repo.hgit.create_branch_from_tag('ho-current', current_tag)
+        self._repo.hgit._HGit__git_repo.heads['ho-current'].checkout()
+        click.echo(
+            f"  ℹ ho-current branch created from {current_tag} (local only).\n"
+            f"    Production servers use ho-current instead of ho-prod."
+        )
+        return True
+
     def update_production(self) -> dict:
         """
         Fetch tags and list available releases for production upgrade (read-only).
@@ -1290,30 +1336,8 @@ class ReleaseManager:
                 f"Cannot read current production version from database: {e}"
             )
 
-        # Migration: production servers that still track ho-prod instead of
-        # ho-current. Create ho-current from the current version's immutable tag
-        # and switch to it — local-only, no push to origin.
-        if (
-            self._repo.production
-            and self._repo.hgit.branch == 'ho-prod'
-            and not self._repo.hgit.branch_exists('ho-current')
-        ):
-            current_tag = f'v{current_version}'
-            tag_exists = any(
-                t.name == current_tag
-                for t in self._repo.hgit._HGit__git_repo.tags
-            )
-            if not tag_exists:
-                raise ReleaseManagerError(
-                    f"Cannot migrate to ho-current: tag {current_tag} not found locally.\n"
-                    f"Run 'hop update' again after ensuring tags are fetched."
-                )
-            self._repo.hgit.create_branch_from_tag('ho-current', current_tag)
-            self._repo.hgit._HGit__git_repo.heads['ho-current'].checkout()
-            click.echo(
-                f"  ℹ Migrated to ho-current (created from {current_tag}, local only).\n"
-                f"    Production servers should now use ho-current instead of ho-prod."
-            )
+        # Migration: production servers that still track ho-prod instead of ho-current.
+        self.ensure_ho_current()
 
         # 3. Build list of available releases with details
         available_releases = []

@@ -3016,5 +3016,12 @@ Each script is executed only once unless `--force` is used.
                 f"Failed to restore database from schema: {e}"
             ) from e
 
-        # Step 9: Install Git hooks
+        # Step 9: Set up ho-current for production servers
+        if connection_options.get('production'):
+            try:
+                repo.release_manager.ensure_ho_current()
+            except Exception as e:
+                print(f"  ⚠️  Warning: Could not set up ho-current: {e}", file=sys.stderr)
+
+        # Step 10: Install Git hooks
         repo.install_git_hooks()
