@@ -491,6 +491,7 @@ class Repo:
                 "  Run 'hop migrate' on a development machine first, then deploy."
             )
 
+        self._migration_running = True
         try:
             # Create migration manager
             migration_mgr = MigrationManager(self)
@@ -591,18 +592,17 @@ class Repo:
                             print(f"  You are now on ho-prod", file=sys.stderr)
 
         except RepoError:
-            # Re-raise RepoError (for branch check)
             raise
         except MigrationManagerError as e:
-            # Log migration errors
             error_msg = f"Migration failed: {e}"
             result['errors'].append(error_msg)
             raise RepoError(error_msg) from e
         except Exception as e:
-            # Catch any unexpected errors
             error_msg = f"Unexpected migration error: {e}"
             result['errors'].append(error_msg)
             raise RepoError(error_msg) from e
+        finally:
+            self._migration_running = False
 
         return result
 
@@ -925,9 +925,11 @@ class Repo:
             installed_version = hop_version()
             required_version = self.__config.hop_version
 
-            # Validate version compatibility
-            if not _is_version_compatible(installed_version, required_version):
-                raise OutdatedHalfORMDevError(required_version, installed_version)
+            # Validate version compatibility — strict: installed must equal required.
+            # Skip during migration: the config is being updated, versions are transiently mismatched.
+            if not getattr(self, '_migration_running', False):
+                if self.compare_versions(installed_version, required_version) != 0:
+                    raise OutdatedHalfORMDevError(required_version, installed_version)
 
         except RepoError:
             # Re-raise RepoError (dirty working directory)
@@ -935,16 +937,14 @@ class Repo:
         except OutdatedHalfORMDevError:
             # Re-raise version error (repository was updated to newer version)
             raise
-        except Exception as e:
-            # If we're in detached HEAD or any error, try to return to original state
-            # and continue (offline mode, no remote, etc.)
+        except (GitCommandError, IndexError, KeyError, ValueError) as e:
+            # Git/network errors (offline mode, missing branch, no remote, etc.)
+            # Restore branch if needed and continue — these are non-fatal.
             try:
                 if current_branch and git_repo:
                     git_repo.heads[current_branch].checkout()
             except (GitCommandError, IndexError, TypeError):
                 pass
-            # Log but don't fail (offline mode, no remote, etc.)
-            # Only critical errors (dirty repo, version mismatch) should block
 
     def commit_and_sync_to_active_branches(
         self,

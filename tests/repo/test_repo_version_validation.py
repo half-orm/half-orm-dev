@@ -255,6 +255,20 @@ class TestCompareVersions:
         assert repo.compare_versions("0.17.2-a5", "0.17.2-a5") == 0
         assert repo.compare_versions("0.17.2", "0.17.2") == 0
 
+    def test_compare_versions_equal_current_version(self):
+        """Regression: installed == required must return 0, not -1."""
+        from half_orm_dev.utils import hop_version
+        repo = Repo()
+        v = hop_version()
+        assert repo.compare_versions(v, v) == 0
+
+    def test_compare_versions_equal_hyphen_vs_normalized(self):
+        """1.0.0-a18 and 1.0.0a18 are the same PEP 440 version."""
+        repo = Repo()
+        assert repo.compare_versions("1.0.0-a18", "1.0.0a18") == 0
+        assert repo.compare_versions("1.0.0a18", "1.0.0-a18") == 0
+        assert repo.compare_versions("1.0.0-a18", "1.0.0-a18") == 0
+
     def test_compare_versions_semantic(self):
         """Test comparing semantic versions."""
         repo = Repo()

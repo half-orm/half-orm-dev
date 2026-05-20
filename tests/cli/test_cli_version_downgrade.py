@@ -82,7 +82,7 @@ def test_shows_relaunch_message(temp_hop_dir):
     """Shows relaunch message after successful install."""
     result, _, _ = _make_cli_and_invoke(temp_hop_dir, '0.17.2')
 
-    assert 'Relance en cours' in result.output
+    assert 'Restarting' in result.output
 
 
 def test_pip_failure_exits_with_error(temp_hop_dir):

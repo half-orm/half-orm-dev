@@ -141,19 +141,19 @@ def create_cli_group():
             error = hop.hop_upgrade_error
             required = error.required_version
             installed = error.installed_version
-            click.echo(f"\n  Ce dépôt requiert half-orm-dev {required} "
-                       f"(installé : {installed}).")
-            click.echo(f"  Installation de la version requise...")
+            click.echo(f"\n  Ce repo requiers half-orm-dev {required} "
+                       f"(installed : {installed}).")
+            click.echo(f"  Installing the required version...")
             try:
                 subprocess.run(
                     [sys.executable, '-m', 'pip', 'install', f'half-orm-dev=={required}'],
                     check=True,
                 )
             except subprocess.CalledProcessError:
-                click.echo(f"\n  Échec de l'installation.", err=True)
-                click.echo(f"  Lancez manuellement : pip install half-orm-dev=={required}", err=True)
+                click.echo(f"\n  Installation failed.", err=True)
+                click.echo(f"  Run manually : pip install half-orm-dev=={required}", err=True)
                 sys.exit(1)
-            click.echo(f"  ✓ half-orm-dev {required} installé. Relance en cours...\n")
+            click.echo(f"  ✓ half-orm-dev {required} installed. Restarting...\n")
             os.execv(sys.argv[0], sys.argv)
             return
 
