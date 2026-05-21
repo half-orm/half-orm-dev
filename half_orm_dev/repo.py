@@ -2950,9 +2950,14 @@ Each script is executed only once unless `--force` is used.
             )
 
         # Step 3: Clone repository
+        # Production clones fetch ho-prod only — dev branches are irrelevant on production.
+        clone_cmd = ["git", "clone"]
+        if connection_options.get('production'):
+            clone_cmd += ["--single-branch", "--branch", "ho-prod"]
+        clone_cmd += [git_origin, str(dest_path)]
         try:
             result = subprocess.run(
-                ["git", "clone", git_origin, str(dest_path)],
+                clone_cmd,
                 capture_output=True,
                 text=True,
                 check=True,

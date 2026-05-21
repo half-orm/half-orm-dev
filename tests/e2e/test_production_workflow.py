@@ -422,6 +422,20 @@ class TestProductionUpgradeWithNewRelease:
 class TestProductionReadOnlyGuards:
     """Test that production servers are read-only (no git commit or push)."""
 
+    def test_clone_fetches_only_ho_prod(self, production_environment):
+        """Production clone fetches only ho-prod from origin (no dev branches)."""
+        run_prod = production_environment['run_prod']
+
+        result = run_prod(['git', 'branch', '-r'])
+
+        remote_branches = result.stdout.strip().splitlines()
+        # Strip whitespace and 'origin/HEAD -> ...' lines
+        remote_branches = [b.strip() for b in remote_branches
+                           if '->' not in b]
+        assert remote_branches == ['origin/ho-prod'], (
+            f"Expected only origin/ho-prod, got: {remote_branches}"
+        )
+
     def test_production_marker_created_on_clone(self, production_environment):
         """hop clone --production creates .hop/production marker."""
         prod_project_dir = production_environment['prod_project_dir']
