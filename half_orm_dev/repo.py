@@ -526,6 +526,13 @@ class Repo:
                     f"Dirty files:\n{status}"
                 )
 
+            # Verify all active branches (including ho-prod) are in sync before
+            # switching branches or touching anything.
+            try:
+                migration_mgr._ensure_active_branches_synced()
+            except Exception as e:
+                raise RepoError(str(e)) from e
+
             # From here, all modifications are made by the migration itself.
             self._migration_running = True
 
@@ -1490,18 +1497,6 @@ class Repo:
                 if action == 'installed' or overall_action == 'skipped':
                     overall_action = action
 
-        # Ensure production-specific entries are in .gitignore (idempotent).
-        gitignore_path = Path(self.__base_dir) / '.gitignore'
-        if gitignore_path.exists():
-            content = gitignore_path.read_text()
-            lines = content.splitlines()
-            missing = [e for e in ('.hop/production', '.hop/.fetching')
-                       if e not in lines]
-            if missing:
-                with gitignore_path.open('a') as f:
-                    f.write('\n' + '\n'.join(missing) + '\n')
-                self.stage_maintenance_file('.gitignore')
-
         return {
             'installed': any_installed,
             'action': overall_action
@@ -1677,7 +1672,6 @@ class Repo:
         # 1. Check and update Git hooks
         if not dry_run:
             result['hooks'] = self.install_git_hooks()
-            self.commit_maintenance_files('update git hooks and .gitignore')
         else:
             # Dry run: just check if update would be needed
             hooks_source_dir = os.path.join(TEMPLATE_DIRS, 'git-hooks')

@@ -133,6 +133,38 @@ def create_cli_group():
                 cmd.callback = check_version_before_invoke(cmd.callback)
             super().add_command(cmd, name)
 
+        def get_command(self, ctx, cmd_name):
+            cmd = super().get_command(ctx, cmd_name)
+            if cmd is not None:
+                return cmd
+            # Unknown command — show a specific message when migration is needed.
+            if hop.repo_checked and hop._Hop__repo.needs_migration():
+                from half_orm_dev.utils import hop_version
+                installed_version = hop_version()
+                config_version = hop._Hop__repo._Repo__config.hop_version
+
+                @click.command(
+                    cmd_name,
+                    context_settings={
+                        'allow_extra_args': True,
+                        'ignore_unknown_options': True,
+                    },
+                )
+                @click.pass_context
+                def _migration_required(ctx):
+                    click.echo(
+                        f"\n⚠️  Command '{cmd_name}' is not available: migration required.\n\n"
+                        f"  Repository version: {config_version}\n"
+                        f"  Installed version:  {installed_version}\n\n"
+                        f"  Apply migration:  half_orm dev migrate\n"
+                        f"  Revert version:   pip install half-orm-dev=={config_version}\n",
+                        err=True,
+                    )
+                    sys.exit(1)
+
+                return _migration_required
+            return None
+
     @click.group(cls=VersionCheckGroup, invoke_without_command=True)
     @click.pass_context
     def dev(ctx):
@@ -141,8 +173,8 @@ def create_cli_group():
             error = hop.hop_upgrade_error
             required = error.required_version
             installed = error.installed_version
-            click.echo(f"\n  Ce repo requiers half-orm-dev {required} "
-                       f"(installed : {installed}).")
+            click.echo(f"\n  This repository requires half-orm-dev {required} "
+                       f"(installed: {installed}).")
             click.echo(f"  Installing the required version...")
             try:
                 subprocess.run(
@@ -151,7 +183,7 @@ def create_cli_group():
                 )
             except subprocess.CalledProcessError:
                 click.echo(f"\n  Installation failed.", err=True)
-                click.echo(f"  Run manually : pip install half-orm-dev=={required}", err=True)
+                click.echo(f"  Run manually: pip install half-orm-dev=={required}", err=True)
                 sys.exit(1)
             click.echo(f"  ✓ half-orm-dev {required} installed. Restarting...\n")
             os.execv(sys.argv[0], sys.argv)

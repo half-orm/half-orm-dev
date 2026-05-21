@@ -1471,8 +1471,15 @@ class HGit:
             is_local = branch in local_release_branches
             release_branch_infos.append(get_branch_info(branch, check_stage=True, is_local=is_local))
 
+        # ho-prod is always active — include it without special treatment.
+        prod_branch_info = None
+        local_prod = self.branch_exists('ho-prod')
+        if local_prod or 'ho-prod' in remote_branch_names:
+            prod_branch_info = get_branch_info('ho-prod', is_local=local_prod)
+
         return {
             'current_branch': current_branch,
+            'prod_branch': prod_branch_info,
             'patch_branches': patch_branch_infos,
             'staged_branches': staged_branch_infos,
             'release_branches': release_branch_infos

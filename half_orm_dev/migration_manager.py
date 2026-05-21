@@ -10,10 +10,11 @@ Directory structure:
     ├── log                    # List of applied migrations (version format)
     └── major/                 # Major version
         └── minor/             # Minor version
-            └── patch/         # Patch version
+            └── patch/         # Patch version (stable migrations here)
                 ├── 00_migration_name.py
                 ├── 01_another_migration.py
-                └── README.md
+                └── a20/       # Pre-release migrations (4th level, PEP 440)
+                    └── 01_migration_name.py
 
 Each migration file must define:
     - migrate(repo): Execute the migration
@@ -66,75 +67,92 @@ class MigrationManager:
         # Path to migrations directory (in half_orm_dev package)
         self._migrations_root = Path(__file__).parent / 'migrations'
 
-    def _version_to_path(self, version: Tuple[int, int, int]) -> Path:
+    def _version_to_path(self, version_str: str) -> Path:
         """
-        Convert version tuple to migration directory path.
+        Convert a version string to its migration directory path.
+
+        For stable versions (e.g., "0.17.5") returns major/minor/patch/.
+        For pre-release versions (e.g., "1.0.0a20") returns major/minor/patch/pre/
+        where pre is the pre-release segment (e.g., "a20").
 
         Args:
-            version: Tuple of (major, minor, patch)
+            version_str: PEP 440 version string
 
         Returns:
             Path to migration directory
         """
-        major, minor, patch = version
-        return self._migrations_root / str(major) / str(minor) / str(patch)
+        v = version.parse(version_str)
+        major, minor, patch = v.release[:3]
+        base = self._migrations_root / str(major) / str(minor) / str(patch)
+        if v.pre:
+            pre_str = ''.join(str(p) for p in v.pre)
+            return base / pre_str
+        return base
 
     def get_pending_migrations(self, current_version: str, target_version: str) -> List[Tuple[str, Path]]:
         """
         Get list of migrations that need to be applied.
 
         Compares current version (from .hop/config) with target version (from hop_version())
-        and returns all migrations in between.
+        and returns all migrations in between, sorted by PEP 440 version order.
+
+        Directory structure:
+            migrations/major/minor/patch/         ← stable version scripts
+            migrations/major/minor/patch/a20/     ← pre-release scripts (4th level)
 
         Args:
-            current_version: Current version from .hop/config (e.g., "0.17.0")
-            target_version: Target version from hop_version() (e.g., "0.17.1")
+            current_version: Current version from .hop/config (e.g., "0.17.0" or "1.0.0-a19")
+            target_version: Target version from hop_version() (e.g., "0.17.1" or "1.0.0-a20")
 
         Returns:
-            List of (version_str, migration_dir_path) tuples in order
+            List of (version_str, migration_dir_path) tuples in PEP 440 order
         """
-        current = version.parse(current_version).release
-        target = version.parse(target_version).release
+        current = version.parse(current_version)
+        target = version.parse(target_version)
 
-        pending = []
+        candidates = []
 
-        # Walk through version directories to find migrations between current and target
-        # Start from current version + 1 up to target version
-        for major in range(0, target[0] + 1):
-            major_dir = self._migrations_root / str(major)
-            if not major_dir.exists():
+        for major_dir in sorted(self._migrations_root.iterdir(), key=lambda p: int(p.name) if p.name.isdigit() else -1):
+            if not major_dir.is_dir() or not major_dir.name.isdigit():
                 continue
+            major = int(major_dir.name)
 
-            minor_max = target[1] if major == target[0] else 999
-            for minor in range(0, minor_max + 1):
-                minor_dir = major_dir / str(minor)
-                if not minor_dir.exists():
+            for minor_dir in sorted(major_dir.iterdir(), key=lambda p: int(p.name) if p.name.isdigit() else -1):
+                if not minor_dir.is_dir() or not minor_dir.name.isdigit():
                     continue
+                minor = int(minor_dir.name)
 
-                patch_max = target[2] if major == target[0] and minor == target[1] else 999
-                for patch in range(0, patch_max + 1):
-                    patch_dir = minor_dir / str(patch)
-                    if not patch_dir.exists():
+                for patch_dir in sorted(minor_dir.iterdir(), key=lambda p: int(p.name) if p.name.isdigit() else -1):
+                    if not patch_dir.is_dir() or not patch_dir.name.isdigit():
                         continue
+                    patch = int(patch_dir.name)
+                    base_version_str = f"{major}.{minor}.{patch}"
 
-                    version_tuple = (major, minor, patch)
+                    # 4th level: pre-release subdirectories (e.g., a20/, b1/, rc2/)
+                    for pre_dir in sorted(patch_dir.iterdir()):
+                        if not pre_dir.is_dir() or not re.match(r'^[a-z]+\d+$', pre_dir.name):
+                            continue
+                        pre_version_str = f"{base_version_str}{pre_dir.name}"
+                        try:
+                            v = version.parse(pre_version_str)
+                        except Exception:
+                            continue
+                        if current < v <= target and list(pre_dir.glob('*.py')):
+                            candidates.append((pre_version_str, pre_dir))
 
-                    # Skip if this version is <= current version
-                    if version_tuple <= current:
-                        continue
+                    # Stable version scripts at patch level
+                    stable_files = list(patch_dir.glob('*.py'))
+                    if stable_files:
+                        try:
+                            v = version.parse(base_version_str)
+                        except Exception:
+                            continue
+                        if current < v <= target:
+                            candidates.append((base_version_str, patch_dir))
 
-                    # Skip if this version is > target version
-                    if version_tuple > target:
-                        continue
-
-                    version_str = f"{major}.{minor}.{patch}"
-
-                    # Check if this version has any migration files
-                    migration_files = list(patch_dir.glob('*.py'))
-                    if migration_files:
-                        pending.append((version_str, patch_dir))
-
-        return pending
+        # Sort by PEP 440 version (pre-releases sort before their stable counterpart)
+        candidates.sort(key=lambda x: version.parse(x[0]))
+        return candidates
 
     def _load_migration_module(self, migration_file: Path):
         """
@@ -506,10 +524,12 @@ class MigrationManager:
         except Exception:
             return  # can't determine status, proceed cautiously
 
+        prod_info = branches_status.get('prod_branch')
+        prod_branches = [prod_info['name']] if prod_info else []
         patch_branches = [b['name'] for b in branches_status.get('patch_branches', [])]
         release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
         # ho-staged/* branches are frozen after merge — excluded from sync checks
-        active_branches = release_branches + patch_branches
+        active_branches = prod_branches + release_branches + patch_branches
 
         blocked = []
         for branch in active_branches:

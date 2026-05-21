@@ -1,12 +1,12 @@
 """
-E2E tests for maintenance commit behaviour and migration dirty-check logic.
+E2E tests for migration dirty-check logic.
 
 Verifies:
-  1. hop check auto-commits .gitignore changes with a [HOP] prefix commit,
-     leaving the working tree clean.
-  2. hop migrate fails immediately if the working tree is dirty at invocation.
-  3. hop migrate succeeds when the tree is clean at start, even though internal
-     operations (sync_and_validate_ho_prod) would normally raise on dirty state.
+  1. hop migrate fails immediately if the working tree is dirty at invocation.
+  2. hop migrate succeeds when the tree is clean at start, and updates
+     .hop/config hop_version to the installed version.
+  3. hop migrate adds .hop/production and .hop/.fetching to .gitignore
+     via the 1.0.0a20 migration script.
 """
 import re
 import configparser
@@ -26,52 +26,6 @@ def _downgrade_hop_version(run, project_dir, branch, old_version):
     run(['git', 'add', str(config_path)])
     run(['git', 'commit', '--no-verify', '-m', f'test: downgrade hop_version to {old_version}'])
     run(['git', 'push', '--no-verify', 'origin', branch])
-
-
-@pytest.mark.e2e
-class TestHopCheckMaintenanceCommit:
-    """hop check commits .gitignore updates automatically with [HOP] prefix."""
-
-    def test_check_commits_gitignore_with_hop_prefix(self, initialized_project):
-        """When .gitignore is missing hop entries, hop check commits them as [HOP]."""
-        env = initialized_project
-        run = env['run']
-        project_dir = env['project_dir']
-
-        run(['git', 'checkout', 'ho-prod'])
-
-        # Remove the hop-specific entries from .gitignore, then commit so the
-        # tree is clean but the entries are missing.
-        gitignore = project_dir / '.gitignore'
-        original = gitignore.read_text()
-        stripped = '\n'.join(
-            line for line in original.splitlines()
-            if line not in ('.hop/production', '.hop/.fetching')
-        )
-        gitignore.write_text(stripped)
-        run(['git', 'add', '.gitignore'])
-        run(['git', 'commit', '--no-verify', '-m', 'test: remove hop gitignore entries'])
-        run(['git', 'push', '--no-verify', 'origin', 'ho-prod'])
-
-        # hop check should detect the missing entries and auto-commit them.
-        run(['half_orm', 'dev', 'check'])
-
-        # Working tree must be clean after check.
-        status = run(['git', 'status', '--short'])
-        assert status.stdout.strip() == '', (
-            f"Working tree should be clean after hop check, got:\n{status.stdout}"
-        )
-
-        # The last commit must carry the [HOP] prefix.
-        last_msg = run(['git', 'log', '-1', '--format=%s']).stdout.strip()
-        assert last_msg.startswith('[HOP]'), (
-            f"Expected last commit to start with [HOP], got: {last_msg!r}"
-        )
-
-        # The entries must be present in .gitignore.
-        content = gitignore.read_text()
-        assert '.hop/production' in content
-        assert '.hop/.fetching' in content
 
 
 @pytest.mark.e2e
@@ -124,3 +78,45 @@ class TestMigrateDirtyCheck:
         config = configparser.ConfigParser()
         config.read(project_dir / '.hop' / 'config')
         assert config['halfORM']['hop_version'] == installed_hop_version()
+
+
+@pytest.mark.e2e
+class TestMigrateGitignoreUpdate:
+    """Migration 1.0.0a20 adds .hop/production and .hop/.fetching to .gitignore."""
+
+    def test_migrate_adds_gitignore_entries(self, initialized_project, old_hop_version):
+        """After migration, .gitignore contains .hop/production and .hop/.fetching."""
+        from packaging.version import Version
+
+        env = initialized_project
+        run = env['run']
+        project_dir = env['project_dir']
+
+        # Only meaningful when upgrading from a version before 1.0.0a20.
+        if Version(old_hop_version) >= Version('1.0.0a20'):
+            pytest.skip(f"old_hop_version {old_hop_version!r} is already >= 1.0.0a20")
+
+        _downgrade_hop_version(run, project_dir, 'ho-prod', old_hop_version)
+        run(['git', 'checkout', 'ho-prod'])
+
+        # Remove the entries from .gitignore so the migration has something to do.
+        gitignore = project_dir / '.gitignore'
+        original = gitignore.read_text()
+        stripped = '\n'.join(
+            line for line in original.splitlines()
+            if line not in ('.hop/production', '.hop/.fetching')
+        )
+        gitignore.write_text(stripped)
+        run(['git', 'add', '.gitignore'])
+        run(['git', 'commit', '--no-verify', '-m', 'test: remove hop gitignore entries'])
+        run(['git', 'push', '--no-verify', 'origin', 'ho-prod'])
+
+        result = run(['half_orm', 'dev', 'migrate'], input_text='y\n', check=False)
+
+        assert result.returncode == 0, (
+            f"hop migrate should succeed.\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+        )
+
+        content = gitignore.read_text()
+        assert '.hop/production' in content, ".hop/production missing from .gitignore after migration"
+        assert '.hop/.fetching' in content, ".hop/.fetching missing from .gitignore after migration"
