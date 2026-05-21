@@ -667,6 +667,7 @@ def __gen_baseclass(relation, fkeys) -> str:
     dc_name = rel._ho_dataclass_name()
     d = f'{full_name}Dict'
     HO_BASECLASSES_DICT_NAMES.add(d)
+
     lines = [
         f"class {bc_name}(",
         f"    MODEL.get_relation_class('{fqtn}', fields_aliases=None),",

@@ -1,6 +1,6 @@
 
 @register
-class {class_name}(ho_baseclasses.{bc_name}):
+class {class_name}({inherited_classes}ho_baseclasses.{bc_name}):
     """
 {documentation}
     """
