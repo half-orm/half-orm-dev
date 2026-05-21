@@ -16,3 +16,4 @@ __pycache__
 .hop/local_config
 .hop/backups/
 .hop/production
+.hop/.fetching

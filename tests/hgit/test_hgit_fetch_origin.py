@@ -13,9 +13,11 @@ class TestHGitFetchFromOrigin:
     """Test fetch_from_origin() method."""
 
     @pytest.fixture
-    def hgit_mock_only(self):
+    def hgit_mock_only(self, tmp_path):
         """Create HGit instance with mocked git repository."""
         mock_git_repo = Mock()
+        mock_git_repo.working_dir = str(tmp_path)
+        (tmp_path / '.hop').mkdir()
         hgit = HGit()
         hgit._HGit__git_repo = mock_git_repo
         return hgit, mock_git_repo

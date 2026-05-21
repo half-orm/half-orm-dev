@@ -1457,14 +1457,16 @@ class Repo:
                 if action == 'installed' or overall_action == 'skipped':
                     overall_action = action
 
-        # Ensure .hop/production is listed in .gitignore (idempotent).
+        # Ensure production-specific entries are in .gitignore (idempotent).
         gitignore_path = Path(self.__base_dir) / '.gitignore'
-        entry = '.hop/production'
         if gitignore_path.exists():
             content = gitignore_path.read_text()
-            if entry not in content.splitlines():
+            lines = content.splitlines()
+            missing = [e for e in ('.hop/production', '.hop/.fetching')
+                       if e not in lines]
+            if missing:
                 with gitignore_path.open('a') as f:
-                    f.write(f'\n{entry}\n')
+                    f.write('\n' + '\n'.join(missing) + '\n')
 
         return {
             'installed': any_installed,

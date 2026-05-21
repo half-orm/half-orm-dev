@@ -367,7 +367,12 @@ class HGit:
             # Local git now knows about all remote tags
         """
         origin = self.__git_repo.remote('origin')
-        origin.fetch(tags=True)
+        marker = Path(self.__git_repo.working_dir) / '.hop' / '.fetching'
+        try:
+            marker.touch()
+            origin.fetch(tags=True)
+        finally:
+            marker.unlink(missing_ok=True)
 
     def tag_exists(self, tag_name: str) -> bool:
         """
@@ -443,7 +448,12 @@ class HGit:
             # Stale remote refs (deleted branches on remote) are removed
         """
         origin = self.__git_repo.remote('origin')
-        origin.fetch(prune=True)
+        marker = Path(self.__git_repo.working_dir) / '.hop' / '.fetching'
+        try:
+            marker.touch()
+            origin.fetch(prune=True)
+        finally:
+            marker.unlink(missing_ok=True)
 
     def delete_local_branch(self, branch_name: str) -> None:
         """

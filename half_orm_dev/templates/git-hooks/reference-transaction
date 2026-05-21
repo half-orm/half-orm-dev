@@ -14,8 +14,14 @@ if [ ! -f "${REPO_ROOT}/.hop/production" ]; then
     exit 0
 fi
 
-# Read the list of ref updates from stdin and block any tag creation.
-while read -r old_value new_value ref_name; do
+# Allow tag updates that originate from an internal hop fetch operation.
+# hop sets .hop/.fetching before calling git fetch and removes it after.
+if [ -f "${REPO_ROOT}/.hop/.fetching" ]; then
+    exit 0
+fi
+
+# Block any local tag creation.
+while read -r _ _ ref_name; do
     case "$ref_name" in
         refs/tags/*)
             echo "ERROR: git tag is not allowed on a production server." >&2
