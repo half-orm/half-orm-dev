@@ -65,6 +65,7 @@ def release_manager_for_upgrade(tmp_path):
     mock_hgit.branch = "ho-prod"
     mock_hgit.repos_is_clean = Mock(return_value=True)
     mock_hgit.fetch_tags = Mock()
+    mock_hgit.read_file_at_ref = Mock(return_value="")
 
     # Mock tags for releases - IMPORTANT: tag.name doit être string
     mock_tag_136 = Mock()

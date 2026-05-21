@@ -52,6 +52,7 @@ def release_manager_with_releases(tmp_path):
     # Mock HGit
     mock_hgit = Mock()
     mock_hgit.fetch_tags = Mock()
+    mock_hgit.read_file_at_ref = Mock(return_value="")
     mock_repo.hgit = mock_hgit
 
     # Create ReleaseManager

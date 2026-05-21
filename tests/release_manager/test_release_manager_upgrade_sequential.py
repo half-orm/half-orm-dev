@@ -61,6 +61,7 @@ def release_manager_multi_version(tmp_path):
     mock_hgit.branch = "ho-prod"
     mock_hgit.repos_is_clean = Mock(return_value=True)
     mock_hgit.fetch_tags = Mock()
+    mock_hgit.read_file_at_ref = Mock(return_value="")
 
     # Mock tags for all releases
     mock_tag_136 = Mock()
@@ -297,6 +298,7 @@ class TestUpgradeProductionComplexScenarios:
         mock_hgit.branch = "ho-prod"
         mock_hgit.repos_is_clean = Mock(return_value=True)
         mock_hgit.fetch_tags = Mock()
+        mock_hgit.read_file_at_ref = Mock(return_value="")
 
         tags = []
         for i in range(6, 15):

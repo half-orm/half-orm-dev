@@ -51,6 +51,7 @@ def mgr_on_ho_prod(tmp_path):
     mock_hgit.fetch_tags = Mock()
     mock_hgit.branch_exists = Mock(return_value=False)  # ho-current does not exist
     mock_hgit.create_branch_from_tag = Mock()
+    mock_hgit.read_file_at_ref = Mock(return_value='')
 
     # Simulate existing tag v1.3.5
     mock_tag = Mock()

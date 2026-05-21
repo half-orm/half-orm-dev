@@ -17,6 +17,13 @@ from git.exc import GitCommandError
 from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 
 
+def _make_git_repo_mock(tags=None):
+    """Create a git repo mock with the tags list configured."""
+    m = Mock()
+    m.tags = tags or []
+    return m
+
+
 # ============================================================================
 # FIXTURES
 # ============================================================================
@@ -52,6 +59,7 @@ def release_manager_for_update(tmp_path):
     # Mock HGit for tag operations
     mock_hgit = Mock()
     mock_hgit.fetch_tags = Mock()
+    mock_hgit.read_file_at_ref = Mock(return_value='')
     mock_repo.hgit = mock_hgit
 
     # Create ReleaseManager
@@ -71,9 +79,7 @@ class TestUpdateProductionBasic:
         """Test that update_production() fetches tags from origin."""
         release_mgr, mock_repo, mock_hgit, _ = release_manager_for_update
 
-        # Mock available tags (empty for this test)
-        mock_hgit._HGit__git_repo = Mock()
-        mock_hgit._HGit__git_repo.tags = []
+        mock_hgit._HGit__git_repo = _make_git_repo_mock()
 
         # Call update_production
         result = release_mgr.update_production()
@@ -85,9 +91,7 @@ class TestUpdateProductionBasic:
         """Test reads production version from database.last_release_s."""
         release_mgr, mock_repo, mock_hgit, _ = release_manager_for_update
 
-        # Mock tags (empty)
-        mock_hgit._HGit__git_repo = Mock()
-        mock_hgit._HGit__git_repo.tags = []
+        mock_hgit._HGit__git_repo = _make_git_repo_mock()
 
         # Call update_production
         result = release_mgr.update_production()
@@ -115,8 +119,7 @@ class TestUpdateProductionBasic:
         mock_tag_v140 = Mock()
         mock_tag_v140.name = "v1.4.0"
 
-        mock_hgit._HGit__git_repo = Mock()
-        mock_hgit._HGit__git_repo.tags = [mock_tag_v136_rc1, mock_tag_v136, mock_tag_v140]
+        mock_hgit._HGit__git_repo = _make_git_repo_mock([mock_tag_v136_rc1, mock_tag_v136, mock_tag_v140])
 
         # Call update_production (allow_rc=False by default)
         result = release_mgr.update_production()
@@ -138,8 +141,7 @@ class TestUpdateProductionBasic:
         mock_tag_v134 = Mock()
         mock_tag_v134.name = "v1.3.4"
 
-        mock_hgit._HGit__git_repo = Mock()
-        mock_hgit._HGit__git_repo.tags = [mock_tag_v135, mock_tag_v134]
+        mock_hgit._HGit__git_repo = _make_git_repo_mock([mock_tag_v135, mock_tag_v134])
 
         # Call update_production
         result = release_mgr.update_production()
@@ -163,8 +165,7 @@ class TestUpdateProductionBasic:
         mock_tag_v136 = Mock()
         mock_tag_v136.name = "v1.3.6"
 
-        mock_hgit._HGit__git_repo = Mock()
-        mock_hgit._HGit__git_repo.tags = [mock_tag_v136_rc1, mock_tag_v136]
+        mock_hgit._HGit__git_repo = _make_git_repo_mock([mock_tag_v136_rc1, mock_tag_v136])
 
         # Call with allow_rc=True
         mock_repo.allow_rc = True
@@ -200,8 +201,7 @@ class TestUpdateProductionErrors:
         """Test raises error when cannot read database version."""
         release_mgr, mock_repo, mock_hgit, _ = release_manager_for_update
 
-        mock_hgit._HGit__git_repo = Mock()
-        mock_hgit._HGit__git_repo.tags = []
+        mock_hgit._HGit__git_repo = _make_git_repo_mock()
 
         # Mock database.last_release_s to raise error
         type(mock_repo.database).last_release_s = property(
@@ -222,8 +222,7 @@ class TestUpdateProductionErrors:
         # Mock single available tag
         mock_tag = Mock()
         mock_tag.name = "v1.3.6"
-        mock_hgit._HGit__git_repo = Mock()
-        mock_hgit._HGit__git_repo.tags = [mock_tag]
+        mock_hgit._HGit__git_repo = _make_git_repo_mock([mock_tag])
 
         # Call update_production
         result = release_mgr.update_production()

@@ -356,6 +356,22 @@ class HGit:
         # Push branch with or without upstream tracking
         origin.push(branch_name, set_upstream=set_upstream)
 
+    def read_file_at_ref(self, ref: str, relative_path: str) -> str:
+        """
+        Read a file's content from a git ref (tag or commit) without checking it out.
+
+        Args:
+            ref: Git ref (e.g., "v1.3.6", "ho-prod", commit SHA)
+            relative_path: File path relative to repo root (e.g., ".hop/releases/1.3.6.txt")
+
+        Returns:
+            File content as string, or '' if not found.
+        """
+        try:
+            return self.__git_repo.git.show(f'{ref}:{relative_path}')
+        except Exception:
+            return ''
+
     def fetch_tags(self) -> None:
         """
         Fetch all tags from remote.

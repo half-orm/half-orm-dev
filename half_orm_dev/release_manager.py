@@ -1357,14 +1357,21 @@ class ReleaseManager:
             # Extract base version for file lookup (remove suffix)
             base_version = version.split('-')[0]
 
-            # Read patches from release file
+            # Read patches from release file.
+            # The file may not exist in the current checkout (production server
+            # is at an older tag), so fall back to reading from the git tag.
             release_file = self._releases_dir / f"{version}.txt"
             patches = []
 
             if release_file.exists():
                 content = release_file.read_text().strip()
-                if content:
-                    patches = [line.strip() for line in content.split('\n') if line.strip()]
+            else:
+                content = self._repo.hgit.read_file_at_ref(
+                    tag, f'.hop/releases/{version}.txt'
+                )
+
+            if content.strip():
+                patches = [line.strip() for line in content.split('\n') if line.strip()]
 
             # Only include releases newer than current version
             if Version(version) > Version(current_version):
