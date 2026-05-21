@@ -491,7 +491,6 @@ class Repo:
                 "  Run 'hop migrate' on a development machine first, then deploy."
             )
 
-        self._migration_running = True
         try:
             # Create migration manager
             migration_mgr = MigrationManager(self)
@@ -506,25 +505,31 @@ class Repo:
 
             result['migration_needed'] = True
 
-            # Migration must be run on ho-prod branch
-            # If not on ho-prod, switch automatically if working directory is clean
             current_branch = self.hgit.branch if self.hgit else 'unknown'
             switched_branch = False
 
+            # Dirty check done ONCE here, before any operation.
+            # After this point _migration_running disables further dirty checks:
+            # all modifications are the migration's responsibility and will be committed.
+            if self.hgit and self.hgit.git_repo.is_dirty(untracked_files=False):
+                config_version = self.__config.hop_version if hasattr(self, '_Repo__config') else '0.0.0'
+                status = self.hgit.git_repo.git.status('--short')
+                raise RepoError(
+                    f"Repository migration required but working directory has uncommitted changes.\n\n"
+                    f"  Repository version: {config_version}\n"
+                    f"  Installed version:  {current_version}\n"
+                    f"  Current branch:     {current_branch}\n\n"
+                    f"  Please commit or stash your changes:\n"
+                    f"    git stash\n"
+                    f"    OR\n"
+                    f"    git add . && git commit -m \"your message\"\n"
+                    f"Dirty files:\n{status}"
+                )
+
+            # From here, all modifications are made by the migration itself.
+            self._migration_running = True
+
             if not self.hgit or self.hgit.branch != 'ho-prod':
-                # Check if working directory is clean
-                if self.hgit and self.hgit.git_repo.is_dirty(untracked_files=False):
-                    config_version = self.__config.hop_version if hasattr(self, '_Repo__config') else '0.0.0'
-                    raise RepoError(
-                        f"Repository migration required but working directory has uncommitted changes.\n\n"
-                        f"  Repository version: {config_version}\n"
-                        f"  Installed version:  {current_version}\n"
-                        f"  Current branch:     {current_branch}\n\n"
-                        f"  Please commit or stash your changes:\n"
-                        f"    git stash\n"
-                        f"    OR\n"
-                        f"    git add . && git commit -m \"your message\"\n"
-                    )
 
                 # Working directory is clean, switch to ho-prod
                 try:
@@ -896,17 +901,21 @@ class Repo:
             git_repo = self.hgit.git_repo
             current_branch = git_repo.active_branch.name
 
-            # Check if working directory is clean
-            if git_repo.is_dirty(untracked_files=False):
-                status = git_repo.git.status('--short')
-                raise RepoError(
-                    f"Working directory has uncommitted changes.\n"
-                    f"Please commit or stash your changes before running this command:\n"
-                    f"  git stash\n"
-                    f"  OR\n"
-                    f"  git add . && git commit -m \"your message\"\n"
-                    f"Dirty files:\n{status}"
-                )
+            # Check if working directory is clean.
+            # Skipped during migration: _migration_running means the dirty check
+            # was already done once at the start of run_migrations_if_needed(),
+            # and all subsequent modifications are committed by the migration itself.
+            if not getattr(self, '_migration_running', False):
+                if git_repo.is_dirty(untracked_files=False):
+                    status = git_repo.git.status('--short')
+                    raise RepoError(
+                        f"Working directory has uncommitted changes.\n"
+                        f"Please commit or stash your changes before running this command:\n"
+                        f"  git stash\n"
+                        f"  OR\n"
+                        f"  git add . && git commit -m \"your message\"\n"
+                        f"Dirty files:\n{status}"
+                    )
 
             # Switch to ho-prod temporarily
             git_repo.heads['ho-prod'].checkout()
@@ -1391,6 +1400,30 @@ class Repo:
         # step 12: Protect ho-prod from direct commits
         self.install_git_hooks()
 
+    def stage_maintenance_file(self, relative_path: str) -> None:
+        """Stage a file modified by an automated maintenance operation."""
+        if not hasattr(self, '_maintenance_files'):
+            self._maintenance_files = []
+        abs_path = os.path.join(self.__base_dir, relative_path)
+        if os.path.exists(abs_path):
+            self.hgit.git_repo.index.add([relative_path])
+            if relative_path not in self._maintenance_files:
+                self._maintenance_files.append(relative_path)
+
+    def commit_maintenance_files(self, message: str = 'update maintenance files') -> bool:
+        """Commit all staged maintenance files in a single [HOP] commit (skip hooks)."""
+        if not getattr(self, '_maintenance_files', None):
+            return False
+        try:
+            self.hgit.git_repo.index.commit(
+                f'[HOP] {message}',
+                skip_hooks=True,
+            )
+            self._maintenance_files = []
+            return True
+        except Exception:
+            return False
+
     def install_git_hooks(self, force: bool = False) -> dict:
         """
         Install or update Git hooks from templates.
@@ -1467,6 +1500,7 @@ class Repo:
             if missing:
                 with gitignore_path.open('a') as f:
                     f.write('\n' + '\n'.join(missing) + '\n')
+                self.stage_maintenance_file('.gitignore')
 
         return {
             'installed': any_installed,
@@ -1643,6 +1677,7 @@ class Repo:
         # 1. Check and update Git hooks
         if not dry_run:
             result['hooks'] = self.install_git_hooks()
+            self.commit_maintenance_files('update git hooks and .gitignore')
         else:
             # Dry run: just check if update would be needed
             hooks_source_dir = os.path.join(TEMPLATE_DIRS, 'git-hooks')
