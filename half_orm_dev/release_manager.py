@@ -1518,7 +1518,8 @@ class ReleaseManager:
         to_version: Optional[str] = None,
         dry_run: bool = False,
         force_backup: bool = False,
-        skip_backup: bool = False
+        skip_backup: bool = False,
+        update_info: Optional[dict] = None,
     ) -> dict:
         """
         Upgrade production database to target version.
@@ -1614,7 +1615,26 @@ class ReleaseManager:
         # Get current version
         current_version = self._repo.database.last_release_s
 
-        # === 1. SNAPSHOT OR BACKUP (unless dry_run or skip_backup) ===
+        # === 1. Get available releases (before any destructive operation) ===
+        if update_info is None:
+            update_info = self.update_production()
+
+        # Check if already up to date — exit before creating any snapshot/backup
+        if not update_info['has_updates']:
+            return {
+                'status': 'success',
+                'dry_run': False,
+                'backup_created': None,
+                'snapshot_used': None,
+                'current_version': current_version,
+                'target_version': to_version,
+                'releases_applied': [],
+                'patches_applied': {},
+                'final_version': current_version,
+                'message': 'Production already at latest version'
+            }
+
+        # === 2. SNAPSHOT OR BACKUP (unless dry_run or skip_backup) ===
         # Preferred: instant snapshot via CREATE DATABASE ... TEMPLATE (requires CREATEDB).
         # Fallback: full pg_dump.
         # Connections are terminated before the snapshot — this is intentional:
@@ -1640,26 +1660,8 @@ class ReleaseManager:
                     force=force_backup
                 )
 
-        # === 2. Validate environment ===
+        # === 3. Validate environment ===
         self._validate_production_upgrade()
-
-        # === 3. Get available releases ===
-        update_info = self.update_production()
-
-        # Check if already up to date
-        if not update_info['has_updates']:
-            return {
-                'status': 'success',
-                'dry_run': False,
-                'backup_created': backup_path,
-                'snapshot_used': snapshot_name,
-                'current_version': current_version,
-                'target_version': to_version,
-                'releases_applied': [],
-                'patches_applied': {},
-                'final_version': current_version,
-                'message': 'Production already at latest version'
-            }
 
         # === 4. Calculate upgrade path ===
         if to_version:
