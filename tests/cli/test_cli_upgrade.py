@@ -178,13 +178,14 @@ class TestUpgradeInteractivePrompt:
 
 
 class TestUpgradeFlags:
-    def test_yes_flag_skips_confirmation(self):
+    def test_yes_flag_skips_confirmation_and_version_prompt(self):
         runner = CliRunner()
         mock_repo = MagicMock()
         mock_repo.release_manager.update_production.return_value = _UPDATE_INFO_TWO_RELEASES
         mock_repo.release_manager.upgrade_production.return_value = _UPGRADE_RESULT_FULL
         with patch('half_orm_dev.cli.commands.upgrade.Repo', return_value=mock_repo):
-            result = runner.invoke(upgrade, ['--yes'], input='\n', catch_exceptions=False)
+            result = runner.invoke(upgrade, ['--yes'], catch_exceptions=False)
+        assert 'Target version' not in result.output
         assert 'Proceed?' not in result.output
         mock_repo.release_manager.upgrade_production.assert_called_once()
 
@@ -208,7 +209,7 @@ class TestUpgradeFlags:
         mock_repo.release_manager.update_production.return_value = _UPDATE_INFO_TWO_RELEASES
         mock_repo.release_manager.upgrade_production.return_value = _UPGRADE_RESULT_FULL
         with patch('half_orm_dev.cli.commands.upgrade.Repo', return_value=mock_repo):
-            runner.invoke(upgrade, ['--yes'], input='\n', catch_exceptions=False)
+            runner.invoke(upgrade, ['--yes'], catch_exceptions=False)
         call_kwargs = mock_repo.release_manager.upgrade_production.call_args
         assert call_kwargs.kwargs.get('update_info') is _UPDATE_INFO_TWO_RELEASES
         # update_production() called only once (not twice)

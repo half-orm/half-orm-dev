@@ -84,7 +84,7 @@ def upgrade(to_release, dry_run, force, skip_backup, yes):
             click.echo(f"  • {utils.Color.bold(rel['version'])}  ({patches_label})")
 
         # === Determine target version ===
-        if to_release is None and not dry_run:
+        if to_release is None and not dry_run and not yes:
             path_str = " → ".join([current] + upgrade_path)
             click.echo(f"\nUpgrade path: {path_str}\n")
 

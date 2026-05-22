@@ -400,7 +400,7 @@ class TestProductionUpgradeWithNewRelease:
 
         # If there are updates, apply them
         if 'Available releases' in update_result.stdout:
-            upgrade_result = run_prod(['half_orm', 'dev', 'upgrade', '--skip-backup'])
+            upgrade_result = run_prod(['half_orm', 'dev', 'upgrade', '--skip-backup', '--yes'])
             assert upgrade_result.returncode == 0
             assert 'Upgrade complete' in upgrade_result.stdout or '0.1.2' in upgrade_result.stdout
 

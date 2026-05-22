@@ -312,18 +312,17 @@ class TestUpgradeProductionUpToDate:
         assert result['releases_applied'] == []
         assert 'already at latest' in result['message'].lower()
 
-    def test_up_to_date_still_creates_backup(self, release_manager_for_upgrade):
-        """Test backup created even when up-to-date (unless skipped)."""
+    def test_up_to_date_no_backup_created(self, release_manager_for_upgrade):
+        """No backup created when already up to date — nothing to protect against."""
         release_mgr, mock_repo, _, _, backups_dir = release_manager_for_upgrade
 
         # Set database to latest version
         mock_repo.database.last_release_s = "1.3.7"
 
-        # Execute upgrade (with backup)
         result = release_mgr.upgrade_production()
 
-        # Backup should still be created
-        assert result['backup_created'] is not None
+        assert result['backup_created'] is None
+        assert result['releases_applied'] == []
 
 
 # ============================================================================
