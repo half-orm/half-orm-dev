@@ -590,6 +590,12 @@ class MigrationManager:
         Stale local branches (no longer on remote) are skipped to avoid pre-commit
         hook failures.
         """
+        if self._repo.production:
+            raise MigrationManagerError(
+                "PRODUCTION SAFETY: _regenerate_modules_after_migration() is forbidden "
+                "on a production server.\nModule regeneration (which includes database "
+                "restoration) must never run in production."
+            )
         import re as _re
         from half_orm_dev import modules as _modules
 

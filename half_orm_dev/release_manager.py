@@ -1610,6 +1610,7 @@ class ReleaseManager:
             #   'message': 'Production already at latest version'
             # }
         """
+        assert self._repo.production
         # Get current version
         current_version = self._repo.database.last_release_s
 

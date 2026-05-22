@@ -149,7 +149,7 @@ class Database:
 
     def __init_db(self):
         """Tries to connect to the database. If unsuccessful, creates the
-        database end initializes it with half_orm_meta.
+        database and initializes it with half_orm_meta.
         """
         try:
             self.__model = Model(self.__name)

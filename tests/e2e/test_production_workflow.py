@@ -499,3 +499,51 @@ class TestProductionUpgradeToSpecificVersion:
 
         # Should succeed (even if already at that version)
         assert result.returncode == 0
+
+
+@pytest.mark.integration
+class TestProductionDataPreservationOnToolMigration:
+    """Regression test for the 2026-05-21 incident.
+
+    A production DB was wiped after `pip install half-orm-dev` (new version)
+    followed by `half_orm dev` (no subcommand). Root cause:
+    _regenerate_modules_after_migration() called restore_database_from_schema()
+    without checking the production flag.
+    """
+
+    def test_data_preserved_when_tool_migration_triggered(self, production_environment):
+        """Running `half_orm dev` after a tool upgrade must not wipe production data.
+
+        Scenario:
+        1. Production server running — data present in DB (bootstrap inserted admin user).
+        2. half-orm-dev is upgraded manually (pip install).
+        3. .hop/config still has the old hop_version → version mismatch detected.
+        4. User runs `half_orm dev` (no subcommand) — same trigger as the incident.
+        5. Data must still be present — DB must NOT be wiped.
+        """
+        import re
+        from half_orm.model import Model
+
+        run_prod = production_environment['run_prod']
+        prod_db_name = production_environment['prod_db_name']
+        prod_env = production_environment['env']
+        prod_project_dir = production_environment['prod_project_dir']
+
+        # Pre-condition: bootstrap data present from clone
+        model = Model(prod_db_name)
+        Users = model.get_relation_class('public.users')
+        admin = Users(email='admin@example.com')
+        assert not admin.ho_is_empty()
+
+        # Simulate a half-orm-dev upgrade: force a version mismatch in .hop/config
+        # so that needs_migration() returns True on the next invocation.
+        config_path = prod_project_dir / '.hop' / 'config'
+        original_config = config_path.read_text()
+        patched_config = re.sub(r'(hop_version\s*=\s*)\S+', r'\g<1>1.0.0-a1', original_config)
+        config_path.write_text(patched_config)
+
+        # Trigger: reproduce the exact command run during the incident
+        run_prod(['half_orm', 'dev'], check=False)
+
+        # THE CRITICAL ASSERTION: data must survive regardless of migration outcome
+        assert not admin.ho_is_empty()
