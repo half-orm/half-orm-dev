@@ -526,6 +526,10 @@ def release_attach_patch(patch_id: str, force: bool) -> None:
 
         version = current_branch.replace('ho-release/', '')
 
+        # Accept full branch name or short patch ID
+        if patch_id.startswith('ho-patch/'):
+            patch_id = patch_id[len('ho-patch/'):]
+
         # Confirmation
         if not force:
             click.echo(f"Attaching patch '{patch_id}' to release {version}")
