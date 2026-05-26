@@ -45,6 +45,7 @@ include = ["half_orm_dev*"]
 
 [tool.setuptools.package-data]
 half_orm_dev = [
+    "py.typed",
     "templates/*",
     "templates/git-hooks/*",
     "templates/.gitignore",

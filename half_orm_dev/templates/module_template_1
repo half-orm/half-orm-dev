@@ -6,6 +6,8 @@ WARNING!
 
 {warning}
 """
+import typing
+{type_imports}
 from half_orm.model import register
 from {package_name} import MODEL, ho_baseclasses
 {inheritance_import}

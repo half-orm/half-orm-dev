@@ -173,9 +173,11 @@ def __get_field_desc(field_name, field):
         field_desc = f'{field_desc.__module__}.{ext}'
     else:
         field_desc = field_desc.__name__
-    value = 'dataclasses.field(default=None)'
     if field._metadata['fieldtype'][0] == '_':
         value = 'dataclasses.field(default_factory=list)'
+    else:
+        value = 'dataclasses.field(default=None)'
+        field_desc = f'Optional[{field_desc}]'
     field_desc = f'{field_desc} = {value}'
     field_desc = f"    {field_name}: {field_desc}"
     error = utils.check_attribute_name(field_name)
@@ -188,10 +190,10 @@ def __gen_dataclass(relation, fkeys):
     rel = relation()
     dc_name = relation._ho_dataclass_name()
     fields = []
-    post_init = ['    def __post_init__(self):']
+    post_init = ['    def __post_init__(self) -> None:']
     for field_name, field in rel._ho_fields.items():
         fields.append(__get_field_desc(field_name, field))
-        post_init.append(f'        self.{field_name}: Field = None')
+        post_init.append(f'        self.{field_name}: Optional[Field] = None')
 
     # Invert user-defined aliases: constraint_name → alias
     aliases = {constraint: alias for alias, constraint in fkeys.items() if alias != ''}
@@ -518,15 +520,22 @@ def __update_this_module(
     fields = []
     kwargs = []
     arg_names = []
+    type_import_modules: set = set()
     for key, value in rel._ho_fields.items():
         error = utils.check_attribute_name(key)
         if not error:
             fields.append(f"self.{key}: Field = None")
             kwarg_type = 'typing.Any'
             if hasattr(value.py_type, '__name__'):
-                kwarg_type = str(value.py_type.__name__)
-            kwargs.append(f"{key}: '{kwarg_type}'=None")
+                mod = getattr(value.py_type, '__module__', 'builtins')
+                if mod and mod != 'builtins':
+                    type_import_modules.add(mod)
+                    kwarg_type = f'{mod}.{value.py_type.__name__}'
+                else:
+                    kwarg_type = str(value.py_type.__name__)
+            kwargs.append(f"{key}: 'typing.Optional[{kwarg_type}]'=None")
             arg_names.append(f'{key}={key}')
+    type_imports = '\n'.join(f'import {m}' for m in sorted(type_import_modules))
     fields = "\n        ".join(fields)
     kwargs.append('**kwargs')
     kwargs = ", ".join(kwargs)
@@ -575,6 +584,7 @@ def __update_this_module(
                 fqtn=fqtn,
                 kwargs=kwargs,
                 arg_names=arg_names,
+                type_imports=type_imports,
                 warning=WARNING_TEMPLATE.format(package_name=package_name)))
 
     # Generate test file in tests/ directory structure
@@ -641,7 +651,7 @@ def __gen_dc_relation() -> tuple:
         if is_classmethod:
             block.append('    @classmethod')
         prefix = '    async def' if is_async else '    def'
-        block.append(f'{prefix} {name}{sig_str}:')
+        block.append(f'{prefix} {name}{sig_str}:  # type: ignore[empty-body]')
         if doc:
             block.append(_fmt_doc(doc))
         block.append('        ...')
@@ -670,29 +680,29 @@ def __gen_baseclass(relation, fkeys) -> str:
 
     lines = [
         f"class {bc_name}(",
-        f"    MODEL.get_relation_class('{fqtn}', fields_aliases=None),",
+        f"    MODEL.get_relation_class('{fqtn}', fields_aliases=None),  # type: ignore[misc]",
         f"    {dc_name}",
         f"):",
         f"    def __iter__(self) -> Iterator[{d}]:",
-        f"        return super().__iter__()",
+        f"        return super().__iter__()  # type: ignore[return-value]",
         f"",
-        f"    def ho_select(self, *args, distinct: bool = False, order_by: str = None, limit: int = None, offset: int = None, json_agg=None) -> Iterator[{d}]:",
-        f"        return super().ho_select(*args, distinct=distinct, order_by=order_by, limit=limit, offset=offset, json_agg=json_agg)",
+        f"    def ho_select(self, *args, distinct: bool = False, order_by: Optional[str] = None, limit: Optional[int] = None, offset: Optional[int] = None, json_agg=None) -> Iterator[{d}]:",
+        f"        return super().ho_select(*args, distinct=distinct, order_by=order_by, limit=limit, offset=offset, json_agg=json_agg)  # type: ignore[return-value]",
         f"",
-        f"    def ho_get(self, *args) -> {d}:",
-        f"        return super().ho_get(*args)",
+        f"    def ho_get(self, *args) -> {d}:  # type: ignore[override]",
+        f"        return super().ho_get(*args)  # type: ignore[return-value]",
         f"",
-        f"    def ho_insert(self, *args, upsert: Optional[bool] = False) -> {d}:",
-        f"        return super().ho_insert(*args, upsert=upsert)",
+        f"    def ho_insert(self, *args, upsert: Optional[bool] = False) -> {d}:  # type: ignore[override]",
+        f"        return super().ho_insert(*args, upsert=upsert)  # type: ignore[return-value]",
         f"",
-        f"    async def ho_aselect(self, *args, distinct: bool = False, order_by: str = None, limit: int = None, offset: int = None) -> List[{d}]:",
-        f"        return await super().ho_aselect(*args, distinct=distinct, order_by=order_by, limit=limit, offset=offset)",
+        f"    async def ho_aselect(self, *args, distinct: bool = False, order_by: Optional[str] = None, limit: Optional[int] = None, offset: Optional[int] = None) -> List[{d}]:",
+        f"        return await super().ho_aselect(*args, distinct=distinct, order_by=order_by, limit=limit, offset=offset)  # type: ignore[return-value]",
         f"",
-        f"    async def ho_aget(self, *args) -> {d}:",
-        f"        return await super().ho_aget(*args)",
+        f"    async def ho_aget(self, *args) -> {d}:  # type: ignore[override]",
+        f"        return await super().ho_aget(*args)  # type: ignore[return-value]",
         f"",
-        f"    async def ho_ainsert(self, *args, upsert: bool = False) -> {d}:",
-        f"        return await super().ho_ainsert(*args, upsert=upsert)",
+        f"    async def ho_ainsert(self, *args, upsert: bool = False) -> {d}:  # type: ignore[override]",
+        f"        return await super().ho_ainsert(*args, upsert=upsert)  # type: ignore[return-value]",
     ]
     return '\n'.join(lines)
 
@@ -716,10 +726,10 @@ def __gen_baseclasses(package_dir, package_name):
         typing_names = sorted(dc_typing | {'Iterator', 'List', 'Optional', 'TYPE_CHECKING'})
         file_.write(f"from typing import {', '.join(typing_names)}\n")
         file_.write("import dataclasses\n")
-        file_.write("from half_orm.field import Field\n")
+        file_.write("from half_orm.field import Field  # type: ignore[import-not-found]\n")
         for mod in sorted(HO_DATACLASSES_IMPORTS):
             file_.write(f"import {mod}\n")
-        file_.write(f"from {package_name} import MODEL\n")
+        file_.write(f"from {package_name} import MODEL  # type: ignore[import-not-found]\n")
         if HO_BASECLASSES_DICT_NAMES:
             file_.write("if TYPE_CHECKING:\n")
             file_.write(f"    from {package_name}.ho_typeddicts import (\n")
