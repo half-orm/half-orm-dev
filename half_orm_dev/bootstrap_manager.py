@@ -253,14 +253,14 @@ class BootstrapManager:
             'errors': []
         }
 
+        executed_set = self.get_executed_files()
+        all_files = self.get_bootstrap_files(up_to_version, exclude_version=exclude_version, for_version=for_version)
+
         if force:
-            files_to_execute = self.get_bootstrap_files(up_to_version, exclude_version=exclude_version, for_version=for_version)
+            files_to_execute = all_files
         else:
-            files_to_execute = self.get_pending_files(up_to_version, exclude_version=exclude_version, for_version=for_version)
-            # Calculate skipped
-            all_files = self.get_bootstrap_files(up_to_version, exclude_version=exclude_version, for_version=for_version)
-            executed = self.get_executed_files()
-            result['skipped'] = [f.name for f in all_files if f.name in executed]
+            files_to_execute = [f for f in all_files if f.name not in executed_set]
+            result['skipped'] = [f.name for f in all_files if f.name in executed_set]
 
         if not files_to_execute:
             return result
@@ -278,10 +278,15 @@ class BootstrapManager:
                 result['executed'].append(filename)
                 continue
 
+            if filename in executed_set:
+                result['skipped'].append(filename)
+                continue
+
             try:
                 click.echo(f"  • Executing {filename}...")
                 self.execute_file(file_path)
                 self.record_execution(filename, file_version)
+                executed_set.add(filename)
                 result['executed'].append(filename)
             except BootstrapManagerError as e:
                 result['errors'].append((filename, str(e)))
