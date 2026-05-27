@@ -624,7 +624,12 @@ class MigrationManager:
             b['name'] for b in branches_status.get('release_branches', [])
             if b.get('exists_on_remote', True)
         ]
-        all_branches = ['ho-prod'] + release_branches + patch_branches
+        # ho-patch/* branches are excluded: their schema includes tables that
+        # don't yet exist in production, so restoring the production schema
+        # before generate() would delete the modules for those new tables and
+        # erase user-written code (Fkeys, business methods). The developer
+        # will re-run `hop patch apply` which regenerates with the correct schema.
+        all_branches = ['ho-prod'] + release_branches
 
         for branch in all_branches:
             try:
