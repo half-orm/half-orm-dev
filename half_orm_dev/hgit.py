@@ -294,6 +294,57 @@ class HGit:
                         print(f"  ⚠  Could not return to {original}: {e}", file=sys.stderr)
                         print(f"  You are now on {branch}", file=sys.stderr)
 
+    def capture_branches_snapshot(self) -> dict:
+        """Return {branch_name: HEAD_SHA} for all active local branches."""
+        snapshot = {}
+        try:
+            branches_status = self.get_active_branches_status()
+        except Exception:
+            return snapshot
+
+        candidates = []
+        prod = branches_status.get('prod_branch')
+        if prod:
+            candidates.append(prod['name'])
+        for b in branches_status.get('release_branches', []):
+            if b.get('exists_on_remote', True):
+                candidates.append(b['name'])
+        for b in branches_status.get('patch_branches', []):
+            if b.get('exists_on_remote', True):
+                candidates.append(b['name'])
+
+        for name in candidates:
+            try:
+                snapshot[name] = self.__git_repo.heads[name].commit.hexsha
+            except Exception:
+                pass
+        return snapshot
+
+    def rollback_to_snapshot(self, snapshot: dict) -> dict:
+        """Reset each branch in snapshot to its captured SHA.
+
+        Branches are reset from a temporary checkout — the caller is
+        responsible for being on a known branch before and after this call.
+        Returns {'reset': [branch, ...], 'errors': [(branch, msg), ...]}.
+        """
+        result = {'reset': [], 'errors': []}
+        original = self.branch
+
+        for branch, sha in snapshot.items():
+            try:
+                self.__git_repo.heads[branch].checkout()
+                self.__git_repo.git.reset('--hard', sha)
+                result['reset'].append(branch)
+            except Exception as e:
+                result['errors'].append((branch, str(e)))
+
+        try:
+            self.__git_repo.heads[original].checkout()
+        except Exception as e:
+            result['errors'].append(('__restore_original__', str(e)))
+
+        return result
+
     def checkout_paths_from_branch(self, branch: str, paths: list) -> None:
         """
         Checkout specific paths from another branch into working directory.

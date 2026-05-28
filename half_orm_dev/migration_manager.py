@@ -293,16 +293,22 @@ class MigrationManager:
         if comparison >= 0:
             return result
 
+        snapshot = self._repo.hgit.capture_branches_snapshot()
+
         pending = self.get_pending_migrations(current_version, target_version)
 
-        for version_str, migration_dir in pending:
-            migration_result = self.apply_migration(version_str, migration_dir)
-            result['migrations_applied'].append(migration_result)
+        try:
+            for version_str, migration_dir in pending:
+                migration_result = self.apply_migration(version_str, migration_dir)
+                result['migrations_applied'].append(migration_result)
 
-        # hop_version setter calls write() internally — one write only
-        self._repo.config.hop_version = target_version
+            # hop_version setter calls write() internally — one write only
+            self._repo.config.hop_version = target_version
 
-        self._update_pyproject_dependency_version(target_version)
+            self._update_pyproject_dependency_version(target_version)
+        except Exception:
+            self._repo.hgit.rollback_to_snapshot(snapshot)
+            raise
 
         all_sync_files = ['pyproject.toml']
         for migration in result['migrations_applied']:
