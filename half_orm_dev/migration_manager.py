@@ -293,8 +293,6 @@ class MigrationManager:
         if comparison >= 0:
             return result
 
-        snapshot = self._repo.hgit.capture_branches_snapshot()
-
         pending = self.get_pending_migrations(current_version, target_version)
 
         try:
@@ -307,7 +305,7 @@ class MigrationManager:
 
             self._update_pyproject_dependency_version(target_version)
         except Exception:
-            self._repo.hgit.rollback_to_snapshot(snapshot)
+            self._repo.hgit.rollback_to_snapshot()
             raise
 
         all_sync_files = ['pyproject.toml']

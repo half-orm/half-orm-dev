@@ -969,6 +969,8 @@ class Repo:
         )
         result['sync_result'] = sync_result
 
+        self.hgit.update_snapshot()
+
         return result
 
     def revert_migration(self) -> None:
@@ -1588,6 +1590,9 @@ class Repo:
                 pass  # Best effort - continue even if sync fails
 
         result['branch_sync'] = sync_result
+
+        if self.hgit and not dry_run:
+            self.hgit.update_snapshot()
 
         # 0c. Reload config and validate version after pull/sync.
         # Another developer may have run the migration and pushed a new hop_version.

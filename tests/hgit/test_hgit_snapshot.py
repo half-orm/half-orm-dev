@@ -1,5 +1,7 @@
 """
-Tests for HGit.capture_branches_snapshot() and HGit.rollback_to_snapshot().
+Tests for HGit snapshot API:
+  capture_branches_snapshot(), rollback_to_snapshot(),
+  snapshot property, update_snapshot().
 """
 
 import pytest
@@ -15,6 +17,7 @@ def hgit():
     instance = HGit.__new__(HGit)
     instance._HGit__git_repo = Mock()
     instance._HGit__repo = None
+    instance._HGit__snapshot = {}
     return instance
 
 
@@ -105,17 +108,60 @@ class TestCaptureBranchesSnapshot:
         assert snapshot == {}
 
 
+class TestSnapshotProperty:
+
+    def test_snapshot_property_returns_stored_snapshot(self, hgit):
+        hgit._HGit__snapshot = {'ho-prod': 'sha-abc'}
+        assert hgit.snapshot == {'ho-prod': 'sha-abc'}
+
+    def test_snapshot_property_initially_empty(self, hgit):
+        assert hgit.snapshot == {}
+
+    def test_update_snapshot_refreshes_stored_snapshot(self, hgit):
+        status = _make_branches_status(
+            patch_branches=[{'name': 'ho-patch/1-feat', 'exists_on_remote': True}],
+        )
+        hgit.get_active_branches_status = Mock(return_value=status)
+
+        def head(name):
+            m = Mock()
+            m.commit.hexsha = f'sha-{name}'
+            return m
+
+        hgit._HGit__git_repo.heads.__getitem__ = Mock(side_effect=head)
+
+        hgit.update_snapshot()
+
+        assert hgit.snapshot == {
+            'ho-prod': 'sha-ho-prod',
+            'ho-patch/1-feat': 'sha-ho-patch/1-feat',
+        }
+
+    def test_update_snapshot_replaces_previous(self, hgit):
+        hgit._HGit__snapshot = {'ho-prod': 'old-sha'}
+        hgit.get_active_branches_status = Mock(return_value=_make_branches_status())
+
+        def head(name):
+            m = Mock()
+            m.commit.hexsha = 'new-sha'
+            return m
+
+        hgit._HGit__git_repo.heads.__getitem__ = Mock(side_effect=head)
+
+        hgit.update_snapshot()
+
+        assert hgit.snapshot['ho-prod'] == 'new-sha'
+
+
+def _mock_active_branch(hgit, branch_name: str):
+    """Set active_branch.__str__ so hgit.branch returns branch_name."""
+    hgit._HGit__git_repo.active_branch.__str__ = Mock(return_value=branch_name)
+
+
 class TestRollbackToSnapshot:
 
-    def _make_hgit_on_branch(self, hgit, current='ho-prod'):
-        hgit._HGit__git_repo.active_branch.name = current
-        type(hgit._HGit__git_repo.active_branch).__str__ = Mock(return_value=current)
-        # branch property
-        hgit.__class__.branch = property(lambda self: current)
-        return hgit
-
     def test_resets_each_branch_and_returns_to_original(self, hgit):
-        hgit.__class__.branch = property(lambda self: 'ho-prod')
+        _mock_active_branch(hgit, 'ho-prod')
 
         snapshot = {
             'ho-prod': 'sha-prod',
@@ -130,11 +176,22 @@ class TestRollbackToSnapshot:
 
         assert set(result['reset']) == set(snapshot.keys())
         assert result['errors'] == []
-        # Final checkout back to ho-prod
         hgit._HGit__git_repo.heads.__getitem__.assert_called_with('ho-prod')
 
+    def test_uses_stored_snapshot_when_no_arg(self, hgit):
+        _mock_active_branch(hgit, 'ho-prod')
+        hgit._HGit__snapshot = {'ho-prod': 'sha-stored'}
+
+        mock_head = Mock()
+        hgit._HGit__git_repo.heads.__getitem__ = Mock(return_value=mock_head)
+
+        result = hgit.rollback_to_snapshot()
+
+        assert 'ho-prod' in result['reset']
+        assert result['errors'] == []
+
     def test_reports_error_for_failed_branch(self, hgit):
-        hgit.__class__.branch = property(lambda self: 'ho-prod')
+        _mock_active_branch(hgit, 'ho-prod')
 
         snapshot = {
             'ho-prod': 'sha-prod',
@@ -155,7 +212,7 @@ class TestRollbackToSnapshot:
         assert 'ho-prod' in result['reset']
 
     def test_empty_snapshot_returns_to_original(self, hgit):
-        hgit.__class__.branch = property(lambda self: 'ho-prod')
+        _mock_active_branch(hgit, 'ho-prod')
         mock_head = Mock()
         hgit._HGit__git_repo.heads.__getitem__ = Mock(return_value=mock_head)
 
@@ -163,5 +220,14 @@ class TestRollbackToSnapshot:
 
         assert result['reset'] == []
         assert result['errors'] == []
-        # Still returns to original branch
         hgit._HGit__git_repo.heads.__getitem__.assert_called_once_with('ho-prod')
+
+    def test_empty_stored_snapshot_returns_to_original(self, hgit):
+        _mock_active_branch(hgit, 'ho-prod')
+        mock_head = Mock()
+        hgit._HGit__git_repo.heads.__getitem__ = Mock(return_value=mock_head)
+
+        result = hgit.rollback_to_snapshot()  # no arg, uses empty __snapshot
+
+        assert result['reset'] == []
+        assert result['errors'] == []

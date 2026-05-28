@@ -24,6 +24,7 @@ class HGit:
         self.__repo = repo
         self.__base_dir = None
         self.__git_repo: git.Repo = None
+        self.__snapshot: dict = {}
         if repo:
             self.__origin = repo.git_origin
             self.__base_dir = repo.base_dir
@@ -79,6 +80,7 @@ class HGit:
             )
 
         self.__current_branch = self.branch
+        self.__snapshot = self.capture_branches_snapshot()
 
     def __str__(self):
         res = ['[Git]']
@@ -294,6 +296,15 @@ class HGit:
                         print(f"  ⚠  Could not return to {original}: {e}", file=sys.stderr)
                         print(f"  You are now on {branch}", file=sys.stderr)
 
+    @property
+    def snapshot(self) -> dict:
+        """Return the last stored branches snapshot."""
+        return self.__snapshot
+
+    def update_snapshot(self) -> None:
+        """Refresh the stored snapshot to reflect current branch HEADs."""
+        self.__snapshot = self.capture_branches_snapshot()
+
     def capture_branches_snapshot(self) -> dict:
         """Return {branch_name: HEAD_SHA} for all active local branches."""
         snapshot = {}
@@ -320,17 +331,17 @@ class HGit:
                 pass
         return snapshot
 
-    def rollback_to_snapshot(self, snapshot: dict) -> dict:
-        """Reset each branch in snapshot to its captured SHA.
+    def rollback_to_snapshot(self, snapshot: dict = None) -> dict:
+        """Reset each branch to its captured SHA.
 
-        Branches are reset from a temporary checkout — the caller is
-        responsible for being on a known branch before and after this call.
+        Uses the stored snapshot when none is provided.
         Returns {'reset': [branch, ...], 'errors': [(branch, msg), ...]}.
         """
+        target = snapshot if snapshot is not None else self.__snapshot
         result = {'reset': [], 'errors': []}
         original = self.branch
 
-        for branch, sha in snapshot.items():
+        for branch, sha in target.items():
             try:
                 self.__git_repo.heads[branch].checkout()
                 self.__git_repo.git.reset('--hard', sha)
