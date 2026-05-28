@@ -2,7 +2,7 @@
 Tests that run_migrations() delegates origin sync to check_and_update().
 
 The "already applied by another developer" case is now handled transparently:
-check_and_update(force_check=True) pulls ho-prod + syncs all branches, then
+check_and_update() pulls ho-prod + syncs all branches, then
 the version comparison in run_migrations() detects nothing left to do.
 """
 

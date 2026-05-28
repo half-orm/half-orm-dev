@@ -493,7 +493,7 @@ class Repo:
                 "  Run 'hop migrate' on a development machine first, then deploy."
             )
 
-        self.check_and_update(force_check=True, silent=False)
+        self.check_and_update(silent=False)
 
         try:
             migration_mgr = MigrationManager(self)
@@ -1497,7 +1497,6 @@ class Repo:
         self,
         dry_run: bool = False,
         silent: bool = True,
-        force_check: bool = False
     ) -> dict:
         """
         Check and update project configuration.
@@ -1506,15 +1505,12 @@ class Repo:
         automatically at the start of commands (with silent=True) or explicitly
         by the user (with silent=False).
 
-        Uses caching to avoid checking too frequently (once per day max unless force_check=True).
-
         Always detects stale branches (branches that no longer exist on remote).
         When not in silent mode, prompts user to delete them.
 
         Args:
             dry_run: If True, don't make changes, just report what would be done
             silent: If True, don't print messages (for automatic checks)
-            force_check: If True, bypass cache and always check
 
         Returns:
             dict with keys:
@@ -1529,8 +1525,6 @@ class Repo:
             # Manual check with stale branch detection
             result = repo.check_and_update(silent=False)
 
-            # Force check (bypass cache)
-            result = repo.check_and_update(force_check=True)
         """
 
 
