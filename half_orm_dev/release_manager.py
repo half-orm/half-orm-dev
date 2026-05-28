@@ -2412,18 +2412,10 @@ class ReleaseManager:
         """Best-effort rollback after a promotion failure."""
         print(f"\n{utils.Color.red('⚠ Promotion failed, rolling back...')}")
         try:
-            try:
-                self._repo.hgit.merge_abort()
-            except GitCommandError:
-                pass
-
-            # Restore tracked files deleted/modified outside git control during
-            # the merge window (merge_abort resets the index but not working-tree
-            # files deleted directly on disk by _generate_schema_sql/_create_prod_snapshot).
-            try:
-                self._repo.hgit.checkout('HEAD', '--', '.')
-            except GitCommandError:
-                pass
+            # reset --hard on all snapshot branches aborts any in-progress
+            # --no-commit merge and restores working-tree files in one step,
+            # replacing the former merge_abort + checkout HEAD -- . sequence.
+            self._repo.hgit.rollback_to_snapshot()
 
             try:
                 self._repo.hgit.checkout(original_branch)
@@ -2433,14 +2425,14 @@ class ReleaseManager:
                 except GitCommandError:
                     pass
 
+            # temp_branch was created during promotion — not in the snapshot.
             try:
                 self._repo.hgit.delete_local_branch(temp_branch)
                 print(f"  Deleted temporary branch {temp_branch}")
             except GitCommandError:
                 pass
 
-            # Restore schema.sql symlink (merge_abort does not undo symlink changes
-            # made outside of the merge commit itself).
+            # schema.sql symlink is not restored by git reset --hard.
             if original_schema_link is not None:
                 try:
                     if schema_sql.is_symlink() and os.readlink(str(schema_sql)) != original_schema_link:
