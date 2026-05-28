@@ -2186,30 +2186,8 @@ class ReleaseManager:
         """
         Unified promotion method for RC and production releases.
 
-        Uses a temporary branch (ho-promote/{version}-{target}) for validation only.
-        If validation fails, the temporary branch is deleted and the original
-        state is preserved.
-
-        Prod workflow:
-        1. Detect version and validate release file
-        2. Create temporary branch ho-promote/{version}-prod
-        3. Apply patches and run tests (DB validation only)
-        4. Register version in database
-        5. Delete ho-promote (throwaway — never merged)
-        6. Back on ho-release: generate schema/data files and snapshot
-        7. Commit on ho-release/{version}
-        8. Merge ho-release/{version} into ho-prod
-        9. Create and push tags
-        10. Cleanup: delete release branch, handle candidate migration
-
-        RC workflow:
-        1-4. Same validation on ho-promote
-        5. Create RC snapshot on ho-promote
-        6. Commit and merge ho-promote into ho-release/{version}
-        7. Create and push RC tag
-
-        On failure at any step, the temporary branch is deleted and the error
-        is raised, leaving the repository in its original state.
+        Ensures all active branches are synced, then orchestrates the full
+        promotion workflow through focused helper methods.
 
         Args:
             target: Either 'rc' or 'prod'
@@ -2220,33 +2198,68 @@ class ReleaseManager:
         Raises:
             ReleaseManagerError: If promotion fails
         """
+        self._repo.check_and_update(silent=False)
+
         is_prod = (target == 'prod')
+        version, release_file, release_branch, temp_branch = self._promote_setup(target, is_prod)
+        candidates, migrate_candidates, next_patch_version = self._promote_handle_candidates(
+            version, release_file, is_prod
+        )
+        rc_number, tag, tag_message, commit_msg = self._promote_build_tag(version, target, is_prod)
 
-        # 1. Auto-detect version
+        original_branch = self._repo.hgit.branch
+        _schema_sql = Path(self._repo.model_dir) / 'schema.sql'
+        original_schema_link = os.readlink(str(_schema_sql)) if _schema_sql.is_symlink() else None
+
+        try:
+            self._promote_validate(version, temp_branch, rc_number, is_prod)
+
+            if is_prod:
+                self._promote_execute_prod(version, release_branch, temp_branch, commit_msg, release_file)
+            else:
+                self._promote_execute_rc(version, rc_number, release_branch, temp_branch, commit_msg, release_file)
+
+            return self._promote_finalize(
+                version, tag, tag_message, target, is_prod,
+                release_branch, candidates, migrate_candidates, next_patch_version
+            )
+
+        except Exception as e:
+            self._promote_rollback(
+                original_branch, release_branch, temp_branch, _schema_sql, original_schema_link
+            )
+            if isinstance(e, ReleaseManagerError):
+                raise
+            raise ReleaseManagerError(f"Failed to promote to {target}: {e}") from e
+
+    def _promote_setup(
+        self, target: str, is_prod: bool
+    ) -> tuple:
+        """Detect version, validate release file, compute branch names."""
         version = self._detect_version_to_promote(target)
-
-        # 2. Validate release file exists
         release_file = ReleaseFile(version, self._releases_dir)
         if not release_file.exists():
             raise ReleaseManagerError(f"Release {version} not found (no patches file)")
+        return version, release_file, f"ho-release/{version}", f"ho-promote/{version}-{target}"
 
-        release_branch = f"ho-release/{version}"
-        temp_branch = f"ho-promote/{version}-{target}"
-
-        # 3. For prod: check for candidate patches and offer migration
-        candidates = []
+    def _promote_handle_candidates(
+        self, version: str, release_file, is_prod: bool
+    ) -> tuple:
+        """For prod: detect candidate patches and prompt for migration."""
+        if not is_prod:
+            return [], False, None
+        candidates = release_file.get_patches(status="candidate")
         migrate_candidates = False
         next_patch_version = None
+        if candidates:
+            next_patch_version = self._calculate_next_patch_version(version)
+            migrate_candidates = self._prompt_candidate_migration(version, candidates, next_patch_version)
+        return candidates, migrate_candidates, next_patch_version
 
-        if is_prod:
-            candidates = release_file.get_patches(status="candidate")
-            if candidates:
-                next_patch_version = self._calculate_next_patch_version(version)
-                migrate_candidates = self._prompt_candidate_migration(
-                    version, candidates, next_patch_version
-                )
-
-        # 4. Calculate tag info
+    def _promote_build_tag(
+        self, version: str, target: str, is_prod: bool
+    ) -> tuple:
+        """Compute tag name, message, and commit message."""
         if is_prod:
             rc_number = None
             tag = f"v{version}"
@@ -2255,224 +2268,189 @@ class ReleaseManager:
             rc_number = self._get_latest_label_number(version, 'rc')
             tag = f"v{version}-rc{rc_number}"
             tag_message = f"Release Candidate %{version}"
-
         commit_msg = f"[HOP] Promote release %{version} to {'production' if is_prod else f'RC {rc_number}'}"
+        return rc_number, tag, tag_message, commit_msg
 
-        # Save original branch for rollback
-        original_branch = self._repo.hgit.branch
-        # Save schema.sql symlink target so rollback can restore it if
-        # _generate_schema_sql updates it before a failure.
-        _schema_sql = Path(self._repo.model_dir) / 'schema.sql'
-        original_schema_link = (
-            os.readlink(str(_schema_sql)) if _schema_sql.is_symlink() else None
-        )
+    def _promote_validate(
+        self, version: str, temp_branch: str, rc_number, is_prod: bool
+    ) -> None:
+        """Create temp branch, apply patches to DB, register version (common to RC and prod)."""
+        release_branch = f"ho-release/{version}"
+        print(f"  Creating temporary branch {temp_branch}...")
+        self._repo.hgit.checkout(release_branch)
+        self._repo.hgit.checkout("-b", temp_branch)
 
+        # The release-X.Y.Z.sql already contains all staged patches and
+        # bootstrap tracking for previous versions. Bootstraps for THIS
+        # version are excluded (they run on production via upgrade).
+        self._apply_release_patches(version, force_apply=False, exclude_bootstrap_version=version)
+
+        major, minor, patch_num = map(int, version.split('.'))
+        if is_prod:
+            self._repo.database.register_release(major, minor, patch_num)
+        else:
+            self._repo.database.register_release(
+                major, minor, patch_num, pre_release='rc', pre_release_num=str(rc_number)
+            )
+
+    def _promote_execute_prod(
+        self, version: str, release_branch: str, temp_branch: str, commit_msg: str, release_file
+    ) -> None:
+        """
+        Prod-specific execution: discard temp branch, merge into ho-prod,
+        generate schema/snapshot, validate bootstrap scripts, commit.
+        """
+        model_dir = Path(self._repo.model_dir)
+
+        print(f"  Validation complete. Discarding {temp_branch}...")
+        self._repo.hgit.checkout(release_branch)
+        self._repo.hgit.delete_local_branch(temp_branch)
+
+        # Merge release into ho-prod without committing yet.
+        # Using --no-commit avoids a modify/delete conflict on the TOML:
+        # the TOML was seeded on ho-prod by create_release (making it part
+        # of the common ancestor), then updated on both branches differently.
+        # By merging first (TOML still present on ho-release), then applying
+        # snapshot changes (which delete the TOML), we commit everything as
+        # a single merge commit with no conflict.
+        self._repo.hgit.checkout("ho-prod")
         try:
-            # 5. Create temporary branch from release branch (validation only)
-            print(f"  Creating temporary branch {temp_branch}...")
-            self._repo.hgit.checkout(release_branch)
-            self._repo.hgit.checkout("-b", temp_branch)
-
-            # 6. Apply patches to database (validation)
-            # The release-X.Y.Z.sql already contains all staged patches and
-            # bootstrap tracking for previous versions. Bootstraps for THIS
-            # version are excluded and not run during promote (they run on
-            # production via upgrade).
-            self._apply_release_patches(
-                version, force_apply=False, exclude_bootstrap_version=version
-            )
-
-            # 7. Register version in database
-            version_parts = version.split('.')
-            major, minor, patch_num = map(int, version_parts)
-            if is_prod:
-                self._repo.database.register_release(major, minor, patch_num)
-            else:
-                self._repo.database.register_release(
-                    major, minor, patch_num,
-                    pre_release='rc', pre_release_num=str(rc_number)
+            self._repo.hgit.merge(release_branch, no_commit=True)
+        except GitCommandError:
+            # ho_baseclasses.py is auto-generated and may conflict when the
+            # file was introduced by a half_orm_dev migration AFTER the release
+            # branch was cut (CONFLICT add/add).  The release branch always
+            # holds the correct post-patch version, so we take --theirs.
+            git_repo = self._repo.hgit._HGit__git_repo
+            conflicted = git_repo.git.diff('--name-only', '--diff-filter=U').splitlines()
+            auto_generated = {f'{self._repo.name}/ho_baseclasses.py'}
+            unexpected = set(conflicted) - auto_generated
+            if unexpected:
+                raise ReleaseManagerError(
+                    "Merge conflict(s) in non-auto-generated file(s): "
+                    + ', '.join(sorted(unexpected))
                 )
-
-            model_dir = Path(self._repo.model_dir)
-
-            if is_prod:
-                # 8. Prod: ho-promote was validation only — discard it
-                print(f"  Validation complete. Discarding {temp_branch}...")
-                self._repo.hgit.checkout(release_branch)
-                self._repo.hgit.delete_local_branch(temp_branch)
-
-                # 9. Merge release branch into ho-prod without committing yet.
-                # Using --no-commit avoids a modify/delete conflict on the TOML:
-                # the TOML was seeded on ho-prod by create_release (making it part
-                # of the common ancestor), then updated on both branches differently.
-                # By merging first (TOML still present on ho-release), then applying
-                # snapshot changes (which delete the TOML), we commit everything as
-                # a single merge commit with no conflict.
-                self._repo.hgit.checkout("ho-prod")
-                try:
-                    self._repo.hgit.merge(release_branch, no_commit=True)
-                except GitCommandError:
-                    # ho_baseclasses.py is auto-generated and may conflict when the
-                    # file was introduced by a half_orm_dev migration AFTER the release
-                    # branch was cut (CONFLICT add/add).  The release branch always
-                    # holds the correct post-patch version, so we take --theirs.
-                    git_repo = self._repo.hgit._HGit__git_repo
-                    conflicted = git_repo.git.diff(
-                        '--name-only', '--diff-filter=U'
-                    ).splitlines()
-                    package = self._repo.name
-                    auto_generated = {f'{package}/ho_baseclasses.py'}
-                    unexpected = set(conflicted) - auto_generated
-                    if unexpected:
-                        raise ReleaseManagerError(
-                            f"Merge conflict(s) in non-auto-generated file(s): "
-                            + ', '.join(sorted(unexpected))
-                        )
-                    if not conflicted:
-                        raise  # no conflicted files listed — unexpected state
-                    for path in conflicted:
-                        git_repo.git.checkout('--theirs', path)
-                        git_repo.git.add(path)
-                    click.echo(
-                        f"  ℹ Resolved add/add conflict in {', '.join(conflicted)} "
-                        f"(took release branch version)"
-                    )
-
-                # 10. Generate schema dump and apply snapshot changes in merge window
-                self._repo.database._generate_schema_sql(version, model_dir)
-                staged_patches = release_file.get_patches(status="staged")
-                self._create_prod_snapshot(version, staged_patches, release_file, model_dir)
-
-                # 10b. Passe 2: validate all bootstrap scripts against final schema.
-                # schema.sql now points to schema-X.Y.Z.sql (just generated).
-                # restore_database_from_schema() resets the DB and runs ALL pending
-                # bootstrap scripts in order — exactly what a fresh clone does.
-                # Any failure here aborts promotion before the commit.
-                print(f"\n🔍 Validating bootstrap scripts against schema {version}...")
-                self._repo.restore_database_from_schema()
-                print(f"✓ Bootstrap validation passed")
-
-                # 11. Commit the merge with all promote changes included
-                self._repo.hgit.add(".")
-                self._repo.hgit.commit("-m", commit_msg)
-
-            else:
-                # 8. RC: create snapshot on temp branch, merge into release branch
-                staged_patches = release_file.get_patches(status="staged")
-                self._create_rc_snapshot(version, rc_number, staged_patches, release_file)
-
-                self._repo.hgit.add(".")
-                self._repo.hgit.commit("-m", commit_msg)
-
-                self._repo.hgit.checkout(release_branch)
-                self._repo.hgit.merge(temp_branch, message=commit_msg)
-
-            # 12. Push changes and sync to active branches
-            current_branch = self._repo.hgit.branch
-            self._repo.hgit.push_branch(current_branch)
-            self._repo.sync_hop_to_active_branches(
-                reason=f"promote {version} to {target}"
-            )
-
-            # 13. Create and push tag
-            self._repo.hgit.create_tag(tag, tag_message)
-            self._repo.hgit.push_tag(tag)
-
-            # 14. Cleanup temp branch (RC only — prod already deleted it)
-            if not is_prod:
-                self._repo.hgit.delete_local_branch(temp_branch)
-
-            # 15. For prod: delete release branch
-            deleted_branches = []
-            if is_prod:
-                deleted_branches = self._cleanup_release_branch(release_branch)
-
-            # 16. For prod: migrate candidates if requested
-            if is_prod and migrate_candidates and next_patch_version:
-                print(f"\n{utils.Color.bold('🔄 Migrating candidates to ' + next_patch_version + '...')}")
-                self._migrate_candidates_to_new_release(
-                    candidates, version, next_patch_version
-                )
-
-            # Build result
-            result = {
-                'version': version,
-                'tag': tag,
-                'target': target,
-            }
-
-            if is_prod:
-                result['deleted_branches'] = deleted_branches
-                result['migrated_to'] = next_patch_version if migrate_candidates else None
-                result['migrated_patches'] = candidates if migrate_candidates else []
-
-                # Lock migration revert: delete all ho-migration/* tags so that
-                # revert_migration() is no longer possible after going to production.
-                for tag in list(self._repo.hgit._HGit__git_repo.tags):
-                    if tag.name.startswith('ho-migration/'):
-                        self._repo.hgit.delete_local_tag(tag.name)
-                        try:
-                            self._repo.hgit.delete_remote_tag(tag.name)
-                        except Exception:
-                            pass  # remote tag may already be gone
-            else:
-                result['branch'] = release_branch
-
-            return result
-
-        except Exception as e:
-            # Rollback: restore original state
-            print(f"\n{utils.Color.red('⚠ Promotion failed, rolling back...')}")
-            try:
-                # Abort any in-progress merge (--no-commit merge or failed merge)
-                try:
-                    self._repo.hgit.merge_abort()
-                except GitCommandError:
-                    pass
-
-                # Restore tracked files deleted/modified outside of git control
-                # during the merge window (by _generate_schema_sql and
-                # _create_prod_snapshot). merge_abort resets the index but
-                # not working-tree files that were deleted directly on disk.
-                try:
-                    self._repo.hgit.checkout('HEAD', '--', '.')
-                except GitCommandError:
-                    pass
-
-                # Return to original branch
-                try:
-                    self._repo.hgit.checkout(original_branch)
-                except GitCommandError:
-                    try:
-                        self._repo.hgit.checkout(release_branch)
-                    except GitCommandError:
-                        pass
-
-                # Delete temporary branch if it still exists
-                try:
-                    self._repo.hgit.delete_local_branch(temp_branch)
-                    print(f"  Deleted temporary branch {temp_branch}")
-                except GitCommandError:
-                    pass  # Already deleted (prod validation complete) or never created
-
-                # Restore schema.sql symlink if _generate_schema_sql changed it
-                # before the failure (merge_abort does not undo symlink changes
-                # made outside of the merge commit itself).
-                if original_schema_link is not None:
-                    try:
-                        if _schema_sql.is_symlink() and os.readlink(str(_schema_sql)) != original_schema_link:
-                            _schema_sql.unlink()
-                            _schema_sql.symlink_to(original_schema_link)
-                    except OSError:
-                        pass
-
-            except (GitCommandError, TypeError) as cleanup_error:
-                print(f"  Warning: Cleanup failed: {cleanup_error}", file=sys.stderr)
-
-            # Re-raise original error
-            if isinstance(e, ReleaseManagerError):
+            if not conflicted:
                 raise
-            raise ReleaseManagerError(f"Failed to promote to {target}: {e}") from e
+            for path in conflicted:
+                git_repo.git.checkout('--theirs', path)
+                git_repo.git.add(path)
+            click.echo(
+                f"  ℹ Resolved add/add conflict in {', '.join(conflicted)} "
+                f"(took release branch version)"
+            )
+
+        self._repo.database._generate_schema_sql(version, model_dir)
+        staged_patches = release_file.get_patches(status="staged")
+        self._create_prod_snapshot(version, staged_patches, release_file, model_dir)
+
+        # Validate all bootstrap scripts against the final schema before committing.
+        print(f"\n🔍 Validating bootstrap scripts against schema {version}...")
+        self._repo.restore_database_from_schema()
+        print(f"✓ Bootstrap validation passed")
+
+        self._repo.hgit.add(".")
+        self._repo.hgit.commit("-m", commit_msg)
+
+    def _promote_execute_rc(
+        self, version: str, rc_number: int, release_branch: str,
+        temp_branch: str, commit_msg: str, release_file
+    ) -> None:
+        """RC-specific execution: create RC snapshot, commit, merge into release branch."""
+        staged_patches = release_file.get_patches(status="staged")
+        self._create_rc_snapshot(version, rc_number, staged_patches, release_file)
+        self._repo.hgit.add(".")
+        self._repo.hgit.commit("-m", commit_msg)
+        self._repo.hgit.checkout(release_branch)
+        self._repo.hgit.merge(temp_branch, message=commit_msg)
+
+    def _promote_finalize(
+        self, version: str, tag: str, tag_message: str, target: str, is_prod: bool,
+        release_branch: str, candidates: list, migrate_candidates: bool, next_patch_version
+    ) -> dict:
+        """Push/sync, tag, cleanup branches, migrate candidates, build result."""
+        current_branch = self._repo.hgit.branch
+        self._repo.hgit.push_branch(current_branch)
+        self._repo.sync_hop_to_active_branches(reason=f"promote {version} to {target}")
+
+        self._repo.hgit.create_tag(tag, tag_message)
+        self._repo.hgit.push_tag(tag)
+
+        if not is_prod:
+            self._repo.hgit.delete_local_branch(f"ho-promote/{version}-{target}")
+
+        deleted_branches = []
+        if is_prod:
+            deleted_branches = self._cleanup_release_branch(release_branch)
+
+        if is_prod and migrate_candidates and next_patch_version:
+            print(f"\n{utils.Color.bold('🔄 Migrating candidates to ' + next_patch_version + '...')}")
+            self._migrate_candidates_to_new_release(candidates, version, next_patch_version)
+
+        result = {'version': version, 'tag': tag, 'target': target}
+        if is_prod:
+            result['deleted_branches'] = deleted_branches
+            result['migrated_to'] = next_patch_version if migrate_candidates else None
+            result['migrated_patches'] = candidates if migrate_candidates else []
+            # Lock migration revert: delete all ho-migration/* tags so that
+            # revert_migration() is no longer possible after going to production.
+            for t in list(self._repo.hgit._HGit__git_repo.tags):
+                if t.name.startswith('ho-migration/'):
+                    self._repo.hgit.delete_local_tag(t.name)
+                    try:
+                        self._repo.hgit.delete_remote_tag(t.name)
+                    except Exception:
+                        pass
+        else:
+            result['branch'] = release_branch
+        return result
+
+    def _promote_rollback(
+        self, original_branch: str, release_branch: str, temp_branch: str,
+        schema_sql: Path, original_schema_link
+    ) -> None:
+        """Best-effort rollback after a promotion failure."""
+        print(f"\n{utils.Color.red('⚠ Promotion failed, rolling back...')}")
+        try:
+            try:
+                self._repo.hgit.merge_abort()
+            except GitCommandError:
+                pass
+
+            # Restore tracked files deleted/modified outside git control during
+            # the merge window (merge_abort resets the index but not working-tree
+            # files deleted directly on disk by _generate_schema_sql/_create_prod_snapshot).
+            try:
+                self._repo.hgit.checkout('HEAD', '--', '.')
+            except GitCommandError:
+                pass
+
+            try:
+                self._repo.hgit.checkout(original_branch)
+            except GitCommandError:
+                try:
+                    self._repo.hgit.checkout(release_branch)
+                except GitCommandError:
+                    pass
+
+            try:
+                self._repo.hgit.delete_local_branch(temp_branch)
+                print(f"  Deleted temporary branch {temp_branch}")
+            except GitCommandError:
+                pass
+
+            # Restore schema.sql symlink (merge_abort does not undo symlink changes
+            # made outside of the merge commit itself).
+            if original_schema_link is not None:
+                try:
+                    if schema_sql.is_symlink() and os.readlink(str(schema_sql)) != original_schema_link:
+                        schema_sql.unlink()
+                        schema_sql.symlink_to(original_schema_link)
+                except OSError:
+                    pass
+
+        except (GitCommandError, TypeError) as cleanup_error:
+            print(f"  Warning: Cleanup failed: {cleanup_error}", file=sys.stderr)
 
     def _calculate_next_patch_version(self, version: str) -> str:
         """Calculate next patch version (X.Y.Z → X.Y.Z+1)."""
