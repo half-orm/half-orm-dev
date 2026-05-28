@@ -66,7 +66,7 @@ def test_migration_from_patch_branch_syncs_all_branches(project_with_fk_patch, o
 
     # Trigger migration from the patch branch
     run(['git', 'checkout', 'ho-patch/1-author-post'])
-    run(['half_orm', 'dev', 'migrate'], input_text='y\n')
+    result = run(['half_orm', 'dev', 'migrate'], input_text='y\n')
 
     # 1. Current branch must be restored to the originating patch branch
     result = run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])

@@ -902,103 +902,103 @@ class ReleaseManager:
         return (version, patches_file.name)
 
 
-    def _send_rebase_notifications(
-        self,
-        version: str,
-        release_type: str,
-        rc_number: int = None) -> List[str]:
-        """
-        Send merge notifications to all active patch branches.
+    # def _send_rebase_notifications(
+    #     self,
+    #     version: str,
+    #     release_type: str,
+    #     rc_number: int = None) -> List[str]:
+    #     """
+    #     Send merge notifications to all active patch branches.
 
-        After code is merged to ho-prod (promote-to rc or promote-to prod),
-        active development branches must merge changes from ho-prod.
-        This sends notifications (empty commits) to all ho-patch/* branches.
+    #     After code is merged to ho-prod (promote-to rc or promote-to prod),
+    #     active development branches must merge changes from ho-prod.
+    #     This sends notifications (empty commits) to all ho-patch/* branches.
 
-        Note: We use "merge" not "rebase" because branches are shared between
-        developers. Rebase would rewrite history and cause conflicts.
+    #     Note: We use "merge" not "rebase" because branches are shared between
+    #     developers. Rebase would rewrite history and cause conflicts.
 
-        Args:
-            version: Version string (e.g., "1.3.5")
-            release_type: one of ['alpha', 'beta', 'rc', 'prod']
-            rc_number: RC number (required if release_type != 'prod')
+    #     Args:
+    #         version: Version string (e.g., "1.3.5")
+    #         release_type: one of ['alpha', 'beta', 'rc', 'prod']
+    #         rc_number: RC number (required if release_type != 'prod')
 
-        Returns:
-            List[str]: Notified branch names (without origin/ prefix)
+    #     Returns:
+    #         List[str]: Notified branch names (without origin/ prefix)
 
-        Examples:
-            # RC promotion
-            notified = mgr._send_rebase_notifications("1.3.5", 'rc', rc_number=1)
-            # → Message: "[ho] 1.3.5-rc1 promoted (MERGE REQUIRED)"
+    #     Examples:
+    #         # RC promotion
+    #         notified = mgr._send_rebase_notifications("1.3.5", 'rc', rc_number=1)
+    #         # → Message: "[ho] 1.3.5-rc1 promoted (MERGE REQUIRED)"
 
-            # Production deployment
-            notified = mgr._send_rebase_notifications("1.3.5", 'prod')
-            # → Message: "[ho] Production 1.3.5 deployed (MERGE REQUIRED)"
-        """
-        # Get all active patch branches
-        remote_branches = self._repo.hgit.get_remote_branches()
+    #         # Production deployment
+    #         notified = mgr._send_rebase_notifications("1.3.5", 'prod')
+    #         # → Message: "[ho] Production 1.3.5 deployed (MERGE REQUIRED)"
+    #     """
+    #     # Get all active patch branches
+    #     remote_branches = self._repo.hgit.get_remote_branches()
 
-        # Filter for active ho-patch/* branches
-        active_branches = []
-        for branch in remote_branches:
-            # Strip 'origin/' prefix if present
-            branch_name = branch.replace("origin/", "")
+    #     # Filter for active ho-patch/* branches
+    #     active_branches = []
+    #     for branch in remote_branches:
+    #         # Strip 'origin/' prefix if present
+    #         branch_name = branch.replace("origin/", "")
 
-            # Only include ho-patch/* branches
-            if branch_name.startswith("ho-patch/"):
-                active_branches.append(branch_name)
+    #         # Only include ho-patch/* branches
+    #         if branch_name.startswith("ho-patch/"):
+    #             active_branches.append(branch_name)
 
-        if not active_branches:
-            return []
+    #     if not active_branches:
+    #         return []
 
-        notified_branches = []
-        current_branch = self._repo.hgit.branch
+    #     notified_branches = []
+    #     current_branch = self._repo.hgit.branch
 
-        # Build release identifier for message
-        if release_type and release_type != 'prod':
-            if rc_number is None:
-                rc_number = ''
-            release_id = f"{version}-{release_type}{rc_number}"
-            event = "promoted"
-        else:  # prod
-            release_id = f"production {version}"
-            event = "deployed"
+    #     # Build release identifier for message
+    #     if release_type and release_type != 'prod':
+    #         if rc_number is None:
+    #             rc_number = ''
+    #         release_id = f"{version}-{release_type}{rc_number}"
+    #         event = "promoted"
+    #     else:  # prod
+    #         release_id = f"production {version}"
+    #         event = "deployed"
 
-        for branch in active_branches:
-            try:
-                # Checkout branch
-                self._repo.hgit.checkout(branch)
+    #     for branch in active_branches:
+    #         try:
+    #             # Checkout branch
+    #             self._repo.hgit.checkout(branch)
 
-                # Create notification message
-                message = (
-                    f"[ho] {release_id.capitalize()} {event} (MERGE REQUIRED)\n\n"
-                    f"Version {release_id} has been {event} with code merged to ho-prod.\n"
-                    f"Active patch branches MUST merge these changes.\n\n"
-                    f"Action required (branches are shared):\n"
-                    f"  git checkout {branch}\n"
-                    f"  git pull  # Get this notification\n"
-                    f"  git merge ho-prod\n"
-                    f"  # Resolve conflicts if any\n"
-                    f"  git push\n\n"
-                    f"Status: Action required (merge from ho-prod)"
-                )
+    #             # Create notification message
+    #             message = (
+    #                 f"[ho] {release_id.capitalize()} {event} (MERGE REQUIRED)\n\n"
+    #                 f"Version {release_id} has been {event} with code merged to ho-prod.\n"
+    #                 f"Active patch branches MUST merge these changes.\n\n"
+    #                 f"Action required (branches are shared):\n"
+    #                 f"  git checkout {branch}\n"
+    #                 f"  git pull  # Get this notification\n"
+    #                 f"  git merge ho-prod\n"
+    #                 f"  # Resolve conflicts if any\n"
+    #                 f"  git push\n\n"
+    #                 f"Status: Action required (merge from ho-prod)"
+    #             )
 
-                # Create empty commit with notification
-                self._repo.hgit.commit("--allow-empty", "-m", message)
+    #             # Create empty commit with notification
+    #             self._repo.hgit.commit("--allow-empty", "-m", message)
 
-                # Push notification
-                self._repo.hgit.push()
+    #             # Push notification
+    #             self._repo.hgit.push()
 
-                notified_branches.append(branch)
+    #             notified_branches.append(branch)
 
-            except Exception as e:
-                # Non-blocking: continue with other branches
-                print(f"Warning: Failed to notify {branch}: {e}")
-                continue
+    #         except Exception as e:
+    #             # Non-blocking: continue with other branches
+    #             print(f"Warning: Failed to notify {branch}: {e}")
+    #             continue
 
-        # Return to original branch
-        self._repo.hgit.checkout(current_branch)
+    #     # Return to original branch
+    #     self._repo.hgit.checkout(current_branch)
 
-        return notified_branches
+    #     return notified_branches
 
     def _run_validation_tests(self) -> None:
         """

@@ -254,26 +254,31 @@ class MigrationManager:
         result['sync_files'] = list(dict.fromkeys(result['sync_files']))
         return result
 
-    @with_dynamic_branch_lock(lambda self, *args, **kwargs: 'ho-prod')
     def run_migrations(self, target_version: str, create_commit: bool = True) -> Dict:
         """
-        Run all pending migrations up to target version.
+        Run all pending migrations from the current repo version up to target_version.
 
-        IMPORTANT: This method acquires a lock on ho-prod branch via decorator.
-        Should only be called when on ho-prod branch.
-
-        After successful completion, the decorator automatically syncs .hop/
-        directory to all active branches (ho-patch/*, ho-release/*).
+        Must be called via Repo.run_migrations_if_needed() (enforced by guard).
+        Must be called while on the ho-prod branch.
 
         Args:
-            target_version: Target version string (e.g., "0.17.1")
-            create_commit: Whether to create Git commit after migration
+            target_version: Target version string (e.g., "1.0.0-a26")
+            create_commit: Whether to create a Git commit after migration
 
         Returns:
-            Dict with migration results including:
-                - migrations_applied: List of applied migrations
-                - commit_created: Whether migration commit was created
+            Dict with keys:
+                - target_version: str
+                - migrations_applied: List of per-migration result dicts
+                - commit_created: bool
+                - commit_message: str (only when commit_created is True)
+                - sync_result: dict from commit_and_sync_to_active_branches
+                - errors: List of non-fatal warning strings
         """
+        if not getattr(self._repo, '_migration_running', False):
+            raise MigrationManagerError(
+                "run_migrations() must be called via Repo.run_migrations_if_needed()."
+            )
+
         result = {
             'target_version': target_version,
             'migrations_applied': [],
@@ -282,165 +287,52 @@ class MigrationManager:
             'notified_branches': []
         }
 
-        # Fetch from origin to ensure we have latest refs
-        try:
-            self._repo.hgit.fetch_from_origin()
-        except Exception as e:
-            result['errors'].append(f"Failed to fetch from origin: {e}")
-            raise MigrationManagerError(f"Cannot run migration: failed to fetch from origin: {e}")
+        current_version = self._repo.config.hop_version
 
-        # Verify ho-prod is up to date with origin/ho-prod
-        current_branch = self._repo.hgit.branch
-        if current_branch == 'ho-prod':
-            try:
-                # Check if ho-prod is synced with origin/ho-prod
-                result_check = subprocess.run(
-                    ['git', 'rev-list', '--left-right', '--count', 'ho-prod...origin/ho-prod'],
-                    cwd=self._repo.base_dir,
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
-                ahead, behind = map(int, result_check.stdout.strip().split())
-                if behind > 0:
-                    # Check whether the migration was already applied on origin/ho-prod.
-                    already_done = False
-                    try:
-                        remote_config_text = self._repo.hgit._HGit__git_repo.git.show(
-                            'origin/ho-prod:.hop/config'
-                        )
-                        _cp = ConfigParser()
-                        _cp.read_string(remote_config_text)
-                        remote_version = _cp['halfORM'].get('hop_version', '')
-                        if remote_version == target_version:
-                            already_done = True
-                    except Exception:
-                        pass
+        comparison = self._repo.compare_versions(current_version, target_version)
+        if comparison >= 0:
+            return result
 
-                    if already_done:
-                        # Another developer already ran the migration.
-                        # Pull and sync all active branches, then return.
-                        click.echo(
-                            f"  ℹ Migration to {target_version} already applied by another developer.\n"
-                            f"  Pulling and syncing all active branches..."
-                        )
-                        self._repo.hgit._HGit__git_repo.remotes.origin.pull('ho-prod')
-                        self._repo.hgit.sync_active_branches(pattern="ho-*")
-                        # Reload config so the rest of the tool sees the new version
-                        self._repo._Repo__config.read()
-                        result['already_synced'] = True
-                        return result
-
-                    raise MigrationManagerError(
-                        f"ho-prod is {behind} commits behind origin/ho-prod. "
-                        f"Please pull changes first: git pull origin ho-prod"
-                    )
-                if ahead > 0:
-                    result['errors'].append(f"Warning: ho-prod is {ahead} commits ahead of origin/ho-prod")
-            except (MigrationManagerError, subprocess.CalledProcessError):
-                raise
-            except Exception:
-                # Could not compare — maybe origin/ho-prod doesn't exist yet
-                pass
-
-        # Get current version from .hop/config
-        current_version = self._repo._Repo__config.hop_version if hasattr(
-            self._repo, '_Repo__config'
-        ) else "0.0.0"
-
-        # If already at target version, nothing to do
-        try:
-            comparison = self._repo.compare_versions(current_version, target_version)
-
-            if comparison >= 0:
-                # Already at or past target version (0 = equal, 1 = higher)
-                return result
-        except Exception as e:
-            # If version comparison fails (invalid format), log and continue
-            # This allows migration to proceed even if version format is unexpected
-            result['errors'].append(
-                f"Could not compare versions {current_version} and {target_version}: {e}. "
-                f"Continuing with migration attempt."
-            )
-
-        # Ensure all active branches are in sync with origin before touching anything
-        self._ensure_active_branches_synced()
-
-        # Get pending migrations
         pending = self.get_pending_migrations(current_version, target_version)
 
-        # Apply each migration if there are any
-        if pending:
-            for version_str, migration_dir in pending:
-                try:
-                    migration_result = self.apply_migration(version_str, migration_dir)
-                    result['migrations_applied'].append(migration_result)
+        for version_str, migration_dir in pending:
+            migration_result = self.apply_migration(version_str, migration_dir)
+            result['migrations_applied'].append(migration_result)
 
-                except MigrationManagerError as e:
-                    result['errors'].append(str(e))
-                    raise
+        # hop_version setter calls write() internally — one write only
+        self._repo.config.hop_version = target_version
 
-        # Update hop_version in .hop/config (current_version != target_version)
-        # This ensures the version is updated even when upgrading between versions
-        # that have no migration scripts (e.g., 0.17.1-a2 → 0.17.2-a3)
-        if hasattr(self._repo, '_Repo__config'):
-            self._repo._Repo__config.hop_version = target_version
-            self._repo._Repo__config.write()
-
-        # Update half_orm_dev version in pyproject.toml
         self._update_pyproject_dependency_version(target_version)
 
-        # Collect all sync_files from migrations + pyproject.toml
-        all_sync_files = ['pyproject.toml']  # Always sync pyproject.toml
+        all_sync_files = ['pyproject.toml']
         for migration in result['migrations_applied']:
             all_sync_files.extend(migration.get('sync_files', []))
-        # Remove duplicates while preserving order
         all_sync_files = list(dict.fromkeys(all_sync_files))
 
-        # Create Git commit if requested
         if create_commit and self._repo.hgit:
+            commit_msg = self._create_migration_commit_message(
+                current_version, target_version, result['migrations_applied']
+            )
+
+            sync_result = self._repo.commit_and_sync_to_active_branches(
+                message=commit_msg,
+                reason=f"migration {current_version} → {target_version}",
+                files=all_sync_files
+            )
+
+            result['commit_created'] = True
+            result['commit_message'] = commit_msg
+            result['sync_result'] = sync_result
+
             try:
-                commit_msg = self._create_migration_commit_message(
-                    current_version,
-                    target_version,
-                    result['migrations_applied']
-                )
-
-                # Commit and sync to active branches (including migration files)
-                sync_result = self._repo.commit_and_sync_to_active_branches(
-                    message=commit_msg,
-                    reason=f"migration {current_version} → {target_version}",
-                    files=all_sync_files
-                )
-
-                result['commit_created'] = True
-                result['commit_message'] = commit_msg
-                result['commit_pushed'] = True
-                result['sync_result'] = sync_result
-
-                # Create annotated tag encoding all commit SHAs for potential revert
-                self._create_migration_tag(
-                    current_version, target_version, sync_result
-                )
-
-                # Pseudo-patch: regenerate modules and sync to active branches
-                try:
-                    self._regenerate_modules_after_migration(
-                        current_version, target_version
-                    )
-                except Exception as regen_err:
-                    result['errors'].append(
-                        f"Module regeneration after migration failed: {regen_err}"
-                    )
-
+                self._create_migration_tag(current_version, target_version, sync_result)
             except Exception as e:
-                # Don't fail migration if commit fails
-                result['errors'].append(f"Failed to create commit: {e}")
+                result['errors'].append(f"Migration tag creation failed: {e}")
 
-        # Note: Branch synchronization is now handled automatically by the
-        # @with_dynamic_branch_lock decorator when the method completes.
-        # The decorator calls repo.sync_hop_to_active_branches() for all
-        # operations on ho-prod, ensuring .hop/ is always synced.
+            try:
+                self._regenerate_modules_after_migration(current_version, target_version)
+            except Exception as e:
+                result['errors'].append(f"Module regeneration after migration failed: {e}")
 
         return result
 
@@ -624,12 +516,11 @@ class MigrationManager:
             b['name'] for b in branches_status.get('release_branches', [])
             if b.get('exists_on_remote', True)
         ]
-        # ho-patch/* branches are excluded: their schema includes tables that
-        # don't yet exist in production, so restoring the production schema
-        # before generate() would delete the modules for those new tables and
-        # erase user-written code (Fkeys, business methods). The developer
-        # will re-run `hop patch apply` which regenerates with the correct schema.
-        all_branches = ['ho-prod'] + release_branches
+        # ho-patch/* branches receive .hop/ and pyproject.toml updates but skip
+        # module regeneration: their schema may include tables not yet in
+        # production, so generate() would delete modules for those new tables.
+        # The developer re-runs `hop patch apply` to regenerate with the correct schema.
+        all_branches = ['ho-prod'] + release_branches + patch_branches
 
         for branch in all_branches:
             try:
@@ -651,7 +542,8 @@ class MigrationManager:
                     # ho-prod and ho-patch/*: use production schema
                     repo.restore_database_from_schema(skip_bootstrap=True)
 
-                _modules.generate(repo)
+                if not branch in patch_branches:
+                    _modules.generate(repo)
                 repo.hgit.add(package_dir)
                 if not git_repo.git.diff('--cached', '--name-only').strip():
                     continue
@@ -796,10 +688,7 @@ class MigrationManager:
         Returns:
             True if migration/update is needed
         """
-        if not hasattr(self._repo, '_Repo__config'):
-            return False
-
-        config_version = self._repo._Repo__config.hop_version
+        config_version = self._repo.config.hop_version
 
         # If no hop_version is configured, no migration needed
         if not config_version:

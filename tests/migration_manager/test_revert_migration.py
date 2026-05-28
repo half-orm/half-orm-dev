@@ -39,7 +39,7 @@ def _make_mgr(extra_tags=None):
     # Config
     mock_config = Mock()
     mock_config.hop_version = '0.18.0'
-    mock_repo._Repo__config = mock_config
+    mock_repo.config = mock_config
 
     # hgit
     mock_git = Mock()

@@ -65,7 +65,7 @@ def migrate(verbose: bool) -> None:
         # Get current versions
         from half_orm_dev.utils import hop_version
         installed_version = hop_version()
-        config_version = repo._Repo__config.hop_version if hasattr(repo, '_Repo__config') else '0.0.0'
+        config_version = repo.config.hop_version
 
         # Migration needed (comparison > 0)
         click.echo(f"⚠️  {utils.Color.bold('Migration needed:')}")

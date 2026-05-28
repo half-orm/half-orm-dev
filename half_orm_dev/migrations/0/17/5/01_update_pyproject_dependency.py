@@ -55,7 +55,7 @@ def migrate(repo):
         print(f"  pyproject.toml not found.")
         if click.confirm("  Create pyproject.toml from template?", default=True):
             try:
-                package_name = repo._Repo__config.package_name
+                package_name = repo.config.package_name
                 template_path = os.path.join(TEMPLATE_DIRS, 'pyproject.toml')
                 template = utils.read(template_path)
 

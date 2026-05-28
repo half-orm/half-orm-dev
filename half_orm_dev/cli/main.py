@@ -141,7 +141,7 @@ def create_cli_group():
             if hop.repo_checked and hop._Hop__repo.needs_migration():
                 from half_orm_dev.utils import hop_version
                 installed_version = hop_version()
-                config_version = hop._Hop__repo._Repo__config.hop_version
+                config_version = hop._Hop__repo.repo.config.hop_version
 
                 @click.command(
                     cmd_name,
@@ -198,7 +198,7 @@ def create_cli_group():
                     from half_orm_dev.utils import hop_version
                     from half_orm_dev.repo import RepoError
                     installed_version = hop_version()
-                    config_version = hop._Hop__repo._Repo__config.hop_version
+                    config_version = hop._Hop__repo.repo.config.hop_version
                     current_branch = hop._Hop__repo.hgit.branch if hop._Hop__repo.hgit else 'unknown'
 
                     click.echo(f"\n{'='*70}")

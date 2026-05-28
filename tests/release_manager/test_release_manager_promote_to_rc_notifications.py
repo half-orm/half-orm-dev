@@ -15,7 +15,7 @@ from git.exc import GitCommandError
 
 from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 
-
+@pytest.skip(allow_module_level=True)
 class TestSendRebaseNotifications:
     """Test rebase notifications after promote-to rc."""
 

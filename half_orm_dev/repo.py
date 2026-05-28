@@ -33,6 +33,7 @@ from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 from half_orm_dev.migration_manager import MigrationManager, MigrationManagerError
 from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
 from half_orm_dev.bootstrap_manager import BootstrapManager
+from half_orm_dev.decorators import with_dynamic_branch_lock
 
 from .utils import TEMPLATE_DIRS, hop_version
 
@@ -74,9 +75,9 @@ class OutdatedHalfORMDevError(RepoError):
         self.required_version = required_version
         self.installed_version = installed_version
         super().__init__(
-            f"Repository requires half_orm_dev >= {required_version} "
+            f"Repository requires half_orm_dev == {required_version} "
             f"but {installed_version} is installed.\n"
-            f"Please upgrade: pip install --upgrade half_orm_dev"
+            f"Please run: pip install half_orm_dev=={required_version}"
         )
 
 class Config:
@@ -445,6 +446,7 @@ class Repo:
             # If version comparison fails, assume no migration needed
             return False
 
+    @with_dynamic_branch_lock(lambda self, *args, **kwargs: 'ho-prod')
     def run_migrations_if_needed(self, silent: bool = False) -> dict:
         """
         Run pending migrations using MigrationManager.
@@ -491,70 +493,22 @@ class Repo:
                 "  Run 'hop migrate' on a development machine first, then deploy."
             )
 
-        try:
-            # Create migration manager
-            migration_mgr = MigrationManager(self)
+        self.check_and_update(force_check=True, silent=False)
 
-            # Get current half_orm_dev version
+        try:
+            migration_mgr = MigrationManager(self)
             current_version = hop_version()
             result['target_version'] = current_version
 
-            # Check if migration is needed
             if not migration_mgr.check_migration_needed(current_version):
                 return result
 
             result['migration_needed'] = True
 
-            current_branch = self.hgit.branch if self.hgit else 'unknown'
-            switched_branch = False
-
-            # Dirty check done ONCE here, before any operation.
-            # After this point _migration_running disables further dirty checks:
-            # all modifications are the migration's responsibility and will be committed.
-            if self.hgit and self.hgit.git_repo.is_dirty(untracked_files=False):
-                config_version = self.__config.hop_version if hasattr(self, '_Repo__config') else '0.0.0'
-                status = self.hgit.git_repo.git.status('--short')
-                raise RepoError(
-                    f"Repository migration required but working directory has uncommitted changes.\n\n"
-                    f"  Repository version: {config_version}\n"
-                    f"  Installed version:  {current_version}\n"
-                    f"  Current branch:     {current_branch}\n\n"
-                    f"  Please commit or stash your changes:\n"
-                    f"    git stash\n"
-                    f"    OR\n"
-                    f"    git add . && git commit -m \"your message\"\n"
-                    f"Dirty files:\n{status}"
-                )
-
-            # Verify all active branches (including ho-prod) are in sync before
-            # switching branches or touching anything.
-            try:
-                migration_mgr._ensure_active_branches_synced()
-            except Exception as e:
-                raise RepoError(str(e)) from e
-
             # From here, all modifications are made by the migration itself.
             self._migration_running = True
 
-            if not self.hgit or self.hgit.branch != 'ho-prod':
-
-                # Working directory is clean, switch to ho-prod
-                try:
-                    if not silent:
-                        print(f"  Switching to ho-prod...")
-                    self.hgit.checkout('ho-prod')
-                    switched_branch = True
-                    if not silent:
-                        print(f"  ✓ Now on ho-prod")
-                except Exception as e:
-                    raise RepoError(
-                        f"Failed to switch to ho-prod: {e}\n\n"
-                        f"  Please switch manually:\n"
-                        f"    git checkout ho-prod\n"
-                        f"    half_orm dev migrate\n"
-                    ) from e
-
-            try:
+            with self.hgit.on_branch('ho-prod', silent=silent):
                 # Run migrations on ho-prod
                 # Branch sync is handled automatically by the decorator
                 migration_result = migration_mgr.run_migrations(
@@ -563,45 +517,21 @@ class Repo:
                 )
 
                 result['errors'] = migration_result.get('errors', [])
+                result['migration_run'] = True
 
-                if migration_result.get('already_synced'):
-                    # Migration was already done by another developer; branches are now synced.
-                    result['migration_run'] = False
-                    result['already_synced'] = True
-                    if not silent:
-                        print(f"✓ Branches synced to migration {current_version} (applied by another developer)")
-                else:
-                    result['migration_run'] = True
+                # Clean up orphaned ho-staged/* branches (patch IDs in .txt = already in production)
+                try:
+                    deleted = self.release_manager.cleanup_orphaned_staged_branches()
+                    result['orphaned_staged_deleted'] = deleted
+                except Exception:
+                    result['orphaned_staged_deleted'] = []
 
-                    # Clean up orphaned ho-staged/* branches (patch IDs in .txt = already in production)
-                    if hasattr(self, 'release_manager'):
-                        try:
-                            deleted = self.release_manager.cleanup_orphaned_staged_branches()
-                            result['orphaned_staged_deleted'] = deleted
-                        except Exception:
-                            result['orphaned_staged_deleted'] = []
-
-                    # Log success if not silent
-                    if not silent:
-                        if migration_result.get('migrations_applied'):
-                            print(f"✓ Applied {len(migration_result['migrations_applied'])} migration(s)")
-                        else:
-                            print(f"✓ Updated repository version to {current_version}")
-
-            finally:
-                # Always try to return to original branch if we switched
-                if switched_branch:
-                    try:
-                        if not silent:
-                            print(f"  Returning to {current_branch}...")
-                        self.hgit.checkout(current_branch)
-                        if not silent:
-                            print(f"  ✓ Back on {current_branch}")
-                    except Exception as e:
-                        # Log warning but don't fail the migration
-                        if not silent:
-                            print(f"  ⚠️  Could not return to {current_branch}: {e}", file=sys.stderr)
-                            print(f"  You are now on ho-prod", file=sys.stderr)
+                if not silent:
+                    applied = migration_result.get('migrations_applied')
+                    if applied:
+                        print(f"✓ Applied {len(applied)} migration(s)")
+                    else:
+                        print(f"✓ Updated repository version to {current_version}")
 
         except RepoError:
             raise
@@ -941,11 +871,10 @@ class Repo:
             installed_version = hop_version()
             required_version = self.__config.hop_version
 
-            # Validate version compatibility — strict: installed must equal required.
-            # Skip during migration: the config is being updated, versions are transiently mismatched.
-            if not getattr(self, '_migration_running', False):
-                if self.compare_versions(installed_version, required_version) != 0:
-                    raise OutdatedHalfORMDevError(required_version, installed_version)
+            # Raise only when installed < required (tool too old).
+            # When installed > required, needs_migration() handles it via the CLI.
+            if self.compare_versions(installed_version, required_version) < 0:
+                raise OutdatedHalfORMDevError(required_version, installed_version)
 
         except RepoError:
             # Re-raise RepoError (dirty working directory)
@@ -1093,6 +1022,10 @@ class Repo:
         the last hop version used with this repository.
         """
         return hop_version() != self.__config.hop_version
+
+    @property
+    def config(self):
+        return self.__config
 
     @property
     def devel(self):

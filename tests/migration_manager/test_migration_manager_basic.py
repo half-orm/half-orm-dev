@@ -22,7 +22,7 @@ def mock_repo_for_migration(tmp_path):
     mock_config = Mock()
     mock_config.hop_version = "0.17.0"
     mock_config.write = Mock()
-    mock_repo._Repo__config = mock_config
+    mock_repo.config = mock_config
 
     # Mock hgit
     mock_hgit = Mock()

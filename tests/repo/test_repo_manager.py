@@ -12,7 +12,7 @@ import pytest
 import tempfile
 import shutil
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, PropertyMock
 
 from half_orm_dev.repo import Repo
 from half_orm_dev.patch_manager import PatchManager, PatchManagerError
@@ -404,10 +404,8 @@ class TestPatchManagerIntegrationEdgeCases:
                 patch_mgr1 = repo.patch_manager
                 assert isinstance(patch_mgr1, PatchManager)
 
-                # Simulate config change to devel=False by patching the underlying config
-                # Note: In real scenario, this would require repo restart
-                with patch.object(repo, '_Repo__config') as mock_config:
-                    mock_config.devel = False
+                # Simulate config change to devel=False by patching the devel property
+                with patch.object(type(repo), 'devel', new_callable=PropertyMock, return_value=False):
 
                     # Clear cache to force re-check
                     repo.clear_patch_directory_cache()

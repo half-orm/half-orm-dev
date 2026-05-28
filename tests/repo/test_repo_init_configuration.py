@@ -112,9 +112,9 @@ class TestConfigurationInitialization:
         repo._initialize_configuration("my_blog", devel_mode=True, git_origin="git@git.example.com:user/repo")
 
         # Should have created and stored Config instance
-        assert hasattr(repo, '_Repo__config')
-        assert repo._Repo__config is not None
-        assert isinstance(repo._Repo__config, Config)
+        assert hasattr(repo, 'config')
+        assert repo.config is not None
+        assert isinstance(repo.config, Config)
 
     @patch('os.makedirs')
     @patch('builtins.open', new_callable=mock_open)
@@ -126,7 +126,7 @@ class TestConfigurationInitialization:
 
         repo._initialize_configuration("my_blog", devel_mode=True, git_origin="git@git.example.com:user/repo")
 
-        config = repo._Repo__config
+        config = repo.config
 
         # Verify config properties
         assert config.package_name == "my_blog"

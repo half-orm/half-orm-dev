@@ -19,7 +19,7 @@ def mock_repo_with_config(tmp_path):
     # Mock config
     mock_config = Mock()
     mock_config.hop_version = "0.17.2"
-    mock_repo._Repo__config = mock_config
+    mock_repo.config = mock_config
 
     # Mock compare_versions method
     from packaging import version
@@ -38,10 +38,10 @@ def mock_repo_with_config(tmp_path):
     def needs_migration_impl():
         # Import inside the function so it can be patched
         from half_orm_dev.utils import hop_version
-        if not hasattr(mock_repo, '_Repo__config') or not mock_repo._Repo__config:
+        if not hasattr(mock_repo, 'config') or not mock_repo.config:
             return False
         installed_version = hop_version()
-        config_version = mock_repo._Repo__config.hop_version
+        config_version = mock_repo.config.hop_version
         if not config_version:
             return False
         try:
@@ -78,7 +78,7 @@ class TestNeedsMigration:
     def test_needs_migration_with_alpha_versions(self, mock_repo_with_config):
         """Test needs_migration properly handles alpha versions."""
         # Config has 0.17.2-a3, installed is 0.17.2-a5
-        mock_repo_with_config._Repo__config.hop_version = '0.17.2-a3'
+        mock_repo_with_config.config.hop_version = '0.17.2-a3'
 
         with patch('half_orm_dev.utils.hop_version', return_value='0.17.2-a5'):
             assert mock_repo_with_config.needs_migration() is True
@@ -86,7 +86,7 @@ class TestNeedsMigration:
     def test_needs_migration_release_after_alpha(self, mock_repo_with_config):
         """Test needs_migration when upgrading from alpha to release."""
         # Config has 0.17.2-a5, installed is 0.17.2 (release)
-        mock_repo_with_config._Repo__config.hop_version = '0.17.2-a5'
+        mock_repo_with_config.config.hop_version = '0.17.2-a5'
 
         with patch('half_orm_dev.utils.hop_version', return_value='0.17.2'):
             assert mock_repo_with_config.needs_migration() is True
@@ -94,10 +94,10 @@ class TestNeedsMigration:
     def test_needs_migration_no_config(self):
         """Test needs_migration returns False when no config."""
         mock_repo = Mock(spec=Repo)
-        mock_repo._Repo__config = None
+        mock_repo.config = None
 
         def needs_migration_impl():
-            if not hasattr(mock_repo, '_Repo__config') or not mock_repo._Repo__config:
+            if not hasattr(mock_repo, 'config') or not mock_repo.config:
                 return False
             return False
 
@@ -107,7 +107,7 @@ class TestNeedsMigration:
 
     def test_needs_migration_no_hop_version(self, mock_repo_with_config):
         """Test needs_migration returns False when config has no hop_version."""
-        mock_repo_with_config._Repo__config.hop_version = None
+        mock_repo_with_config.config.hop_version = None
 
         assert mock_repo_with_config.needs_migration() is False
 
@@ -165,8 +165,8 @@ class TestMigrationErrorHandling:
 
         # Create a real Repo instance for testing
         real_repo = Mock(spec=Repo)
-        real_repo._Repo__config = Mock()
-        real_repo._Repo__config.hop_version = '0.17.2'
+        real_repo.config = Mock()
+        real_repo.config.hop_version = '0.17.2'
 
         # Mock hgit to return non-prod branch
         real_repo.hgit = Mock()

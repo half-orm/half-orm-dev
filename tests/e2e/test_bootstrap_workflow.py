@@ -57,7 +57,6 @@ class TestBootstrapTableCreation:
             ))
             # Handle both tuple and dict results
             columns = {row['column_name'] for row in result}
-            print('XXX', columns)
 
             assert 'filename' in columns, "filename column should exist"
             assert 'version' in columns, "version column should exist"
@@ -145,7 +144,6 @@ class TestBootstrapCommand:
             tracking = list(model.execute_query(
                 "SELECT filename, version FROM half_orm_meta.bootstrap WHERE filename = '1-init-test-0.1.0.sql'"
             ))[0]
-            print('XXX', tracking)
             assert tracking['filename'] == '1-init-test-0.1.0.sql', "Execution should be tracked"
             assert tracking['version'] == '0.1.0', "Version should be extracted from filename"
         finally:
@@ -176,7 +174,6 @@ class TestBootstrapCommand:
 
         assert result.returncode == 0
         # File should be skipped (already executed) - check it's NOT in executed list
-        print('XXX', result.stdout)
         assert 'Executing 1-init-0.1.0.sql' not in result.stdout.lower()
 
     def test_bootstrap_force_reexecutes(self, initialized_project):

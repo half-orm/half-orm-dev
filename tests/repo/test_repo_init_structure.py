@@ -34,7 +34,7 @@ class TestGitCentricStructureCreation:
         repo._Repo__checked = False
         repo._Repo__base_dir = "/test/project"
         repo._Repo__config = Mock()
-        repo._Repo__config.devel = True
+        repo.config.devel = True
 
         repo._create_git_centric_structure()
 
@@ -54,7 +54,7 @@ class TestGitCentricStructureCreation:
         repo._Repo__checked = False
         repo._Repo__base_dir = "/test/project"
         repo._Repo__config = Mock()
-        repo._Repo__config.devel = False  # Sync-only mode
+        repo.config.devel = False  # Sync-only mode
 
         repo._create_git_centric_structure()
 
@@ -69,7 +69,7 @@ class TestGitCentricStructureCreation:
         repo._Repo__checked = False
         repo._Repo__base_dir = "/test/project"
         repo._Repo__config = Mock()
-        repo._Repo__config.devel = True
+        repo.config.devel = True
 
         repo._create_git_centric_structure()
 
@@ -90,7 +90,7 @@ class TestGitCentricStructureCreation:
         repo._Repo__checked = False
         repo._Repo__base_dir = "/test/project"
         repo._Repo__config = Mock()
-        repo._Repo__config.devel = True
+        repo.config.devel = True
 
         repo._create_git_centric_structure()
 
@@ -112,7 +112,7 @@ class TestGitCentricStructureCreation:
         repo._Repo__checked = False
         repo._Repo__base_dir = "/readonly/project"
         repo._Repo__config = Mock()
-        repo._Repo__config.devel = True
+        repo.config.devel = True
 
         with pytest.raises(PermissionError):
             repo._create_git_centric_structure()
@@ -125,7 +125,7 @@ class TestGitCentricStructureCreation:
         repo._Repo__checked = False
         repo._Repo__base_dir = "/test/project"
         repo._Repo__config = Mock()
-        repo._Repo__config.devel = True
+        repo.config.devel = True
 
         repo._create_git_centric_structure()
 

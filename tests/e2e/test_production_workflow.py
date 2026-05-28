@@ -411,7 +411,6 @@ class TestProductionUpgradeWithNewRelease:
                     "SELECT table_name FROM information_schema.tables "
                     "WHERE table_schema = 'public' ORDER BY table_name"
                 ))
-                print('XXX', after_tables)
                 after_table_names = [t['table_name'] for t in after_tables]
                 assert 'comments' in after_table_names, "Comments table should exist after upgrade"
             finally:

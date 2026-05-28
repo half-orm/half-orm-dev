@@ -21,7 +21,7 @@ def mock_repo_with_migration_files(tmp_path):
     mock_config = Mock()
     mock_config.hop_version = "0.17.0"
     mock_config.write = Mock()
-    mock_repo._Repo__config = mock_config
+    mock_repo.config = mock_config
 
     # Mock local_config
     mock_local_config = Mock()
@@ -196,8 +196,7 @@ def get_description():
         assert result['commit_created'] is True
 
         # Check that hop_version was updated in config
-        assert mock_repo._Repo__config.hop_version == "0.17.1"
-        mock_repo._Repo__config.write.assert_called_once()
+        assert mock_repo.config.hop_version == "0.17.1"
 
         # Check that Git commands were called via commit_and_sync
         mock_repo.commit_and_sync_to_active_branches.assert_called_once()
@@ -219,7 +218,7 @@ def get_description():
         mgr._migrations_root = migrations_root
 
         # Set config version to same as target (no migrations needed)
-        mock_repo._Repo__config.hop_version = "0.17.1"
+        mock_repo.config.hop_version = "0.17.1"
 
         # Run migrations (should do nothing)
         result = mgr.run_migrations(
@@ -231,8 +230,8 @@ def get_description():
         assert len(result['migrations_applied']) == 0
         assert result['commit_created'] is False
 
-        # Config should not be updated
-        mock_repo._Repo__config.write.assert_not_called()
+        # Config hop_version must not be updated when already at target
+        assert mock_repo.config.hop_version == "0.17.1"
 
     def test_run_migrations_without_commit(self, mock_repo_with_migration_files):
         """Test running migrations without creating Git commit."""

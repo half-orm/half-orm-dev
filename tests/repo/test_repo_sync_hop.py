@@ -24,8 +24,8 @@ class TestRepoSyncHop:
         # Mock Repo instance
         repo = Mock(spec=Repo)
         repo.base_dir = str(tmp_path)
-        repo._Repo__config = Mock()
-        repo._Repo__config.hop_version = "0.17.0"
+        repo.config = Mock()
+        repo.config.hop_version = "0.17.0"
 
         # Mock HGit
         repo.hgit = Mock()
@@ -59,7 +59,7 @@ class TestRepoSyncHop:
 
         # Mock Config reload
         with patch('half_orm_dev.repo.Config') as MockConfig:
-            MockConfig.return_value = repo._Repo__config
+            MockConfig.return_value = repo.config
 
             result = repo.sync_hop_to_active_branches("test")
 
@@ -105,7 +105,7 @@ class TestRepoSyncHop:
 
         # Mock Config reload
         with patch('half_orm_dev.repo.Config') as MockConfig:
-            MockConfig.return_value = repo._Repo__config
+            MockConfig.return_value = repo.config
 
             result = repo.sync_hop_to_active_branches("test sync")
 
@@ -139,7 +139,7 @@ class TestRepoSyncHop:
 
         # Mock Config reload
         with patch('half_orm_dev.repo.Config') as MockConfig:
-            MockConfig.return_value = repo._Repo__config
+            MockConfig.return_value = repo.config
 
             result = repo.sync_hop_to_active_branches("test sync")
 
@@ -173,7 +173,7 @@ class TestRepoSyncHop:
 
         # Mock Config reload
         with patch('half_orm_dev.repo.Config') as MockConfig:
-            MockConfig.return_value = repo._Repo__config
+            MockConfig.return_value = repo.config
 
             result = repo.sync_hop_to_active_branches("test sync")
 
@@ -212,7 +212,7 @@ class TestRepoSyncHop:
         repo.hgit._HGit__git_repo.git.status = Mock(return_value='M .hop/config\n')
 
         with patch('half_orm_dev.repo.Config') as MockConfig:
-            MockConfig.return_value = repo._Repo__config
+            MockConfig.return_value = repo.config
             with pytest.raises(RepoError, match="Sync commit failed on 'ho-patch/123-test'"):
                 repo.sync_hop_to_active_branches("test sync")
 
@@ -243,7 +243,7 @@ class TestRepoSyncHop:
 
         # Mock Config reload
         with patch('half_orm_dev.repo.Config') as MockConfig:
-            MockConfig.return_value = repo._Repo__config
+            MockConfig.return_value = repo.config
 
             result = repo.sync_hop_to_active_branches("test sync")
 
@@ -284,7 +284,7 @@ class TestRepoSyncHop:
         repo.hgit._HGit__git_repo.git.status = Mock(return_value='M .hop/config\n')
 
         with patch('half_orm_dev.repo.Config') as MockConfig:
-            MockConfig.return_value = repo._Repo__config
+            MockConfig.return_value = repo.config
             repo.sync_hop_to_active_branches("migration 0.18.0-a2 → 1.0.0-a1")
 
         # reset --hard must NOT have been called — that would orphan unpushed commits
@@ -312,7 +312,7 @@ class TestRepoSyncHop:
         repo.hgit._HGit__git_repo.git.status = Mock(return_value='M .hop/config\n')
 
         with patch('half_orm_dev.repo.Config') as MockConfig:
-            MockConfig.return_value = repo._Repo__config
+            MockConfig.return_value = repo.config
             repo.sync_hop_to_active_branches("migration")
 
         repo.hgit._HGit__git_repo.git.reset.assert_called_once_with(
@@ -339,7 +339,7 @@ class TestRepoSyncHop:
 
         # Mock Config reload
         with patch('half_orm_dev.repo.Config') as MockConfig:
-            MockConfig.return_value = repo._Repo__config
+            MockConfig.return_value = repo.config
 
             result = repo.sync_hop_to_active_branches("migration 0.17.0 → 0.17.1")
 
@@ -362,8 +362,8 @@ class TestSyncHopStaleAndErrors:
 
         repo = Mock(spec=Repo)
         repo.base_dir = str(tmp_path)
-        repo._Repo__config = Mock()
-        repo._Repo__config.hop_version = "0.17.0"
+        repo.config = Mock()
+        repo.config.hop_version = "0.17.0"
         repo.hgit = Mock()
         repo.hgit.branch = 'ho-release/0.17.0'
         repo.hgit._HGit__git_repo = Mock()
@@ -390,7 +390,7 @@ class TestSyncHopStaleAndErrors:
         repo.hgit._HGit__git_repo.git.status = Mock(return_value='M .hop/config\n')
 
         with patch('half_orm_dev.repo.Config') as MockConfig:
-            MockConfig.return_value = repo._Repo__config
+            MockConfig.return_value = repo.config
             result = repo.sync_hop_to_active_branches("test")
 
         synced = result['synced_branches']
@@ -427,7 +427,7 @@ class TestSyncHopStaleAndErrors:
         repo.hgit.commit = Mock(side_effect=Exception("pre-commit hook rejected"))
 
         with patch('half_orm_dev.repo.Config') as MockConfig:
-            MockConfig.return_value = repo._Repo__config
+            MockConfig.return_value = repo.config
             with pytest.raises(RepoError, match="Sync commit failed on 'ho-patch/100-fails'"):
                 repo.sync_hop_to_active_branches("test")
 
@@ -468,7 +468,7 @@ class TestSyncHopStaleAndErrors:
         repo.hgit.commit = Mock(side_effect=commit_side_effect)
 
         with patch('half_orm_dev.repo.Config') as MockConfig:
-            MockConfig.return_value = repo._Repo__config
+            MockConfig.return_value = repo.config
             result = repo.sync_hop_to_active_branches("test")
 
         # Patch branch synced despite ho-prod failure

@@ -20,7 +20,7 @@ def _make_mock_repo(config_version='0.17.0', installed_version='1.0.0'):
 
     mock_config = Mock()
     mock_config.hop_version = config_version
-    repo._Repo__config = mock_config
+    repo.config = mock_config
 
     mock_hgit = Mock()
     mock_hgit.branch = 'ho-prod'

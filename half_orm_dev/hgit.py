@@ -7,6 +7,7 @@ import sys
 import subprocess
 import fnmatch
 import git
+from contextlib import contextmanager
 from git.exc import GitCommandError
 from typing import List, Optional
 import time
@@ -266,6 +267,32 @@ class HGit:
     def checkout(self, *args, **kwargs):
         "Proxy to git.commit method"
         return self.__git_repo.git.checkout(*args, **kwargs)
+
+    @contextmanager
+    def on_branch(self, branch: str, silent: bool = False):
+        """Temporarily switch to branch, yield, then return to original branch."""
+        original = self.branch
+        switched = branch != original
+        if switched:
+            if not silent:
+                print(f"  Switching to {branch}...")
+            self.__git_repo.git.checkout(branch)
+            if not silent:
+                print(f"  ✓ Now on {branch}")
+        try:
+            yield
+        finally:
+            if switched:
+                try:
+                    if not silent:
+                        print(f"  Returning to {original}...")
+                    self.__git_repo.git.checkout(original)
+                    if not silent:
+                        print(f"  ✓ Back on {original}")
+                except Exception as e:
+                    if not silent:
+                        print(f"  ⚠  Could not return to {original}: {e}", file=sys.stderr)
+                        print(f"  You are now on {branch}", file=sys.stderr)
 
     def checkout_paths_from_branch(self, branch: str, paths: list) -> None:
         """

@@ -32,7 +32,7 @@ def _make_repo_with_version(base_dir, config_version: str, installed_version: st
     # Simulate Config with a freshly-pulled hop_version
     config = Mock()
     config.hop_version = config_version
-    mock_repo._Repo__config = config
+    mock_repo.config = config
     mock_repo._Repo__base_dir = str(base_dir)
 
     from packaging import version as pkg_version
@@ -43,7 +43,7 @@ def _make_repo_with_version(base_dir, config_version: str, installed_version: st
 
     # Wire _validate_version to use the real implementation logic
     def _validate_version():
-        required = mock_repo._Repo__config.hop_version
+        required = mock_repo.config.hop_version
         if not required:
             return
         if mock_repo.compare_versions(installed_version, required) < 0:

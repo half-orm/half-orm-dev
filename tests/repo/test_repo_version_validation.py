@@ -86,7 +86,7 @@ class TestVersionValidation:
                 error_message = str(exc_info.value)
                 assert "0.18.0" in error_message
                 assert "0.17.2" in error_message
-                assert "pip install --upgrade half_orm_dev" in error_message
+                assert "pip install half_orm_dev==0.18.0" in error_message
 
     @patch('half_orm_dev.repo.Database')
     @patch('half_orm_dev.repo.HGit')
@@ -200,11 +200,11 @@ devel = True
                 error_message = str(exc_info.value)
 
                 # Should mention both versions clearly
-                assert "requires half_orm_dev >= 0.18.5" in error_message
+                assert "requires half_orm_dev == 0.18.5" in error_message
                 assert "0.17.2 is installed" in error_message
 
-                # Should provide upgrade command
-                assert "pip install --upgrade half_orm_dev" in error_message
+                # Should provide install command with exact version
+                assert "pip install half_orm_dev==0.18.5" in error_message
 
     @patch('half_orm_dev.repo.Database')
     @patch('half_orm_dev.repo.HGit')

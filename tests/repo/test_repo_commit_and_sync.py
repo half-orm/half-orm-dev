@@ -24,8 +24,8 @@ class TestRepoCommitAndSync:
         # Mock Repo instance
         repo = Mock(spec=Repo)
         repo.base_dir = str(tmp_path)
-        repo._Repo__config = Mock()
-        repo._Repo__config.hop_version = "0.17.0"
+        repo.config = Mock()
+        repo.config.hop_version = "0.17.0"
 
         # Mock HGit
         repo.hgit = Mock()

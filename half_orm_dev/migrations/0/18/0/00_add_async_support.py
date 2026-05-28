@@ -59,7 +59,7 @@ def migrate(repo):
     import click
 
     base_dir = Path(repo.base_dir)
-    package_name = repo._Repo__config.package_name
+    package_name = repo.config.package_name
 
     _migrate_init(repo, base_dir, package_name, click)
     _migrate_conftest(repo, base_dir, package_name, click)

@@ -37,7 +37,7 @@ def set_git_origin(new_origin):
 
     # 1. Update .hop/config
     repo.git_origin = new_origin
-    repo._Repo__config.write()
+    repo.config.write()
     click.echo(f"  ✓ .hop/config updated")
 
     # 2. Update pyproject.toml Homepage

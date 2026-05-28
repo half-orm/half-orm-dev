@@ -82,7 +82,7 @@ class TestInitGitCentricProjectWithGitOrigin:
         )
 
         # Verify git_origin was stored in config
-        assert bare_repo._Repo__config.git_origin == git_origin
+        assert bare_repo.config.git_origin == git_origin
 
     def test_init_with_valid_git_origin_ssh(self, mock_environment, bare_repo):
         """Test init_git_centric_project with valid SSH git origin."""
@@ -95,7 +95,7 @@ class TestInitGitCentricProjectWithGitOrigin:
         )
 
         # Verify git_origin was stored in config
-        assert bare_repo._Repo__config.git_origin == git_origin
+        assert bare_repo.config.git_origin == git_origin
 
     def test_init_with_invalid_git_origin_raises_error(self, bare_repo):
         """Test init_git_centric_project with invalid git origin raises ValueError."""
@@ -145,7 +145,7 @@ class TestInitGitCentricProjectWithGitOrigin:
         )
 
         # Should have stripped whitespace
-        assert bare_repo._Repo__config.git_origin == expected_git_origin
+        assert bare_repo.config.git_origin == expected_git_origin
 
     def test_init_with_self_hosted_git_origin(self, mock_environment, bare_repo):
         """Test init_git_centric_project with self-hosted Git server."""
@@ -156,7 +156,7 @@ class TestInitGitCentricProjectWithGitOrigin:
             git_origin=git_origin
         )
 
-        assert bare_repo._Repo__config.git_origin == git_origin
+        assert bare_repo.config.git_origin == git_origin
 
     def test_init_git_origin_stored_in_config_file(self, mock_environment, bare_repo):
         """Test git_origin is written to .hop/config file."""

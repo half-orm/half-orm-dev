@@ -39,6 +39,8 @@ def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
     def decorator(func):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
+            # Support both Manager classes (self._repo) and Repo itself (self)
+            repo = getattr(self, '_repo', self)
             lock_tag = None
             locked_branch = None
             try:
@@ -48,20 +50,20 @@ def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
                 # 2. All branches are fetched (prune)
                 # 3. Repository hop_version is validated against installed version
                 # 4. Operation is blocked if version is outdated (prevents dangerous operations)
-                self._repo.sync_and_validate_ho_prod()
+                repo.sync_and_validate_ho_prod()
 
                 # Determine branch name dynamically
                 locked_branch = branch_getter(self, *args, **kwargs)
 
                 # Acquire lock
-                lock_tag = self._repo.hgit.acquire_branch_lock(locked_branch, timeout_minutes=timeout_minutes)
+                lock_tag = repo.hgit.acquire_branch_lock(locked_branch, timeout_minutes=timeout_minutes)
 
                 # Execute the method
                 result = func(self, *args, **kwargs)
 
                 # After success, sync .hop/ from current branch to all other active branches
                 try:
-                    sync_result = self._repo.sync_hop_to_active_branches(
+                    sync_result = repo.sync_hop_to_active_branches(
                         reason=f"{func.__name__}"
                     )
                     # Log sync errors but don't fail the operation
@@ -84,7 +86,7 @@ def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
                         wrapper, '_interrupted', True) or None)
                     wrapper._interrupted = False
                     try:
-                        self._repo.hgit.release_branch_lock(lock_tag)
+                        repo.hgit.release_branch_lock(lock_tag)
                     finally:
                         interrupted = wrapper._interrupted
                         signal.signal(signal.SIGINT, original_handler)
