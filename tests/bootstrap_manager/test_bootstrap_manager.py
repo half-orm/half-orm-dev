@@ -15,6 +15,12 @@ from unittest.mock import Mock, patch, MagicMock
 from half_orm_dev.bootstrap_manager import BootstrapManager, BootstrapManagerError
 
 
+def _set_executed_files(mock_repo, filenames):
+    """Configure mock so get_executed_files() returns the given filenames."""
+    rows = [Mock(filename=name) for name in filenames]
+    mock_repo.database.model.get_relation_class.return_value.return_value = rows
+
+
 @pytest.fixture
 def mock_repo(tmp_path):
     """Create a mock repository with bootstrap directory."""
@@ -22,7 +28,8 @@ def mock_repo(tmp_path):
     repo.base_dir = str(tmp_path)
     repo.database = Mock()
     repo.database.model = Mock()
-    repo.database.model.execute_query = Mock(return_value=[])
+    # Default: no executed files
+    _set_executed_files(repo, [])
     return repo
 
 
@@ -112,24 +119,19 @@ class TestGetExecutedFiles:
 
     def test_returns_executed_filenames(self, bootstrap_manager, mock_repo):
         """Test that executed filenames are returned from database."""
-        mock_repo.database.model.execute_query.return_value = [
-            ('1-init-0.1.0.sql',),
-            ('2-seed-0.1.0.sql',)
-        ]
+        _set_executed_files(mock_repo, ['1-init-0.1.0.sql', '2-seed-0.1.0.sql'])
 
         executed = bootstrap_manager.get_executed_files()
         assert executed == {'1-init-0.1.0.sql', '2-seed-0.1.0.sql'}
 
     def test_empty_table(self, bootstrap_manager, mock_repo):
         """Test with no executed files."""
-        mock_repo.database.model.execute_query.return_value = []
-
         executed = bootstrap_manager.get_executed_files()
         assert executed == set()
 
     def test_handles_missing_table(self, bootstrap_manager, mock_repo):
         """Test that missing table returns empty set."""
-        mock_repo.database.model.execute_query.side_effect = Exception("relation does not exist")
+        mock_repo.database.model.get_relation_class.side_effect = Exception("relation does not exist")
 
         executed = bootstrap_manager.get_executed_files()
         assert executed == set()
@@ -146,7 +148,7 @@ class TestGetPendingFiles:
         (bootstrap_dir / '3-data-0.1.0.sql').write_text('-- 3')
 
         # Mark first file as executed
-        mock_repo.database.model.execute_query.return_value = [('1-init-0.1.0.sql',)]
+        _set_executed_files(mock_repo, ['1-init-0.1.0.sql'])
 
         pending = bootstrap_manager.get_pending_files()
         names = [f.name for f in pending]
@@ -259,23 +261,18 @@ class TestRunBootstrap:
         """Test dry run mode doesn't execute files."""
         bootstrap_dir = tmp_path / 'bootstrap'
         (bootstrap_dir / '1-init-0.1.0.sql').write_text('-- SQL')
-        mock_repo.database.model.execute_query.return_value = []
-
         result = bootstrap_manager.run_bootstrap(dry_run=True)
 
         assert '1-init-0.1.0.sql' in result['executed']
-        # execute_query is called 2 times:
-        # - _ensure_bootstrap_table() CREATE TABLE IF NOT EXISTS
-        # - get_executed_files() SELECT (called once for the whole run)
-        # No record_execution should be called (dry_run=True)
-        assert mock_repo.database.model.execute_query.call_count == 2
+        # execute_query is called once: _ensure_bootstrap_table() CREATE TABLE IF NOT EXISTS
+        # get_executed_files() now uses get_relation_class, not execute_query
+        assert mock_repo.database.model.execute_query.call_count == 1
 
     def test_exclude_patch_id(self, bootstrap_manager, tmp_path, mock_repo):
         """Test that files matching exclude_patch_id are excluded."""
         bootstrap_dir = tmp_path / 'bootstrap'
         (bootstrap_dir / '1-init-0.1.0.sql').write_text('-- init')
         (bootstrap_dir / '2-my-patch-0.1.0.sql').write_text('-- my-patch')
-        mock_repo.database.model.execute_query.return_value = []
 
         result = bootstrap_manager.run_bootstrap(
             dry_run=True,
@@ -292,7 +289,7 @@ class TestRunBootstrap:
         (bootstrap_dir / '2-seed-0.1.0.sql').write_text('-- seed')
 
         # Mark first file as executed
-        mock_repo.database.model.execute_query.return_value = [('1-init-0.1.0.sql',)]
+        _set_executed_files(mock_repo, ['1-init-0.1.0.sql'])
 
         result = bootstrap_manager.run_bootstrap(dry_run=True)
 
@@ -304,8 +301,8 @@ class TestRunBootstrap:
         bootstrap_dir = tmp_path / 'bootstrap'
         (bootstrap_dir / '1-init-0.1.0.sql').write_text('-- init')
 
-        # Mark file as executed
-        mock_repo.database.model.execute_query.return_value = [('1-init-0.1.0.sql',)]
+        # Mark file as already executed
+        _set_executed_files(mock_repo, ['1-init-0.1.0.sql'])
 
         result = bootstrap_manager.run_bootstrap(dry_run=True, force=True)
 

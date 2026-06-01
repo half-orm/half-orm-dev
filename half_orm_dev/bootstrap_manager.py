@@ -62,8 +62,8 @@ class BootstrapManager:
         """
         Ensure half_orm_meta.bootstrap table exists.
 
-        Creates the table if it doesn't exist. This handles the case
-        where the table hasn't been created yet (pre-migration databases).
+        Creates the table if it doesn't exist, then reloads the model so
+        get_relation_class('half_orm_meta.bootstrap') can find it.
         """
         sql = """
         CREATE TABLE IF NOT EXISTS half_orm_meta.bootstrap (
@@ -73,6 +73,7 @@ class BootstrapManager:
         );
         """
         self._repo.database.model.execute_query(sql)
+        self._repo.database.model.reconnect(reload=True)
 
     def get_bootstrap_files(
         self,
@@ -135,9 +136,6 @@ class BootstrapManager:
         """
         Get set of already executed filenames from database.
 
-        Queries half_orm_meta.bootstrap table to get filenames
-        that have already been executed.
-
         Returns:
             Set of filename strings that have been executed
         """
@@ -145,10 +143,8 @@ class BootstrapManager:
         # return empty set so all bootstrap files are treated as pending.
         try:
             self._ensure_bootstrap_table()
-            result = self._repo.database.model.execute_query(
-                "SELECT filename FROM half_orm_meta.bootstrap"
-            )
-            return {row[0] for row in result} if result else set()
+            HopBootstrap = self._repo.database.model.get_relation_class('half_orm_meta.bootstrap')
+            return {row.filename for row in HopBootstrap()}
         except Exception:
             return set()
 
@@ -198,22 +194,18 @@ class BootstrapManager:
         except FileExecutionError as e:
             raise BootstrapManagerError(str(e)) from e
 
-    def record_execution(self, filename: str, version: str) -> None:
+    def record_execution(self, filename: str, version: str, force: bool = False) -> None:
         """
         Record execution in half_orm_meta.bootstrap table.
 
         Args:
             filename: Name of the executed file
             version: Version extracted from filename
+            force: If True, upsert (update executed_at on re-run). If False,
+                   plain insert — a duplicate raises an error revealing a guard bug.
         """
-        sql = """
-        INSERT INTO half_orm_meta.bootstrap (filename, version)
-        VALUES (%s, %s)
-        ON CONFLICT (filename) DO UPDATE SET
-            version = EXCLUDED.version,
-            executed_at = NOW()
-        """
-        self._repo.database.model.execute_query(sql, (filename, version))
+        HopBootstrap = self._repo.database.model.get_relation_class('half_orm_meta.bootstrap')
+        HopBootstrap(filename=filename, version=version).ho_insert(upsert=force)
 
     def run_bootstrap(
         self,
@@ -285,7 +277,7 @@ class BootstrapManager:
             try:
                 click.echo(f"  • Executing {filename}...")
                 self.execute_file(file_path)
-                self.record_execution(filename, file_version)
+                self.record_execution(filename, file_version, force=force)
                 executed_set.add(filename)
                 result['executed'].append(filename)
             except BootstrapManagerError as e:
