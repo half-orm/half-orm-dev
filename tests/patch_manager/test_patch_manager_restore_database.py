@@ -56,6 +56,8 @@ def mock_restore_environment(patch_manager):
     # Mock Database.execute_pg_command
     mock_execute = Mock()
     repo.database.execute_pg_command = mock_execute
+    # BootstrapManager uses database.model.get_relation_class — return no executed scripts
+    repo.database.model.get_relation_class.return_value.return_value = []
 
     return patch_mgr, repo, schema_file, mock_model, mock_execute
 
@@ -209,6 +211,7 @@ class TestRestoreDatabaseFromSchema:
         # Mock execute_pg_command
         mock_execute = Mock()
         repo.database.execute_pg_command = mock_execute
+        repo.database.model.get_relation_class.return_value.return_value = []
 
         # Execute restoration
         repo.restore_database_from_schema()
@@ -250,6 +253,7 @@ class TestRestoreDatabaseFromSchema:
         # Mock execute_pg_command
         mock_execute = Mock()
         repo.database.execute_pg_command = mock_execute
+        repo.database.model.get_relation_class.return_value.return_value = []
 
         # Execute restoration
         repo.restore_database_from_schema()

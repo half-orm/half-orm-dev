@@ -60,6 +60,8 @@ def mock_workflow_with_release_context(patch_manager):
     mock_execute = Mock()
     repo.database.execute_pg_command = mock_execute
     repo.database.production = False
+    # BootstrapManager uses database.model.get_relation_class — return no executed scripts
+    repo.database.model.get_relation_class.return_value.return_value = []
 
     # Mock modules.generate
     mock_generate = Mock()

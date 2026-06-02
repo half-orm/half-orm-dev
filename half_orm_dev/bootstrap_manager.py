@@ -141,12 +141,9 @@ class BootstrapManager:
         """
         # If schema or table isn't ready yet (pre-migration state),
         # return empty set so all bootstrap files are treated as pending.
-        try:
-            self._ensure_bootstrap_table()
-            HopBootstrap = self._repo.database.model.get_relation_class('half_orm_meta.bootstrap')
-            return {row.filename for row in HopBootstrap()}
-        except Exception:
-            return set()
+        self._ensure_bootstrap_table()
+        HopBootstrap = self._repo.database.model.get_relation_class('half_orm_meta.bootstrap')
+        return {row['filename'] for row in HopBootstrap()}
 
     def get_pending_files(
         self,
@@ -167,7 +164,6 @@ class BootstrapManager:
         """
         all_files = self.get_bootstrap_files(up_to_version, exclude_version=exclude_version, for_version=for_version)
         executed = self.get_executed_files()
-
         return [f for f in all_files if f.name not in executed]
 
     def execute_file(self, file_path: Path) -> None:

@@ -17,7 +17,7 @@ from half_orm_dev.bootstrap_manager import BootstrapManager, BootstrapManagerErr
 
 def _set_executed_files(mock_repo, filenames):
     """Configure mock so get_executed_files() returns the given filenames."""
-    rows = [Mock(filename=name) for name in filenames]
+    rows = [{'filename': name} for name in filenames]
     mock_repo.database.model.get_relation_class.return_value.return_value = rows
 
 
@@ -129,12 +129,12 @@ class TestGetExecutedFiles:
         executed = bootstrap_manager.get_executed_files()
         assert executed == set()
 
-    def test_handles_missing_table(self, bootstrap_manager, mock_repo):
-        """Test that missing table returns empty set."""
+    def test_raises_on_db_error(self, bootstrap_manager, mock_repo):
+        """Test that database errors propagate — returning empty set would hide bugs."""
         mock_repo.database.model.get_relation_class.side_effect = Exception("relation does not exist")
 
-        executed = bootstrap_manager.get_executed_files()
-        assert executed == set()
+        with pytest.raises(Exception, match="relation does not exist"):
+            bootstrap_manager.get_executed_files()
 
 
 class TestGetPendingFiles:

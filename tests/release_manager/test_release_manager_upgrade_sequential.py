@@ -54,6 +54,7 @@ def release_manager_multi_version(tmp_path):
     mock_database.execute_pg_command = Mock()
     mock_database.register_release = Mock()
     mock_database._get_connection_params = Mock(return_value={'host': '', 'port': 5432, 'user': '', 'password': ''})
+    mock_database.model.get_relation_class.return_value.return_value = []
     mock_repo.database = mock_database
 
     # Mock HGit
@@ -291,6 +292,7 @@ class TestUpgradeProductionComplexScenarios:
         mock_database.execute_pg_command = Mock()
         mock_database.register_release = Mock()
         mock_database._get_connection_params = Mock(return_value={'host': '', 'port': 5432, 'user': '', 'password': ''})
+        mock_database.model.get_relation_class.return_value.return_value = []
         mock_repo.database = mock_database
 
         # Mock HGit with all tags

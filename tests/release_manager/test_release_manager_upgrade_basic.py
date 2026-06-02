@@ -57,6 +57,7 @@ def release_manager_for_upgrade(tmp_path):
     mock_database._get_connection_params = Mock(return_value={'host': '', 'port': 5432, 'user': '', 'password': ''})
     mock_database.model = Mock()
     mock_database.model.execute_query = Mock(return_value=[])
+    mock_database.model.get_relation_class.return_value.return_value = []
     mock_database.has_createdb_privilege = Mock(return_value=False)
     mock_repo.database = mock_database
 
