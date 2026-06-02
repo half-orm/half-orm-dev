@@ -310,6 +310,26 @@ class TestRunBootstrap:
         assert '1-init-0.1.0.sql' in result['executed']
         assert result['skipped'] == []
 
+    def test_idempotent_on_second_upgrade(self, bootstrap_manager, tmp_path, mock_repo):
+        """Bootstrap scripts already in DB must not be re-executed on subsequent upgrade.
+
+        Regression test: a silent except in get_executed_files() used to return
+        an empty set on any DB error, causing all scripts to appear unexecuted and
+        triggering UniqueViolation failures on the second hop upgrade.
+        """
+        bootstrap_dir = tmp_path / 'bootstrap'
+        (bootstrap_dir / '1-init-0.1.0.sql').write_text('-- init')
+        (bootstrap_dir / '2-seed-0.1.0.sql').write_text('-- seed')
+
+        # Simulate: both scripts already executed during a previous upgrade
+        _set_executed_files(mock_repo, ['1-init-0.1.0.sql', '2-seed-0.1.0.sql'])
+
+        result = bootstrap_manager.run_bootstrap()
+
+        assert result['executed'] == []
+        assert set(result['skipped']) == {'1-init-0.1.0.sql', '2-seed-0.1.0.sql'}
+        assert result['errors'] == []
+
 
 class TestEnsureBootstrapDir:
     """Test ensure_bootstrap_dir method."""

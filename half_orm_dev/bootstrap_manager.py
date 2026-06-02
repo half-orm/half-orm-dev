@@ -266,7 +266,7 @@ class BootstrapManager:
                 result['executed'].append(filename)
                 continue
 
-            if filename in executed_set:
+            if not force and filename in executed_set:
                 result['skipped'].append(filename)
                 continue
 
