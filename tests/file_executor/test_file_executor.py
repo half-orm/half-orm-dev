@@ -14,6 +14,8 @@ from half_orm_dev.file_executor import (
     execute_sql_file,
     execute_sql_file_psql,
     execute_python_file,
+    execute_python_bootstrap,
+    _has_run_entrypoint,
     is_bootstrap_file,
     FileExecutionError
 )
@@ -163,6 +165,88 @@ class TestExecutePythonFile:
         output = execute_python_file(py_file)
 
         assert str(subdir) in output
+
+
+class TestHasRunEntrypoint:
+    """Test _has_run_entrypoint function."""
+
+    def test_detects_run_function(self, tmp_path):
+        f = tmp_path / 's.py'
+        f.write_text('def run(model):\n    pass\n')
+        assert _has_run_entrypoint(f) is True
+
+    def test_no_run_function(self, tmp_path):
+        f = tmp_path / 's.py'
+        f.write_text('def other(model):\n    pass\n')
+        assert _has_run_entrypoint(f) is False
+
+    def test_nested_run_not_detected(self, tmp_path):
+        """run() inside a class or function must not match."""
+        f = tmp_path / 's.py'
+        f.write_text('class Foo:\n    def run(self, model):\n        pass\n')
+        assert _has_run_entrypoint(f) is False
+
+    def test_syntax_error_returns_false(self, tmp_path):
+        f = tmp_path / 's.py'
+        f.write_text('def broken(')
+        assert _has_run_entrypoint(f) is False
+
+    def test_nonexistent_file_returns_false(self, tmp_path):
+        assert _has_run_entrypoint(tmp_path / 'nope.py') is False
+
+
+class TestExecutePythonBootstrap:
+    """Test execute_python_bootstrap function."""
+
+    def test_calls_run_with_model(self, tmp_path):
+        """Script defining run(model) is called in-process with the model."""
+        f = tmp_path / '1-seed-0.1.0.py'
+        f.write_text(
+            '# @hop:bootstrap\n'
+            'def run(model):\n'
+            '    model.called = True\n'
+        )
+        mock_model = Mock()
+        mock_model.called = False
+        execute_python_bootstrap(f, mock_model)
+        assert mock_model.called is True
+
+    def test_returns_run_return_value(self, tmp_path):
+        f = tmp_path / '1-seed-0.1.0.py'
+        f.write_text('def run(model):\n    return "42 rows inserted"\n')
+        result = execute_python_bootstrap(f, Mock())
+        assert result == '42 rows inserted'
+
+    def test_returns_empty_when_run_returns_none(self, tmp_path):
+        f = tmp_path / '1-seed-0.1.0.py'
+        f.write_text('def run(model):\n    pass\n')
+        assert execute_python_bootstrap(f, Mock()) == ''
+
+    def test_fallback_to_subprocess_without_run(self, tmp_path):
+        """Script without run(model) uses subprocess (backwards compat)."""
+        f = tmp_path / '1-seed-0.1.0.py'
+        f.write_text('print("legacy output")')
+        result = execute_python_bootstrap(f, Mock())
+        assert result == 'legacy output'
+
+    def test_run_exception_wrapped_in_file_execution_error(self, tmp_path):
+        f = tmp_path / '1-seed-0.1.0.py'
+        f.write_text('def run(model):\n    raise ValueError("bad data")\n')
+        with pytest.raises(FileExecutionError, match="bad data"):
+            execute_python_bootstrap(f, Mock())
+
+    def test_sys_path_restored_after_execution(self, tmp_path):
+        f = tmp_path / '1-seed-0.1.0.py'
+        f.write_text('def run(model):\n    pass\n')
+        path_before = list(sys.path)
+        execute_python_bootstrap(f, Mock(), cwd=tmp_path)
+        assert sys.path == path_before
+
+    def test_module_not_left_in_sys_modules(self, tmp_path):
+        f = tmp_path / '1-seed-0.1.0.py'
+        f.write_text('def run(model):\n    pass\n')
+        execute_python_bootstrap(f, Mock())
+        assert not any('_hop_bootstrap_' in k for k in sys.modules)
 
 
 class TestIsBootstrapFile:

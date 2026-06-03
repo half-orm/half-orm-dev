@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import List, Set, Tuple, Optional, TYPE_CHECKING
 
 from half_orm_dev.file_executor import (
-    execute_sql_file, execute_python_file, FileExecutionError
+    execute_sql_file, execute_python_bootstrap, FileExecutionError
 )
 
 if TYPE_CHECKING:
@@ -180,7 +180,11 @@ class BootstrapManager:
             if file_path.suffix == '.sql':
                 execute_sql_file(file_path, self._repo.database.model)
             elif file_path.suffix == '.py':
-                output = execute_python_file(file_path, cwd=self._bootstrap_dir)
+                output = execute_python_bootstrap(
+                    file_path,
+                    model=self._repo.database.model,
+                    cwd=self._bootstrap_dir
+                )
                 if output:
                     click.echo(f"    Output: {output}")
             else:

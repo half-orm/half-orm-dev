@@ -5,6 +5,8 @@ This module provides common file execution functionality used by both
 PatchManager and BootstrapManager.
 """
 
+import ast
+import importlib.util
 import re
 import subprocess
 import sys
@@ -96,6 +98,72 @@ def execute_python_file(file_path: Path, cwd: Optional[Path] = None) -> str:
         raise FileExecutionError(error_msg) from e
     except Exception as e:
         raise FileExecutionError(f"Failed to execute Python file {file_path.name}: {e}") from e
+
+
+def _has_run_entrypoint(file_path: Path) -> bool:
+    """Return True if the file defines a top-level run() function."""
+    try:
+        tree = ast.parse(file_path.read_text(encoding='utf-8'))
+    except (OSError, SyntaxError):
+        return False
+    return any(
+        isinstance(node, ast.FunctionDef) and node.name == 'run'
+        for node in tree.body
+    )
+
+
+def execute_python_bootstrap(file_path: Path, model, cwd: Optional[Path] = None) -> str:
+    """
+    Execute a Python bootstrap script.
+
+    Fast path — if the script defines a top-level run(model) function it is
+    loaded in-process via importlib and called with the live database model,
+    sharing the existing connection.
+
+    Slow path — scripts without run(model) are executed as a subprocess
+    (backwards-compatible with pre-API scripts).
+
+    Args:
+        file_path: Path to Python bootstrap script
+        model: halfORM Model instance (shared database connection)
+        cwd: Working directory for execution (default: file's parent)
+
+    Returns:
+        Return value of run() converted to str, or subprocess stdout.
+        Empty string if run() returns None.
+
+    Raises:
+        FileExecutionError: If execution fails
+    """
+    if cwd is None:
+        cwd = file_path.parent
+
+    if not _has_run_entrypoint(file_path):
+        return execute_python_file(file_path, cwd)
+
+    module_name = f"_hop_bootstrap_{file_path.stem.replace('-', '_').replace('.', '_')}"
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+
+    cwd_str = str(cwd)
+    inserted = cwd_str not in sys.path
+    if inserted:
+        sys.path.insert(0, cwd_str)
+
+    try:
+        spec.loader.exec_module(module)
+        result = module.run(model)
+        return str(result) if result is not None else ''
+    except FileExecutionError:
+        raise
+    except Exception as e:
+        raise FileExecutionError(
+            f"Python execution failed in {file_path.name}: {e}"
+        ) from e
+    finally:
+        if inserted and cwd_str in sys.path:
+            sys.path.remove(cwd_str)
+        sys.modules.pop(module_name, None)
 
 
 _HOP_MARKER = re.compile(r"(--|#)\s*@hop:(bootstrap|data)")
