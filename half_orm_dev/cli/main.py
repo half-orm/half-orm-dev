@@ -49,7 +49,7 @@ class Hop:
 
         # PRODUCTION ENVIRONMENT — read-only, no migrations, no dev commands
         if self.__repo.database.production:
-            return ['update', 'upgrade', 'bootstrap']
+            return ['upgrade']
 
         if self.__repo.needs_migration():
             return ['migrate']

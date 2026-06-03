@@ -10,7 +10,6 @@ from .init import init
 from .clone import clone
 from .patch import patch
 from .release import release
-from .update import update
 from .upgrade import upgrade
 from .check import check
 from .set_git_origin import set_git_origin
@@ -31,7 +30,6 @@ ALL_COMMANDS = {
     'clone': clone,
     'patch': patch,
     'release': release,
-    'update': update,          # Adapted for production
     'upgrade': upgrade,          # Adapted for production
     'check': check,            # Project health check and updates
     'set-git-origin': set_git_origin,  # Update git remote origin URL
