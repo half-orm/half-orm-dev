@@ -61,7 +61,7 @@ class Hop:
 
         # DEVELOPMENT ENVIRONMENT - Patch development
         return ['patch', 'release', 'check', 'bootstrap', 'set-git-origin',
-                'revert-migration']
+                'revert-migration', 'recover']
 
     @property
     def repo_checked(self):

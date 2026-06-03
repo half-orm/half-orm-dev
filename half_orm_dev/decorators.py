@@ -4,10 +4,22 @@ Decorators for half-orm-dev.
 Provides common decorators for ReleaseManager and PatchManager.
 """
 
+import os
 import signal
 import sys
 import inspect
 from functools import wraps
+
+from git.exc import GitCommandError
+
+
+def _has_recovery_refs(repo) -> bool:
+    """Return True if refs/hop/sync/before/* exist (Phase 2 incomplete for some branch)."""
+    try:
+        refs = repo.hgit._HGit__git_repo.git.for_each_ref('refs/hop/sync/before/')
+        return bool(refs.strip())
+    except GitCommandError:
+        return False
 
 
 def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
@@ -43,13 +55,12 @@ def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
             repo = getattr(self, '_repo', self)
             lock_tag = None
             locked_branch = None
+            # Set to True when Phase 2 pushed some but not all branches.
+            # In that case the lock and lock file must survive so 'hop recover'
+            # can complete the work.
+            _keep_lock_for_recovery = False
             try:
                 # CRITICAL: Sync ho-prod with origin and validate version BEFORE acquiring any lock
-                # This ensures:
-                # 1. ho-prod is up-to-date (pull)
-                # 2. All branches are fetched (prune)
-                # 3. Repository hop_version is validated against installed version
-                # 4. Operation is blocked if version is outdated (prevents dangerous operations)
                 repo.sync_and_validate_ho_prod()
 
                 # Determine branch name dynamically
@@ -57,6 +68,14 @@ def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
 
                 # Acquire lock
                 lock_tag = repo.hgit.acquire_branch_lock(locked_branch, timeout_minutes=timeout_minutes)
+
+                # Write lock file so 'hop recover' can identify ownership after a crash
+                _sync_lock_path = os.path.join(repo.base_dir, '.git', 'hop-sync-lock')
+                try:
+                    with open(_sync_lock_path, 'w') as _f:
+                        _f.write(lock_tag)
+                except OSError:
+                    pass
 
                 # Execute the method
                 result = func(self, *args, **kwargs)
@@ -66,20 +85,27 @@ def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
                     sync_result = repo.sync_hop_to_active_branches(
                         reason=f"{func.__name__}"
                     )
-                    # Log sync errors but don't fail the operation
                     if sync_result.get('errors'):
                         for error in sync_result['errors']:
                             print(f"Warning: .hop/ sync error: {error}", file=sys.stderr)
+                        # Recovery refs remaining means Phase 2 is incomplete
+                        _keep_lock_for_recovery = _has_recovery_refs(repo)
                 except Exception as e:
-                    # Don't fail the decorated method if sync fails
                     print(f"Warning: Failed to sync .hop/ to active branches: {e}", file=sys.stderr)
+                    _keep_lock_for_recovery = _has_recovery_refs(repo)
+
+                if _keep_lock_for_recovery:
+                    print(
+                        "Warning: Sync partially failed. "
+                        "Run 'hop recover' to complete the operation.",
+                        file=sys.stderr
+                    )
 
                 return result
             finally:
-                # Always release lock (even on error)
-                # Block SIGINT during cleanup to prevent Ctrl+C from
-                # interrupting lock release and leaving an orphan tag.
-                if lock_tag:
+                if lock_tag and not _keep_lock_for_recovery:
+                    # Normal completion or pre-sync failure: release lock and clean up.
+                    # Block SIGINT to prevent Ctrl+C from leaving an orphan lock tag.
                     interrupted = False
                     original_handler = signal.getsignal(signal.SIGINT)
                     signal.signal(signal.SIGINT, lambda s, f: setattr(
@@ -92,6 +118,12 @@ def with_dynamic_branch_lock(branch_getter, timeout_minutes: int = 30):
                         signal.signal(signal.SIGINT, original_handler)
                     if interrupted:
                         raise KeyboardInterrupt()
+
+                    _sync_lock_path = os.path.join(repo.base_dir, '.git', 'hop-sync-lock')
+                    try:
+                        os.unlink(_sync_lock_path)
+                    except FileNotFoundError:
+                        pass
 
         return wrapper
     return decorator

@@ -17,6 +17,7 @@ from .migrate import migrate
 from .revert_migration import revert_migration
 from .bootstrap import bootstrap
 from .rollback import rollback
+from .recover import recover
 from .todo import apply_release
 
 # ♻️ Adapted existing commands
@@ -41,6 +42,7 @@ ALL_COMMANDS = {
 
     # 🚧 Emergency workflow (stubs)
     'rollback': rollback,
+    'recover': recover,
 
     # ♻️ Adapted commands
     'sync-package': sync_package, # Unchanged
@@ -58,6 +60,7 @@ __all__ = [
     'migrate',
     'bootstrap',
     'rollback',
+    'recover',
     # Adapted commands
     'sync_package',
     'ALL_COMMANDS'

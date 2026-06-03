@@ -689,6 +689,14 @@ class Repo:
                 # Record SHA after fast-forward: this is the rollback target
                 original_shas[branch] = self.hgit._HGit__git_repo.head.commit.hexsha
 
+                # Persist before-SHA as a recovery ref (survives process crashes)
+                try:
+                    self.hgit._HGit__git_repo.git.update_ref(
+                        f'refs/hop/sync/before/{branch}', original_shas[branch]
+                    )
+                except Exception:
+                    pass
+
                 self.__config = Config(self.base_dir)
 
                 # Copy .hop/ from source branch
@@ -789,10 +797,149 @@ class Repo:
             try:
                 self.hgit.push_branch(branch)
                 result['synced_branches'].append(branch)
+                # Branch safely on origin — recovery ref no longer needed
+                try:
+                    self.hgit._HGit__git_repo.git.update_ref(
+                        '-d', f'refs/hop/sync/before/{branch}'
+                    )
+                except Exception:
+                    pass
             except Exception as e:
                 result['errors'].append(f"{branch}: push failed: {e}")
 
         return result
+
+    def recover(self) -> dict:
+        """Complete or clean up a sync interrupted by a crash or network failure.
+
+        Reads .git/hop-sync-lock (ownership proof) and refs/hop/sync/before/*
+        (branch states before the interrupted sync) then either pushes branches
+        whose Phase 1 commit completed, or restores clean state for branches
+        where the crash occurred mid-commit.
+
+        Returns a dict: lock_tag, pushed_branches, cleaned_branches, errors.
+        """
+        result = {
+            'lock_tag': None,
+            'pushed_branches': [],
+            'cleaned_branches': [],
+            'errors': [],
+        }
+
+        sync_lock_path = os.path.join(self.base_dir, '.git', 'hop-sync-lock')
+        if not os.path.exists(sync_lock_path):
+            result['errors'].append("No interrupted sync found (.git/hop-sync-lock missing).")
+            return result
+
+        try:
+            with open(sync_lock_path) as f:
+                lock_tag = f.read().strip()
+        except OSError as e:
+            result['errors'].append(f"Could not read lock file: {e}")
+            return result
+        result['lock_tag'] = lock_tag
+
+        # Verify ownership: the lock tag must still exist on origin
+        lock_on_origin = False
+        try:
+            remote_output = self.hgit._HGit__git_repo.git.ls_remote(
+                '--tags', 'origin', lock_tag
+            )
+            lock_on_origin = bool(remote_output.strip())
+        except GitCommandError as e:
+            result['errors'].append(f"Could not verify lock on origin: {e}")
+
+        if not lock_on_origin:
+            self._recover_cleanup_refs(result)
+            try:
+                os.unlink(sync_lock_path)
+            except FileNotFoundError:
+                pass
+            result['errors'].append(
+                "Lock tag not found on origin — it may have expired or been released already."
+            )
+            return result
+
+        # Read recovery refs: refs/hop/sync/before/<branch> → original SHA
+        before_refs = {}
+        try:
+            refs_output = self.hgit._HGit__git_repo.git.for_each_ref(
+                '--format=%(refname) %(objectname)', 'refs/hop/sync/before/'
+            )
+            for line in refs_output.splitlines():
+                if line.strip():
+                    refname, sha = line.split()
+                    branch = refname[len('refs/hop/sync/before/'):]
+                    before_refs[branch] = sha
+        except GitCommandError as e:
+            result['errors'].append(f"Could not read recovery refs: {e}")
+
+        current_branch = self.hgit._HGit__git_repo.active_branch.name
+        try:
+            for branch, before_sha in before_refs.items():
+                try:
+                    self.hgit.checkout(branch)
+                except GitCommandError as e:
+                    result['errors'].append(f"{branch}: checkout failed: {e}")
+                    continue
+
+                current_head = self.hgit._HGit__git_repo.head.commit.hexsha
+                if current_head != before_sha:
+                    # Phase 1 completed but push did not — finish Phase 2
+                    try:
+                        self.hgit.push_branch(branch)
+                        result['pushed_branches'].append(branch)
+                    except GitCommandError as e:
+                        result['errors'].append(f"{branch}: push failed: {e}")
+                        continue
+                else:
+                    # Crash before commit — repo was clean before, restore it
+                    try:
+                        self.hgit._HGit__git_repo.git.reset('HEAD')
+                        self.hgit._HGit__git_repo.git.checkout('--', '.hop/')
+                        result['cleaned_branches'].append(branch)
+                    except GitCommandError as e:
+                        result['errors'].append(f"{branch}: cleanup failed: {e}")
+                        continue
+
+                try:
+                    self.hgit._HGit__git_repo.git.update_ref(
+                        '-d', f'refs/hop/sync/before/{branch}'
+                    )
+                except GitCommandError as e:
+                    result['errors'].append(f"{branch}: could not delete recovery ref: {e}")
+        finally:
+            try:
+                self.hgit.checkout(current_branch)
+            except GitCommandError:
+                pass
+
+        try:
+            self.hgit.release_branch_lock(lock_tag)
+        except GitCommandError as e:
+            result['errors'].append(f"Could not release lock '{lock_tag}': {e}")
+
+        try:
+            os.unlink(sync_lock_path)
+        except FileNotFoundError:
+            pass
+
+        return result
+
+    def _recover_cleanup_refs(self, result: dict) -> None:
+        """Delete stale refs/hop/sync/before/* refs (lock already gone)."""
+        try:
+            refs_output = self.hgit._HGit__git_repo.git.for_each_ref(
+                '--format=%(refname)', 'refs/hop/sync/before/'
+            )
+        except GitCommandError:
+            return
+        for refname in refs_output.splitlines():
+            if refname.strip():
+                try:
+                    self.hgit._HGit__git_repo.git.update_ref('-d', refname.strip())
+                except GitCommandError as e:
+                    result['errors'].append(f"Could not delete ref {refname}: {e}")
 
     def sync_and_validate_ho_prod(self):
         """
@@ -831,6 +978,14 @@ class Repo:
         if not self.hgit:
             # No git repository, skip synchronization
             return
+
+        # Block if a previous sync was interrupted — operator must run 'hop recover' first
+        _sync_lock = os.path.join(self.base_dir, '.git', 'hop-sync-lock')
+        if os.path.exists(_sync_lock):
+            raise RepoError(
+                "A previous sync operation was interrupted (crash or network failure).\n"
+                "Run 'hop recover' to complete or clean up the interrupted operation."
+            )
 
         current_branch = None
         git_repo = None
