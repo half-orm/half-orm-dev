@@ -1571,8 +1571,9 @@ class ReleaseManager:
             for version in upgrade_path:
                 # Checkout immutable ho-prod-X.Y.Z branch (created at promote time)
                 prod_branch = f"ho-prod-{version}"
-                if prod_branch in [h.name for h in git_repo.heads]:
-                    git_repo.heads[prod_branch].checkout()
+                local_heads = {h.name: h for h in git_repo.heads}
+                if prod_branch in local_heads:
+                    local_heads[prod_branch].checkout()
                 else:
                     git_repo.git.checkout('-b', prod_branch, f'origin/{prod_branch}')
 
@@ -2385,6 +2386,117 @@ class ReleaseManager:
             except Exception as e:
                 print(f"  ⚠ Failed to delete {branch_name}: {e}", file=sys.stderr)
         return deleted
+
+    # =========================================================================
+    # ROLLBACK
+    # =========================================================================
+
+    def _slug_to_version(self, slug: str) -> Optional[str]:
+        """Convert a snapshot slug back to a version string.
+
+        Slug is version with '.' → '_' and '-' → '_'.
+        First three underscore-separated numeric parts become X.Y.Z;
+        any trailing parts are rejoined with '-'.
+        """
+        parts = slug.split('_')
+        if len(parts) < 3:
+            return None
+        try:
+            int(parts[0]); int(parts[1]); int(parts[2])
+        except ValueError:
+            return None
+        base = '.'.join(parts[:3])
+        return base + '-' + '_'.join(parts[3:]) if len(parts) > 3 else base
+
+    def _list_rollback_versions(self) -> list:
+        """Return available rollback versions (sorted descending) based on snapshots."""
+        db = self._repo.database
+        prefix = f"{db.name}_hop_snap_"
+        snap_names = db.list_snapshots()
+        versions = []
+        for snap in snap_names:
+            if snap.startswith(prefix):
+                version = self._slug_to_version(snap[len(prefix):])
+                if version:
+                    try:
+                        Version(version)
+                        versions.append(version)
+                    except InvalidVersion:
+                        pass
+        versions.sort(key=lambda v: Version(v), reverse=True)
+        return versions
+
+    def rollback_production(self, to_version: str = None) -> dict:
+        """Rollback production database to a previous version.
+
+        Restores the database from the corresponding snapshot and checks out
+        the immutable ho-prod-X.Y.Z branch.
+
+        Args:
+            to_version: Target version (default: latest available previous version)
+
+        Returns:
+            dict with from_version, to_version, snapshot, branch
+
+        Raises:
+            ReleaseManagerError: If no snapshot available or branch missing
+        """
+        self._validate_production_upgrade()
+
+        current_version = self._repo.database.last_release_s
+        available = self._list_rollback_versions()
+
+        if not available:
+            raise ReleaseManagerError("No snapshots available for rollback.")
+
+        if to_version is None:
+            try:
+                current_v = Version(current_version)
+                candidates = [v for v in available if Version(v) < current_v]
+                if not candidates:
+                    raise ReleaseManagerError(
+                        f"No previous version available for {current_version}."
+                    )
+                to_version = max(candidates, key=lambda v: Version(v))
+            except InvalidVersion as e:
+                raise ReleaseManagerError(f"Cannot parse version: {e}") from e
+
+        if to_version not in available:
+            raise ReleaseManagerError(
+                f"No snapshot available for version {to_version}.\n"
+                f"Available: {', '.join(available)}"
+            )
+
+        db = self._repo.database
+        version_slug = to_version.replace('.', '_').replace('-', '_')
+        snap_name = f"{db.name}_hop_snap_{version_slug}"
+        prod_branch = f"ho-prod-{to_version}"
+
+        # Fetch so ho-prod-X.Y.Z is visible if not already local
+        git_repo = self._repo.hgit._HGit__git_repo
+        try:
+            git_repo.remotes.origin.fetch(prune=True)
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to fetch from origin: {e}") from e
+
+        # Restore database
+        db.terminate_active_connections()
+        db.restore_from_snapshot(snap_name)
+        db._Database__model.reconnect(reload=True)
+
+        # Checkout ho-prod-X.Y.Z
+        local_heads = {h.name: h for h in git_repo.heads}
+        if prod_branch in local_heads:
+            local_heads[prod_branch].checkout()
+        else:
+            git_repo.git.checkout('-b', prod_branch, f'origin/{prod_branch}')
+
+        return {
+            'from_version': current_version,
+            'to_version': to_version,
+            'snapshot': snap_name,
+            'branch': prod_branch,
+        }
 
     def _promote_rollback(
         self, original_branch: str, release_branch: str, temp_branch: str,

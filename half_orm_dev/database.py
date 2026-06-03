@@ -1335,6 +1335,29 @@ class Database:
             'dropdb', '--if-exists', snapshot_name
         )
 
+    def restore_from_snapshot(self, snapshot_name: str) -> None:
+        """Restore this database from a snapshot (drop + recreate from template).
+
+        Requires CREATEDB privilege. Call terminate_active_connections() first,
+        then reconnect() afterwards.
+
+        Args:
+            snapshot_name: Name of the snapshot database to restore from.
+        """
+        params = self._get_connection_params()
+        self._execute_pg_command('postgres', params, 'dropdb', self.__name)
+        self._execute_pg_command('postgres', params, 'createdb', '-T', snapshot_name, self.__name)
+
+    def list_snapshots(self) -> list:
+        """Return snapshot names matching {db}_hop_snap_* pattern, sorted ascending."""
+        params = self._get_connection_params()
+        result = self._execute_pg_command(
+            'postgres', params,
+            'psql', '-d', 'postgres', '-t', '-c',
+            f"SELECT datname FROM pg_database WHERE datname LIKE '{self.__name}_hop_snap_%' ORDER BY datname"
+        )
+        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
     def get_postgres_version(self) -> tuple:
         """
         Get PostgreSQL server version.

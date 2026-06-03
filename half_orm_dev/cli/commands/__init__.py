@@ -16,8 +16,8 @@ from .set_git_origin import set_git_origin
 from .migrate import migrate
 from .revert_migration import revert_migration
 from .bootstrap import bootstrap
+from .rollback import rollback
 from .todo import apply_release
-from .todo import rollback
 
 # ♻️ Adapted existing commands
 from .todo import sync_package    # Unchanged

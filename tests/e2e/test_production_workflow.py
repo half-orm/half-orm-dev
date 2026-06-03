@@ -232,15 +232,10 @@ class TestUpgradeCommand:
         run_prod = production_environment['run_prod']
         prod_project_dir = production_environment['prod_project_dir']
 
-        # Check if there are releases to apply
-        update_result = run_prod(['half_orm', 'dev', 'update'])
-
-        # If there are updates, upgrade should create backup
-        if 'Available releases' in update_result.stdout:
-            result = run_prod(['half_orm', 'dev', 'upgrade'])
-            assert result.returncode == 0
-            # Check backup was created
-            assert 'Backup created' in result.stdout or 'already at latest' in result.stdout.lower()
+        result = run_prod(['half_orm', 'dev', 'upgrade'])
+        assert result.returncode == 0
+        # Check backup was created
+        assert 'Backup created' in result.stdout or 'already at latest' in result.stdout.lower()
 
 
 @pytest.mark.integration
@@ -288,15 +283,6 @@ class TestBootstrapInProduction:
             assert len(tracked) >= 0  # May be 0 if bootstrap ran during patch merge
         finally:
             model.disconnect()
-
-    def test_bootstrap_command_in_production(self, production_environment):
-        """Test bootstrap command works in production mode."""
-        run_prod = production_environment['run_prod']
-
-        # Run bootstrap (should be idempotent)
-        result = run_prod(['half_orm', 'dev', 'bootstrap'])
-
-        assert result.returncode == 0
 
 
 @pytest.mark.integration
@@ -353,27 +339,21 @@ class TestProductionUpgradeWithNewRelease:
         run_dev(['git', 'push', 'origin', '--tags'])
 
 
-        # Update production to see new release
-        update_result = run_prod(['half_orm', 'dev', 'update'])
-        assert 'Available releases' in update_result.stdout or 'up to date' in update_result.stdout.lower()
+        upgrade_result = run_prod(['half_orm', 'dev', 'upgrade', '--skip-backup', '--yes'])
+        assert upgrade_result.returncode == 0
+        assert 'Upgrade complete' in upgrade_result.stdout or '0.1.2' in upgrade_result.stdout
 
-        # If there are updates, apply them
-        if 'Available releases' in update_result.stdout:
-            upgrade_result = run_prod(['half_orm', 'dev', 'upgrade', '--skip-backup', '--yes'])
-            assert upgrade_result.returncode == 0
-            assert 'Upgrade complete' in upgrade_result.stdout or '0.1.2' in upgrade_result.stdout
-
-            # Verify new table was created
-            model = Model(prod_db_name)
-            try:
-                after_tables = list(model.execute_query(
-                    "SELECT table_name FROM information_schema.tables "
-                    "WHERE table_schema = 'public' ORDER BY table_name"
-                ))
-                after_table_names = [t['table_name'] for t in after_tables]
-                assert 'comments' in after_table_names, "Comments table should exist after upgrade"
-            finally:
-                model.disconnect()
+        # Verify new table was created
+        model = Model(prod_db_name)
+        try:
+            after_tables = list(model.execute_query(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'public' ORDER BY table_name"
+            ))
+            after_table_names = [t['table_name'] for t in after_tables]
+            assert 'comments' in after_table_names, "Comments table should exist after upgrade"
+        finally:
+            model.disconnect()
 
 
 @pytest.mark.integration
