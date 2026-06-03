@@ -1133,51 +1133,6 @@ class ReleaseManager:
                 # Best effort - don't fail if checkout back fails
                 pass
 
-    def ensure_ho_current(self) -> bool:
-        """
-        Set up ho-current branch for production servers if not already done.
-
-        Creates ho-current from the current production version's immutable tag
-        and checks it out. Local-only, never pushed to origin.
-
-        Returns:
-            True if ho-current was created and checked out, False otherwise.
-
-        Raises:
-            ReleaseManagerError: If the required version tag is not found locally.
-        """
-        if not (
-            self._repo.production
-            and self._repo.hgit.branch == 'ho-prod'
-            and not self._repo.hgit.branch_exists('ho-current')
-        ):
-            return False
-
-        try:
-            current_version = self._repo.database.last_release_s
-        except Exception as e:
-            raise ReleaseManagerError(
-                f"Cannot read current production version from database: {e}"
-            )
-
-        current_tag = f'v{current_version}'
-        tag_exists = any(
-            t.name == current_tag
-            for t in self._repo.hgit._HGit__git_repo.tags
-        )
-        if not tag_exists:
-            raise ReleaseManagerError(
-                f"Cannot set up ho-current: tag {current_tag} not found locally.\n"
-                f"Run 'hop update' to fetch tags first."
-            )
-
-        self._repo.hgit.create_branch_from_tag('ho-current', current_tag)
-        self._repo.hgit._HGit__git_repo.heads['ho-current'].checkout()
-        click.echo(
-            f"  ℹ ho-current branch created from {current_tag} (local only).\n"
-            f"    Production servers use ho-current instead of ho-prod."
-        )
-        return True
 
     def update_production(self) -> dict:
         """
@@ -1237,8 +1192,6 @@ class ReleaseManager:
                 f"Cannot read current production version from database: {e}"
             )
 
-        # Migration: production servers that still track ho-prod instead of ho-current.
-        self.ensure_ho_current()
 
         # 3. Build list of available releases with details
         available_releases = []
@@ -1605,60 +1558,54 @@ class ReleaseManager:
                 'final_version': upgrade_path[-1] if upgrade_path else current_version
             }
 
-        # === 5. Get release files and apply releases ===
-        # ho-prod:     acquire lock + pull (rolling branch, needs lock against partial pushes)
-        # ho-current:  fetch + reset --hard vX.Y.Z per version (immutable tags, no lock needed)
-        lock_tag = None
-        patches_applied = {}
-        on_ho_current = self._repo.hgit.branch == "ho-current"
+        # === 5. Fetch from remote (read-only) and apply releases ===
+        git_repo = self._repo.hgit._HGit__git_repo
         try:
-            if on_ho_current:
-                try:
-                    self._repo.hgit.fetch_tags()
-                    self._repo.hgit._HGit__git_repo.remotes.origin.fetch()
-                except Exception as e:
-                    raise ReleaseManagerError(f"Failed to fetch from origin: {e}")
-            else:
-                lock_tag = self._repo.hgit.acquire_branch_lock('ho-prod')
-                try:
-                    self._repo.hgit.pull('origin', 'ho-prod')
-                except Exception as e:
-                    raise ReleaseManagerError(f"Failed to pull ho-prod branch: {e}")
+            self._repo.hgit.fetch_tags()
+            git_repo.remotes.origin.fetch(prune=True)
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to fetch from origin: {e}")
 
-            # Apply releases sequentially
-            try:
-                for version in upgrade_path:
-                    if on_ho_current:
-                        self._repo.hgit._HGit__git_repo.git.reset('--hard', f'v{version}')
-                    applied_patches = self._apply_release_to_production(version)
-                    patches_applied[version] = applied_patches
-            except Exception as e:
-                db_name = self._repo.database.name
-                if snapshot_name:
-                    restore_hint = (
-                        f"Restore snapshot: dropdb {db_name} && "
-                        f"createdb -T {snapshot_name} {db_name}"
-                    )
+        patches_applied = {}
+        try:
+            for version in upgrade_path:
+                # Checkout immutable ho-prod-X.Y.Z branch (created at promote time)
+                prod_branch = f"ho-prod-{version}"
+                if prod_branch in [h.name for h in git_repo.heads]:
+                    git_repo.heads[prod_branch].checkout()
                 else:
-                    restore_hint = f"Restore dump: psql -d {db_name} -f {backup_path}"
-                raise ReleaseManagerError(
-                    f"Failed to apply release {version}: {e}\n\n"
-                    f"ROLLBACK INSTRUCTIONS:\n"
-                    f"1. {restore_hint}\n"
-                    f"2. Verify: SELECT * FROM half_orm_meta.hop_release ORDER BY id DESC LIMIT 1;\n"
-                    f"3. Fix the failing patch and retry upgrade"
-                ) from e
+                    git_repo.git.checkout('-b', prod_branch, f'origin/{prod_branch}')
 
-        finally:
-            if lock_tag:
-                self._repo.hgit.release_branch_lock(lock_tag)
+                applied_patches = self._apply_release_to_production(version)
+                patches_applied[version] = applied_patches
+        except Exception as e:
+            db_name = self._repo.database.name
+            if snapshot_name:
+                restore_hint = (
+                    f"Restore snapshot: dropdb {db_name} && "
+                    f"createdb -T {snapshot_name} {db_name}"
+                )
+            else:
+                restore_hint = f"Restore dump: psql -d {db_name} -f {backup_path}"
+            raise ReleaseManagerError(
+                f"Failed to apply release {version}: {e}\n\n"
+                f"ROLLBACK INSTRUCTIONS:\n"
+                f"1. {restore_hint}\n"
+                f"2. git checkout ho-prod-{current_version}\n"
+                f"3. Verify: SELECT * FROM half_orm_meta.hop_release ORDER BY id DESC LIMIT 1;\n"
+                f"4. Fix the failing patch and retry upgrade"
+            ) from e
 
-        # Drop snapshot now that upgrade succeeded (non-fatal if it fails)
+        # Prune local ho-prod-* branches whose remote counterpart was deleted at promote time
+        self._repo.hgit.prune_local_branches(pattern="ho-prod-*", exclude_current=True)
+
+        # Keep snapshot for rollback — suggest archival dump for long-term storage
         if snapshot_name:
-            try:
-                self._repo.database.drop_snapshot(snapshot_name)
-            except Exception:
-                pass  # User can run: dropdb {snapshot_name}
+            click.echo(
+                f"\n💡 Snapshot {snapshot_name} kept for rollback.\n"
+                f"   For long-term archival: pg_dump {self._repo.database.name} "
+                f"> backup-{current_version}.sql"
+            )
 
         # === 6. Build success result ===
         final_version = upgrade_path[-1] if upgrade_path else current_version
@@ -1788,21 +1735,14 @@ class ReleaseManager:
             mgr._validate_production_upgrade()
             # → Raises: "Repository has uncommitted changes"
         """
-        # Check branch
+        # Check branch: must be on a ho-prod-X.Y.Z branch
         current_branch = self._repo.hgit.branch
-        if current_branch not in ("ho-prod", "ho-current"):
+        if not current_branch.startswith("ho-prod-"):
             raise ReleaseManagerError(
-                f"Must be on ho-prod or ho-current branch for production upgrade. "
-                f"Current branch: {current_branch}"
+                f"Must be on a ho-prod-X.Y.Z branch for production upgrade.\n"
+                f"Current branch: {current_branch}\n"
+                f"Run 'hop upgrade' from a ho-prod-X.Y.Z branch."
             )
-
-        # For ho-current: reject if a lock is held on ho-prod (dev operation in progress)
-        if current_branch == "ho-current":
-            if self._repo.hgit.is_branch_locked("ho-prod"):
-                raise ReleaseManagerError(
-                    "Cannot upgrade: ho-prod is currently locked by a development operation.\n"
-                    "Wait for the operation to complete and retry."
-                )
 
         # Check repo is clean
         if not self._repo.hgit.repos_is_clean():
@@ -2387,9 +2327,21 @@ class ReleaseManager:
             print(f"\n{utils.Color.bold('🔄 Migrating candidates to ' + next_patch_version + '...')}")
             self._migrate_candidates_to_new_release(candidates, version, next_patch_version)
 
+        if is_prod:
+            # Create immutable production branch and push to remote so production
+            # servers can checkout it without any git write access.
+            prod_branch = f"ho-prod-{version}"
+            self._repo.hgit.create_branch_from_tag(prod_branch, tag)
+            self._repo.hgit.push_branch(prod_branch)
+            click.echo(f"  ✓ Created production branch {prod_branch}")
+
+            # Remove old ho-prod-* branches beyond retention window.
+            self._cleanup_old_prod_branches(version)
+
         result = {'version': version, 'tag': tag, 'target': target}
         if is_prod:
             result['deleted_branches'] = deleted_branches
+            result['prod_branch'] = f"ho-prod-{version}"
             result['migrated_to'] = next_patch_version if migrate_candidates else None
             result['migrated_patches'] = candidates if migrate_candidates else []
             # Lock migration revert: delete all ho-migration/* tags so that
@@ -2404,6 +2356,35 @@ class ReleaseManager:
         else:
             result['branch'] = release_branch
         return result
+
+    def _cleanup_old_prod_branches(self, current_version: str, retention: int = 3) -> list:
+        """Remove ho-prod-* branches from remote beyond the retention window.
+
+        Keeps the last `retention` versions (including current_version).
+        Called at promote-prod time so production servers get a clean slate
+        on the next fetch --prune.
+        """
+        remote_branches = self._repo.hgit.get_remote_branches()
+        prod_branches = []
+        for rb in remote_branches:
+            name = rb.replace('origin/', '')
+            if name.startswith('ho-prod-'):
+                version_str = name[len('ho-prod-'):]
+                try:
+                    prod_branches.append((Version(version_str), name))
+                except InvalidVersion:
+                    pass
+        prod_branches.sort(key=lambda x: x[0])
+        to_delete = prod_branches[:-retention] if len(prod_branches) > retention else []
+        deleted = []
+        for _, branch_name in to_delete:
+            try:
+                self._repo.hgit.delete_remote_branch(branch_name)
+                deleted.append(branch_name)
+                click.echo(f"  ✓ Removed old production branch {branch_name}")
+            except Exception as e:
+                print(f"  ⚠ Failed to delete {branch_name}: {e}", file=sys.stderr)
+        return deleted
 
     def _promote_rollback(
         self, original_branch: str, release_branch: str, temp_branch: str,

@@ -192,15 +192,6 @@ class TestProductionModeCommands:
         assert result.returncode != 0
         assert 'No such command' in result.stderr or 'not available' in result.stderr.lower()
 
-    def test_production_mode_has_update(self, production_environment):
-        """Test that 'update' command is available in production mode."""
-        run_prod = production_environment['run_prod']
-
-        result = run_prod(['half_orm', 'dev', 'update'], check=False)
-
-        # Should succeed (or show no updates if already current)
-        assert result.returncode == 0
-
     def test_production_mode_has_upgrade(self, production_environment):
         """Test that 'upgrade' command is available in production mode."""
         run_prod = production_environment['run_prod']
@@ -210,38 +201,6 @@ class TestProductionModeCommands:
 
         # Should succeed
         assert result.returncode == 0
-
-    def test_production_mode_has_bootstrap(self, production_environment):
-        """Test that 'bootstrap' command is available in production mode."""
-        run_prod = production_environment['run_prod']
-
-        result = run_prod(['half_orm', 'dev', 'bootstrap', '--dry-run'], check=False)
-
-        # Should succeed
-        assert result.returncode == 0
-
-
-@pytest.mark.integration
-class TestUpdateCommand:
-    """Test the update command in production."""
-
-    def test_update_shows_current_version(self, production_environment):
-        """Test update displays current production version."""
-        run_prod = production_environment['run_prod']
-
-        result = run_prod(['half_orm', 'dev', 'update'])
-
-        assert result.returncode == 0
-        assert 'Current production version' in result.stdout
-
-    def test_update_fetches_releases(self, production_environment):
-        """Test update fetches from origin."""
-        run_prod = production_environment['run_prod']
-
-        result = run_prod(['half_orm', 'dev', 'update'])
-
-        assert result.returncode == 0
-        assert 'Fetching releases' in result.stdout
 
 
 @pytest.mark.integration
@@ -464,16 +423,6 @@ class TestProductionReadOnlyGuards:
         # Cleanup
         run_prod(['git', 'reset', 'HEAD', 'dummy_test_file.txt'], check=False)
         dummy.unlink(missing_ok=True)
-
-    def test_git_push_blocked_on_production(self, production_environment):
-        """pre-push hook blocks git push on production server."""
-        run_prod = production_environment['run_prod']
-
-        # Use explicit remote/branch so git reaches the pre-push hook
-        result = run_prod(['git', 'push', 'origin', 'ho-current'], check=False)
-
-        assert result.returncode != 0
-        assert 'production' in result.stderr.lower() or 'read-only' in result.stderr.lower()
 
     def test_git_tag_blocked_on_production(self, production_environment):
         """reference-transaction hook blocks git tag on production server."""

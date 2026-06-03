@@ -53,6 +53,7 @@ def release_manager_for_rc_tagging(tmp_path):
 
     # Mock HGit
     mock_hgit = Mock()
+    mock_hgit.get_remote_branches = Mock(return_value=[])
     mock_hgit.branch = "ho-prod"
     mock_hgit.checkout = Mock()
     mock_hgit.list_tags = Mock(return_value=[])  # No existing tags
@@ -117,6 +118,7 @@ def release_manager_for_prod_tagging(tmp_path):
 
     # Mock HGit
     mock_hgit = Mock()
+    mock_hgit.get_remote_branches = Mock(return_value=[])
     mock_hgit.branch = "ho-prod"
     mock_hgit.checkout = Mock()
     mock_hgit.merge = Mock()

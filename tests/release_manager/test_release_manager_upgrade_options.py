@@ -59,7 +59,7 @@ def release_manager_with_options(tmp_path):
 
     # Mock HGit
     mock_hgit = Mock()
-    mock_hgit.branch = "ho-prod"
+    mock_hgit.branch = "ho-prod-1.3.5"
     mock_hgit.repos_is_clean = Mock(return_value=True)
     mock_hgit.fetch_tags = Mock()
     mock_hgit.read_file_at_ref = Mock(return_value="")
@@ -72,6 +72,7 @@ def release_manager_with_options(tmp_path):
     mock_tag_140.name = "v1.4.0"
 
     mock_hgit._HGit__git_repo = Mock()
+    mock_hgit._HGit__git_repo.heads = []
     mock_hgit._HGit__git_repo.tags = [mock_tag_136, mock_tag_137, mock_tag_140]
 
     mock_repo.hgit = mock_hgit

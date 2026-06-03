@@ -63,7 +63,7 @@ def release_manager_for_upgrade(tmp_path):
 
     # Mock HGit
     mock_hgit = Mock()
-    mock_hgit.branch = "ho-prod"
+    mock_hgit.branch = "ho-prod-1.3.5"
     mock_hgit.repos_is_clean = Mock(return_value=True)
     mock_hgit.fetch_tags = Mock()
     mock_hgit.read_file_at_ref = Mock(return_value="")
@@ -75,6 +75,7 @@ def release_manager_for_upgrade(tmp_path):
     mock_tag_137.name = "v1.3.7"  # String, pas Mock
 
     mock_hgit._HGit__git_repo = Mock()
+    mock_hgit._HGit__git_repo.heads = []
     mock_hgit._HGit__git_repo.tags = [mock_tag_136, mock_tag_137]
 
     mock_repo.hgit = mock_hgit
@@ -205,7 +206,7 @@ class TestUpgradeProductionValidation:
         mock_repo.hgit.branch = "ho-patch/456-test"
 
         # Should fail validation
-        with pytest.raises(ReleaseManagerError, match="Must be on ho-prod"):
+        with pytest.raises(ReleaseManagerError, match="ho-prod-X.Y.Z"):
             release_mgr.upgrade_production(skip_backup=True)
 
     def test_validates_clean_repository(self, release_manager_for_upgrade):
@@ -371,13 +372,13 @@ class TestUpgradeProductionSnapshot:
 
         mock_repo.database._Database__model.reconnect.assert_called_with(reload=True)
 
-    def test_snapshot_dropped_on_success(self, release_manager_for_snapshot):
-        """Test snapshot is dropped after a successful upgrade."""
+    def test_snapshot_kept_for_rollback_on_success(self, release_manager_for_snapshot):
+        """Test snapshot is kept after a successful upgrade (needed for rollback)."""
         release_mgr, mock_repo, _, _, _ = release_manager_for_snapshot
 
         release_mgr.upgrade_production()
 
-        mock_repo.database.drop_snapshot.assert_called_with("test_db_hop_snap_1_3_5")
+        mock_repo.database.drop_snapshot.assert_not_called()
 
     def test_snapshot_not_dropped_on_failure(self, release_manager_for_snapshot):
         """Test snapshot is kept when upgrade fails (needed for rollback)."""

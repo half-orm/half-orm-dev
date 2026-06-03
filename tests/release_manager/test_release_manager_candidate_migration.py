@@ -59,6 +59,7 @@ class TestCandidateMigrationPrompt:
 
         # Mock HGit
         mock_hgit = Mock()
+        mock_hgit.get_remote_branches = Mock(return_value=[])
         mock_hgit.get_repo.return_value = Mock()
         repo.hgit = mock_hgit
 
@@ -79,6 +80,7 @@ class TestCandidateMigrationPrompt:
 
         # Mock HGit and other dependencies
         mock_hgit = Mock()
+        mock_hgit.get_remote_branches = Mock(return_value=[])
         mock_hgit.get_repo.return_value = Mock()
         mock_hgit._HGit__git_repo = Mock()
         mock_hgit._HGit__git_repo.tags = []
@@ -116,6 +118,7 @@ class TestCandidateMigration:
 
         # Mock HGit
         mock_hgit = Mock()
+        mock_hgit.get_remote_branches = Mock(return_value=[])
         mock_hgit.get_repo.return_value.head.commit.hexsha = "a1b2c3d4e5f6"
         mock_hgit.get_repo.return_value.branches = []
         mock_hgit._HGit__git_repo.tags = []
@@ -156,6 +159,7 @@ class TestCandidateMigration:
 
         # Mock HGit with commit SHAs
         mock_hgit = Mock()
+        mock_hgit.get_remote_branches = Mock(return_value=[])
         mock_repo = Mock()
         mock_repo.head.commit.hexsha = "a1b2c3d4e5f6789012345678"
         mock_repo.branches = []
@@ -200,6 +204,7 @@ class TestCandidateMigration:
 
         # Mock HGit with different SHAs for each checkout
         mock_hgit = Mock()
+        mock_hgit.get_remote_branches = Mock(return_value=[])
         mock_commit = Mock()
         mock_commit.hexsha = "a1b2c3d4e5f6789012345678"
         mock_head = Mock()
@@ -249,6 +254,7 @@ class TestCandidateMigration:
 
         # Mock HGit
         mock_hgit = Mock()
+        mock_hgit.get_remote_branches = Mock(return_value=[])
         mock_repo = Mock()
         mock_repo.head.commit.hexsha = "a1b2c3d4e5f6789012345678"
         mock_repo.branches = []
@@ -303,6 +309,7 @@ class TestMigrationVersionCalculation:
 
             # Mock HGit
             mock_hgit = Mock()
+            mock_hgit.get_remote_branches = Mock(return_value=[])
             mock_repo = Mock()
             mock_repo.head.commit.hexsha = "a1b2c3d4e5f6789012345678"
             mock_repo.branches = []
@@ -348,6 +355,7 @@ class TestMigrationErrorHandling:
 
         # Mock HGit to fail on rebase
         mock_hgit = Mock()
+        mock_hgit.get_remote_branches = Mock(return_value=[])
         mock_repo = Mock()
         mock_repo.branches = []
         mock_hgit.get_repo.return_value = mock_repo

@@ -72,6 +72,7 @@ def temp_repo():
     mock_hgit.tag_exists = Mock(return_value=False)
     mock_hgit.create_tag = Mock()
     mock_hgit.push_tag = Mock()
+    mock_hgit.get_remote_branches = Mock(return_value=[])
     repo.hgit = mock_hgit
 
     yield repo, temp_dir, patches_dir
@@ -139,6 +140,9 @@ def mock_hgit_complete():
     mock_hgit.checkout.return_value = None
     mock_hgit.delete_local_branch.return_value = None
     mock_hgit.push_branch.return_value = None
+    mock_hgit.get_remote_branches.return_value = []
+    mock_hgit.create_branch_from_tag.return_value = None
+    mock_hgit.prune_local_branches.return_value = {'deleted': [], 'skipped': [], 'errors': []}
 
     # Git proxy methods
     mock_hgit.add.return_value = None
