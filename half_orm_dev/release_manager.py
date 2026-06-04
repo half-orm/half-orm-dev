@@ -1555,8 +1555,17 @@ class ReleaseManager:
         patches_applied = {}
         try:
             for version in upgrade_path:
-                # Checkout immutable ho-prod-X.Y.Z branch (created at promote time)
+                # Checkout immutable ho-prod-X.Y.Z branch (created at promote time).
+                # Fetch explicitly: production servers cloned with --single-branch only
+                # track ho-prod, so fetch_from_origin() won't fetch ho-prod-X.Y.Z.
                 prod_branch = f"ho-prod-{version}"
+                try:
+                    git_repo.git.fetch(
+                        'origin',
+                        f'{prod_branch}:refs/remotes/origin/{prod_branch}'
+                    )
+                except Exception:
+                    pass  # already present locally or will fail at checkout below
                 local_heads = {h.name: h for h in git_repo.heads}
                 if prod_branch in local_heads:
                     local_heads[prod_branch].checkout()
@@ -1722,13 +1731,18 @@ class ReleaseManager:
             mgr._validate_production_upgrade()
             # → Raises: "Repository has uncommitted changes"
         """
-        # Check branch: must be on a ho-prod-X.Y.Z branch
+        # Check branch: must be on a production branch (ho-prod, ho-prod-X.Y.Z, or ho-current)
         current_branch = self._repo.hgit.branch
-        if not current_branch.startswith("ho-prod-"):
+        valid = (
+            current_branch == "ho-prod"
+            or current_branch == "ho-current"
+            or current_branch.startswith("ho-prod-")
+        )
+        if not valid:
             raise ReleaseManagerError(
-                f"Must be on a ho-prod-X.Y.Z branch for production upgrade.\n"
-                f"Current branch: {current_branch}\n"
-                f"Run 'hop upgrade' from a ho-prod-X.Y.Z branch."
+                f"Must be on a production branch (ho-prod, ho-prod-X.Y.Z, or ho-current) "
+                f"for production upgrade.\n"
+                f"Current branch: {current_branch}"
             )
 
         # Check repo is clean
