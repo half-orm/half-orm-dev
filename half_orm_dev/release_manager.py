@@ -101,15 +101,7 @@ class ReleaseManager:
         """
         schema_path = Path(self._base_dir) / ".hop" / "model" / "schema.sql"
 
-        # Parse version from symlink
-        version_from_file = self._parse_version_from_symlink(schema_path)
-
-        # Optional validation against database
-        version_from_db = self._repo.database.last_release_s
-        if version_from_file != version_from_db:
-            self._repo.restore_database_from_schema()
-
-        return version_from_file
+        return self._parse_version_from_symlink(schema_path)
 
     def _parse_version_from_symlink(self, schema_path: Path) -> str:
         """
@@ -1138,11 +1130,8 @@ class ReleaseManager:
         """
         Fetch tags and list available releases for production upgrade (read-only).
 
-        Equivalent to 'apt update' - synchronizes with origin and shows available
-        releases but makes NO modifications to database or repository.
-
         Workflow:
-            1. Fetch tags from origin (git fetch --tags)
+            1. Fetch all refs from origin (git fetch --prune)
             2. Read current production version from database (hop_last_release)
             3. List available release tags (v1.3.6, v1.3.6-rc1, v1.4.0)
             4. Calculate sequential upgrade path
@@ -1181,7 +1170,11 @@ class ReleaseManager:
         """
         allow_rc = self._repo.allow_rc
 
-        # 1. Get available release tags from origin
+        # 1. Sync with remote then read available release tags
+        try:
+            self._repo.hgit.fetch_from_origin()
+        except Exception as e:
+            raise ReleaseManagerError(f"Failed to fetch from origin: {e}")
         available_tags = self._get_available_release_tags(allow_rc=allow_rc)
 
         # 2. Read current production version from database
@@ -1248,7 +1241,9 @@ class ReleaseManager:
             if production_versions:
                 # Use last production version as target
                 target_version = production_versions[-1]
-                upgrade_path = self._calculate_upgrade_path(current_version, target_version)
+                upgrade_path = self._calculate_upgrade_path(
+                    current_version, target_version, available_tags=available_tags
+                )
 
         # 5. Return results
         return {
@@ -1260,10 +1255,11 @@ class ReleaseManager:
 
     def _get_available_release_tags(self, allow_rc: bool = False) -> List[str]:
         """
-        Get available release tags from Git repository.
+        Get available release tags from local Git repository.
 
-        Fetches tags from origin and filters for release tags (v*.*.*).
+        Filters local tags for release tags (v*.*.*).
         Excludes RC tags unless allow_rc=True.
+        Caller is responsible for fetching from origin before calling this.
 
         Args:
             allow_rc: If True, include RC tags (v1.3.6-rc1)
@@ -1283,12 +1279,6 @@ class ReleaseManager:
             tags = mgr._get_available_release_tags(allow_rc=True)
             # → ["v1.3.6-rc1", "v1.3.6", "v1.4.0"]
         """
-        try:
-            # Fetch tags from origin
-            self._repo.hgit.fetch_tags()
-        except Exception as e:
-            raise ReleaseManagerError(f"Failed to fetch tags from origin: {e}")
-
         # Get all tags from repository
         try:
             all_tags = self._repo.hgit._HGit__git_repo.tags
@@ -1314,7 +1304,8 @@ class ReleaseManager:
     def _calculate_upgrade_path(
         self,
         current: str,
-        target: str
+        target: str,
+        available_tags: Optional[List[str]] = None,
     ) -> List[str]:
         """
         Calculate sequential upgrade path between two versions.
@@ -1348,7 +1339,8 @@ class ReleaseManager:
         if current == target:
             return []
 
-        available_tags = self._get_available_release_tags(allow_rc=False)
+        if available_tags is None:
+            available_tags = self._get_available_release_tags(allow_rc=False)
 
         available_versions = []
         for tag in available_tags:
@@ -1386,10 +1378,10 @@ class ReleaseManager:
         It does NOT use restore_database_from_schema() which would destroy data.
 
         Workflow:
-            1. CREATE BACKUP (first action, before any validation)
+            1. Fetch available releases via update_production()
             2. Validate production environment (ho-prod branch, clean repo)
-            3. Fetch available releases via update_production()
-            4. Calculate upgrade path (all or to specific version)
+            3. Calculate upgrade path (all or to specific version)
+            4. CREATE BACKUP (last action before any destructive operation)
             5. Apply each release sequentially on existing database
             6. Update database version after each release
 
@@ -1488,36 +1480,10 @@ class ReleaseManager:
                 'message': 'Production already at latest version'
             }
 
-        # === 2. SNAPSHOT OR BACKUP (unless dry_run or skip_backup) ===
-        # Preferred: instant snapshot via CREATE DATABASE ... TEMPLATE (requires CREATEDB).
-        # Fallback: full pg_dump.
-        # Connections are terminated before the snapshot — this is intentional:
-        # we want no application traffic during the schema migration anyway.
-        snapshot_name = None
-        backup_path = None
-        if not dry_run and not skip_backup:
-            db = self._repo.database
-            version_slug = current_version.replace('.', '_').replace('-', '_')
-            snap_name = f"{db.name}_hop_snap_{version_slug}"
-
-            if db.has_createdb_privilege():
-                if force_backup:
-                    db.drop_snapshot(snap_name)
-                db.terminate_active_connections()
-                db.create_snapshot(snap_name)
-                snapshot_name = snap_name
-                # Our psycopg connection was terminated above — reconnect.
-                db._Database__model.reconnect(reload=True)
-            else:
-                backup_path = self._create_production_backup(
-                    current_version,
-                    force=force_backup
-                )
-
-        # === 3. Validate environment ===
+        # === 2. Validate environment ===
         self._validate_production_upgrade()
 
-        # === 4. Calculate upgrade path ===
+        # === 3. Calculate upgrade path ===
         if to_version:
             # Upgrade to specific version
             full_path = update_info['upgrade_path']
@@ -1558,14 +1524,34 @@ class ReleaseManager:
                 'final_version': upgrade_path[-1] if upgrade_path else current_version
             }
 
-        # === 5. Fetch from remote (read-only) and apply releases ===
-        git_repo = self._repo.hgit._HGit__git_repo
-        try:
-            self._repo.hgit.fetch_tags()
-            git_repo.remotes.origin.fetch(prune=True)
-        except Exception as e:
-            raise ReleaseManagerError(f"Failed to fetch from origin: {e}")
+        # === 4. SNAPSHOT OR BACKUP (last step before any destructive operation) ===
+        # Preferred: instant snapshot via CREATE DATABASE ... TEMPLATE (requires CREATEDB).
+        # Fallback: full pg_dump.
+        # Connections are terminated before the snapshot — this is intentional:
+        # we want no application traffic during the schema migration anyway.
+        snapshot_name = None
+        backup_path = None
+        if not skip_backup:
+            db = self._repo.database
+            version_slug = current_version.replace('.', '_').replace('-', '_')
+            snap_name = f"{db.name}_hop_snap_{version_slug}"
 
+            if db.has_createdb_privilege():
+                if force_backup:
+                    db.drop_snapshot(snap_name)
+                db.terminate_active_connections()
+                db.create_snapshot(snap_name)
+                snapshot_name = snap_name
+                # Our psycopg connection was terminated above — reconnect.
+                db._Database__model.reconnect(reload=True)
+            else:
+                backup_path = self._create_production_backup(
+                    current_version,
+                    force=force_backup
+                )
+
+        # === 5. Apply releases ===
+        git_repo = self._repo.hgit._HGit__git_repo
         patches_applied = {}
         try:
             for version in upgrade_path:

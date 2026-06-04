@@ -58,7 +58,7 @@ def release_manager_for_update(tmp_path):
 
     # Mock HGit for tag operations
     mock_hgit = Mock()
-    mock_hgit.fetch_tags = Mock()
+    mock_hgit.fetch_from_origin = Mock()
     mock_hgit.read_file_at_ref = Mock(return_value='')
     mock_repo.hgit = mock_hgit
 
@@ -75,8 +75,8 @@ def release_manager_for_update(tmp_path):
 class TestUpdateProductionBasic:
     """Test basic functionality of update_production()."""
 
-    def test_fetches_tags_from_origin(self, release_manager_for_update):
-        """Test that update_production() fetches tags from origin."""
+    def test_fetches_from_origin(self, release_manager_for_update):
+        """Test that update_production() fetches all refs from origin."""
         release_mgr, mock_repo, mock_hgit, _ = release_manager_for_update
 
         mock_hgit._HGit__git_repo = _make_git_repo_mock()
@@ -84,8 +84,8 @@ class TestUpdateProductionBasic:
         # Call update_production
         result = release_mgr.update_production()
 
-        # Should have called fetch_tags
-        mock_hgit.fetch_tags.assert_called_once()
+        # Should have called fetch_from_origin
+        mock_hgit.fetch_from_origin.assert_called_once()
 
     def test_reads_current_version_from_database(self, release_manager_for_update):
         """Test reads production version from database.last_release_s."""
@@ -188,13 +188,13 @@ class TestUpdateProductionErrors:
         """Test raises ReleaseManagerError when fetch fails."""
         release_mgr, mock_repo, mock_hgit, _ = release_manager_for_update
 
-        # Mock fetch_tags to raise error
-        mock_hgit.fetch_tags.side_effect = GitCommandError(
-            "git fetch --tags", 1, stderr="Network error"
+        # Mock fetch_from_origin to raise error
+        mock_hgit.fetch_from_origin.side_effect = GitCommandError(
+            "git fetch", 1, stderr="Network error"
         )
 
         # Should raise ReleaseManagerError
-        with pytest.raises(ReleaseManagerError, match="Failed to fetch tags|Network error"):
+        with pytest.raises(ReleaseManagerError, match="Failed to fetch from origin|Network error"):
             release_mgr.update_production()
 
     def test_raises_error_on_database_version_unavailable(self, release_manager_for_update):
