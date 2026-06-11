@@ -1537,6 +1537,21 @@ class ReleaseManager:
             snap_name = f"{db.name}_hop_snap_{version_slug}"
 
             if db.has_createdb_privilege():
+                existing = db.list_snapshots()
+                if snap_name in existing and not force_backup:
+                    raise ReleaseManagerError(
+                        f"Snapshot '{snap_name}' already exists — a previous upgrade "
+                        f"attempt may have failed mid-way.\n\n"
+                        f"OPTIONS:\n"
+                        f"  • Retry and overwrite the snapshot:\n"
+                        f"      half_orm dev upgrade --force\n"
+                        f"  • Roll back to the snapshot first, then retry:\n"
+                        f"      dropdb {db.name} && createdb -T {snap_name} {db.name}\n"
+                        f"      half_orm dev upgrade --force\n"
+                        f"  • Drop the snapshot and retry (no rollback possible):\n"
+                        f"      dropdb {snap_name}\n"
+                        f"      half_orm dev upgrade"
+                    )
                 if force_backup:
                     db.drop_snapshot(snap_name)
                 db.terminate_active_connections()
