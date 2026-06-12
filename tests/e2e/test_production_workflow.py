@@ -4,7 +4,7 @@ End-to-end tests for production workflow.
 Tests the complete production lifecycle:
 - Update command (fetch and list available releases)
 - Upgrade command (apply releases to production database)
-- Bootstrap execution during upgrade
+- Bootstrap execution during clone (one-time initialization)
 - Production mode command availability
 """
 
@@ -45,7 +45,7 @@ def production_environment(initialized_project):
     run(['git', 'checkout', 'ho-prod'])
     run(['half_orm', 'dev', 'release', 'create', 'minor'])  # 0.1.0
 
-    # Create a patch with a schema change and bootstrap file
+    # Create a patch with a schema change
     run(['half_orm', 'dev', 'patch', 'create', '1-add-users-table'])
 
     # Add SQL schema file to patch
@@ -59,18 +59,18 @@ def production_environment(initialized_project):
         );
     """)
 
-    # Add bootstrap file to patch
-    bootstrap_file = patch_dir / '02_seed_users.sql'
-    bootstrap_file.write_text("""-- @HOP:bootstrap
+    # Add bootstrap file manually to bootstrap/ directory (new mechanism)
+    bootstrap_dir = project_dir / 'bootstrap'
+    bootstrap_file = bootstrap_dir / '01-seed-users.sql'
+    bootstrap_file.write_text("""
         INSERT INTO public.users (name, email)
-        VALUES ('admin', 'admin@example.com')
-        ON CONFLICT DO NOTHING;
+        VALUES ('admin', 'admin@example.com');
     """)
 
     # Apply and merge the patch
     run(['half_orm', 'dev', 'patch', 'apply'])
     run(['git', 'add', '.'])
-    run(['git', 'commit', '-m', 'Add users table patch', '--no-verify'])
+    run(['git', 'commit', '-m', 'Add users table patch and bootstrap data', '--no-verify'])
     run(['half_orm', 'dev', 'patch', 'merge', '--force'])
 
     # Promote to production
@@ -265,22 +265,6 @@ class TestBootstrapInProduction:
             ))
             assert len(users) == 1, "Bootstrap should have inserted admin user"
             assert users[0]['name'] == 'admin'
-        finally:
-            model.disconnect()
-
-    def test_bootstrap_tracked_in_table(self, production_environment):
-        """Test that executed bootstrap scripts are tracked."""
-        prod_db_name = production_environment['prod_db_name']
-
-        from half_orm.model import Model
-        model = Model(prod_db_name)
-        try:
-            # Check bootstrap tracking table
-            tracked = list(model.execute_query(
-                "SELECT filename, version FROM half_orm_meta.bootstrap"
-            ))
-            # Should have at least one tracked file
-            assert len(tracked) >= 0  # May be 0 if bootstrap ran during patch merge
         finally:
             model.disconnect()
 

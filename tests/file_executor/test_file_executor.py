@@ -16,7 +16,6 @@ from half_orm_dev.file_executor import (
     execute_python_file,
     execute_python_bootstrap,
     _has_run_entrypoint,
-    is_bootstrap_file,
     FileExecutionError
 )
 
@@ -247,87 +246,6 @@ class TestExecutePythonBootstrap:
         f.write_text('def run(model):\n    pass\n')
         execute_python_bootstrap(f, Mock())
         assert not any('_hop_bootstrap_' in k for k in sys.modules)
-
-
-class TestIsBootstrapFile:
-    """Test is_bootstrap_file function."""
-
-    def test_sql_with_bootstrap_marker(self, tmp_path):
-        """Test SQL file with @HOP:bootstrap marker."""
-        sql_file = tmp_path / 'test.sql'
-        sql_file.write_text('-- @HOP:bootstrap\nSELECT 1;')
-
-        assert is_bootstrap_file(sql_file) is True
-
-    def test_sql_with_data_marker(self, tmp_path):
-        """Test SQL file with @HOP:data marker (alias)."""
-        sql_file = tmp_path / 'test.sql'
-        sql_file.write_text('-- @HOP:data\nSELECT 1;')
-
-        assert is_bootstrap_file(sql_file) is True
-
-    def test_python_with_bootstrap_marker(self, tmp_path):
-        """Test Python file with @HOP:bootstrap marker."""
-        py_file = tmp_path / 'test.py'
-        py_file.write_text('# @HOP:bootstrap\nprint("data")')
-
-        assert is_bootstrap_file(py_file) is True
-
-    def test_python_with_data_marker(self, tmp_path):
-        """Test Python file with @HOP:data marker (alias)."""
-        py_file = tmp_path / 'test.py'
-        py_file.write_text('# @HOP:data\nprint("data")')
-
-        assert is_bootstrap_file(py_file) is True
-
-    def test_no_marker(self, tmp_path):
-        """Test file without marker."""
-        sql_file = tmp_path / 'test.sql'
-        sql_file.write_text('SELECT 1;')
-
-        assert is_bootstrap_file(sql_file) is False
-
-    def test_marker_not_on_first_line(self, tmp_path):
-        """Test that marker must be on first line."""
-        sql_file = tmp_path / 'test.sql'
-        sql_file.write_text('SELECT 1;\n-- @HOP:bootstrap')
-
-        assert is_bootstrap_file(sql_file) is False
-
-    def test_case_insensitive(self, tmp_path):
-        """Test that marker matching is case insensitive."""
-        sql_file = tmp_path / 'test.sql'
-        sql_file.write_text('-- @HOP:BOOTSTRAP\nSELECT 1;')
-
-        assert is_bootstrap_file(sql_file) is True
-
-    def test_marker_with_extra_spaces(self, tmp_path):
-        """Test marker with extra spaces."""
-        sql_file = tmp_path / 'test.sql'
-        sql_file.write_text('--   @HOP:bootstrap\nSELECT 1;')
-
-        assert is_bootstrap_file(sql_file) is True
-
-    def test_nonexistent_file(self, tmp_path):
-        """Test that nonexistent file returns False."""
-        fake_file = tmp_path / 'nonexistent.sql'
-
-        assert is_bootstrap_file(fake_file) is False
-
-    def test_empty_file(self, tmp_path):
-        """Test that empty file returns False."""
-        empty_file = tmp_path / 'empty.sql'
-        empty_file.write_text('')
-
-        assert is_bootstrap_file(empty_file) is False
-
-    def test_binary_file(self, tmp_path):
-        """Test that binary file returns False gracefully."""
-        binary_file = tmp_path / 'binary.bin'
-        binary_file.write_bytes(b'\x00\x01\x02\x03')
-
-        # Should return False, not raise
-        assert is_bootstrap_file(binary_file) is False
 
 
 class TestFileExecutionError:

@@ -25,7 +25,6 @@ from half_orm_dev import modules
 from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
 from half_orm_dev.file_executor import (
     execute_sql_file, execute_sql_file_psql, execute_python_file,
-    is_bootstrap_file, has_misplaced_bootstrap_marker,
     FileExecutionError
 )
 from .patch_validator import PatchValidator, PatchInfo
@@ -577,11 +576,7 @@ class PatchManager:
 
                 if release_schema_path and release_schema_path.exists():
                     # New workflow: restore from release schema (includes all staged patches)
-                    # Exclude bootstraps for this version — apply_patch_files will
-                    # execute the current patch's bootstrap below.
-                    self._repo.restore_database_from_release_schema(
-                        version, exclude_bootstrap_version=version
-                    )
+                    self._repo.restore_database_from_release_schema(version)
 
                     # Apply only the current patch
                     files = self.apply_patch_files(patch_id, self._repo.model)
@@ -589,11 +584,7 @@ class PatchManager:
                 else:
                     # Backward compatibility: old workflow
                     # Also generates release schema for migration of existing projects
-                    # Exclude bootstraps for this version — apply_patch_files will
-                    # execute them when applying staged patches below.
-                    self._repo.restore_database_from_schema(
-                        exclude_bootstrap_version=version
-                    )
+                    self._repo.restore_database_from_schema()
 
                     # Get and apply all staged release patches
                     release_patches = self._repo.release_manager.get_all_release_context_patches()
@@ -699,12 +690,6 @@ class PatchManager:
 
         # Apply files in lexicographic order
         for patch_file in structure.files:
-            if (patch_file.is_sql or patch_file.is_python) and has_misplaced_bootstrap_marker(patch_file.path):
-                click.echo(
-                    f"  ⚠️  Warning: {patch_file.name} contains a @HOP:bootstrap marker "
-                    f"but it is not on the first line — it will be ignored. "
-                    f"Move the marker to the first line to enable bootstrap tracking."
-                )
             if patch_file.is_sql:
                 click.echo(f"  • {patch_file.name}")
                 try:
@@ -992,95 +977,6 @@ class PatchManager:
         """
         pass
 
-    def _get_bootstrap_files_from_patch(self, patch_id: str) -> List[Path]:
-        """
-        Get all bootstrap files (annotated with @HOP:bootstrap or @HOP:data) from a patch.
-
-        Returns SQL and Python files from the patch directory that are annotated with
-        `-- @HOP:bootstrap` or `-- @HOP:data` (SQL) or `# @HOP:bootstrap` or `# @HOP:data` (Python)
-        marker, in lexicographic order for proper sequencing.
-
-        Args:
-            patch_id: Patch identifier (e.g., "456-user-auth")
-
-        Returns:
-            List of Path objects for bootstrap files in application order
-
-        Examples:
-            bootstrap_files = self._get_bootstrap_files_from_patch("456-user-auth")
-            # Returns [Path("Patches/456-user-auth/01_roles.sql"), ...]
-        """
-        bootstrap_files = []
-        structure = self.get_patch_structure(patch_id)
-
-        if not structure.is_valid:
-            return []
-
-        for patch_file in structure.files:
-            if (patch_file.is_sql or patch_file.is_python) and is_bootstrap_file(patch_file.path):
-                bootstrap_files.append(patch_file.path)
-
-        return bootstrap_files
-
-    # Alias for backwards compatibility
-    def _get_data_files_from_patch(self, patch_id: str) -> List[Path]:
-        """Alias for _get_bootstrap_files_from_patch (backwards compatibility)."""
-        return self._get_bootstrap_files_from_patch(patch_id)
-
-    def _copy_bootstrap_files_from_patch(self, patch_id: str, version: str) -> List[str]:
-        """
-        Copy files marked with @HOP:bootstrap or @HOP:data to bootstrap/ directory.
-
-        Called during patch merge to copy bootstrap files from the patch
-        to the bootstrap/ directory with proper naming.
-
-        Naming format: <number>-<patch_id>-<version>.<ext>
-        Example: 1-init-users-0.1.0.sql
-
-        Args:
-            patch_id: Patch identifier (e.g., "456-user-auth")
-            version: Release version (e.g., "0.1.0")
-
-        Returns:
-            List of copied filenames
-
-        Examples:
-            copied = self._copy_bootstrap_files_from_patch("456-user-auth", "0.1.0")
-            # Returns ["1-456-user-auth-0.1.0.sql"]
-        """
-        from half_orm_dev.bootstrap_manager import BootstrapManager
-
-        bootstrap_files = self._get_bootstrap_files_from_patch(patch_id)
-        if not bootstrap_files:
-            return []
-
-        # Ensure bootstrap directory exists
-        bootstrap_mgr = BootstrapManager(self._repo)
-        bootstrap_mgr.ensure_bootstrap_dir()
-
-        copied = []
-        for file_path in bootstrap_files:
-            # Get next number for bootstrap file
-            next_num = bootstrap_mgr.get_next_bootstrap_number() + len(copied)
-            ext = file_path.suffix
-
-            # Build new filename: N-patch_id-X.Y.Z.ext
-            new_name = f"{next_num}-{patch_id}-{version}{ext}"
-            dest = bootstrap_mgr.bootstrap_dir / new_name
-
-            # Copy file
-            shutil.copy(file_path, dest)
-            copied.append(new_name)
-
-            # Record as already executed — the bootstrap SQL was already
-            # run by apply_patch_files during validation, so run_bootstrap
-            # must skip it to avoid double execution.
-            bootstrap_mgr.record_execution(new_name, version)
-
-            click.echo(f"  • Copied bootstrap file: {new_name}")
-
-        return copied
-
     def _validate_data_file_idempotent(self, file_path: Path) -> Tuple[bool, List[str]]:
         """
         Validate that data file uses idempotent SQL patterns.
@@ -1139,52 +1035,6 @@ class PatchManager:
         except Exception as e:
             warnings.append(f"Failed to validate {file_path.name}: {e}")
             return False, warnings
-
-    def _collect_data_files_from_patches(self, patch_list: List[str]) -> List[Path]:
-        """
-        Collect all data files from a list of patches.
-
-        Processes a list of patch IDs and returns all data files (marked with
-        @HOP:data) in the order they should be applied. Validates idempotency
-        and shows warnings for non-idempotent patterns.
-
-        Args:
-            patch_list: List of patch identifiers in application order
-
-        Returns:
-            List of Path objects for all data files across patches
-
-        Raises:
-            PatchManagerError: If validation fails critically
-
-        Examples:
-            patches = ["456-user-auth", "457-roles", "458-permissions"]
-            data_files = self._collect_data_files_from_patches(patches)
-            # Returns all @HOP:data files from these patches in order
-        """
-        all_data_files = []
-        all_warnings = []
-
-        for patch_id in patch_list:
-            data_files = self._get_data_files_from_patch(patch_id)
-
-            for data_file in data_files:
-                # Validate idempotency
-                is_valid, warnings = self._validate_data_file_idempotent(data_file)
-
-                if warnings:
-                    all_warnings.extend(warnings)
-
-                all_data_files.append(data_file)
-
-        # Show warnings if any
-        if all_warnings:
-            click.echo(f"\n{utils.Color.bold('⚠ Data file idempotency warnings:')}")
-            for warning in all_warnings:
-                click.echo(f"  {warning}")
-            click.echo("")
-
-        return all_data_files
 
     def _fetch_from_remote(self) -> None:
         """
@@ -2076,13 +1926,6 @@ class PatchManager:
         # 5b. Get merge commit hash
         merge_commit = self._repo.hgit.last_commit()
 
-        # 5c. Copy bootstrap files from patch to bootstrap/ directory
-        bootstrap_files = self._copy_bootstrap_files_from_patch(patch_id, version)
-        if bootstrap_files:
-            # Add bootstrap files to git staging
-            for filename in bootstrap_files:
-                self._repo.hgit.add(f'bootstrap/{filename}')
-
         # 6. Move from candidates to stage (with merge commit hash)
         self._move_patch_to_stage(patch_id, version, merge_commit)
 
@@ -2424,11 +2267,8 @@ class PatchManager:
                     f"Failed to run patch apply during validation: {e}"
                 )
 
-            # 4. Run tests (best-effort)
-            self._run_tests_if_available()
-
-            # 5. Generate release schema while DB is in correct state
-            # This captures prod + all staged patches + current patch
+            # 4. Generate release schema BEFORE bootstrap
+            # This captures prod + all staged patches + current patch WITHOUT bootstrap data
             # Skip for hotfix releases (detected by presence of X.Y.Z.txt production file)
             prod_file = Path(self._repo.releases_dir) / f"{version}.txt"
             is_hotfix = prod_file.exists()
@@ -2449,6 +2289,16 @@ class PatchManager:
                 release_schema_path.unlink()
 
                 click.echo(f"  • {utils.Color.green('✓')} Release schema generated")
+
+            # 5. Execute bootstrap to validate it works and provide data for tests
+            click.echo(f"  • Executing bootstrap scripts...")
+            from half_orm_dev.file_executor import execute_bootstrap_files
+            bootstrap_dir = Path(self._repo.base_dir) / 'bootstrap'
+            execute_bootstrap_files(bootstrap_dir, self._repo.model)
+            click.echo(f"  • {utils.Color.green('✓')} Bootstrap executed successfully")
+
+            # 6. Run tests (with bootstrap data)
+            self._run_tests_if_available()
 
             click.echo(f"  • {utils.Color.green('✓')} Validation passed!\n")
 

@@ -353,29 +353,31 @@ half_orm dev upgrade [--to-release X.Y.Z]
 half_orm dev upgrade --dry-run
 ```
 
-### Data Bootstrap
+### Bootstrap - Data Initialization
 
-Mark patch files with `-- @HOP:bootstrap` (SQL) or `# @HOP:bootstrap` (Python) to declare reference data.
-The marker **must be on the first line** of the file:
+Bootstrap scripts initialize application data on empty databases. Place SQL and Python files in the `bootstrap/` directory:
 
-```sql
--- @HOP:bootstrap
-INSERT INTO roles (name) VALUES ('admin'), ('user') ON CONFLICT DO NOTHING;
 ```
+bootstrap/
+├── 01-init-roles.sql
+├── 02-seed-config.py
+└── 03-reference-data.sql
+```
+
+Files are executed **alphabetically** during:
+- **Development**: Each `patch apply` (allows iteration on bootstrap scripts)
+- **Production**: Initial `clone` only (one-time initialization)
+
+For production data changes, use **patches** (not bootstrap).
+
+**Python files** can define a `run(model)` function to share the database connection:
 
 ```python
-# @HOP:bootstrap
-# (no shebang — the file is executed directly by half-orm-dev)
-MyModel(field='value').ho_insert()
+def run(model):
+    # model is the halfORM Model instance with active connection
+    MyModel = model.get_relation_class('schema.table')
+    MyModel(field='value').ho_insert()
 ```
-
-These files are automatically:
-- Copied to `bootstrap/` during `patch merge`
-- Executed during production `upgrade`
-- Tracked in database (each script runs once)
-
-> **Note:** If the marker is not on the first line it is silently ignored.
-> A warning is displayed during `patch apply` to help catch this mistake.
 
 **Note:** Use `half_orm dev <command> --help` for detailed help on each command.
 

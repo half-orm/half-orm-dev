@@ -1,0 +1,4 @@
+.config/*
+hop_bootstrap_test/*
+hop_bootstrap_test_prod/*
+production/*

@@ -55,6 +55,8 @@ class TestCloneRepoSuccess:
         mock_repo = Mock()
         mock_repo.restore_database_from_schema = Mock()
         mock_repo.install_git_hooks = Mock()
+        mock_repo.base_dir = '/current/dir/project'
+        mock_repo.model = Mock()
 
         with patch.object(Repo, '__new__', return_value=mock_repo):
             # Execute clone
@@ -112,6 +114,8 @@ class TestCloneRepoSuccess:
 
         mock_repo = Mock()
         mock_repo.restore_database_from_schema = Mock()
+        mock_repo.base_dir = '/current/dir/project'
+        mock_repo.model = Mock()
 
         with patch.object(Repo, '__new__', return_value=mock_repo):
             Repo.clone_repo("https://github.com/user/project.git")
@@ -149,6 +153,8 @@ class TestCloneRepoSuccess:
 
         mock_repo = Mock()
         mock_repo.restore_database_from_schema = Mock()
+        mock_repo.base_dir = '/current/dir/project'
+        mock_repo.model = Mock()
 
         with patch.object(Repo, '__new__', return_value=mock_repo):
             Repo.clone_repo(
@@ -200,6 +206,9 @@ class TestCloneRepoSuccess:
 
         mock_repo = Mock()
         mock_repo.restore_database_from_schema = Mock()
+        mock_repo.base_dir = '/current/dir/project'
+        mock_repo.model = Mock()
+        mock_repo.release_manager = Mock()
 
         with patch.object(Repo, '__new__', return_value=mock_repo):
             Repo.clone_repo(

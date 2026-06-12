@@ -198,6 +198,8 @@ class TestCloneRepoErrors:
 
             mock_repo = Mock()
             mock_repo.restore_database_from_schema = Mock()
+            mock_repo.base_dir = '/current/dir/custom_name'
+            mock_repo.model = Mock()
 
             with patch.object(Repo, '__new__', return_value=mock_repo):
                 Repo.clone_repo(

@@ -32,7 +32,7 @@ from half_orm_dev.patch_manager import PatchManager, PatchManagerError
 from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 from half_orm_dev.migration_manager import MigrationManager, MigrationManagerError
 from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
-from half_orm_dev.bootstrap_manager import BootstrapManager
+from half_orm_dev.file_executor import execute_bootstrap_files
 from half_orm_dev.decorators import with_dynamic_branch_lock
 
 from .utils import TEMPLATE_DIRS, hop_version
@@ -2223,56 +2223,52 @@ See docs/half_orm_dev.md for complete documentation.
         with open(bootstrap_readme, 'w', encoding='utf-8') as f:
             f.write("""# Bootstrap Scripts
 
-This directory contains data initialization scripts that run after database setup.
+This directory contains data initialization scripts executed on empty databases.
 
 ## File Naming
 
-Files are named: `<number>-<patch_id>-<version>.<ext>`
+Files are named with alphabetic prefixes for execution order:
+- `01-init-roles.sql`
+- `02-seed-config.py`
+- `03-reference-data.sql`
 
-Examples:
-- `1-init-users-0.1.0.sql`
-- `2-seed-config-0.1.0.py`
+Files are executed **alphabetically** (not numerically parsed).
 
-Scripts are executed in numeric order (by the first number).
+## Execution Context
 
-## Usage
+Bootstrap scripts run:
+- **Development**: Each `patch apply` (allows iteration on bootstrap)
+- **Production**: Initial `clone` only (one-time setup)
 
-Run pending bootstrap scripts:
-```bash
-half_orm dev bootstrap
-```
+For production data changes, use **patches** (not bootstrap).
 
-Preview what would be executed:
-```bash
-half_orm dev bootstrap --dry-run
-```
+## Python Files
 
-Re-execute all scripts (ignore tracking):
-```bash
-half_orm dev bootstrap --force
-```
+Python files can define a `run(model)` function to share the database connection:
 
-## Creating Bootstrap Files
-
-Mark patch files with the `@HOP:bootstrap` marker (or `@HOP:data` alias)
-on the first line to have them automatically copied here during `patch merge`.
-
-SQL files:
-```sql
--- @HOP:bootstrap
-INSERT INTO roles (name) VALUES ('admin'), ('user') ON CONFLICT DO NOTHING;
-```
-
-Python files:
 ```python
-# @HOP:bootstrap
-# Your initialization script here
+def run(model):
+    # model is the halfORM Model instance with active connection
+    MyModel = model.get_relation_class('schema.table')
+    MyModel(field='value').ho_insert()
 ```
 
-## Tracking
+Without `run(model)`, the file executes as a subprocess (must handle own connection).
 
-Executed scripts are tracked in `half_orm_meta.bootstrap` table.
-Each script is executed only once unless `--force` is used.
+## SQL Files
+
+SQL files can use any SQL commands:
+
+```sql
+-- Initialize roles
+INSERT INTO public.roles (name) VALUES ('admin'), ('user');
+```
+
+## Notes
+
+- No tracking mechanism (files execute on every restore)
+- Not idempotent (assumes empty database)
+- Maintained manually by developers
 """)
 
     def _generate_python_package(self):
@@ -2529,13 +2525,13 @@ Each script is executed only once unless `--force` is used.
             self.model.execute_query('CREATE SCHEMA public')
             self.model.execute_query('GRANT ALL ON SCHEMA public TO public')
 
-    def restore_database_from_schema(self, exclude_bootstrap_patch_id: Optional[str] = None, exclude_bootstrap_version: Optional[str] = None, skip_bootstrap: bool = False) -> None:
+    def restore_database_from_schema(self) -> None:
         """
         Restore database from model/schema.sql, metadata, and data files.
 
         Restores database to clean production state by dropping all user schemas
-        and loading schema, metadata, and reference data. Used for from-scratch
-        installations (clone) and patch development (patch apply).
+        and loading schema, metadata, and reference data.
+        Used for patch development (patch apply).
 
         Process:
         1. Verify model/schema.sql exists (file or symlink)
@@ -2640,24 +2636,6 @@ Each script is executed only once unless `--force` is used.
 
             # 6. Reload half_orm metadata cache
             self.model.reconnect(reload=True)
-
-            # 7. Execute bootstrap scripts
-            # In patch apply context: ALL bootstraps run (only current patch excluded).
-            # In promote context: exclude_bootstrap_version skips the version being
-            # promoted (its bootstraps don't run during promote, they run via upgrade).
-            # up_to_version prevents bootstraps from future versions from running.
-            # skip_bootstrap=True is used when regenerating modules after migration
-            # (bootstrap validation belongs only in patch merge / release promote prod).
-            if not skip_bootstrap:
-                bootstrap_mgr = BootstrapManager(self)
-                result = bootstrap_mgr.run_bootstrap(
-                    exclude_patch_id=exclude_bootstrap_patch_id,
-                    exclude_version=exclude_bootstrap_version,
-                    up_to_version=exclude_bootstrap_version
-                )
-                if result['errors']:
-                    error_msg = "\n".join([f"  • {f}: {e}" for f, e in result['errors']])
-                    raise RepoError(f"Bootstrap execution failed:\n{error_msg}")
 
         except RepoError:
             # Re-raise RepoError as-is
@@ -2793,28 +2771,19 @@ Each script is executed only once unless `--force` is used.
             if temp_file.exists():
                 temp_file.unlink()
 
-    def restore_database_from_release_schema(
-        self,
-        version: str,
-        exclude_bootstrap_patch_id: Optional[str] = None,
-        exclude_bootstrap_version: Optional[str] = None,
-        skip_bootstrap: bool = False
-    ) -> None:
+    def restore_database_from_release_schema(self, version: str) -> None:
         """
-        Restore database from release schema file.
+        Restore database from release schema file and execute bootstrap scripts.
 
         Restores database from .hop/model/release-{version}.sql which contains
-        the complete state of a release in development (prod + staged patches).
+        the complete state of a release in development (prod + staged patches),
+        then executes bootstrap scripts for initialization.
 
         If the release schema file doesn't exist, falls back to
         restore_database_from_schema() for backward compatibility.
 
         Args:
             version: Release version string (e.g., "0.17.1")
-            exclude_bootstrap_patch_id: If provided, skip bootstrap files
-                belonging to this patch (used during patch apply)
-            exclude_bootstrap_version: If provided, skip bootstrap files for
-                this version (used during promote)
 
         Raises:
             RepoError: If restoration fails
@@ -2828,10 +2797,7 @@ Each script is executed only once unless `--force` is used.
 
         # Fallback to production schema if release schema doesn't exist
         if not release_schema_path.exists():
-            self.restore_database_from_schema(
-                exclude_bootstrap_patch_id,
-                exclude_bootstrap_version=exclude_bootstrap_version
-            )
+            self.restore_database_from_schema()
             return
 
         try:
@@ -2845,16 +2811,6 @@ Each script is executed only once unless `--force` is used.
 
             # Reload half_orm metadata cache
             self.model.reconnect(reload=True)
-
-            # Execute bootstrap scripts (skip during module regeneration — the
-            # modules may be in an inconsistent state at that point)
-            if not skip_bootstrap:
-                bootstrap_mgr = BootstrapManager(self)
-                bootstrap_mgr.run_bootstrap(
-                    exclude_patch_id=exclude_bootstrap_patch_id,
-                    exclude_version=exclude_bootstrap_version,
-                    up_to_version=exclude_bootstrap_version
-                )
 
         except Exception as e:
             raise RepoError(f"Failed to restore from release schema: {e}") from e
@@ -3143,6 +3099,9 @@ Each script is executed only once unless `--force` is used.
 
         try:
             repo.restore_database_from_schema()
+            # Execute bootstrap scripts after restoring schema (one-time initialization)
+            bootstrap_dir = Path(repo.base_dir) / 'bootstrap'
+            execute_bootstrap_files(bootstrap_dir, repo.model)
         except RepoError as e:
             raise RepoError(
                 f"Failed to restore database from schema: {e}"

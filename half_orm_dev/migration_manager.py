@@ -543,6 +543,7 @@ class MigrationManager:
                     else:
                         repo.restore_database_from_schema(skip_bootstrap=True)
                 else:
+                    #XXX EST-CE QUE POUR ho-patch/* on ne devrait pas utiliser from_release_schema ?
                     # ho-prod and ho-patch/*: use production schema
                     repo.restore_database_from_schema(skip_bootstrap=True)
 

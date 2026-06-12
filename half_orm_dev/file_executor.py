@@ -1,13 +1,12 @@
 """
 Shared utilities for executing SQL and Python files.
 
-This module provides common file execution functionality used by both
-PatchManager and BootstrapManager.
+This module provides common file execution functionality for patch application
+and bootstrap initialization.
 """
 
 import ast
 import importlib.util
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -166,54 +165,57 @@ def execute_python_bootstrap(file_path: Path, model, cwd: Optional[Path] = None)
         sys.modules.pop(module_name, None)
 
 
-_HOP_MARKER = re.compile(r"(--|#)\s*@hop:(bootstrap|data)")
-
-
-def is_bootstrap_file(file_path: Path) -> bool:
+def execute_bootstrap_files(bootstrap_dir: Path, model) -> None:
     """
-    Check if file has @HOP:bootstrap or @HOP:data marker on first line.
+    Execute all bootstrap files in alphabetic order.
 
-    The marker must be on the first line of the file:
-    - SQL files: -- @HOP:bootstrap or -- @HOP:data
-    - Python files: # @HOP:bootstrap or # @HOP:data
-
-    Note: @HOP:data is supported as an alias for backwards compatibility.
+    Bootstrap files are SQL and Python files in the bootstrap/ directory that
+    initialize application data on empty databases. They are executed in
+    alphabetic order (no numeric parsing needed).
 
     Args:
-        file_path: Path to file to check
+        bootstrap_dir: Path to bootstrap directory
+        model: halfORM Model instance (shared database connection)
 
-    Returns:
-        True if file has bootstrap marker on first line, False otherwise
+    Raises:
+        FileExecutionError: If any file execution fails
+
+    Example:
+        bootstrap_dir = Path('/path/to/project/bootstrap')
+        execute_bootstrap_files(bootstrap_dir, model)
+
+        # Executes files in order:
+        # - 01-init-users.sql
+        # - 02-seed-config.py
+        # - 03-reference-data.sql
     """
-    try:
-        with file_path.open('r', encoding='utf-8') as f:
-            first_line = f.readline().strip().lower()
-            return _HOP_MARKER.match(first_line) is not None
-    except OSError:
-        return False
+    if not bootstrap_dir.exists():
+        return
 
+    # Collect all SQL and Python files
+    files = []
+    for file_path in bootstrap_dir.iterdir():
+        if file_path.is_file() and file_path.suffix in ('.sql', '.py'):
+            files.append(file_path)
 
-def has_misplaced_bootstrap_marker(file_path: Path) -> bool:
-    """
-    Check if file has a @HOP:bootstrap or @HOP:data marker NOT on the first line.
+    if not files:
+        return
 
-    Used to warn the user during patch apply when the marker is present in the
-    file but will be ignored because it is not on the first line.
+    # Sort alphabetically by filename
+    files.sort(key=lambda f: f.name)
 
-    Args:
-        file_path: Path to file to check
-
-    Returns:
-        True if a misplaced marker is found, False otherwise
-    """
-    if is_bootstrap_file(file_path):
-        return False
-    try:
-        with file_path.open('r', encoding='utf-8') as f:
-            f.readline()  # skip first line
-            for line in f:
-                if _HOP_MARKER.search(line.strip().lower()):
-                    return True
-    except OSError:
-        pass
-    return False
+    # Execute each file
+    for file_path in files:
+        try:
+            if file_path.suffix == '.sql':
+                execute_sql_file(file_path, model)
+            elif file_path.suffix == '.py':
+                execute_python_bootstrap(file_path, model, cwd=bootstrap_dir)
+        except FileExecutionError:
+            # Re-raise FileExecutionError as-is (already has good error message)
+            raise
+        except Exception as e:
+            # Wrap unexpected errors
+            raise FileExecutionError(
+                f"Failed to execute bootstrap file {file_path.name}: {e}"
+            ) from e

@@ -60,7 +60,7 @@ class Hop:
             return ['sync-package', 'check']
 
         # DEVELOPMENT ENVIRONMENT - Patch development
-        return ['patch', 'release', 'check', 'bootstrap', 'set-git-origin',
+        return ['patch', 'release', 'check', 'set-git-origin',
                 'revert-migration', 'recover']
 
     @property
