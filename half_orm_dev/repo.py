@@ -3024,11 +3024,10 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
             )
 
         # Step 3: Clone repository
-        # Production clones fetch ho-prod only — dev branches are irrelevant on production.
-        clone_cmd = ["git", "clone"]
-        if connection_options.get('production'):
-            clone_cmd += ["--single-branch", "--branch", "ho-prod"]
-        clone_cmd += [git_origin, str(dest_path)]
+        # Clone fetches all remote refs (branches, tags)
+        # setup_production_branches() will create local branches only for ho-prod*
+        # Dev branches (ho-patch/*, ho-release/*) remain as remote refs only
+        clone_cmd = ["git", "clone", git_origin, str(dest_path)]
         try:
             result = subprocess.run(
                 clone_cmd,
@@ -3097,6 +3096,11 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
         # Step 8: Create Repo instance and restore production schema
         repo = cls()
 
+        # Step 8b: Setup production branches (create local tracking branches for ho-prod-X.Y.Z)
+        if connection_options.get('production'):
+            # Production servers need all ho-prod-* branches for rollback support
+            repo.hgit.setup_production_branches()
+
         try:
             repo.restore_database_from_schema()
             # Execute bootstrap scripts after restoring schema (one-time initialization)
@@ -3107,16 +3111,12 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
                 f"Failed to restore database from schema: {e}"
             ) from e
 
-        # Step 9: Set up ho-current for production servers
+        # Step 9: Set up production marker
         if connection_options.get('production'):
             # Mark this clone as production (read-only): blocks git commit/push via hooks.
             production_marker = Path(dest_path) / '.hop' / 'production'
             production_marker.parent.mkdir(parents=True, exist_ok=True)
             production_marker.touch()
-            try:
-                repo.release_manager.ensure_ho_current()
-            except Exception as e:
-                print(f"  ⚠️  Warning: Could not set up ho-current: {e}", file=sys.stderr)
 
         # Step 10: Install Git hooks
         repo.install_git_hooks()

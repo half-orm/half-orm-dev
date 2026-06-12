@@ -1125,6 +1125,8 @@ class ReleaseManager:
         # 1. Sync with remote then read available release tags
         try:
             self._repo.hgit.fetch_from_origin()
+            # Setup production branches (create local tracking for new ho-prod-X.Y.Z branches)
+            self._repo.hgit.setup_production_branches()
         except Exception as e:
             raise ReleaseManagerError(f"Failed to fetch from origin: {e}")
         available_tags = self._get_available_release_tags(allow_rc=allow_rc)

@@ -560,6 +560,49 @@ class HGit:
         finally:
             marker.unlink(missing_ok=True)
 
+    def setup_production_branches(self) -> None:
+        """
+        Create local tracking branches for all remote ho-prod-* branches.
+
+        This ensures production servers have local access to all versioned
+        production branches (ho-prod, ho-prod-X.Y.Z) for rollback support.
+
+        Workflow:
+            1. List all remote branches matching origin/ho-prod*
+            2. For each remote branch, create local tracking branch if missing
+            3. Skip if local branch already exists
+
+        Used in:
+            - Production clone: after initial checkout
+            - Production upgrade: after fetch to get new releases
+
+        Examples:
+            # After clone or fetch
+            hgit.setup_production_branches()
+            # → Creates ho-prod-0.1.0, ho-prod-0.1.1, etc. from origin
+        """
+        # Get all remote branches matching ho-prod*
+        remote_branches = []
+        for ref in self.__git_repo.remote('origin').refs:
+            branch_name = ref.name.replace('origin/', '')
+            if branch_name.startswith('ho-prod'):
+                remote_branches.append(branch_name)
+
+        # Create local tracking branches for each remote ho-prod* branch
+        for branch_name in remote_branches:
+            try:
+                # Check if local branch already exists
+                if branch_name in [b.name for b in self.__git_repo.branches]:
+                    continue
+
+                # Create local tracking branch
+                remote_ref = self.__git_repo.remote('origin').refs[branch_name]
+                self.__git_repo.create_head(branch_name, remote_ref)
+
+            except Exception:
+                # Skip branches that can't be created (shouldn't happen)
+                pass
+
     def delete_local_branch(self, branch_name: str) -> None:
         """
         Delete local branch.
