@@ -18,25 +18,30 @@ fi
 cd $SCRIPT_DIR
 export HALFORM_CONF_DIR=$SCRIPT_DIR/.config
 
-clean_db() {
-    cd $SCRIPT_DIR
-    rm -rf hop_bootstrap_test hop_bootstrap_test_prod production .config
-    set +e
-    dropdb hop_bootstrap_test
-    dropdb hop_bootstrap_test_prod
-    set -e
-}
+set +v
+source ./common.sh
+set -v
+
+# Setup test user
+setup_test_db_user
 
 echo "=== CLEANUP ==="
-clean_db
+cleanup_all hop_bootstrap_test hop_bootstrap_test production
 
 # Create git repo
 rm -rf /tmp/hop_bootstrap_test.git
 git init --bare /tmp/hop_bootstrap_test.git
 
 # Initialize project
+# Drop database if it exists (in case of previous test failure)
+set +e
+dropdb -h localhost -U $TEST_DB_USER hop_bootstrap_test 2>/dev/null
+set -e
+
 half_orm dev init hop_bootstrap_test \
-    --git-origin /tmp/hop_bootstrap_test.git
+    --git-origin /tmp/hop_bootstrap_test.git \
+    --user $TEST_DB_USER \
+    --password $TEST_DB_PASSWORD
 
 cd hop_bootstrap_test
 
@@ -73,17 +78,14 @@ echo "=== PATCH APPLY (Bootstrap should NOT execute) ==="
 half_orm dev patch apply
 
 echo "=== VERIFY TABLE EXISTS AFTER APPLY ==="
-psql hop_bootstrap_test -c '\dt public.users'
+psql -h localhost -U $TEST_DB_USER hop_bootstrap_test -c '\dt public.users'
 
 echo "=== VERIFY BOOTSTRAP DID NOT EXECUTE ==="
 # Bootstrap should NOT have executed, so no data should be present
-set +e
-COUNT=$(psql hop_bootstrap_test -t -c "SELECT COUNT(*) FROM public.users WHERE email = 'admin@example.com'")
+COUNT=$(psql -h localhost -U $TEST_DB_USER hop_bootstrap_test -t -c "SELECT COUNT(*) FROM public.users WHERE email = 'admin@example.com'" | tr -d ' ')
 if [ "$COUNT" -ne 0 ]; then
-    echo "ERROR: Bootstrap executed during patch apply! Count=$COUNT"
-    exit 1
+    error "Bootstrap executed during patch apply! Count=$COUNT (expected 0)"
 fi
-set -e
 echo "OK: Bootstrap did not execute during patch apply"
 
 echo "=== COMMIT PATCH ==="
@@ -108,27 +110,33 @@ mkdir production
 cd production
 
 # Clone in production mode
+# Drop database if it exists (in case of previous test failure)
+set +e
+dropdb -h localhost -U $TEST_DB_USER hop_bootstrap_test_prod 2>/dev/null
+set -e
+
 half_orm dev clone /tmp/hop_bootstrap_test.git \
     --database-name hop_bootstrap_test_prod \
+    --user $TEST_DB_USER \
+    --password $TEST_DB_PASSWORD \
     --production
 
 cd hop_bootstrap_test
 
 echo "=== VERIFY BOOTSTRAP EXECUTED DURING CLONE ==="
 # Bootstrap should have executed during clone
-COUNT=$(psql hop_bootstrap_test_prod -t -c "SELECT COUNT(*) FROM public.users WHERE email = 'admin@example.com'")
+COUNT=$(psql -h localhost -U $TEST_DB_USER hop_bootstrap_test_prod -t -c "SELECT COUNT(*) FROM public.users WHERE email = 'admin@example.com'" | tr -d ' ')
 if [ "$COUNT" -ne 1 ]; then
-    echo "ERROR: Bootstrap did not execute during clone! Count=$COUNT"
-    exit 1
+    error "Bootstrap did not execute during clone! Count=$COUNT (expected 1)"
 fi
 echo "OK: Bootstrap executed during clone. Count=$COUNT"
 
 echo "=== VERIFY TABLE EXISTS IN PRODUCTION ==="
-psql hop_bootstrap_test_prod -c '\dt public.users'
-psql hop_bootstrap_test_prod -c 'SELECT * FROM public.users'
+psql -h localhost -U $TEST_DB_USER hop_bootstrap_test_prod -c '\dt public.users'
+psql -h localhost -U $TEST_DB_USER hop_bootstrap_test_prod -c 'SELECT * FROM public.users'
 
 echo "=== CLEANUP ==="
-clean_db
+cleanup_all hop_bootstrap_test hop_bootstrap_test production
 
 echo "=== ALL TESTS PASSED ==="
 cd $CUR_DIR
