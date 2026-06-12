@@ -90,6 +90,7 @@ def release_manager_for_snapshot_errors(release_manager_for_errors):
     release_mgr, mock_repo, tmp_path, backups_dir = release_manager_for_errors
     mock_repo.database.has_createdb_privilege = Mock(return_value=True)
     mock_repo.database.terminate_active_connections = Mock(return_value=0)
+    mock_repo.database.list_snapshots = Mock(return_value=[])
     mock_repo.database.create_snapshot = Mock()
     mock_repo.database.drop_snapshot = Mock()
     return release_mgr, mock_repo, tmp_path, backups_dir

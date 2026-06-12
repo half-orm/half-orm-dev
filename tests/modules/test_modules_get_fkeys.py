@@ -8,6 +8,7 @@ where the project package may not be importable.
 import pytest
 from pathlib import Path
 from unittest.mock import Mock
+from typing import Optional
 
 import half_orm_dev.modules as _mod
 
@@ -18,7 +19,7 @@ _get_fkeys = _mod.__dict__['__get_fkeys']
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _write_module(tmp_path: Path, class_name: str, fkeys: str | None = None,
+def _write_module(tmp_path: Path, class_name: str, fkeys: Optional[str] = None,
                   extra_class: str = '') -> str:
     """Write a minimal module file and return its path as a string."""
     fkeys_block = f'    Fkeys = {fkeys}\n' if fkeys is not None else ''

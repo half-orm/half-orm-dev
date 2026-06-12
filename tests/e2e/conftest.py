@@ -81,20 +81,12 @@ def run_cmd(cmd, cwd=None, env=None, input_text=None, check=True):
     )
 
     if check and result.returncode != 0:
-        error_msg = (
-            f"Command {cmd} failed with exit code {result.returncode}\n"
-            f"STDOUT: {result.stdout}\n"
-            f"STDERR: {result.stderr}"
-        )
-        # Create exception with detailed message
-        exc = subprocess.CalledProcessError(
+        raise subprocess.CalledProcessError(
             result.returncode,
             cmd,
-            result.stdout,
+            f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}",
             result.stderr
         )
-        exc.add_note(error_msg)
-        raise exc
 
     return result
 

@@ -162,7 +162,7 @@ def _display_check_results(repo, result: dict, dry_run: bool, verbose: bool):
         click.echo(f"\n🔧 {utils.Color.bold('Orphaned patches')} ({len(orphaned_patches)}):")
         for patch_id in sorted(orphaned_patches):
             click.echo(f"  • {patch_id}")
-        click.echo(f"  {utils.Color.blue('(Use \"half_orm dev release attach-patch <id>\" to reattach)')}")
+        click.echo(f"""  {utils.Color.blue('(Use "half_orm dev release attach-patch <id>" to reattach)')}""")
 
     # Show standalone patch branches (not in candidates/stage)
     standalone_patches = [b for b in patch_branches

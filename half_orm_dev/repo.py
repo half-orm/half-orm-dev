@@ -2871,7 +2871,7 @@ Each script is executed only once unless `--force` is used.
         """
         return Path(self.model_dir) / f"release-{version}.sql"
 
-    def _deduce_metadata_path(self, schema_path: Path) -> Path | None:
+    def _deduce_metadata_path(self, schema_path: Path) -> Optional[Path]:
         """
         Deduce metadata file path from schema.sql symlink target.
 

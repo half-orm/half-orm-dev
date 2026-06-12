@@ -9,11 +9,10 @@ from pathlib import Path
 from typing import List, Optional, Dict
 import sys
 
-try:
-    import tomli
-except ImportError:
-    # Python 3.11+ has tomllib in stdlib
+if sys.version_info >= (3, 11):
     import tomllib as tomli
+else:
+    import tomli
 
 try:
     import tomli_w

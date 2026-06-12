@@ -20,7 +20,12 @@ Bug scenario:
         WITHOUT fix → raises "CRITICAL: Patch directory not found: Patches/X"
         WITH fix    → detects Patches/staged/X already exists, skips mv, succeeds
 """
-import tomllib
+
+import sys
+if sys.version_info >= (3, 11):
+     import tomllib as tomli
+else:
+    import tomli
 import tomli_w
 import pytest
 
@@ -37,7 +42,7 @@ def _reset_toml_to_candidate(run, project_dir, patch_id, version, release_branch
     run(['git', 'checkout', release_branch])
     toml_path = project_dir / '.hop' / 'releases' / f'{version}-patches.toml'
     with open(toml_path, 'rb') as f:
-        data = tomllib.load(f)
+        data = tomli.load(f)
     data['patches'][patch_id] = {'status': 'candidate'}
     with open(toml_path, 'wb') as f:
         tomli_w.dump(data, f)

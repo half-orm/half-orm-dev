@@ -97,6 +97,7 @@ def release_manager_for_snapshot(release_manager_for_upgrade):
     release_mgr, mock_repo, tmp_path, releases_dir, backups_dir = release_manager_for_upgrade
     mock_repo.database.has_createdb_privilege = Mock(return_value=True)
     mock_repo.database.terminate_active_connections = Mock(return_value=1)
+    mock_repo.database.list_snapshots = Mock(return_value=[])
     mock_repo.database.create_snapshot = Mock()
     mock_repo.database.drop_snapshot = Mock()
     return release_mgr, mock_repo, tmp_path, releases_dir, backups_dir
