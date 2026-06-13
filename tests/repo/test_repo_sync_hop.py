@@ -21,9 +21,14 @@ class TestRepoSyncHop:
         hop_dir.mkdir()
         (hop_dir / 'config').write_text('[halfORM]\nhop_version = "0.17.0"\n')
 
+        # Create model directory
+        model_dir = hop_dir / 'model'
+        model_dir.mkdir()
+
         # Mock Repo instance
         repo = Mock(spec=Repo)
         repo.base_dir = str(tmp_path)
+        repo.model_dir = str(model_dir)
         repo.config = Mock()
         repo.config.hop_version = "0.17.0"
 
@@ -360,8 +365,13 @@ class TestSyncHopStaleAndErrors:
         hop_dir.mkdir()
         (hop_dir / 'config').write_text('[halfORM]\nhop_version = "0.17.0"\n')
 
+        # Create model directory
+        model_dir = hop_dir / 'model'
+        model_dir.mkdir()
+
         repo = Mock(spec=Repo)
         repo.base_dir = str(tmp_path)
+        repo.model_dir = str(model_dir)
         repo.config = Mock()
         repo.config.hop_version = "0.17.0"
         repo.hgit = Mock()

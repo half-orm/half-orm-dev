@@ -548,7 +548,13 @@ class Repo:
 
         return result
 
-    def sync_hop_to_active_branches(self, reason: str = "update", additional_files: list = None) -> dict:
+    def sync_hop_to_active_branches(
+        self,
+        reason: str = "update",
+        additional_files: list = None,
+        defer_push: bool = False,
+        modified_branches: list = None
+    ) -> dict:
         """
         Synchronize .hop/ directory and optional files from current branch to all other active branches.
 
@@ -566,6 +572,8 @@ class Repo:
             reason: Description of why sync is happening (for commit message)
             additional_files: Optional list of additional file paths to sync
                              (e.g., ['pyproject.toml'] for migration files)
+            defer_push: If True, collect branches instead of pushing immediately (for atomic transactions)
+            modified_branches: List to collect modified branches when defer_push=True
 
         Returns:
             dict with keys:
@@ -583,6 +591,17 @@ class Repo:
                 "migration",
                 additional_files=['pyproject.toml']
             )
+
+            # Deferred mode (for atomic transactions)
+            branches = []
+            result = repo.sync_hop_to_active_branches(
+                "update",
+                defer_push=True,
+                modified_branches=branches
+            )
+            # ... more operations ...
+            for branch in branches:
+                repo.hgit.push_branch(branch)
         """
         result = {
             'synced_branches': [],
@@ -699,8 +718,39 @@ class Repo:
 
                 self.__config = Config(self.base_dir)
 
+                # Preserve release-*.sql files for versions > source_version
+                # These files are generated during propagation and should not be
+                # overwritten by syncs from lower version branches.
+                #
+                # When syncing from ho-prod (source_version=None), preserve ALL
+                # release-*.sql files on the target branch, as ho-prod doesn't
+                # have development release schemas that should overwrite them.
+                preserved_release_schemas = {}
+                model_dir = Path(self.model_dir)
+                if model_dir.exists():
+                    for release_file in model_dir.glob('release-*.sql'):
+                        match = re.match(r'^release-(\d+\.\d+\.\d+)\.sql$', release_file.name)
+                        if match:
+                            try:
+                                file_version = version.parse(match.group(1))
+                                # Preserve if:
+                                # - source_version is None (syncing from ho-prod) OR
+                                # - file_version > source_version (higher version release schema)
+                                if source_version is None or file_version > source_version:
+                                    # Save content before it gets overwritten
+                                    preserved_release_schemas[release_file.name] = release_file.read_text(encoding='utf-8')
+                            except (ValueError, UnicodeDecodeError):
+                                pass
+
                 # Copy .hop/ from source branch
                 self.hgit._HGit__git_repo.git.checkout(source_branch, '--', '.hop/')
+
+                # Restore preserved release-*.sql files
+                if preserved_release_schemas:
+                    model_dir = Path(self.model_dir)
+                    for filename, content in preserved_release_schemas.items():
+                        file_path = model_dir / filename
+                        file_path.write_text(content, encoding='utf-8')
 
                 if additional_files:
                     for file_path in additional_files:
@@ -790,22 +840,29 @@ class Repo:
         except Exception as e:
             result['errors'].append(f"Failed to return to {source_branch}: {e}")
 
-        # Phase 2 — push all committed branches.
+        # Phase 2 — push all committed branches (or defer)
         # The distributed lock ensures no conflicting pushes; errors here are
         # unexpected but collected rather than raised.
-        for branch in committed_branches:
-            try:
-                self.hgit.push_branch(branch)
-                result['synced_branches'].append(branch)
-                # Branch safely on origin — recovery ref no longer needed
+        if defer_push:
+            # Deferred mode: collect branches for later push
+            if modified_branches is not None:
+                modified_branches.extend(committed_branches)
+            result['synced_branches'].extend(committed_branches)
+        else:
+            # Normal mode: push immediately
+            for branch in committed_branches:
                 try:
-                    self.hgit._HGit__git_repo.git.update_ref(
-                        '-d', f'refs/hop/sync/before/{branch}'
-                    )
-                except Exception:
-                    pass
-            except Exception as e:
-                result['errors'].append(f"{branch}: push failed: {e}")
+                    self.hgit.push_branch(branch)
+                    result['synced_branches'].append(branch)
+                    # Branch safely on origin — recovery ref no longer needed
+                    try:
+                        self.hgit._HGit__git_repo.git.update_ref(
+                            '-d', f'refs/hop/sync/before/{branch}'
+                        )
+                    except Exception:
+                        pass
+                except Exception as e:
+                    result['errors'].append(f"{branch}: push failed: {e}")
 
         return result
 
@@ -1050,7 +1107,9 @@ class Repo:
         self,
         message: str,
         reason: str = None,
-        files: list = None
+        files: list = None,
+        defer_push: bool = False,
+        modified_branches: list = None
     ) -> dict:
         """
         Commit files on current branch, push it, and sync .hop/ to all other active branches.
@@ -1058,26 +1117,40 @@ class Repo:
         This is a unified method that combines:
         1. Stage files (always includes .hop/)
         2. Commit on current branch with provided message
-        3. Push current branch
+        3. Push current branch (or defer if defer_push=True)
         4. Sync .hop/ to all other active branches
 
         Args:
             message: Commit message
             reason: Optional reason for sync (if not provided, extracts from message)
             files: Optional list of additional files to stage (beyond .hop/)
+            defer_push: If True, collect branches instead of pushing immediately (for atomic transactions)
+            modified_branches: List to collect modified branches when defer_push=True
 
         Returns:
             dict: {
                 'commit_hash': str,
-                'pushed_branch': str,
+                'pushed_branch': str or None (if deferred),
                 'sync_result': dict from sync_hop_to_active_branches()
             }
 
         Example:
+            # Normal mode (push immediately)
             result = repo.commit_and_sync_to_active_branches(
                 message="[HOP] Create release 0.2.0 branch and patches file",
                 files=['Patches/0.2.0-candidates.txt']
             )
+
+            # Deferred mode (for atomic transactions)
+            branches = []
+            result = repo.commit_and_sync_to_active_branches(
+                message="[HOP] Move patch to stage",
+                defer_push=True,
+                modified_branches=branches
+            )
+            # ... more operations ...
+            for branch in branches:
+                repo.hgit.push_branch(branch)
         """
         result = {
             'commit_hash': None,
@@ -1100,9 +1173,15 @@ class Repo:
         commit_hash = self.hgit.commit("-m", message)
         result['commit_hash'] = commit_hash
 
-        # 3. Push current branch
-        self.hgit.push_branch(current_branch)
-        result['pushed_branch'] = current_branch
+        # 3. Push current branch (or defer)
+        if not defer_push:
+            self.hgit.push_branch(current_branch)
+            result['pushed_branch'] = current_branch
+        else:
+            # Collect branch for later push
+            if modified_branches is not None:
+                modified_branches.append(current_branch)
+            result['pushed_branch'] = None  # Deferred
 
         # 4. Extract reason from message if not provided
         if reason is None:
@@ -1120,7 +1199,9 @@ class Repo:
         additional_files = [f for f in (files or []) if not f.startswith('.hop')]
         sync_result = self.sync_hop_to_active_branches(
             reason=reason,
-            additional_files=additional_files if additional_files else None
+            additional_files=additional_files if additional_files else None,
+            defer_push=defer_push,
+            modified_branches=modified_branches
         )
         result['sync_result'] = sync_result
 

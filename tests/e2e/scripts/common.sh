@@ -16,6 +16,19 @@ error() {
     exit 1
 }
 
+# Pause function for manual inspection during tests
+pause_for_inspection() {
+    local message="$1"
+    echo ""
+    echo -e "${YELLOW}============================================================${NC}"
+    echo -e "${YELLOW}  PAUSE: ${message}${NC}"
+    echo -e "${YELLOW}============================================================${NC}"
+    echo -e "${YELLOW}Current branch: $(git branch --show-current)${NC}"
+    echo -e "${YELLOW}Press ENTER to continue...${NC}"
+    #read -r
+    echo ""
+}
+
 # Configure git user if in CI
 setup_git_user() {
     if [ -n "$GITHUB_ENV" ]; then
@@ -163,12 +176,21 @@ apply_and_merge_patch() {
 
     echo -e "${GREEN}=== APPLYING AND MERGING PATCH ${patch_id} ===${NC}"
 
+    # Switch to patch branch first
+    git checkout "ho-patch/${patch_id}"
+
+    # Apply patch to database
     half_orm dev patch apply
 
+    # Commit generated code if there are changes
     git add .
-    git commit -m "Add patch ${patch_id}" --no-verify
+    if ! git diff --cached --quiet; then
+        git commit -m "Apply and generate code for patch ${patch_id}"
+    else
+        echo "No changes to commit (code already generated)"
+    fi
 
-    git checkout "ho-patch/${patch_id}"
+    # Merge into release
     half_orm dev patch merge --force
 
     echo -e "${GREEN}✓ Patch merged${NC}"

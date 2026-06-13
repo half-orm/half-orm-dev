@@ -63,6 +63,12 @@ def patch_manager(tmp_path):
     repo.hgit.rename_branch_with_remote = Mock()
     repo.hgit.last_commit = Mock(return_value="abc12345")
     repo.hgit.prune_local_branches = Mock(return_value={'deleted': [], 'skipped': [], 'errors': []})
+    repo.hgit.get_active_branches_status = Mock(return_value={
+        'release_branches': [{'name': 'ho-release/0.17.0'}],
+        'patch_branches': [{'name': 'ho-patch/123-test'}]
+    })
+    repo.hgit._HGit__git_repo = Mock()
+    repo.hgit._HGit__git_repo.git.rev_parse = Mock(return_value="sha123")
 
     # Create PatchManager
     pm = PatchManager(repo)

@@ -1891,6 +1891,22 @@ class PatchManager:
                 f"Available candidates:\n{self._list_all_candidates()}"
             )
 
+        # 2b. Check release ordering constraint
+        # Cannot merge patch in higher release if lower release has unmerged patches
+        blocking_releases = self._check_lower_releases_with_unmerged_patches(version)
+        if blocking_releases:
+            versions_str = ", ".join(blocking_releases)
+            raise PatchManagerError(
+                f"Cannot merge patch in release {version}.\n"
+                f"Lower release(s) have unmerged patches: {versions_str}\n\n"
+                f"Reason: To maintain schema consistency, patches must be merged\n"
+                f"and promoted in sequential order. Promote the lower release(s)\n"
+                f"to production before merging patches in higher releases.\n\n"
+                f"Workflow:\n"
+                f"  1. Merge and promote patches in {blocking_releases[0]}\n"
+                f"  2. Then retry merging this patch in {version}"
+            )
+
         release_branch = f"ho-release/{version}"
         patch_branch = f"ho-patch/{patch_id}"
 
@@ -1935,21 +1951,67 @@ class PatchManager:
         except Exception as e:
             raise PatchManagerError(f"Failed to update release schema: {e}")
 
-        # 7. Commit changes on release branch (TOML file is in .hop/releases/)
-        # This also syncs .hop/ to all active branches automatically via decorator
-        # Extract issue number from patch_id (e.g., "123-add-users" -> "123")
-        issue_match = re.match(r'^(\d+)', patch_id)
-        issue_number = issue_match.group(1) if issue_match else None
-        fixes_line = f"\nFixes #{issue_number}." if issue_number else ""
-        try:
-            self._repo.commit_and_sync_to_active_branches(
-                message=f"[HOP] move patch #{patch_id} from candidate to stage %{version}{fixes_line}"
-            )
-        except Exception as e:
-            raise PatchManagerError(f"Failed to commit/push changes: {e}")
+        # 7. ATOMIC TRANSACTION: All commits local, then push all at once
+        # Save current branch and prepare for atomic transaction
+        original_branch = self._repo.hgit.branch
+        modified_branches = []
+        original_shas = {}
 
-        # 7b. Propagate release schema to higher version releases (now that commit is done)
-        self._propagate_release_schema_to_higher_versions(version)
+        try:
+            # 7a. Save SHA of all active branches for potential rollback
+            branches_status = self._repo.hgit.get_active_branches_status()
+            all_branches = ['ho-prod']
+            all_branches.extend([b['name'] for b in branches_status.get('release_branches', [])])
+            all_branches.extend([b['name'] for b in branches_status.get('patch_branches', [])])
+
+            for branch in all_branches:
+                if self._repo.hgit.branch_exists(branch):
+                    try:
+                        sha = self._repo.hgit._HGit__git_repo.git.rev_parse(branch)
+                        original_shas[branch] = sha
+                    except Exception:
+                        pass
+
+            # 7b. Commit and sync locally (no push yet)
+            # Extract issue number from patch_id (e.g., "123-add-users" -> "123")
+            issue_match = re.match(r'^(\d+)', patch_id)
+            issue_number = issue_match.group(1) if issue_match else None
+            fixes_line = f"\nFixes #{issue_number}." if issue_number else ""
+
+            self._repo.commit_and_sync_to_active_branches(
+                message=f"[HOP] move patch #{patch_id} from candidate to stage %{version}{fixes_line}",
+                defer_push=True,
+                modified_branches=modified_branches
+            )
+
+            # 7c. Propagate release schema to higher versions (local commits only)
+            self._propagate_release_schema_to_higher_versions(
+                version,
+                defer_push=True,
+                modified_branches=modified_branches
+            )
+
+            # 7d. COMMIT POINT: Push all modified branches atomically
+            for branch in modified_branches:
+                self._repo.hgit.push_branch(branch)
+
+        except Exception as e:
+            # ROLLBACK: Reset all branches to original state
+            click.echo(f"⚠️  Transaction failed, rolling back...")
+            for branch, original_sha in original_shas.items():
+                try:
+                    self._repo.hgit.checkout(branch)
+                    self._repo.hgit._HGit__git_repo.git.reset('--hard', original_sha)
+                except Exception as rollback_error:
+                    click.echo(f"  Warning: Failed to rollback {branch}: {rollback_error}")
+
+            # Return to original branch
+            try:
+                self._repo.hgit.checkout(original_branch)
+            except Exception:
+                pass
+
+            raise PatchManagerError(f"Failed to commit/push changes (rolled back): {e}")
 
         # 8. Rename patch branch ho-patch/X → ho-staged/X (local + remote).
         # The branch is preserved as a reference until production promotion,
@@ -2028,7 +2090,12 @@ class PatchManager:
         # This avoids losing uncommitted changes when checking out other branches
         self._pending_higher_releases = higher_releases if higher_releases else None
 
-    def _propagate_release_schema_to_higher_versions(self, version: str) -> None:
+    def _propagate_release_schema_to_higher_versions(
+        self,
+        version: str,
+        defer_push: bool = False,
+        modified_branches: list = None
+    ) -> None:
         """
         Propagate release schema changes to higher version releases.
 
@@ -2037,6 +2104,8 @@ class PatchManager:
 
         Args:
             version: Current release version that was just updated
+            defer_push: If True, only do local commits (for atomic transactions)
+            modified_branches: List to collect modified branches when defer_push=True
         """
         if not hasattr(self, '_pending_higher_releases') or not self._pending_higher_releases:
             return
@@ -2059,13 +2128,82 @@ class PatchManager:
                 # Checkout to higher version branch
                 self._repo.hgit.checkout(higher_branch)
 
-                # Restore DB from current release schema (which includes the new patch)
-                self._repo.restore_database_from_release_schema(version)
+                # Note: In defer_push mode, no pull needed since all changes are local
 
-                # Apply all staged patches for this higher release
+                # Find the highest lower version that has a release schema
+                # Release files can be on ho-prod (merged releases) or ho-release/* (active releases)
+                from packaging.version import Version
+                higher_ver = Version(higher_version)
+                lower_version = None
+                lower_branch = None
+
+                # Collect all potential lower versions
+                branches_status = self._repo.hgit.get_active_branches_status()
+                release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
+
+                # Build list of candidate versions to check
+                candidate_versions = set()
+                for branch in release_branches:
+                    branch_ver_str = branch.replace('ho-release/', '')
+                    try:
+                        branch_ver = Version(branch_ver_str)
+                        if branch_ver < higher_ver:
+                            candidate_versions.add(branch_ver_str)
+                    except Exception:
+                        continue
+
+                # Sort candidates by version (highest first)
+                from packaging.version import Version
+                sorted_candidates = sorted(candidate_versions, key=Version, reverse=True)
+
+                # Find the highest version that has a release-*.sql file
+                # Check ho-prod first, then ho-release/* branches
+                for ver_str in sorted_candidates:
+                    file_path = f".hop/model/release-{ver_str}.sql"
+
+                    # Check on ho-prod first (promoted releases)
+                    try:
+                        self._repo.hgit._HGit__git_repo.git.ls_tree('-r', 'ho-prod', '--name-only', file_path)
+                        lower_version = ver_str
+                        lower_branch = 'ho-prod'
+                        break
+                    except Exception:
+                        pass
+
+                    # Check on ho-release/* branch (active releases)
+                    try:
+                        branch = f'ho-release/{ver_str}'
+                        self._repo.hgit._HGit__git_repo.git.ls_tree('-r', branch, '--name-only', file_path)
+                        lower_version = ver_str
+                        lower_branch = branch
+                        break
+                    except Exception:
+                        pass
+
+                if lower_version and lower_branch:
+                    # Copy the lower release schema from its branch
+                    click.echo(f"    • Copying release-{lower_version}.sql from {lower_branch}")
+                    try:
+                        self._repo.hgit._HGit__git_repo.git.checkout(
+                            lower_branch, '--', f".hop/model/release-{lower_version}.sql"
+                        )
+                    except Exception as e:
+                        click.echo(f"    • Warning: Could not copy from {lower_branch}: {e}")
+                        raise
+
+                    # Restore from lower version's release schema
+                    click.echo(f"    • Restoring from release-{lower_version}.sql")
+                    self._repo.restore_database_from_release_schema(lower_version)
+                else:
+                    # No lower release schema, restore from production
+                    click.echo(f"    • Restoring from schema.sql (no lower release)")
+                    self._repo.restore_database_from_schema()
+
+                # Apply staged patches from this higher version only
                 release_file = ReleaseFile(higher_version, releases_dir)
                 if release_file.exists():
                     staged_patches = release_file.get_patches(status="staged")
+                    click.echo(f"    • Applying {len(staged_patches)} staged patch(es) from {higher_version}")
                     for pid in staged_patches:
                         patch_dir = Path(self._base_dir) / "Patches" / pid
                         if patch_dir.exists():
@@ -2074,8 +2212,18 @@ class PatchManager:
                 # Regenerate release schema for this higher version
                 higher_schema_path = self._repo.generate_release_schema(higher_version)
                 self._repo.hgit.add(str(higher_schema_path))
-                self._repo.hgit.commit('-m', f"[HOP] Update release schema from %{version}")
-                self._repo.hgit.push()
+                commit_msg = f"[HOP] Update release schema after merge in {version}"
+
+                # Commit locally (push deferred in atomic transaction mode)
+                # Note: release-*.sql files are branch-specific and don't need cross-branch sync
+                # They will be available on ho-prod after promotion
+                self._repo.hgit.commit('-m', commit_msg)
+
+                # Collect branch for later push if in deferred mode
+                if defer_push and modified_branches is not None:
+                    modified_branches.append(higher_branch)
+
+                click.echo(f"    ✓ Updated release-{higher_version}.sql")
 
             except Exception as e:
                 click.echo(f"    ⚠️  Warning: Failed to propagate to {higher_branch}: {e}")
@@ -2873,6 +3021,59 @@ class PatchManager:
                 return version
 
         return None
+
+    def _check_lower_releases_with_unmerged_patches(self, version: str) -> list:
+        """
+        Check if lower releases have unmerged patches (candidate or staged).
+
+        To maintain schema consistency, patches must be merged and promoted
+        in sequential order. A patch cannot be merged in a higher release
+        if a lower release has patches that haven't been promoted yet.
+
+        Args:
+            version: Release version to check (e.g., "0.1.0")
+
+        Returns:
+            List of version strings for lower releases with unmerged patches
+            Empty list if no blocking releases
+
+        Examples:
+            # Checking 0.1.0 when 0.0.2 has unmerged patches
+            blocking = self._check_lower_releases_with_unmerged_patches("0.1.0")
+            # Returns ["0.0.2"]
+        """
+        from packaging.version import Version
+
+        current_version = Version(version)
+        blocking_releases = []
+
+        # Check all release files
+        patches_files = sorted(self._releases_dir.glob("*-patches.toml"))
+
+        for patches_file in patches_files:
+            # Extract version from filename
+            file_version_str = patches_file.stem.replace('-patches', '')
+            file_version = Version(file_version_str)
+
+            # Only check releases with lower version
+            if file_version >= current_version:
+                continue
+
+            # Check if this release has patches in candidate or staged status
+            release_file = ReleaseFile(file_version_str, self._releases_dir)
+
+            # Get patches with candidate or staged status
+            candidate_patches = release_file.get_patches(status="candidate")
+            staged_patches = release_file.get_patches(status="staged")
+
+            if candidate_patches or staged_patches:
+                blocking_releases.append(file_version_str)
+
+        # Sort by version (lowest first)
+        if blocking_releases:
+            blocking_releases.sort(key=Version)
+
+        return blocking_releases
 
     def _list_all_candidates(self) -> str:
         """
