@@ -41,6 +41,6 @@ def recover() -> None:
 
     if result['errors']:
         for error in result['errors']:
-            click.echo(utils.Color.yellow(f"Warning: {error}"), err=True)
+            click.echo(utils.Color.bold(f"Warning: {error}"), err=True)
 
     click.echo(utils.Color.green("Recovery complete."))

@@ -981,6 +981,9 @@ class Repo:
         except FileNotFoundError:
             pass
 
+        # Clean up any remaining recovery refs (e.g., from other branches not in before_refs)
+        self._recover_cleanup_refs(result)
+
         return result
 
     def _recover_cleanup_refs(self, result: dict) -> None:
