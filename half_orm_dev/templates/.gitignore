@@ -17,3 +17,4 @@ __pycache__
 .hop/backups/
 .hop/production
 .hop/.fetching
+.half_orm_cli

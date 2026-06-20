@@ -391,28 +391,6 @@ def __update_init_files(package_dir, files_list, warning):
                 all_ = ",\n    ".join([f"'{elt}'" for elt in all_])
                 init_file.write(f'__all__ = [\n    {all_}\n]\n')
 
-
-def __get_inheritance_info(rel, package_name):
-    """Returns inheritance informations for the rel relation.
-    """
-    inheritance_import_list = []
-    inherited_classes_aliases_list = []
-    for base in rel.__class__.__bases__:
-        if base.__name__ != 'Relation' and hasattr(base, '_t_fqrn'):
-            inh_sfqrn = list(base._t_fqrn)
-            inh_sfqrn[0] = package_name
-            inh_cl_alias = f"{camel_case(inh_sfqrn[1])}{camel_case(inh_sfqrn[2])}"
-            inh_cl_name = f"{camel_case(inh_sfqrn[2])}"
-            from_import = f"from {'.'.join(inh_sfqrn)} import {inh_cl_name} as {inh_cl_alias}"
-            inheritance_import_list.append(from_import)
-            inherited_classes_aliases_list.append(inh_cl_alias)
-    inheritance_import = "\n".join(inheritance_import_list)
-    inherited_classes = ", ".join(inherited_classes_aliases_list)
-    if inherited_classes.strip():
-        inherited_classes = f"{inherited_classes}, "
-    return inheritance_import, inherited_classes
-
-
 def __get_fkeys(repo, class_name, module_path):
     """Read the Fkeys dict from the module file using AST, without importing.
 
@@ -557,8 +535,6 @@ def __update_this_module(
     existing_fkeys = __get_fkeys(repo, class_name, module_path)
 
     module_template = __assemble_module_template(module_path)
-    inheritance_import, inherited_classes = __get_inheritance_info(
-        rel, package_name)
 
     t_qrn = list(rel._t_fqrn)[1:]
     full_name = __get_full_class_name(*t_qrn)
@@ -575,8 +551,6 @@ def __update_this_module(
                 module=f"{package_name}.{fqtn}",
                 package_name=package_name,
                 documentation=documentation,
-                inheritance_import=inheritance_import,
-                inherited_classes=inherited_classes,
                 class_name=class_name,
                 dc_name=rel._ho_dataclass_name(),
                 dict_class_name=dict_class_name,
