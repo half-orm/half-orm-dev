@@ -80,6 +80,21 @@ class OutdatedHalfORMDevError(RepoError):
             f"Please run: pip install half_orm_dev=={required_version}"
         )
 
+def _parse_with_half_orm_meta(raw: str) -> 'bool | str':
+    """Parse the raw ".hop/config" `with_half_orm_meta` value.
+
+    Stored either as the literal "True"/"False" (booleans, case-insensitive)
+    or as a comma-separated allowlist of fully-qualified half_orm_meta.*
+    relation names (e.g. "half_orm_meta.identity.user") — passed through
+    as-is, half_orm.model.Model does the actual parsing/validation.
+    """
+    if raw.strip().lower() == 'true':
+        return True
+    if raw.strip().lower() == 'false' or not raw.strip():
+        return False
+    return raw.strip()
+
+
 class Config:
     """
     Configuration manager for half_orm_dev projects.
@@ -97,12 +112,14 @@ class Config:
     __git_origin: str = ''
     __devel: bool = False
     __hop_version: Optional[str] = None
+    __with_half_orm_meta: 'bool | str' = False
 
     def __init__(self, base_dir, **kwargs):
         Config.__file = os.path.join(base_dir, '.hop', 'config')
         # package_name from kwargs takes priority (used during init)
         self.__package_name = kwargs.get('name')
         self.__devel = kwargs.get('devel', False)
+        self.__with_half_orm_meta = kwargs.get('with_half_orm_meta', False)
         if os.path.exists(self.__file):
             sys.path.insert(0, base_dir)
             self.read()
@@ -118,6 +135,9 @@ class Config:
         self.__git_origin = config['halfORM'].get('git_origin', '')
         self.__devel = config['halfORM'].getboolean('devel', False)
         self.__allow_rc = config['halfORM'].getboolean('allow_rc', False)
+        self.__with_half_orm_meta = _parse_with_half_orm_meta(
+            config['halfORM'].get('with_half_orm_meta', 'False')
+        )
         # Read package_name from config (takes priority over directory name)
         stored_package_name = config['halfORM'].get('package_name', '')
         if stored_package_name:
@@ -131,7 +151,8 @@ class Config:
             'hop_version': self.__hop_version,
             'git_origin': self.__git_origin,
             'devel': self.__devel,
-            'package_name': self.__package_name or ''
+            'package_name': self.__package_name or '',
+            'with_half_orm_meta': self.__with_half_orm_meta
         }
         config['halfORM'] = data
         with open(Config.__file, 'w', encoding='utf-8') as configfile:
@@ -178,6 +199,14 @@ class Config:
     def allow_rc(self, value):
         self.__allow_rc = value
         self.write()
+
+    @property
+    def with_half_orm_meta(self):
+        return self.__with_half_orm_meta
+
+    @with_half_orm_meta.setter
+    def with_half_orm_meta(self, value):
+        self.__with_half_orm_meta = value
 
 class LocalConfig:
     """
@@ -1273,6 +1302,10 @@ class Repo:
         return self.__config.devel
 
     @property
+    def with_half_orm_meta(self):
+        return self.__config.with_half_orm_meta
+
+    @property
     def releases_dir(self):
         """Returns the path to the releases directory (.hop/releases)."""
         return os.path.join(self.__base_dir, '.hop', 'releases')
@@ -1476,7 +1509,7 @@ class Repo:
         """
         self._release_manager = None
 
-    def init_git_centric_project(self, package_name, git_origin):
+    def init_git_centric_project(self, package_name, git_origin, with_half_orm_meta=False):
         """
         Initialize new halfORM project with Git-centric architecture.
 
@@ -1488,6 +1521,12 @@ class Repo:
         Args:
             package_name: Name for the project directory and Python package
             git_origin: Git remote origin URL (HTTPS, SSH, or Git protocol)
+            with_half_orm_meta (bool | str): If True, the generated package's
+                Model is instantiated with with_half_orm_meta=True, exposing
+                every half_orm_meta schema relation. If a comma-separated
+                string of fully-qualified dotted relation names (e.g.
+                "half_orm_meta.identity.user"), only those are exposed —
+                an explicit opt-in allowlist, forwarded as-is to Model.
 
         Raises:
             ValueError: If package_name or git_origin are invalid
@@ -1558,7 +1597,7 @@ class Repo:
         self._create_project_directory(package_name)
 
         # Step 5: Initialize configuration (now includes git_origin)
-        self._initialize_configuration(package_name, devel_mode, git_origin.strip())
+        self._initialize_configuration(package_name, devel_mode, git_origin.strip(), with_half_orm_meta)
 
         # Step 6: Create Git-centric directories
         self._create_git_centric_structure()
@@ -2131,7 +2170,7 @@ class Repo:
         return project_path
 
 
-    def _initialize_configuration(self, package_name, devel_mode, git_origin):
+    def _initialize_configuration(self, package_name, devel_mode, git_origin, with_half_orm_meta=False):
         """
         Initialize .hop/config file with project settings.
 
@@ -2164,7 +2203,10 @@ class Repo:
         os.makedirs(hop_dir, exist_ok=True)
 
         # Initialize Config object (stores git_origin)
-        self.__config = Config(self.__base_dir, name=package_name, devel=devel_mode)
+        self.__config = Config(
+            self.__base_dir, name=package_name, devel=devel_mode,
+            with_half_orm_meta=with_half_orm_meta
+        )
 
         # Set git_origin in config
         self.__config.git_origin = git_origin

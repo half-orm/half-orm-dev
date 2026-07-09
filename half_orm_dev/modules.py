@@ -757,8 +757,17 @@ def generate(repo):
         legacy.unlink()
 
     # Generate package __init__.py
+    _with_half_orm_meta = getattr(repo, 'with_half_orm_meta', False)
+    if _with_half_orm_meta is True:
+        with_meta_kwarg = ", with_half_orm_meta=True"
+    elif _with_half_orm_meta:
+        # comma-separated allowlist of "half_orm_meta.<schema>.<relname>"
+        # dotted names — forwarded verbatim, Model does the parsing.
+        with_meta_kwarg = f", with_half_orm_meta={_with_half_orm_meta!r}"
+    else:
+        with_meta_kwarg = ""
     with open(package_dir / INIT_PY, 'w', encoding='utf-8') as file_:
-        file_.write(INIT_MODULE_TEMPLATE.format(package_name=package_name))
+        file_.write(INIT_MODULE_TEMPLATE.format(package_name=package_name, with_meta_kwarg=with_meta_kwarg))
 
     # Generate tests/conftest.py instead of package/base_test.py
     tests_dir = base_dir / 'tests'

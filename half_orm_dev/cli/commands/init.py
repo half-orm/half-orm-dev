@@ -34,7 +34,15 @@ class ProjectDirectoryExistsError(Exception):
 @click.option('--force-sync-only', is_flag=True, help='Skip metadata installation, force sync-only mode')
 @click.option('--create-db', is_flag=False, default=True)
 @click.option('--docker', default='', help='Docker container name for PostgreSQL')
-def init(project_name, host, port, user, password, git_origin, production, force_sync_only, create_db, docker):
+@click.option(
+    '--with-meta', is_flag=False, flag_value='__ALL__', default=None,
+    metavar='[NAMES]',
+    help='Expose half_orm_meta data on the generated Model. Bare flag '
+         'exposes everything; pass a comma-separated allowlist of '
+         'fully-qualified relation names to expose only those, e.g. '
+         '--with-meta=half_orm_meta.identity.user'
+)
+def init(project_name, host, port, user, password, git_origin, production, force_sync_only, create_db, docker, with_meta):
     """
     Initialize a new half_orm_dev project with database and code structure.
 
@@ -187,10 +195,18 @@ def init(project_name, host, port, user, password, git_origin, production, force
         click.echo(f"📁 Creating project structure...")
 
         # Now safe to instantiate Repo (database is configured)
+        if with_meta is None:
+            with_half_orm_meta = False
+        elif with_meta == '__ALL__':
+            with_half_orm_meta = True
+        else:
+            with_half_orm_meta = with_meta
+
         repo = Repo()
         repo.init_git_centric_project(
             package_name=package_name,
-            git_origin=git_origin
+            git_origin=git_origin,
+            with_half_orm_meta=with_half_orm_meta
         )
 
         # ============================================================
