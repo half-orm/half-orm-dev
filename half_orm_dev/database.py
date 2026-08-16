@@ -632,9 +632,12 @@ class Database:
         """
         # Prepare environment variables for PostgreSQL commands
         env = os.environ.copy()
-        env['PGUSER'] = connection_params['user']
-        env['PGHOST'] = connection_params['host']
-        env['PGPORT'] = str(connection_params['port'])
+        if connection_params['user']:
+            env['PGUSER'] = connection_params['user']
+        if connection_params['host']:
+            env['PGHOST'] = connection_params['host']
+        if connection_params['port']:
+            env['PGPORT'] = str(connection_params['port'])
 
         # Set password if provided (use PGPASSWORD environment variable)
         if connection_params.get('password'):
