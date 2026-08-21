@@ -81,7 +81,9 @@ class Database:
         db_name = self.__repo.database_name
         if db_name:
             try:
-                self.__model = Model(db_name)
+                self.__model = Model(
+                    db_name, with_half_orm_meta=self.__repo.with_half_orm_meta,
+                )
                 self.__init(db_name, get_release)
             except OperationalError as err:
                 if not self.__repo.new:
@@ -175,10 +177,10 @@ class Database:
                     major=0, minor=0, patch=0, changelog='Initial release')
         return self(self.__name)
 
-    def execute_pg_command(self, *command_args):
+    def execute_pg_command(self, *command_args, database_name=None):
         """Execute PostgreSQL command with instance's connection parameters."""
         return self._execute_pg_command(
-            self.__name,
+            database_name or self.__name,
             self._get_connection_params(),
             *command_args
         )
@@ -632,13 +634,12 @@ class Database:
         """
         # Prepare environment variables for PostgreSQL commands
         env = os.environ.copy()
-        env['PGUSER'] = connection_params['user']
-        env['PGHOST'] = connection_params['host']
-        env['PGPORT'] = str(connection_params['port'])
-
-        # Set password if provided (use PGPASSWORD environment variable)
-        if connection_params.get('password'):
-            env['PGPASSWORD'] = connection_params['password']
+        pg_env_keys = {'user': 'PGUSER', 'host': 'PGHOST', 'port': 'PGPORT', 'password': 'PGPASSWORD'}
+        env.update({
+            pg_env_keys[k]: str(v)
+            for k, v in connection_params.items()
+            if k in pg_env_keys and v
+        })
 
         # Execute PostgreSQL command
         result = subprocess.run(
@@ -1277,11 +1278,10 @@ class Database:
 
     def has_createdb_privilege(self) -> bool:
         """Check if the current PostgreSQL user has the CREATEDB privilege."""
-        params = self._get_connection_params()
-        result = self._execute_pg_command(
-            'postgres', params,
+        result = self.execute_pg_command(
             'psql', '-d', 'postgres', '-t', '-c',
-            "SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user"
+            "SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user",
+            database_name='postgres'
         )
         return result.stdout.strip().lower() == 't'
 
@@ -1294,14 +1294,13 @@ class Database:
         Returns:
             Number of connections terminated.
         """
-        params = self._get_connection_params()
         sql = (
             f"SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity "
             f"WHERE datname = '{self.__name}'"
         )
-        result = self._execute_pg_command(
-            'postgres', params,
-            'psql', '-d', 'postgres', '-t', '-c', sql
+        result = self.execute_pg_command(
+            'psql', '-d', 'postgres', '-t', '-c', sql,
+            database_name='postgres'
         )
         try:
             return int(result.stdout.strip())
@@ -1317,10 +1316,9 @@ class Database:
         Args:
             snapshot_name: Name for the new snapshot database.
         """
-        params = self._get_connection_params()
-        self._execute_pg_command(
-            'postgres', params,
-            'createdb', '-T', self.__name, snapshot_name
+        self.execute_pg_command(
+            'createdb', '-T', self.__name, snapshot_name,
+            database_name='postgres'
         )
 
     def drop_snapshot(self, snapshot_name: str) -> None:
@@ -1329,10 +1327,9 @@ class Database:
         Args:
             snapshot_name: Name of the snapshot database to drop.
         """
-        params = self._get_connection_params()
-        self._execute_pg_command(
-            'postgres', params,
-            'dropdb', '--if-exists', snapshot_name
+        self.execute_pg_command(
+            'dropdb', '--if-exists', snapshot_name,
+            database_name='postgres'
         )
 
     def restore_from_snapshot(self, snapshot_name: str) -> None:
@@ -1344,17 +1341,15 @@ class Database:
         Args:
             snapshot_name: Name of the snapshot database to restore from.
         """
-        params = self._get_connection_params()
-        self._execute_pg_command('postgres', params, 'dropdb', self.__name)
-        self._execute_pg_command('postgres', params, 'createdb', '-T', snapshot_name, self.__name)
+        self.execute_pg_command('dropdb', self.__name, database_name='postgres')
+        self.execute_pg_command('createdb', '-T', snapshot_name, self.__name, database_name='postgres')
 
     def list_snapshots(self) -> list:
         """Return snapshot names matching {db}_hop_snap_* pattern, sorted ascending."""
-        params = self._get_connection_params()
-        result = self._execute_pg_command(
-            'postgres', params,
+        result = self.execute_pg_command(
             'psql', '-d', 'postgres', '-t', '-c',
-            f"SELECT datname FROM pg_database WHERE datname LIKE '{self.__name}_hop_snap_%' ORDER BY datname"
+            f"SELECT datname FROM pg_database WHERE datname LIKE '{self.__name}_hop_snap_%' ORDER BY datname",
+            database_name='postgres'
         )
         return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
