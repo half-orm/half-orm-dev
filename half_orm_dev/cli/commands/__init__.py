@@ -17,11 +17,11 @@ from .migrate import migrate
 from .revert_migration import revert_migration
 from .rollback import rollback
 from .recover import recover
+from .restore import restore
 from .todo import apply_release
 
 # ♻️ Adapted existing commands
 from .todo import sync_package    # Unchanged
-from .todo import restore      # Adapted for new architecture
 
 # Registry of all available commands - Git-centric architecture
 ALL_COMMANDS = {
@@ -41,10 +41,10 @@ ALL_COMMANDS = {
     # 🚧 Emergency workflow (stubs)
     'rollback': rollback,
     'recover': recover,
+    'restore': restore,
 
     # ♻️ Adapted commands
     'sync-package': sync_package, # Unchanged
-    'restore': restore,          # Adapted
 }
 
 __all__ = [
@@ -58,6 +58,7 @@ __all__ = [
     'migrate',
     'rollback',
     'recover',
+    'restore',
     # Adapted commands
     'sync_package',
     'ALL_COMMANDS'

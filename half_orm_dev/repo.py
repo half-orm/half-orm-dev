@@ -2770,6 +2770,107 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
             # Catch any unexpected errors
             raise RepoError(f"Database restoration failed: {e}") from e
 
+    def restore_database_from_version_schema(self, version: str) -> None:
+        """
+        Restore database from the published schema/metadata/data snapshot
+        of an exact past version (model/schema-X.Y.Z.sql), regardless of
+        what model/schema.sql currently points to.
+
+        Unlike restore_database_from_schema(), which always targets the
+        version model/schema.sql is symlinked to (i.e. the current
+        production version), this loads model/schema-{version}.sql
+        directly - used by restore_database_from_release_schema()'s
+        caller (the `restore` CLI command) to restore to an exact
+        historical version instead of silently landing on prod.
+
+        Args:
+            version: Exact version string (e.g., "0.3.5") matching an
+                existing model/schema-{version}.sql file.
+
+        Raises:
+            RepoError: If model/schema-{version}.sql doesn't exist, or if
+                restoration fails at any step.
+        """
+        schema_path = Path(self.model_dir) / f"schema-{version}.sql"
+
+        if not schema_path.exists():
+            raise RepoError(
+                f"Schema file not found: {schema_path}. "
+                f"No published schema snapshot for version {version}."
+            )
+
+        try:
+            self._reset_database_schemas()
+
+            try:
+                self.database.execute_pg_command(
+                    'psql', '-d', self.database_name, '-f', str(schema_path)
+                )
+            except Exception as e:
+                raise RepoError(f"Failed to load schema from {schema_path.name}: {e}") from e
+
+            metadata_path = Path(self.model_dir) / f"metadata-{version}.sql"
+            if metadata_path.exists():
+                try:
+                    self.database.execute_pg_command(
+                        'psql', '-d', self.database_name, '-f', str(metadata_path)
+                    )
+                except Exception as e:
+                    raise RepoError(
+                        f"Failed to load metadata from {metadata_path.name}: {e}"
+                    ) from e
+
+            self._load_data_files_up_to(version)
+
+            self.model.reconnect(reload=True)
+
+        except RepoError:
+            raise
+        except Exception as e:
+            raise RepoError(f"Database restoration failed: {e}") from e
+
+    def _load_data_files_up_to(self, version: str) -> None:
+        """
+        Load model/data-*.sql reference data files up to (and including)
+        an explicit version, in version order.
+
+        Same file-selection logic as _load_data_files(), but takes the
+        target version directly instead of deducing it from the
+        model/schema.sql symlink - used when restoring to an exact
+        historical version rather than the current production one.
+
+        Args:
+            version: Target version string (e.g., "0.3.5")
+        """
+        current_tuple = tuple(map(int, version.split('.')))
+        model_dir = Path(self.model_dir)
+        data_files = list(model_dir.glob("data-*.sql"))
+
+        if not data_files:
+            return
+
+        versioned_files = []
+        for data_file in data_files:
+            match = re.match(r'data-(\d+\.\d+\.\d+)\.sql$', data_file.name)
+            if match:
+                file_version = match.group(1)
+                versioned_files.append((tuple(map(int, file_version.split('.'))), data_file))
+
+        versioned_files.sort(key=lambda x: x[0])
+
+        for version_tuple, data_file in versioned_files:
+            if version_tuple > current_tuple:
+                break
+
+            try:
+                self.database.execute_pg_command(
+                    'psql', '-d', self.database_name, '-f', str(data_file)
+                )
+            except Exception as e:
+                raise RepoError(
+                    f"Failed to load data from {data_file.name}: {e}"
+                ) from e
+
     def restore_database_from_dump(self, dump_file: Path) -> None:
         """
         Restore database from a pg_dump SQL file.

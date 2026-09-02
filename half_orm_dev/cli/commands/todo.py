@@ -42,7 +42,6 @@ def todo(ctx):
         'create-hotfix': 'Create emergency hotfix bypassing normal workflow',
         'rollback': 'Rollback database to previous version using backups/',
         'sync-package': 'Synchronize Python package with database model',
-        'restore': 'Restore database to specific version (adapt for new backups)',
         'list-patches': 'List all patches in Patches/ directory',
         'status': 'Show development status with patch/release information',
         'apply-release': 'Apply next release',
@@ -70,4 +69,3 @@ status = todo
 
 # ♻️ Commands to adapt (also in todo for now)
 sync_package = todo   # Keep functionality, adapt to new architecture
-restore = todo        # Adapt for new backup/restore logic
