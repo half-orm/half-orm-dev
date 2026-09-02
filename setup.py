@@ -16,7 +16,8 @@ from setuptools import setup
 # Example: (0, 17, 3, 5, '0.17.1') means:
 #   for half_orm_dev 0.17.x where 3 <= x < 5, require half_orm >= 0.17.1
 HALF_ORM_MIN_VERSIONS = [
-    (0, 17, 3, None, '0.17.3'),  # 0.17.3+ requires half_orm >= 0.17.3 (CustomGroup support)
+    (0, 17, 3, None, '0.17.3'),   # 0.17.3+ requires half_orm >= 0.17.3 (CustomGroup support)
+    (1, 0, 0, None, '1.0.0rc16'), # 1.0.0+ requires half_orm >= 1.0.0rc16 (with_half_orm_meta support)
 ]
 
 
