@@ -512,7 +512,7 @@ class PatchManager:
         4. Generate Python code
 
         If from_dump is provided:
-        1. Restore DB from dump file (skips bootstrap, data already present)
+        1. Restore DB from dump file (data already present)
         2. Apply only the current patch
         3. Generate Python code
 
@@ -540,7 +540,7 @@ class PatchManager:
             # With dump file:
             apply_patch_complete_workflow("999", from_dump=Path("prod_dump.sql"))
             # Execution:
-            # 1. Restore DB from prod_dump.sql (no bootstrap)
+            # 1. Restore DB from prod_dump.sql
             # 2. Apply 999
             # 3. Generate code
         """
@@ -554,7 +554,7 @@ class PatchManager:
 
             # If from_dump is provided, use simplified workflow
             if from_dump:
-                # Restore from dump file (no bootstrap, data already present)
+                # Restore from dump file (data already present)
                 self._repo.restore_database_from_dump(from_dump)
                 used_dump = True
 
@@ -2415,8 +2415,11 @@ class PatchManager:
                     f"Failed to run patch apply during validation: {e}"
                 )
 
-            # 4. Generate release schema BEFORE bootstrap
-            # This captures prod + all staged patches + current patch WITHOUT bootstrap data
+            # 4. Generate release schema
+            # This captures prod + all staged patches + current patch, including
+            # any reference/system data those patches inserted (a patch is free
+            # to carry idempotent DML alongside its DDL - it flows through here
+            # like any other data change, no separate bootstrap step needed).
             # Skip for hotfix releases (detected by presence of X.Y.Z.txt production file)
             prod_file = Path(self._repo.releases_dir) / f"{version}.txt"
             is_hotfix = prod_file.exists()
@@ -2438,14 +2441,7 @@ class PatchManager:
 
                 click.echo(f"  • {utils.Color.green('✓')} Release schema generated")
 
-            # 5. Execute bootstrap to validate it works and provide data for tests
-            click.echo(f"  • Executing bootstrap scripts...")
-            from half_orm_dev.file_executor import execute_bootstrap_files
-            bootstrap_dir = Path(self._repo.base_dir) / 'bootstrap'
-            execute_bootstrap_files(bootstrap_dir, self._repo.model)
-            click.echo(f"  • {utils.Color.green('✓')} Bootstrap executed successfully")
-
-            # 6. Run tests (with bootstrap data)
+            # 5. Run tests
             self._run_tests_if_available()
 
             click.echo(f"  • {utils.Color.green('✓')} Validation passed!\n")

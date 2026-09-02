@@ -476,12 +476,8 @@ class MigrationManager:
 
         Each branch is regenerated against the DB schema that matches its state:
         - ho-prod          → production schema (schema.sql)
-        - ho-release/X.Y.Z → release schema (release-X.Y.Z.sql), no bootstrap
+        - ho-release/X.Y.Z → release schema (release-X.Y.Z.sql)
         - ho-patch/*       → production schema (schema.sql)
-
-        Bootstrap scripts are NOT run during this restore: the modules may be in
-        an inconsistent state (that is precisely what we are fixing), and running
-        bootstrap would fail trying to import them.
 
         Stale local branches (no longer on remote) are skipped to avoid pre-commit
         hook failures.
@@ -537,15 +533,13 @@ class MigrationManager:
                     release_version = m.group(1)
                     release_schema = repo.get_release_schema_path(release_version)
                     if release_schema.exists():
-                        repo.restore_database_from_release_schema(
-                            release_version, skip_bootstrap=True
-                        )
+                        repo.restore_database_from_release_schema(release_version)
                     else:
-                        repo.restore_database_from_schema(skip_bootstrap=True)
+                        repo.restore_database_from_schema()
                 else:
                     #XXX EST-CE QUE POUR ho-patch/* on ne devrait pas utiliser from_release_schema ?
                     # ho-prod and ho-patch/*: use production schema
-                    repo.restore_database_from_schema(skip_bootstrap=True)
+                    repo.restore_database_from_schema()
 
                 if not branch in patch_branches:
                     _modules.generate(repo)

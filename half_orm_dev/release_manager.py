@@ -2196,7 +2196,7 @@ class ReleaseManager:
     ) -> None:
         """
         Prod-specific execution: discard temp branch, merge into ho-prod,
-        generate schema/snapshot, validate bootstrap scripts, commit.
+        generate schema/snapshot, commit.
         """
         model_dir = Path(self._repo.model_dir)
 
@@ -2238,16 +2238,12 @@ class ReleaseManager:
                 f"(took release branch version)"
             )
 
+        # _generate_schema_sql dumps data as well as structure, so any
+        # reference/system data the staged patches inserted (idempotent
+        # DML, no separate bootstrap step) is captured here automatically.
         self._repo.database._generate_schema_sql(version, model_dir)
         staged_patches = release_file.get_patches(status="staged")
         self._create_prod_snapshot(version, staged_patches, release_file, model_dir)
-
-        # Execute bootstrap to validate it works (after schema generation)
-        print(f"  Executing bootstrap scripts for validation...")
-        from half_orm_dev.file_executor import execute_bootstrap_files
-        bootstrap_dir = Path(self._repo.base_dir) / 'bootstrap'
-        execute_bootstrap_files(bootstrap_dir, self._repo.model)
-        print(f"  {utils.Color.green('✓')} Bootstrap executed successfully")
 
         self._repo.hgit.add(".")
         self._repo.hgit.commit("-m", commit_msg)
@@ -2259,13 +2255,6 @@ class ReleaseManager:
         """RC-specific execution: create RC snapshot, commit, merge into release branch."""
         staged_patches = release_file.get_patches(status="staged")
         self._create_rc_snapshot(version, rc_number, staged_patches, release_file)
-
-        # Execute bootstrap to validate it works (after snapshot creation)
-        print(f"  Executing bootstrap scripts for validation...")
-        from half_orm_dev.file_executor import execute_bootstrap_files
-        bootstrap_dir = Path(self._repo.base_dir) / 'bootstrap'
-        execute_bootstrap_files(bootstrap_dir, self._repo.model)
-        print(f"  {utils.Color.green('✓')} Bootstrap executed successfully")
 
         self._repo.hgit.add(".")
         self._repo.hgit.commit("-m", commit_msg)

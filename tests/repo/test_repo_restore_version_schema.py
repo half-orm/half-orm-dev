@@ -1,10 +1,9 @@
 """
-Tests for Repo.restore_database_from_version_schema() and
-Repo._load_data_files_up_to().
+Tests for Repo.restore_database_from_version_schema().
 
 Focused on restoring the database to the exact published snapshot of a
-past version (model/schema-X.Y.Z.sql), as opposed to
-restore_database_from_schema() which always targets whatever
+past version (model/schema-X.Y.Z.sql + model/data-X.Y.Z.sql), as opposed
+to restore_database_from_schema() which always targets whatever
 model/schema.sql currently points to.
 """
 
@@ -19,9 +18,8 @@ from half_orm_dev.repo import Repo, RepoError
 def mock_version_restore_environment(temp_repo):
     """
     Setup a temp_repo with a versioned model/ directory
-    (schema-X.Y.Z.sql, metadata-X.Y.Z.sql, data-X.Y.Z.sql), and bind the
-    real restore_database_from_version_schema/_load_data_files_up_to
-    methods onto the mocked repo.
+    (schema-X.Y.Z.sql, data-X.Y.Z.sql), and bind the real
+    restore_database_from_version_schema method onto the mocked repo.
     """
     repo, temp_dir, patches_dir = temp_repo
 
@@ -32,7 +30,6 @@ def mock_version_restore_environment(temp_repo):
     repo.restore_database_from_version_schema = (
         Repo.restore_database_from_version_schema.__get__(repo, type(repo))
     )
-    repo._load_data_files_up_to = Repo._load_data_files_up_to.__get__(repo, type(repo))
 
     mock_model = Mock()
     mock_model.desc = Mock(return_value=[])
@@ -78,26 +75,40 @@ class TestRestoreDatabaseFromVersionSchema:
             assert not_expected not in mock_execute.call_args_list
             mock_model.reconnect.assert_called_once_with(reload=True)
 
-    def test_loads_matching_metadata_file(self, mock_version_restore_environment):
+    def test_loads_matching_data_file(self, mock_version_restore_environment):
         repo, model_dir, mock_model, mock_execute = mock_version_restore_environment
 
         (model_dir / "schema-0.3.5.sql").write_text("-- schema")
-        (model_dir / "metadata-0.3.5.sql").write_text("-- metadata")
+        (model_dir / "data-0.3.5.sql").write_text("-- data")
 
         with patch.object(repo, '_reset_database_schemas'):
             repo.restore_database_from_version_schema("0.3.5")
 
             expected = call('psql', '-d', 'test_database', '-f',
-                             str(model_dir / "metadata-0.3.5.sql"))
+                             str(model_dir / "data-0.3.5.sql"))
             assert expected in mock_execute.call_args_list
 
-    def test_missing_metadata_file_is_not_an_error(self, mock_version_restore_environment):
+    def test_missing_data_file_is_not_an_error(self, mock_version_restore_environment):
         repo, model_dir, mock_model, mock_execute = mock_version_restore_environment
 
         (model_dir / "schema-0.3.5.sql").write_text("-- schema")
 
         with patch.object(repo, '_reset_database_schemas'):
             repo.restore_database_from_version_schema("0.3.5")  # no raise
+
+    def test_does_not_load_unrelated_version_data_file(self, mock_version_restore_environment):
+        """A data-X.Y.Z.sql for a different version must never be picked up."""
+        repo, model_dir, mock_model, mock_execute = mock_version_restore_environment
+
+        (model_dir / "schema-0.3.5.sql").write_text("-- schema")
+        (model_dir / "data-0.3.13.sql").write_text("-- unrelated version data")
+
+        with patch.object(repo, '_reset_database_schemas'):
+            repo.restore_database_from_version_schema("0.3.5")
+
+            not_expected = call('psql', '-d', 'test_database', '-f',
+                                 str(model_dir / "data-0.3.13.sql"))
+            assert not_expected not in mock_execute.call_args_list
 
     def test_psql_failure_raises_repo_error(self, mock_version_restore_environment):
         repo, model_dir, mock_model, mock_execute = mock_version_restore_environment
@@ -108,31 +119,3 @@ class TestRestoreDatabaseFromVersionSchema:
         with patch.object(repo, '_reset_database_schemas'):
             with pytest.raises(RepoError, match="Failed to load schema"):
                 repo.restore_database_from_version_schema("0.3.5")
-
-
-class TestLoadDataFilesUpTo:
-    def test_loads_only_files_up_to_version_in_order(self, mock_version_restore_environment):
-        repo, model_dir, mock_model, mock_execute = mock_version_restore_environment
-
-        (model_dir / "data-0.1.0.sql").write_text("-- data 0.1.0")
-        (model_dir / "data-0.3.5.sql").write_text("-- data 0.3.5")
-        (model_dir / "data-0.4.0.sql").write_text("-- future data, must be skipped")
-
-        repo._load_data_files_up_to("0.3.5")
-
-        calls = mock_execute.call_args_list
-        loaded = [c.args[-1] for c in calls]
-        assert str(model_dir / "data-0.1.0.sql") in loaded
-        assert str(model_dir / "data-0.3.5.sql") in loaded
-        assert str(model_dir / "data-0.4.0.sql") not in loaded
-        # Order: 0.1.0 before 0.3.5
-        assert loaded.index(str(model_dir / "data-0.1.0.sql")) < loaded.index(
-            str(model_dir / "data-0.3.5.sql")
-        )
-
-    def test_no_data_files_is_a_noop(self, mock_version_restore_environment):
-        repo, model_dir, mock_model, mock_execute = mock_version_restore_environment
-
-        repo._load_data_files_up_to("0.3.5")  # no raise
-
-        mock_execute.assert_not_called()

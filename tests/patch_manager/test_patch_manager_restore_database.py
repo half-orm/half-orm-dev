@@ -7,7 +7,7 @@ Focused on testing database restoration from model/schema.sql including:
 - PostgreSQL command failures (schema drop, psql)
 - Model metadata cache reload
 - Symlink vs regular file handling
-- Loading data files (model/data-*.sql)
+- Loading the matching data file (model/data-X.Y.Z.sql)
 """
 
 import pytest
@@ -266,15 +266,15 @@ class TestRestoreDatabaseFromSchema:
         mock_model.reconnect.assert_called_once_with(reload=True)
 
 
-class TestLoadDataFiles:
-    """Test _load_data_files method for loading reference data."""
+class TestRestoreDatabaseFromSchemaDataFile:
+    """Test the data-X.Y.Z.sql loading step of restore_database_from_schema."""
 
-    def test_load_data_files_single_version(self, patch_manager):
-        """Test loading single data file matching schema version."""
+    def test_loads_matching_data_file(self, patch_manager):
+        """Test loading the single data file matching the schema version."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Bind _load_data_files to the mock repo
-        repo._load_data_files = Repo._load_data_files.__get__(repo, type(repo))
+        # Unmock _deduce_data_path (patch_manager fixture stubs it to (None, None))
+        repo._deduce_data_path = Repo._deduce_data_path.__get__(repo, type(repo))
 
         # Create model directory with schema symlink
         model_dir = Path(temp_dir) / ".hop" / "model"
@@ -288,201 +288,123 @@ class TestLoadDataFiles:
         schema_symlink = model_dir / "schema.sql"
         schema_symlink.symlink_to("schema-1.0.0.sql")
 
-        # Create data file
+        # Create the matching data file
         data_file = model_dir / "data-1.0.0.sql"
         data_file.write_text("INSERT INTO test (id) VALUES (1);")
 
         repo.model_dir = str(model_dir)
 
+        # Mock Model methods used by _reset_database_schemas/reconnect
+        mock_model = Mock()
+        mock_model.desc = Mock(return_value=[])
+        mock_model.execute_query = Mock()
+        mock_model.reconnect = Mock()
+        repo.model = mock_model
+
         # Mock execute_pg_command
         mock_execute = Mock()
         repo.database.execute_pg_command = mock_execute
 
-        # Load data files
-        repo._load_data_files(schema_symlink)
+        repo.restore_database_from_schema()
 
         # Verify data file was loaded
         psql_call = call('psql', '-d', 'test_database', '-f', str(data_file))
         assert psql_call in mock_execute.call_args_list
 
-    def test_load_data_files_multiple_versions_ordered(self, patch_manager):
-        """Test loading multiple data files in version order."""
+    def test_missing_data_file_is_not_an_error(self, patch_manager):
+        """Test that no error occurs when the matching data file doesn't exist."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Bind _load_data_files to the mock repo
-        repo._load_data_files = Repo._load_data_files.__get__(repo, type(repo))
+        repo._deduce_data_path = Repo._deduce_data_path.__get__(repo, type(repo))
 
-        # Create model directory with schema symlink
         model_dir = Path(temp_dir) / ".hop" / "model"
         model_dir.mkdir(parents=True)
 
-        # Create versioned schema file
-        versioned_schema = model_dir / "schema-1.2.0.sql"
-        versioned_schema.write_text("CREATE TABLE test (id SERIAL);")
-
-        # Create symlink schema.sql -> schema-1.2.0.sql
-        schema_symlink = model_dir / "schema.sql"
-        schema_symlink.symlink_to("schema-1.2.0.sql")
-
-        # Create data files in various versions
-        data_files = [
-            model_dir / "data-0.1.0.sql",
-            model_dir / "data-1.0.0.sql",
-            model_dir / "data-1.2.0.sql",
-            model_dir / "data-2.0.0.sql",  # Should NOT be loaded (beyond current version)
-        ]
-        for df in data_files:
-            df.write_text(f"-- Data for {df.name}")
-
-        repo.model_dir = str(model_dir)
-
-        # Mock execute_pg_command
-        mock_execute = Mock()
-        repo.database.execute_pg_command = mock_execute
-
-        # Load data files
-        repo._load_data_files(schema_symlink)
-
-        # Verify only files up to 1.2.0 were loaded, in order
-        calls = mock_execute.call_args_list
-        assert len(calls) == 3  # 0.1.0, 1.0.0, 1.2.0
-
-        # Verify order
-        assert "data-0.1.0.sql" in str(calls[0])
-        assert "data-1.0.0.sql" in str(calls[1])
-        assert "data-1.2.0.sql" in str(calls[2])
-
-    def test_load_data_files_skips_future_versions(self, patch_manager):
-        """Test that data files for future versions are skipped."""
-        patch_mgr, repo, temp_dir, patches_dir = patch_manager
-
-        # Bind _load_data_files to the mock repo
-        repo._load_data_files = Repo._load_data_files.__get__(repo, type(repo))
-
-        # Create model directory with schema symlink
-        model_dir = Path(temp_dir) / ".hop" / "model"
-        model_dir.mkdir(parents=True)
-
-        # Create versioned schema file at 1.0.0
         versioned_schema = model_dir / "schema-1.0.0.sql"
         versioned_schema.write_text("CREATE TABLE test (id SERIAL);")
 
-        # Create symlink schema.sql -> schema-1.0.0.sql
         schema_symlink = model_dir / "schema.sql"
         schema_symlink.symlink_to("schema-1.0.0.sql")
 
-        # Create data files
-        data_current = model_dir / "data-1.0.0.sql"
-        data_current.write_text("-- Current version data")
-
-        data_future = model_dir / "data-2.0.0.sql"
-        data_future.write_text("-- Future version data")
+        # No data-1.0.0.sql created
 
         repo.model_dir = str(model_dir)
 
-        # Mock execute_pg_command
+        mock_model = Mock()
+        mock_model.desc = Mock(return_value=[])
+        mock_model.execute_query = Mock()
+        mock_model.reconnect = Mock()
+        repo.model = mock_model
+
         mock_execute = Mock()
         repo.database.execute_pg_command = mock_execute
 
-        # Load data files
-        repo._load_data_files(schema_symlink)
+        repo.restore_database_from_schema()  # must not raise
 
-        # Verify only 1.0.0 was loaded
+        # Only the schema load call was made, no data call
         assert mock_execute.call_count == 1
-        assert "data-1.0.0.sql" in str(mock_execute.call_args_list[0])
+        mock_model.reconnect.assert_called_once_with(reload=True)
 
-    def test_load_data_files_no_data_files(self, patch_manager):
-        """Test that no error occurs when no data files exist."""
+    def test_regular_schema_file_skips_data_loading(self, patch_manager):
+        """Test that data loading is skipped for a regular schema file (no symlink)."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Bind _load_data_files to the mock repo
-        repo._load_data_files = Repo._load_data_files.__get__(repo, type(repo))
+        repo._deduce_data_path = Repo._deduce_data_path.__get__(repo, type(repo))
 
-        # Create model directory with schema symlink
-        model_dir = Path(temp_dir) / ".hop" / "model"
-        model_dir.mkdir(parents=True)
-
-        # Create versioned schema file
-        versioned_schema = model_dir / "schema-1.0.0.sql"
-        versioned_schema.write_text("CREATE TABLE test (id SERIAL);")
-
-        # Create symlink schema.sql -> schema-1.0.0.sql
-        schema_symlink = model_dir / "schema.sql"
-        schema_symlink.symlink_to("schema-1.0.0.sql")
-
-        # No data files created
-
-        repo.model_dir = str(model_dir)
-
-        # Mock execute_pg_command
-        mock_execute = Mock()
-        repo.database.execute_pg_command = mock_execute
-
-        # Load data files - should not raise
-        repo._load_data_files(schema_symlink)
-
-        # Verify no psql calls were made for data
-        assert mock_execute.call_count == 0
-
-    def test_load_data_files_regular_schema_file(self, patch_manager):
-        """Test that data loading is skipped for regular schema file (no symlink)."""
-        patch_mgr, repo, temp_dir, patches_dir = patch_manager
-
-        # Bind _load_data_files to the mock repo
-        repo._load_data_files = Repo._load_data_files.__get__(repo, type(repo))
-
-        # Create model directory with regular schema file (no symlink)
         model_dir = Path(temp_dir) / ".hop" / "model"
         model_dir.mkdir(parents=True)
 
         schema_file = model_dir / "schema.sql"
         schema_file.write_text("CREATE TABLE test (id SERIAL);")
 
-        # Create data file
+        # A data file exists but can't be matched without a version symlink
         data_file = model_dir / "data-1.0.0.sql"
         data_file.write_text("INSERT INTO test (id) VALUES (1);")
 
         repo.model_dir = str(model_dir)
 
-        # Mock execute_pg_command
+        mock_model = Mock()
+        mock_model.desc = Mock(return_value=[])
+        mock_model.execute_query = Mock()
+        mock_model.reconnect = Mock()
+        repo.model = mock_model
+
         mock_execute = Mock()
         repo.database.execute_pg_command = mock_execute
 
-        # Load data files - should skip because no version can be deduced
-        repo._load_data_files(schema_file)
+        repo.restore_database_from_schema()
 
-        # Verify no psql calls were made
-        assert mock_execute.call_count == 0
+        # Only the schema load call was made, no data call
+        assert mock_execute.call_count == 1
 
-    def test_load_data_files_error_handling(self, patch_manager):
+    def test_data_load_failure_raises_repo_error(self, patch_manager):
         """Test error handling when data file loading fails."""
         patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
-        # Bind _load_data_files to the mock repo
-        repo._load_data_files = Repo._load_data_files.__get__(repo, type(repo))
+        repo._deduce_data_path = Repo._deduce_data_path.__get__(repo, type(repo))
 
-        # Create model directory with schema symlink
         model_dir = Path(temp_dir) / ".hop" / "model"
         model_dir.mkdir(parents=True)
 
-        # Create versioned schema file
         versioned_schema = model_dir / "schema-1.0.0.sql"
         versioned_schema.write_text("CREATE TABLE test (id SERIAL);")
 
-        # Create symlink schema.sql -> schema-1.0.0.sql
         schema_symlink = model_dir / "schema.sql"
         schema_symlink.symlink_to("schema-1.0.0.sql")
 
-        # Create data file
         data_file = model_dir / "data-1.0.0.sql"
         data_file.write_text("INVALID SQL;")
 
         repo.model_dir = str(model_dir)
 
-        # Mock execute_pg_command to fail
-        mock_execute = Mock(side_effect=Exception("psql failed: syntax error"))
+        mock_model = Mock()
+        mock_model.desc = Mock(return_value=[])
+        mock_model.execute_query = Mock()
+        repo.model = mock_model
+
+        # Schema load succeeds, data load fails
+        mock_execute = Mock(side_effect=[None, Exception("psql failed: syntax error")])
         repo.database.execute_pg_command = mock_execute
 
-        # Load data files - should raise RepoError
         with pytest.raises(RepoError, match="Failed to load data"):
-            repo._load_data_files(schema_symlink)
+            repo.restore_database_from_schema()

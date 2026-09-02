@@ -15,6 +15,7 @@ from half_orm_dev.file_executor import (
     execute_sql_file_psql,
     execute_python_file,
     execute_python_bootstrap,
+    execute_bootstrap_files,
     _has_run_entrypoint,
     FileExecutionError
 )
@@ -246,6 +247,73 @@ class TestExecutePythonBootstrap:
         f.write_text('def run(model):\n    pass\n')
         execute_python_bootstrap(f, Mock())
         assert not any('_hop_bootstrap_' in k for k in sys.modules)
+
+
+class TestExecuteBootstrapFiles:
+    """Test execute_bootstrap_files - the bootstrap/ directory orchestrator."""
+
+    def test_missing_directory_is_a_noop(self, tmp_path):
+        execute_bootstrap_files(tmp_path / "does-not-exist", Mock())  # no raise
+
+    def test_empty_directory_is_a_noop(self, tmp_path):
+        model = Mock()
+        execute_bootstrap_files(tmp_path, model)
+        model.execute_query.assert_not_called()
+
+    def test_ignores_non_sql_py_files(self, tmp_path):
+        (tmp_path / "README.md").write_text("not executable")
+        (tmp_path / "notes.txt").write_text("not executable")
+        model = Mock()
+        execute_bootstrap_files(tmp_path, model)
+        model.execute_query.assert_not_called()
+
+    def test_executes_sql_file_via_model(self, tmp_path):
+        (tmp_path / "01-seed.sql").write_text("INSERT INTO t VALUES (1);")
+        model = Mock()
+        execute_bootstrap_files(tmp_path, model)
+        model.execute_query.assert_called_once_with("INSERT INTO t VALUES (1);")
+
+    def test_executes_python_file_with_model(self, tmp_path):
+        (tmp_path / "01-seed.py").write_text(
+            'def run(model):\n    model.seeded = True\n'
+        )
+        model = Mock()
+        model.seeded = False
+        execute_bootstrap_files(tmp_path, model)
+        assert model.seeded is True
+
+    def test_alphabetic_order_across_sql_and_py(self, tmp_path):
+        (tmp_path / "02-second.sql").write_text("-- second")
+        (tmp_path / "01-first.py").write_text(
+            'def run(model):\n    model.log("first")\n'
+        )
+        (tmp_path / "03-third.sql").write_text("-- third")
+        model = Mock()
+        order = []
+        model.log = lambda name: order.append(name)
+        model.execute_query = lambda sql: order.append(sql)
+
+        execute_bootstrap_files(tmp_path, model)
+
+        assert order == ["first", "-- second", "-- third"]
+
+    def test_sql_error_wrapped_and_stops_remaining_files(self, tmp_path):
+        (tmp_path / "01-bad.sql").write_text("INVALID SQL;")
+        (tmp_path / "02-after.sql").write_text("-- should not run")
+        model = Mock()
+        model.execute_query = Mock(side_effect=Exception("syntax error"))
+
+        with pytest.raises(FileExecutionError, match="01-bad.sql"):
+            execute_bootstrap_files(tmp_path, model)
+
+        model.execute_query.assert_called_once()
+
+    def test_python_error_propagates_as_file_execution_error(self, tmp_path):
+        (tmp_path / "01-bad.py").write_text(
+            'def run(model):\n    raise ValueError("boom")\n'
+        )
+        with pytest.raises(FileExecutionError, match="boom"):
+            execute_bootstrap_files(tmp_path, Mock())
 
 
 class TestFileExecutionError:

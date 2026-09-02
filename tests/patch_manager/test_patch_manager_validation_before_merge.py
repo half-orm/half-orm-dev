@@ -123,6 +123,27 @@ class TestValidatePatchBeforeMerge:
         # Verify database restore was called
         patch_mgr._repo.restore_database_from_schema.assert_called_once()
 
+    def test_validation_does_not_execute_bootstrap_files(self, patch_manager_basic):
+        """Regression: merge validation must not run bootstrap/ scripts.
+
+        Reference/system data now flows through idempotent DML in patches
+        (captured by generate_release_schema's full dump); bootstrap/ is
+        reserved for one-time per-instance init at clone, never at merge -
+        this used to double-run bootstrap with no reset in between.
+        """
+        patch_mgr, mock_hgit, mock_database, tmp_path = patch_manager_basic
+
+        with patch('half_orm_dev.file_executor.execute_bootstrap_files') as mock_bootstrap:
+            with patch('click.echo'):
+                patch_mgr._validate_patch_before_merge(
+                    "42-feature",
+                    "0.17.0",
+                    "ho-release/0.17.0",
+                    "ho-patch/42-feature"
+                )
+
+            mock_bootstrap.assert_not_called()
+
     def test_validation_applies_patch_files(self, patch_manager_basic):
         """Test applies patch files."""
         patch_mgr, mock_hgit, mock_database, tmp_path = patch_manager_basic

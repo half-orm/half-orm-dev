@@ -208,9 +208,12 @@ class Database:
         Generate versioned schema SQL dump.
 
         Creates model/schema-{version}.sql with current database structure
-        using pg_dump --schema-only. Creates model/metadata-{version}.sql
-        with half_orm_meta data using pg_dump --data-only.
-        Updates model/schema.sql symlink to point to the new version.
+        using pg_dump --schema-only. Creates model/data-{version}.sql with
+        the complete data snapshot (half_orm_meta bookkeeping + all
+        application data) using pg_dump --data-only, so a fresh instance
+        restored from these two files is immediately usable - no separate
+        script execution needed. Updates model/schema.sql symlink to point
+        to the new version.
 
         This method is used by:
         - init-project: Generate initial schema-0.0.0.sql after database setup
@@ -241,32 +244,33 @@ class Database:
             model_dir = Path("/project/model")
             schema_path = database._generate_schema_sql("0.0.0", model_dir)
             # → Creates model/schema-0.0.0.sql
-            # → Creates model/metadata-0.0.0.sql
+            # → Creates model/data-0.0.0.sql
             # → Creates symlink model/schema.sql → schema-0.0.0.sql
             # → Returns Path("/project/model/schema-0.0.0.sql")
 
             # During deploy-to-prod - save production schema
             schema_path = database._generate_schema_sql("1.3.4", model_dir)
             # → Creates model/schema-1.3.4.sql
-            # → Creates model/metadata-1.3.4.sql
+            # → Creates model/data-1.3.4.sql
             # → Updates symlink model/schema.sql → schema-1.3.4.sql
 
         File Structure Created:
             model/
-            ├── schema.sql          # Symlink to current version
-            ├── schema-0.0.0.sql    # Initial version (structure)
-            ├── metadata-0.0.0.sql  # Initial version (half_orm_meta data)
-            ├── schema-1.0.0.sql    # Production version (structure)
-            ├── metadata-1.0.0.sql  # Production version (half_orm_meta data)
-            ├── schema-1.3.4.sql    # Latest production version (current)
-            ├── metadata-1.3.4.sql  # Latest production version (current)
+            ├── schema.sql       # Symlink to current version
+            ├── schema-0.0.0.sql # Initial version (structure)
+            ├── data-0.0.0.sql   # Initial version (half_orm_meta + app data)
+            ├── schema-1.0.0.sql # Production version (structure)
+            ├── data-1.0.0.sql   # Production version (half_orm_meta + app data)
+            ├── schema-1.3.4.sql # Latest production version (current)
+            ├── data-1.3.4.sql   # Latest production version (current)
             └── ...
 
         Notes:
             - Uses pg_dump --schema-only for structure (no data)
-            - Uses pg_dump --data-only for metadata (only half_orm_meta tables)
+            - Uses pg_dump --data-only for data (all tables: half_orm_meta
+              bookkeeping and application data alike)
             - Symlink is relative (schema.sql → schema-X.Y.Z.sql)
-            - No symlink for metadata (version deduced from schema.sql)
+            - No symlink for data (version deduced from schema.sql)
             - Existing symlink is replaced atomically
             - Version format should be X.Y.Z (semantic versioning)
         """
@@ -331,44 +335,7 @@ class Database:
             if temp_schema_file.exists():
                 temp_schema_file.unlink()
 
-        # Generate metadata dump (half_orm_meta data only)
-        # Keep only COPY statements to avoid version-specific SET commands
-        metadata_file = model_dir / f"metadata-{version}.sql"
-        temp_file = model_dir / f".metadata-{version}.sql.tmp"
-
-        try:
-            # Dump to temporary file
-            self.execute_pg_command(
-                'pg_dump',
-                self.__name,
-                '--data-only',
-                '--table=half_orm_meta.database',
-                '--table=half_orm_meta.hop_release',
-                '--table=half_orm_meta.hop_release_issue',
-                '-f',
-                str(temp_file)
-            )
-
-            # Filter to keep only COPY blocks (COPY ... FROM stdin; ... \.)
-            content = temp_file.read_text()
-            filtered_lines = []
-            in_copy_block = False
-            for line in content.split('\n'):
-                if line.startswith('COPY '):
-                    in_copy_block = True
-                if in_copy_block:
-                    filtered_lines.append(line)
-                if line == '\\.':
-                    in_copy_block = False
-                    filtered_lines.append('')  # Empty line between blocks
-
-            metadata_file.write_text('\n'.join(filtered_lines))
-        except Exception as e:
-            raise Exception(f"Failed to generate metadata SQL: {e}") from e
-        finally:
-            # Clean up temporary file
-            if temp_file.exists():
-                temp_file.unlink()
+        self._generate_data_sql(version, model_dir)
 
         # Create or update symlink
         symlink_path = model_dir / "schema.sql"
@@ -392,6 +359,66 @@ class Database:
             ) from e
 
         return schema_file
+
+    def _generate_data_sql(self, version: str, model_dir: Path) -> Path:
+        """
+        Generate model/data-{version}.sql: a full pg_dump --data-only
+        snapshot (half_orm_meta bookkeeping + all application data) for
+        the given version.
+
+        Extracted out of _generate_schema_sql() so it can also be called
+        standalone by the metadata->data migration (which needs to
+        backfill this file for a project's already-published current
+        version, without touching schema-{version}.sql or the symlink).
+
+        Args:
+            version: Version string (e.g., "1.3.4")
+            model_dir: Path to model/ directory where the file is written
+
+        Returns:
+            Path to the generated data file (model/data-{version}.sql)
+
+        Raises:
+            Exception: If pg_dump fails
+        """
+        data_file = model_dir / f"data-{version}.sql"
+        temp_file = model_dir / f".data-{version}.sql.tmp"
+
+        try:
+            # Dump to temporary file (no --table= restriction: this file
+            # must be a complete, self-contained snapshot for a fresh
+            # instance - half_orm_meta bookkeeping and application data
+            # alike)
+            self.execute_pg_command(
+                'pg_dump',
+                self.__name,
+                '--data-only',
+                '-f',
+                str(temp_file)
+            )
+
+            # Filter to keep only COPY blocks (COPY ... FROM stdin; ... \.)
+            # to avoid version-specific SET commands
+            content = temp_file.read_text()
+            filtered_lines = []
+            in_copy_block = False
+            for line in content.split('\n'):
+                if line.startswith('COPY '):
+                    in_copy_block = True
+                if in_copy_block:
+                    filtered_lines.append(line)
+                if line == '\\.':
+                    in_copy_block = False
+                    filtered_lines.append('')  # Empty line between blocks
+
+            data_file.write_text('\n'.join(filtered_lines))
+        except Exception as e:
+            raise Exception(f"Failed to generate data SQL: {e}") from e
+        finally:
+            if temp_file.exists():
+                temp_file.unlink()
+
+        return data_file
 
     @classmethod
     def _save_configuration(cls, database_name, connection_params):

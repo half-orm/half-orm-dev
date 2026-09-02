@@ -15,7 +15,7 @@ import keyword
 import re
 import warnings
 
-from typing import Optional
+from typing import Optional, Tuple
 from pathlib import Path
 from configparser import ConfigParser
 from psycopg import OperationalError
@@ -2653,19 +2653,19 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
 
     def restore_database_from_schema(self) -> None:
         """
-        Restore database from model/schema.sql, metadata, and data files.
+        Restore database from model/schema.sql and its data snapshot.
 
         Restores database to clean production state by dropping all user schemas
-        and loading schema, metadata, and reference data.
+        and loading the schema structure and its matching data snapshot
+        (half_orm_meta bookkeeping + all application data).
         Used for patch development (patch apply).
 
         Process:
         1. Verify model/schema.sql exists (file or symlink)
         2. Drop all user schemas with CASCADE (no superuser privileges needed)
         3. Load schema structure from model/schema.sql using psql -f
-        4. Load half_orm_meta data from model/metadata-X.Y.Z.sql using psql -f (if exists)
-        5. Load reference data from model/data-*.sql files up to current version
-        6. Reload halfORM Model metadata cache
+        4. Load data from model/data-X.Y.Z.sql using psql -f (if exists)
+        5. Reload halfORM Model metadata cache
 
         The method uses DROP SCHEMA CASCADE instead of dropdb/createdb, allowing
         operation without CREATEDB privilege or superuser access. This makes it
@@ -2675,18 +2675,14 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
         - Accepts model/schema.sql as regular file or symlink
         - Symlink typically points to versioned schema-X.Y.Z.sql file
         - Follows symlink automatically during psql execution
-        - Deduces version from schema.sql symlink target for metadata and data files
-        - Missing metadata/data files are silently skipped (backward compatibility)
-
-        Data Files:
-        - model/data-X.Y.Z.sql contains reference data from @HOP:data patches
-        - All data files up to current version are loaded in version order
-        - Example: for version 1.2.0, loads data-0.1.0.sql, data-1.0.0.sql, data-1.2.0.sql
+        - Deduces version from schema.sql symlink target to find the matching
+          model/data-X.Y.Z.sql
+        - Missing data file is silently skipped (backward compatibility)
 
         Error Handling:
         - Raises RepoError if model/schema.sql not found
         - Raises RepoError if schema drop fails
-        - Raises RepoError if psql schema/metadata/data load fails
+        - Raises RepoError if psql schema/data load fails
         - Database state rolled back on any failure
 
         Usage Context:
@@ -2704,22 +2700,21 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
         Examples:
             # Restore database from model/schema.sql before applying patch
             repo.restore_database_from_schema()
-            # Database now contains: schema + metadata + reference data
+            # Database now contains: schema + data
 
             # Typical apply-patch workflow
             repo.restore_database_from_schema()  # Step 1: Clean state + all data
             patch_mgr.apply_patch_files("456-user-auth", repo.model)  # Step 2: Apply patch
 
             # With versioned files
-            # If schema.sql → schema-1.2.3.sql exists
-            # Then loads: metadata-1.2.3.sql, data-0.1.0.sql, data-1.0.0.sql, data-1.2.3.sql
+            # If schema.sql → schema-1.2.3.sql exists, loads data-1.2.3.sql
 
         Notes:
             - Uses DROP SCHEMA CASCADE - no superuser or CREATEDB privilege required
             - Works on cloud databases (AWS RDS, Azure Database, etc.)
             - Uses Model.reconnect(reload=True) to refresh metadata cache
             - Supports both schema.sql file and schema.sql -> schema-X.Y.Z.sql symlink
-            - Metadata and data files are optional (backward compatibility)
+            - Data file is optional (backward compatibility)
             - All PostgreSQL commands use repository connection configuration
         """
         # 1. Verify model/schema.sql exists
@@ -2743,24 +2738,21 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
             except Exception as e:
                 raise RepoError(f"Failed to load schema from {schema_path.name}: {e}") from e
 
-            # 4. Load metadata from model/metadata-X.Y.Z.sql (if exists)
-            metadata_path, version = self._deduce_metadata_path(schema_path)
+            # 4. Load data from model/data-X.Y.Z.sql (if exists)
+            data_path, version = self._deduce_data_path(schema_path)
 
-            if metadata_path and metadata_path.exists():
+            if data_path and data_path.exists():
                 try:
                     self.database.execute_pg_command(
-                        'psql', '-d', self.database_name, '-f', str(metadata_path)
+                        'psql', '-d', self.database_name, '-f', str(data_path)
                     )
                 except Exception as e:
                     raise RepoError(
-                        f"Failed to load metadata from {metadata_path.name}: {e}"
+                        f"Failed to load data from {data_path.name}: {e}"
                     ) from e
-            # else: metadata file doesn't exist, continue without error (backward compatibility)
+            # else: data file doesn't exist, continue without error (backward compatibility)
 
-            # 5. Load data files from model/data-*.sql (all versions up to current)
-            self._load_data_files(schema_path)
-
-            # 6. Reload half_orm metadata cache
+            # 5. Reload half_orm metadata cache
             self.model.reconnect(reload=True)
 
         except RepoError:
@@ -2772,9 +2764,9 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
 
     def restore_database_from_version_schema(self, version: str) -> None:
         """
-        Restore database from the published schema/metadata/data snapshot
-        of an exact past version (model/schema-X.Y.Z.sql), regardless of
-        what model/schema.sql currently points to.
+        Restore database from the published schema/data snapshot of an
+        exact past version (model/schema-X.Y.Z.sql), regardless of what
+        model/schema.sql currently points to.
 
         Unlike restore_database_from_schema(), which always targets the
         version model/schema.sql is symlinked to (i.e. the current
@@ -2809,18 +2801,16 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
             except Exception as e:
                 raise RepoError(f"Failed to load schema from {schema_path.name}: {e}") from e
 
-            metadata_path = Path(self.model_dir) / f"metadata-{version}.sql"
-            if metadata_path.exists():
+            data_path = Path(self.model_dir) / f"data-{version}.sql"
+            if data_path.exists():
                 try:
                     self.database.execute_pg_command(
-                        'psql', '-d', self.database_name, '-f', str(metadata_path)
+                        'psql', '-d', self.database_name, '-f', str(data_path)
                     )
                 except Exception as e:
                     raise RepoError(
-                        f"Failed to load metadata from {metadata_path.name}: {e}"
+                        f"Failed to load data from {data_path.name}: {e}"
                     ) from e
-
-            self._load_data_files_up_to(version)
 
             self.model.reconnect(reload=True)
 
@@ -2828,48 +2818,6 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
             raise
         except Exception as e:
             raise RepoError(f"Database restoration failed: {e}") from e
-
-    def _load_data_files_up_to(self, version: str) -> None:
-        """
-        Load model/data-*.sql reference data files up to (and including)
-        an explicit version, in version order.
-
-        Same file-selection logic as _load_data_files(), but takes the
-        target version directly instead of deducing it from the
-        model/schema.sql symlink - used when restoring to an exact
-        historical version rather than the current production one.
-
-        Args:
-            version: Target version string (e.g., "0.3.5")
-        """
-        current_tuple = tuple(map(int, version.split('.')))
-        model_dir = Path(self.model_dir)
-        data_files = list(model_dir.glob("data-*.sql"))
-
-        if not data_files:
-            return
-
-        versioned_files = []
-        for data_file in data_files:
-            match = re.match(r'data-(\d+\.\d+\.\d+)\.sql$', data_file.name)
-            if match:
-                file_version = match.group(1)
-                versioned_files.append((tuple(map(int, file_version.split('.'))), data_file))
-
-        versioned_files.sort(key=lambda x: x[0])
-
-        for version_tuple, data_file in versioned_files:
-            if version_tuple > current_tuple:
-                break
-
-            try:
-                self.database.execute_pg_command(
-                    'psql', '-d', self.database_name, '-f', str(data_file)
-                )
-            except Exception as e:
-                raise RepoError(
-                    f"Failed to load data from {data_file.name}: {e}"
-                ) from e
 
     def restore_database_from_dump(self, dump_file: Path) -> None:
         """
@@ -3000,11 +2948,17 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
 
     def restore_database_from_release_schema(self, version: str) -> None:
         """
-        Restore database from release schema file and execute bootstrap scripts.
+        Restore database from release schema file.
 
-        Restores database from .hop/model/release-{version}.sql which contains
-        the complete state of a release in development (prod + staged patches),
-        then executes bootstrap scripts for initialization.
+        Restores database from .hop/model/release-{version}.sql which
+        contains the complete state of a release in development (prod +
+        staged patches, including any reference/system data those patches
+        inserted). This is a full pg_dump (schema + data) in one file, so
+        no separate data-loading step is needed.
+
+        Note: this never runs instance-init scripts (bootstrap/) - those
+        only run once, during clone_repo(), for a brand new instance. A
+        release-in-development database is not a new instance.
 
         If the release schema file doesn't exist, falls back to
         restore_database_from_schema() for backward compatibility.
@@ -3054,119 +3008,51 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
         """
         return Path(self.model_dir) / f"release-{version}.sql"
 
-    def _deduce_metadata_path(self, schema_path: Path) -> Optional[Path]:
+    def _deduce_data_path(self, schema_path: Path) -> Tuple[Optional[Path], Optional[str]]:
         """
-        Deduce metadata file path from schema.sql symlink target.
+        Deduce data file path from schema.sql symlink target.
 
         If schema.sql is a symlink pointing to schema-X.Y.Z.sql,
-        returns Path to metadata-X.Y.Z.sql in the same directory.
+        returns (Path to data-X.Y.Z.sql, version) in the same directory.
+        Always returns a 2-tuple so callers can unconditionally unpack the
+        result, even when no version could be deduced.
 
         Args:
             schema_path: Path to model/schema.sql (may be file or symlink)
 
         Returns:
-            Path to metadata-X.Y.Z.sql if version can be deduced, None otherwise
+            (data_path, version) if version can be deduced, (None, None) otherwise
 
         Examples:
             # schema.sql → schema-1.2.3.sql
-            metadata_path = _deduce_metadata_path(Path("model/schema.sql"))
-            # Returns: Path("model/metadata-1.2.3.sql")
+            data_path, version = _deduce_data_path(Path("model/schema.sql"))
+            # Returns: (Path("model/data-1.2.3.sql"), "1.2.3")
 
             # schema.sql is regular file (not symlink)
-            metadata_path = _deduce_metadata_path(Path("model/schema.sql"))
-            # Returns: None
+            data_path, version = _deduce_data_path(Path("model/schema.sql"))
+            # Returns: (None, None)
         """
         # Check if schema.sql is a symlink
         if not schema_path.is_symlink():
-            return None
+            return None, None
 
         # Read symlink target (e.g., "schema-1.2.3.sql")
         try:
             target = Path(os.readlink(schema_path))
         except OSError:
-            return None
+            return None, None
 
         # Extract version from target filename
         match = re.match(r'schema-(\d+\.\d+\.\d+)\.sql$', target.name)
         if not match:
-            return None
+            return None, None
 
         version = match.group(1)
 
-        # Construct metadata file path
-        metadata_path = schema_path.parent / f"metadata-{version}.sql"
+        # Construct data file path
+        data_path = schema_path.parent / f"data-{version}.sql"
 
-        return metadata_path, version
-
-    def _load_data_files(self, schema_path: Path) -> None:
-        """
-        Load all data files from model/data-*.sql up to current version.
-
-        Data files contain reference data (DML) from patches with @HOP:data annotation.
-        They are loaded in version order for from-scratch installations.
-
-        Args:
-            schema_path: Path to model/schema.sql (used to deduce current version)
-
-        Process:
-            1. Deduce current version from schema.sql symlink
-            2. Find all data-*.sql files in model/
-            3. Sort by version (semantic versioning)
-            4. Load each file up to current version using psql -f
-
-        Examples:
-            # schema.sql → schema-1.2.0.sql
-            # model/ contains: data-0.1.0.sql, data-1.0.0.sql, data-1.2.0.sql, data-2.0.0.sql
-            # Loads: data-0.1.0.sql, data-1.0.0.sql, data-1.2.0.sql (skips 2.0.0)
-        """
-        # Deduce current version from schema.sql symlink
-        if not schema_path.is_symlink():
-            return  # No version info, skip data loading
-
-        try:
-            target = Path(os.readlink(schema_path))
-        except OSError:
-            return
-
-        match = re.match(r'schema-(\d+\.\d+\.\d+)\.sql$', target.name)
-        if not match:
-            return
-
-        current_version = match.group(1)
-        current_tuple = tuple(map(int, current_version.split('.')))
-
-        # Find all data files
-        model_dir = schema_path.parent
-        data_files = list(model_dir.glob("data-*.sql"))
-
-        if not data_files:
-            return  # No data files to load
-
-        # Parse and sort by version
-        versioned_files = []
-        for data_file in data_files:
-            match = re.match(r'data-(\d+\.\d+\.\d+)\.sql$', data_file.name)
-            if match:
-                version = match.group(1)
-                version_tuple = tuple(map(int, version.split('.')))
-                versioned_files.append((version_tuple, data_file))
-
-        # Sort by version tuple
-        versioned_files.sort(key=lambda x: x[0])
-
-        # Load each file up to current version
-        for version_tuple, data_file in versioned_files:
-            if version_tuple > current_tuple:
-                break  # Stop at versions beyond current
-
-            try:
-                self.database.execute_pg_command(
-                    'psql', '-d', self.database_name, '-f', str(data_file)
-                )
-            except Exception as e:
-                raise RepoError(
-                    f"Failed to load data from {data_file.name}: {e}"
-                ) from e
+        return data_path, version
 
     @classmethod
     def clone_repo(cls,

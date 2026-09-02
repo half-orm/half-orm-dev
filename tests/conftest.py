@@ -94,8 +94,8 @@ def patch_manager(temp_repo):
     repo.restore_database_from_schema = Repo.restore_database_from_schema.__get__(repo, type(repo))
     mock_get_version = Mock(return_value=(16, 1))
     repo.database.get_postgres_version = mock_get_version
-    # Mock _deduce_metadata_path to return (None, None) - no metadata file
-    repo._deduce_metadata_path = Mock(return_value=(None, None))
+    # Mock _deduce_data_path to return (None, None) - no data file
+    repo._deduce_data_path = Mock(return_value=(None, None))
     patch_mgr = PatchManager(repo)
     return patch_mgr, repo, temp_dir, patches_dir
 
@@ -254,6 +254,10 @@ COPY half_orm_meta.hop_release (major, minor, patch) FROM stdin;
                 break
 
     mock_db.execute_pg_command = Mock(side_effect=mock_execute_pg_command)
+
+    # Bind the real _generate_data_sql so _generate_schema_sql's call to it
+    # actually runs (it's a real method call, not itself mocked away by spec)
+    mock_db._generate_data_sql = Database._generate_data_sql.__get__(mock_db, Database)
 
     return mock_db
 

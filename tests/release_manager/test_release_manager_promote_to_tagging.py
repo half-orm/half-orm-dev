@@ -9,7 +9,7 @@ Tests the new release integration workflow where:
 
 import pytest
 from pathlib import Path
-from unittest.mock import Mock, call
+from unittest.mock import Mock, call, patch
 from half_orm_dev.release_manager import ReleaseManager, ReleaseManagerError
 
 
@@ -190,6 +190,21 @@ class TestPromoteToRCTagging:
         assert result['version'] == "1.3.6"
         assert result['branch'] == "ho-release/1.3.6"
 
+    def test_rc_promotion_does_not_execute_bootstrap_files(self, release_manager_for_rc_tagging):
+        """Regression: RC promotion must not run bootstrap/ scripts.
+
+        This used to run with no DB reset beforehand, re-executing
+        whatever was in bootstrap/ on top of leftover state from the last
+        patch merge - the actual double-execution bug. bootstrap/ is now
+        reserved for one-time per-instance init at clone.
+        """
+        release_mgr, releases_dir, mock_hgit = release_manager_for_rc_tagging
+
+        with patch('half_orm_dev.file_executor.execute_bootstrap_files') as mock_bootstrap:
+            release_mgr.promote_to_rc()
+
+            mock_bootstrap.assert_not_called()
+
     def test_rc_tag_incremental_numbering(self, release_manager_for_rc_tagging):
         """Test that RC2, RC3 get correct tag names."""
         release_mgr, releases_dir, mock_hgit = release_manager_for_rc_tagging
@@ -290,6 +305,21 @@ class TestPromoteToProdTagging:
         # Find the checkout to ho-prod
         ho_prod_checkouts = [c for c in checkout_calls if c == call("ho-prod")]
         assert len(ho_prod_checkouts) > 0, "Should checkout ho-prod before tagging"
+
+    def test_prod_promotion_does_not_execute_bootstrap_files(self, release_manager_for_prod_tagging):
+        """Regression: prod promotion must not run bootstrap/ scripts.
+
+        _generate_schema_sql now dumps data too, so reference/system data
+        inserted by the release's patches is already captured - no
+        separate bootstrap execution needed (or safe, with no DB reset
+        beforehand).
+        """
+        release_mgr, releases_dir, mock_hgit = release_manager_for_prod_tagging
+
+        with patch('half_orm_dev.file_executor.execute_bootstrap_files') as mock_bootstrap:
+            release_mgr.promote_to_prod()
+
+            mock_bootstrap.assert_not_called()
 
     def test_prod_tag_after_merge(self, release_manager_for_prod_tagging):
         """Test that tag is created after merging release branch."""
