@@ -1129,9 +1129,11 @@ class Database:
         """
         Collect missing connection parameters interactively.
 
-        Takes partial connection parameters from CLI options and prompts
-        interactively for any missing or None values. Applies halfORM
-        standard defaults where appropriate.
+        Takes partial connection parameters from CLI options. Missing
+        user/password are prompted for interactively. Missing host/port
+        are resolved like any standard PostgreSQL client tool - from the
+        PGHOST/PGPORT environment variables, then localhost/5432 - never
+        prompted for.
 
         Args:
             database_name (str): PostgreSQL database name for context
@@ -1155,11 +1157,12 @@ class Database:
             EOFError: If input stream is closed during prompts
 
         Interactive Behavior:
-            - Only prompts for missing/None parameters
-            - Shows current defaults in prompts: "Host (localhost): "
+            - Only prompts for missing/None user/password
             - Uses getpass for secure password input
             - Allows empty input to accept defaults
             - Confirms production flag if True
+            - host/port are never prompted for (PGHOST/PGPORT env vars,
+              then localhost/5432)
 
         Examples:
             # Complete parameters provided - no prompts
@@ -1177,13 +1180,14 @@ class Database:
             # Prompts: "User (current_user): " and "Password: [hidden]"
             # Returns: {'host': 'localhost', 'port': 5432, 'user': 'prompted_user', 'password': 'prompted_pass', 'production': False}
 
-            # Only host provided - prompts for missing with defaults
+            # Host/port omitted - resolved from PGHOST/PGPORT (or
+            # localhost/5432), no prompt
             complete = Database._collect_connection_params(
                 "my_db",
-                {'host': 'prod.db.com'}
+                {'host': None, 'port': None, 'user': 'dev', 'password': 'secret'}
             )
-            # Prompts: "Port (5432): ", "User (current_user): ", "Password: "
-            # Returns: complete dict with provided host and prompted/default values
+            # Prompts: nothing for host/port
+            # Returns: complete dict with PGHOST/PGPORT-resolved host/port
 
             # Production flag confirmation
             complete = Database._collect_connection_params(
@@ -1217,28 +1221,22 @@ class Database:
             else:
                 complete_params['password'] = password_input
 
-        # Prompt for host if None
+        # Host/port are never prompted for interactively - like psql,
+        # pg_dump, createdb and every other standard PostgreSQL client
+        # tool, they fall back to the PGHOST/PGPORT environment variables
+        # (and finally to localhost/5432) rather than asking the user.
         if complete_params.get('host') is None:
-            host_input = input("Host (localhost): ").strip()
-            complete_params['host'] = host_input if host_input else 'localhost'
+            complete_params['host'] = os.environ.get('PGHOST', 'localhost')
 
-        # Prompt for port if None
         if complete_params.get('port') is None:
-            port_input = input("Port (5432): ").strip()
-            if port_input:
+            port_env = os.environ.get('PGPORT')
+            if port_env:
                 try:
-                    complete_params['port'] = int(port_input)
+                    complete_params['port'] = int(port_env)
                 except ValueError:
-                    raise ValueError(f"Invalid port number: {port_input}")
+                    raise ValueError(f"Invalid port number in PGPORT: {port_env}")
             else:
                 complete_params['port'] = 5432
-
-        # Apply defaults for still missing parameters (no prompts needed)
-        if complete_params.get('host') is None:
-            complete_params['host'] = 'localhost'
-
-        if complete_params.get('port') is None:
-            complete_params['port'] = 5432
 
         if complete_params.get('user') is None:
             complete_params['user'] = os.environ.get('USER', 'postgres')

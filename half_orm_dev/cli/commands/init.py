@@ -25,8 +25,8 @@ class ProjectDirectoryExistsError(Exception):
 
 @click.command('init')
 @click.argument('project_name')
-@click.option('--host', default='localhost', help='PostgreSQL host (default: localhost)')
-@click.option('--port', default=5432, type=int, help='PostgreSQL port (default: 5432)')
+@click.option('--host', default=None, help='PostgreSQL host (default: $PGHOST, then localhost)')
+@click.option('--port', default=None, type=int, help='PostgreSQL port (default: $PGPORT, then 5432)')
 @click.option('--user', default=None, help='Database user (default: $USER)')
 @click.option('--password', default=None, help='Database password (prompts if missing)')
 @click.option('--git-origin', default=None, help='Git remote origin URL (prompts if missing)')
