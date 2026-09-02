@@ -57,11 +57,18 @@ class TestExecuteNativePgCommand:
         assert 'PGPASSWORD' not in env
 
     @patch('half_orm_dev.database.subprocess.run')
+    @patch.dict('half_orm_dev.database.os.environ', {'PATH': '/usr/bin:/bin'}, clear=True)
     def test_none_user_host_port_do_not_crash_and_are_omitted(self, mock_run):
         """
         None values for user/host/port (peer authentication - no config file,
         cf. half_orm.model.Model._dbinfo) must not raise and must not be
         forwarded to the subprocess environment.
+
+        os.environ is cleared here: this asserts PGUSER/PGHOST/PGPORT/
+        PGPASSWORD are omitted when connection_params doesn't provide them
+        - it must not depend on whether the machine running the test
+        happens to have those variables set ambiently (e.g. PGPORT/PGUSER
+        pointing at a dedicated dev cluster).
         """
         connection_params = {'user': None, 'host': None, 'port': None, 'password': None}
 
@@ -98,8 +105,13 @@ class TestExecuteNativePgCommand:
         assert env['PATH'] == '/usr/bin:/bin'
 
     @patch('half_orm_dev.database.subprocess.run')
+    @patch.dict('half_orm_dev.database.os.environ', {'PATH': '/usr/bin:/bin'}, clear=True)
     def test_empty_string_host_and_port_are_omitted(self, mock_run):
-        """Empty-string host/port (local socket convention) are also falsy and omitted."""
+        """
+        Empty-string host/port (local socket convention) are also falsy and
+        omitted - independent of whatever PGHOST/PGPORT the machine running
+        the test happens to have set ambiently.
+        """
         connection_params = {'user': 'dev', 'host': '', 'port': '', 'password': None}
 
         Database._execute_native_pg_command('my_db', connection_params, 'psql')
