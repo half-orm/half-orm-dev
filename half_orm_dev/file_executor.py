@@ -7,6 +7,7 @@ and bootstrap initialization.
 
 import ast
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -63,13 +64,20 @@ def execute_sql_file_psql(file_path: Path, database, database_name: str) -> None
         raise FileExecutionError(f"psql execution failed for {file_path.name}: {e}") from e
 
 
-def execute_python_file(file_path: Path, cwd: Optional[Path] = None) -> str:
+def execute_python_file(
+    file_path: Path, cwd: Optional[Path] = None, project_root: Optional[Path] = None
+) -> str:
     """
     Execute Python script as subprocess.
 
     Args:
         file_path: Path to Python file
         cwd: Working directory for execution (default: file's parent directory)
+        project_root: Directory to prepend to the subprocess's PYTHONPATH
+            (e.g. so the script can `import <generated_package>`). Running
+            `python file_path.py` already puts file_path's own directory on
+            sys.path automatically - this is only needed for anything else,
+            such as the project root.
 
     Returns:
         stdout from the script execution
@@ -80,10 +88,19 @@ def execute_python_file(file_path: Path, cwd: Optional[Path] = None) -> str:
     if cwd is None:
         cwd = file_path.parent
 
+    env = None
+    if project_root is not None:
+        env = os.environ.copy()
+        existing = env.get('PYTHONPATH', '')
+        env['PYTHONPATH'] = (
+            f"{project_root}{os.pathsep}{existing}" if existing else str(project_root)
+        )
+
     try:
         result = subprocess.run(
             [sys.executable, str(file_path)],
             cwd=cwd,
+            env=env,
             capture_output=True,
             text=True,
             check=True
@@ -111,7 +128,12 @@ def _has_run_entrypoint(file_path: Path) -> bool:
     )
 
 
-def execute_python_bootstrap(file_path: Path, model, cwd: Optional[Path] = None) -> str:
+def execute_python_bootstrap(
+    file_path: Path,
+    model,
+    cwd: Optional[Path] = None,
+    project_root: Optional[Path] = None,
+) -> str:
     """
     Execute a Python bootstrap script.
 
@@ -126,6 +148,10 @@ def execute_python_bootstrap(file_path: Path, model, cwd: Optional[Path] = None)
         file_path: Path to Python bootstrap script
         model: halfORM Model instance (shared database connection)
         cwd: Working directory for execution (default: file's parent)
+        project_root: Directory to also make importable (e.g. the project
+            root, so the script can `import <generated_package>`) - distinct
+            from cwd, which is the script's own directory (for importing
+            siblings there, and as the subprocess working directory)
 
     Returns:
         Return value of run() converted to str, or subprocess stdout.
@@ -138,16 +164,18 @@ def execute_python_bootstrap(file_path: Path, model, cwd: Optional[Path] = None)
         cwd = file_path.parent
 
     if not _has_run_entrypoint(file_path):
-        return execute_python_file(file_path, cwd)
+        return execute_python_file(file_path, cwd, project_root=project_root)
 
     module_name = f"_hop_bootstrap_{file_path.stem.replace('-', '_').replace('.', '_')}"
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     module = importlib.util.module_from_spec(spec)
 
-    cwd_str = str(cwd)
-    inserted = cwd_str not in sys.path
-    if inserted:
-        sys.path.insert(0, cwd_str)
+    paths_to_insert = [str(cwd)]
+    if project_root is not None and str(project_root) != str(cwd):
+        paths_to_insert.append(str(project_root))
+    inserted = [p for p in paths_to_insert if p not in sys.path]
+    for p in inserted:
+        sys.path.insert(0, p)
 
     try:
         spec.loader.exec_module(module)
@@ -160,8 +188,9 @@ def execute_python_bootstrap(file_path: Path, model, cwd: Optional[Path] = None)
             f"Python execution failed in {file_path.name}: {e}"
         ) from e
     finally:
-        if inserted and cwd_str in sys.path:
-            sys.path.remove(cwd_str)
+        for p in inserted:
+            if p in sys.path:
+                sys.path.remove(p)
         sys.modules.pop(module_name, None)
 
 
@@ -174,7 +203,10 @@ def execute_bootstrap_files(bootstrap_dir: Path, model) -> None:
     alphabetic order (no numeric parsing needed).
 
     Args:
-        bootstrap_dir: Path to bootstrap directory
+        bootstrap_dir: Path to bootstrap directory (a project's bootstrap/,
+            directly under the project root - e.g. so a script can
+            `import <project_package>`, the project root -
+            bootstrap_dir.parent - is put on the Python path too)
         model: halfORM Model instance (shared database connection)
 
     Raises:
@@ -210,7 +242,9 @@ def execute_bootstrap_files(bootstrap_dir: Path, model) -> None:
             if file_path.suffix == '.sql':
                 execute_sql_file(file_path, model)
             elif file_path.suffix == '.py':
-                execute_python_bootstrap(file_path, model, cwd=bootstrap_dir)
+                execute_python_bootstrap(
+                    file_path, model, cwd=bootstrap_dir, project_root=bootstrap_dir.parent
+                )
         except FileExecutionError:
             # Re-raise FileExecutionError as-is (already has good error message)
             raise

@@ -248,6 +248,57 @@ class TestExecutePythonBootstrap:
         execute_python_bootstrap(f, Mock())
         assert not any('_hop_bootstrap_' in k for k in sys.modules)
 
+    def test_project_root_makes_generated_package_importable(self, tmp_path):
+        """
+        Regression: a bootstrap script under project/bootstrap/ doing
+        `from myproject.api.role import Role` must find myproject/ at the
+        project root, not just siblings inside bootstrap/.
+        """
+        project_root = tmp_path / 'myproject'
+        bootstrap_dir = project_root / 'bootstrap'
+        bootstrap_dir.mkdir(parents=True)
+        pkg_dir = project_root / 'myproject'
+        pkg_dir.mkdir()
+        (pkg_dir / '__init__.py').write_text('GREETING = "hi from package"')
+
+        f = bootstrap_dir / '01-roles.py'
+        f.write_text(
+            'from myproject import GREETING\n'
+            'def run(model):\n'
+            '    return GREETING\n'
+        )
+
+        result = execute_python_bootstrap(f, Mock(), cwd=bootstrap_dir, project_root=project_root)
+
+        assert result == 'hi from package'
+
+    def test_project_root_removed_from_sys_path_after_execution(self, tmp_path):
+        project_root = tmp_path / 'myproject'
+        bootstrap_dir = project_root / 'bootstrap'
+        bootstrap_dir.mkdir(parents=True)
+        f = bootstrap_dir / '01-seed.py'
+        f.write_text('def run(model):\n    pass\n')
+
+        path_before = list(sys.path)
+        execute_python_bootstrap(f, Mock(), cwd=bootstrap_dir, project_root=project_root)
+        assert sys.path == path_before
+
+    def test_no_run_entrypoint_still_finds_project_package(self, tmp_path):
+        """Subprocess fallback (no run(model)) also needs PYTHONPATH set."""
+        project_root = tmp_path / 'myproject'
+        bootstrap_dir = project_root / 'bootstrap'
+        bootstrap_dir.mkdir(parents=True)
+        pkg_dir = project_root / 'myproject'
+        pkg_dir.mkdir()
+        (pkg_dir / '__init__.py').write_text('GREETING = "hi from subprocess"')
+
+        f = bootstrap_dir / '01-legacy.py'
+        f.write_text('from myproject import GREETING\nprint(GREETING)')
+
+        result = execute_python_bootstrap(f, Mock(), cwd=bootstrap_dir, project_root=project_root)
+
+        assert result == 'hi from subprocess'
+
 
 class TestExecuteBootstrapFiles:
     """Test execute_bootstrap_files - the bootstrap/ directory orchestrator."""
@@ -281,6 +332,34 @@ class TestExecuteBootstrapFiles:
         model.seeded = False
         execute_bootstrap_files(tmp_path, model)
         assert model.seeded is True
+
+    def test_python_file_can_import_generated_project_package(self, tmp_path):
+        """
+        Regression: execute_bootstrap_files(project/bootstrap, model) must
+        make project/ importable, not just project/bootstrap/ - real
+        bootstrap scripts import the ORM-generated project package
+        (e.g. `from myproject.api.role import Role`).
+
+        Uses a package name distinct from other tests in this module: a
+        plain `import` (unlike the bootstrap wrapper module) is never
+        popped from sys.modules, so a shared name would leak between tests.
+        """
+        project_root = tmp_path / 'orchestrator_project'
+        bootstrap_dir = project_root / 'bootstrap'
+        bootstrap_dir.mkdir(parents=True)
+        pkg_dir = project_root / 'orchestrator_project'
+        pkg_dir.mkdir()
+        (pkg_dir / '__init__.py').write_text('GREETING = "hi"')
+        (bootstrap_dir / '01-roles.py').write_text(
+            'from orchestrator_project import GREETING\n'
+            'def run(model):\n'
+            '    model.greeting = GREETING\n'
+        )
+        model = Mock()
+
+        execute_bootstrap_files(bootstrap_dir, model)
+
+        assert model.greeting == 'hi'
 
     def test_alphabetic_order_across_sql_and_py(self, tmp_path):
         (tmp_path / "02-second.sql").write_text("-- second")
