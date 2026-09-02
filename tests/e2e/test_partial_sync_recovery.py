@@ -17,7 +17,7 @@ import uuid
 
 import pytest
 
-from tests.e2e.conftest import run_cmd
+from tests.e2e.conftest import run_cmd, pg_port
 
 
 pytestmark = pytest.mark.e2e
@@ -114,7 +114,7 @@ class TestPartialSyncRecovery:
 name = {actor2_db}
 user = {db_user}
 host = localhost
-port = 5432
+port = {pg_port()}
 """
         if db_password:
             config_content += f"password = {db_password}\n"
@@ -278,7 +278,7 @@ port = 5432
 name = {actor2_db}
 user = {db_user}
 host = localhost
-port = 5432
+port = {pg_port()}
 """
         if db_password:
             config_content += f"password = {db_password}\n"

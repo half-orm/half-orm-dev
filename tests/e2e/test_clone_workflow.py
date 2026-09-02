@@ -16,7 +16,7 @@ import os
 import pytest
 from pathlib import Path
 
-from tests.e2e.conftest import run_cmd
+from tests.e2e.conftest import run_cmd, pg_port
 
 
 pytestmark = pytest.mark.e2e
@@ -53,7 +53,7 @@ class TestCloneBasic:
 name = {clone_db_name}
 user = {db_user}
 host = localhost
-port = 5432
+port = {pg_port()}
 """
         if db_password:
             clone_config_content += f"password = {db_password}\n"
@@ -172,7 +172,7 @@ class TestCloneWithDatabaseName:
 name = {alt_db_name}
 user = {db_user}
 host = localhost
-port = 5432
+port = {pg_port()}
 """
         if db_password:
             alt_config_content += f"password = {db_password}\n"
@@ -262,7 +262,7 @@ class TestCloneWithDestDir:
 name = {clone_db_name}
 user = {db_user}
 host = localhost
-port = 5432
+port = {pg_port()}
 """
         if db_password:
             clone_config_content += f"password = {db_password}\n"
@@ -336,7 +336,7 @@ class TestClonePatchApply:
 name = {alt_db_name}
 user = {db_user}
 host = localhost
-port = 5432
+port = {pg_port()}
 """
         if db_password:
             alt_config_content += f"password = {db_password}\n"

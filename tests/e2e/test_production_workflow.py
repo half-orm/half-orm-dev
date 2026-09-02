@@ -13,7 +13,7 @@ import pytest
 import subprocess
 from pathlib import Path
 
-from tests.e2e.conftest import run_cmd
+from tests.e2e.conftest import run_cmd, pg_port
 
 
 @pytest.fixture(scope="function")
@@ -124,7 +124,7 @@ def production_environment(initialized_project):
 name = {prod_db_name}
 user = {env['db_user']}
 host = localhost
-port = 5432
+port = {pg_port()}
 password = {env['db_password']}
 production = True
 """)

@@ -16,6 +16,19 @@ from packaging.version import Version
 from half_orm_dev.utils import hop_version as installed_hop_version
 
 
+def pg_port() -> int:
+    """
+    PostgreSQL port to target in e2e tests.
+
+    Respects the PGPORT environment variable (e.g. a dedicated non-default
+    cluster), falling back to 5432. Used where a test writes a
+    ~/.half_orm/<db> config file directly (half_orm_dev's own --host/--port
+    CLI options already resolve PGHOST/PGPORT on their own and don't need
+    this).
+    """
+    return int(os.environ.get('PGPORT', 5432))
+
+
 def _one_pre_release_below(installed: str) -> str:
     """Return a version string one pre-release step below *installed*.
 
@@ -247,7 +260,7 @@ def initialized_project(e2e_environment):
 name = {env['db_name']}
 user = {env['db_user']}
 host = localhost
-port = 5432
+port = {pg_port()}
 """
     if env['db_password']:
         config_content += f"password = {env['db_password']}\n"
