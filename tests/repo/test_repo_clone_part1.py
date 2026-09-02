@@ -224,3 +224,78 @@ class TestCloneRepoSuccess:
 
         # Verify .hop/production marker was created
         mock_touch.assert_called()
+
+    @patch('half_orm_dev.venv_setup.create_project_venv')
+    @patch('half_orm_dev.repo.execute_bootstrap_files')
+    @patch('subprocess.run')
+    @patch('os.chdir')
+    @patch('pathlib.Path.cwd')
+    @patch('pathlib.Path.exists', autospec=True)
+    @patch('half_orm_dev.repo.Config')
+    @patch('half_orm_dev.database.Database.setup_database')
+    def test_clone_repo_creates_venv_when_requirements_txt_present(
+        self, mock_setup_db, mock_config, mock_exists, mock_cwd, mock_chdir,
+        mock_subprocess, mock_execute_bootstrap, mock_create_venv
+    ):
+        """requirements.txt present -> venv created, its python threaded to bootstrap."""
+        mock_cwd.return_value = Path('/current/dir')
+        mock_exists.side_effect = lambda self_path: str(self_path).endswith('requirements.txt')
+        mock_subprocess.return_value = Mock(returncode=0, stderr='', stdout='')
+
+        mock_config_instance = Mock()
+        mock_config_instance.name = 'project'
+        mock_config.return_value = mock_config_instance
+
+        venv_python = Path('/current/dir/project/.venv/bin/python')
+        mock_create_venv.return_value = venv_python
+
+        mock_repo = Mock()
+        mock_repo.restore_database_from_schema = Mock()
+        mock_repo.install_git_hooks = Mock()
+        mock_repo.base_dir = '/current/dir/project'
+        mock_repo.model = Mock()
+        mock_repo.database_name = 'project'
+
+        with patch.object(Repo, '__new__', return_value=mock_repo):
+            Repo.clone_repo("https://github.com/user/project.git")
+
+        mock_create_venv.assert_called_once_with(Path('/current/dir/project'))
+        mock_execute_bootstrap.assert_called_once()
+        _, kwargs = mock_execute_bootstrap.call_args
+        assert kwargs['venv_python'] == venv_python
+        assert kwargs['database_name'] == 'project'
+
+    @patch('half_orm_dev.venv_setup.create_project_venv')
+    @patch('half_orm_dev.repo.execute_bootstrap_files')
+    @patch('subprocess.run')
+    @patch('os.chdir')
+    @patch('pathlib.Path.cwd')
+    @patch('pathlib.Path.exists')
+    @patch('half_orm_dev.repo.Config')
+    @patch('half_orm_dev.database.Database.setup_database')
+    def test_clone_repo_skips_venv_without_requirements_txt(
+        self, mock_setup_db, mock_config, mock_exists, mock_cwd, mock_chdir,
+        mock_subprocess, mock_execute_bootstrap, mock_create_venv
+    ):
+        """No requirements.txt -> no venv created, current behaviour preserved."""
+        mock_cwd.return_value = Path('/current/dir')
+        mock_exists.return_value = False
+        mock_subprocess.return_value = Mock(returncode=0, stderr='', stdout='')
+
+        mock_config_instance = Mock()
+        mock_config_instance.name = 'project'
+        mock_config.return_value = mock_config_instance
+
+        mock_repo = Mock()
+        mock_repo.restore_database_from_schema = Mock()
+        mock_repo.install_git_hooks = Mock()
+        mock_repo.base_dir = '/current/dir/project'
+        mock_repo.model = Mock()
+        mock_repo.database_name = 'project'
+
+        with patch.object(Repo, '__new__', return_value=mock_repo):
+            Repo.clone_repo("https://github.com/user/project.git")
+
+        mock_create_venv.assert_not_called()
+        _, kwargs = mock_execute_bootstrap.call_args
+        assert kwargs['venv_python'] is None

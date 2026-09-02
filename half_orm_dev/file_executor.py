@@ -128,11 +128,63 @@ def _has_run_entrypoint(file_path: Path) -> bool:
     )
 
 
+def _execute_via_venv_runner(
+    file_path: Path,
+    venv_python: Path,
+    database_name: Optional[str],
+    cwd: Path,
+    project_root: Optional[Path],
+) -> str:
+    """
+    Run a bootstrap script through a project venv's interpreter, via the
+    half_orm_dev._bootstrap_runner subprocess entrypoint.
+
+    Args:
+        file_path: Path to the bootstrap script
+        venv_python: Path to the project venv's python executable
+        database_name: Passed to the subprocess for Model(database_name)
+        cwd: Subprocess working directory
+        project_root: If given, prepended to the subprocess's PYTHONPATH
+
+    Returns:
+        Subprocess stdout, stripped
+
+    Raises:
+        FileExecutionError: If the subprocess fails
+    """
+    env = os.environ.copy()
+    if project_root is not None:
+        existing = env.get('PYTHONPATH', '')
+        env['PYTHONPATH'] = (
+            f"{project_root}{os.pathsep}{existing}" if existing else str(project_root)
+        )
+
+    try:
+        result = subprocess.run(
+            [str(venv_python), '-m', 'half_orm_dev._bootstrap_runner', str(file_path), database_name],
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        error_msg = f"Python execution failed in {file_path.name}"
+        if e.stderr:
+            error_msg += f": {e.stderr.strip()}"
+        raise FileExecutionError(error_msg) from e
+    except Exception as e:
+        raise FileExecutionError(f"Failed to execute Python file {file_path.name}: {e}") from e
+
+
 def execute_python_bootstrap(
     file_path: Path,
     model,
     cwd: Optional[Path] = None,
     project_root: Optional[Path] = None,
+    venv_python: Optional[Path] = None,
+    database_name: Optional[str] = None,
 ) -> str:
     """
     Execute a Python bootstrap script.
@@ -144,6 +196,16 @@ def execute_python_bootstrap(
     Slow path — scripts without run(model) are executed as a subprocess
     (backwards-compatible with pre-API scripts).
 
+    Venv path — if venv_python is given (the project declared its own
+    dependencies via requirements.txt), *every* script runs as a subprocess
+    through that interpreter instead, via half_orm_dev._bootstrap_runner,
+    regardless of whether it defines run(model). This is the only way to
+    give the script access to the project's real dependencies without
+    risking a version collision by injecting the venv's site-packages into
+    the running half_orm_dev process. A script defining run(model) loses
+    the shared connection and reconnects itself inside the subprocess
+    (same config, via database_name) - transparent to the script.
+
     Args:
         file_path: Path to Python bootstrap script
         model: halfORM Model instance (shared database connection)
@@ -152,6 +214,11 @@ def execute_python_bootstrap(
             root, so the script can `import <generated_package>`) - distinct
             from cwd, which is the script's own directory (for importing
             siblings there, and as the subprocess working directory)
+        venv_python: Path to a project-specific venv's python. When given,
+            forces subprocess execution via that interpreter for every
+            script (see "Venv path" above).
+        database_name: Required when venv_python is given - passed to the
+            subprocess so it can reconnect via Model(database_name).
 
     Returns:
         Return value of run() converted to str, or subprocess stdout.
@@ -162,6 +229,9 @@ def execute_python_bootstrap(
     """
     if cwd is None:
         cwd = file_path.parent
+
+    if venv_python is not None:
+        return _execute_via_venv_runner(file_path, venv_python, database_name, cwd, project_root)
 
     if not _has_run_entrypoint(file_path):
         return execute_python_file(file_path, cwd, project_root=project_root)
@@ -194,7 +264,12 @@ def execute_python_bootstrap(
         sys.modules.pop(module_name, None)
 
 
-def execute_bootstrap_files(bootstrap_dir: Path, model) -> None:
+def execute_bootstrap_files(
+    bootstrap_dir: Path,
+    model,
+    venv_python: Optional[Path] = None,
+    database_name: Optional[str] = None,
+) -> None:
     """
     Execute all bootstrap files in alphabetic order.
 
@@ -208,6 +283,11 @@ def execute_bootstrap_files(bootstrap_dir: Path, model) -> None:
             `import <project_package>`, the project root -
             bootstrap_dir.parent - is put on the Python path too)
         model: halfORM Model instance (shared database connection)
+        venv_python: Path to a project-specific venv's python, when the
+            project declared its own dependencies (requirements.txt).
+            Forces every .py script through that interpreter as a
+            subprocess - see execute_python_bootstrap().
+        database_name: Required when venv_python is given.
 
     Raises:
         FileExecutionError: If any file execution fails
@@ -243,7 +323,8 @@ def execute_bootstrap_files(bootstrap_dir: Path, model) -> None:
                 execute_sql_file(file_path, model)
             elif file_path.suffix == '.py':
                 execute_python_bootstrap(
-                    file_path, model, cwd=bootstrap_dir, project_root=bootstrap_dir.parent
+                    file_path, model, cwd=bootstrap_dir, project_root=bootstrap_dir.parent,
+                    venv_python=venv_python, database_name=database_name,
                 )
         except FileExecutionError:
             # Re-raise FileExecutionError as-is (already has good error message)

@@ -300,6 +300,75 @@ class TestExecutePythonBootstrap:
         assert result == 'hi from subprocess'
 
 
+class TestExecutePythonBootstrapWithVenv:
+    """venv_python forces every script through half_orm_dev._bootstrap_runner."""
+
+    @patch('half_orm_dev.file_executor.subprocess.run')
+    def test_run_entrypoint_script_forced_to_subprocess(self, mock_run, tmp_path):
+        """
+        Regression: even a script defining run(model) must NOT take the
+        in-process fast path when venv_python is given - it must go
+        through the venv's interpreter instead, to avoid mixing the
+        project's dependencies into half_orm_dev's own process.
+        """
+        f = tmp_path / '01-seed.py'
+        f.write_text('def run(model):\n    pass\n')
+        mock_run.return_value = Mock(returncode=0, stdout='ok\n')
+        venv_python = Path('/proj/.venv/bin/python')
+
+        result = execute_python_bootstrap(
+            f, Mock(), cwd=tmp_path, venv_python=venv_python, database_name='my_db'
+        )
+
+        mock_run.assert_called_once()
+        cmd = mock_run.call_args.args[0]
+        assert cmd == [str(venv_python), '-m', 'half_orm_dev._bootstrap_runner', str(f), 'my_db']
+        assert result == 'ok'
+
+    @patch('half_orm_dev.file_executor.subprocess.run')
+    def test_legacy_script_also_forced_to_subprocess(self, mock_run, tmp_path):
+        f = tmp_path / '01-legacy.py'
+        f.write_text('print("hi")')
+        mock_run.return_value = Mock(returncode=0, stdout='hi\n')
+        venv_python = Path('/proj/.venv/bin/python')
+
+        execute_python_bootstrap(
+            f, Mock(), cwd=tmp_path, venv_python=venv_python, database_name='my_db'
+        )
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd[0] == str(venv_python)
+        assert cmd[1:3] == ['-m', 'half_orm_dev._bootstrap_runner']
+
+    @patch('half_orm_dev.file_executor.subprocess.run')
+    def test_project_root_added_to_pythonpath(self, mock_run, tmp_path):
+        f = tmp_path / '01-seed.py'
+        f.write_text('def run(model):\n    pass\n')
+        mock_run.return_value = Mock(returncode=0, stdout='')
+        project_root = tmp_path.parent
+
+        execute_python_bootstrap(
+            f, Mock(), cwd=tmp_path, project_root=project_root,
+            venv_python=Path('/proj/.venv/bin/python'), database_name='my_db',
+        )
+
+        env = mock_run.call_args.kwargs['env']
+        assert str(project_root) in env['PYTHONPATH']
+
+    @patch('half_orm_dev.file_executor.subprocess.run')
+    def test_subprocess_failure_raises_file_execution_error(self, mock_run, tmp_path):
+        import subprocess
+        f = tmp_path / '01-bad.py'
+        f.write_text('def run(model):\n    pass\n')
+        mock_run.side_effect = subprocess.CalledProcessError(1, ['python'], stderr='boom')
+
+        with pytest.raises(FileExecutionError, match="boom"):
+            execute_python_bootstrap(
+                f, Mock(), cwd=tmp_path,
+                venv_python=Path('/proj/.venv/bin/python'), database_name='my_db',
+            )
+
+
 class TestExecuteBootstrapFiles:
     """Test execute_bootstrap_files - the bootstrap/ directory orchestrator."""
 
@@ -323,6 +392,18 @@ class TestExecuteBootstrapFiles:
         model = Mock()
         execute_bootstrap_files(tmp_path, model)
         model.execute_query.assert_called_once_with("INSERT INTO t VALUES (1);")
+
+    @patch('half_orm_dev.file_executor.subprocess.run')
+    def test_venv_python_and_database_name_threaded_through(self, mock_run, tmp_path):
+        (tmp_path / "01-seed.py").write_text('def run(model):\n    pass\n')
+        mock_run.return_value = Mock(returncode=0, stdout='')
+        venv_python = Path('/proj/.venv/bin/python')
+
+        execute_bootstrap_files(tmp_path, Mock(), venv_python=venv_python, database_name='my_db')
+
+        cmd = mock_run.call_args.args[0]
+        assert cmd[0] == str(venv_python)
+        assert cmd[-1] == 'my_db'
 
     def test_executes_python_file_with_model(self, tmp_path):
         (tmp_path / "01-seed.py").write_text(

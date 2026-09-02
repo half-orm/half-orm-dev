@@ -3216,13 +3216,30 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
 
         try:
             repo.restore_database_from_schema()
-            # Execute bootstrap scripts after restoring schema (one-time initialization)
-            bootstrap_dir = Path(repo.base_dir) / 'bootstrap'
-            execute_bootstrap_files(bootstrap_dir, repo.model)
         except RepoError as e:
             raise RepoError(
                 f"Failed to restore database from schema: {e}"
             ) from e
+
+        # If the project declares its own dependencies, give bootstrap
+        # scripts a dedicated venv with them installed - rather than
+        # whatever happens to be importable in half_orm_dev's own
+        # environment.
+        venv_python = None
+        requirements_file = Path(repo.base_dir) / 'requirements.txt'
+        if requirements_file.exists():
+            from half_orm_dev.venv_setup import create_project_venv, VenvSetupError
+            try:
+                venv_python = create_project_venv(Path(repo.base_dir))
+            except VenvSetupError as e:
+                raise RepoError(f"Failed to set up project virtual environment: {e}") from e
+
+        # Execute bootstrap scripts after restoring schema (one-time initialization)
+        bootstrap_dir = Path(repo.base_dir) / 'bootstrap'
+        execute_bootstrap_files(
+            bootstrap_dir, repo.model,
+            venv_python=venv_python, database_name=repo.database_name,
+        )
 
         # Step 9: Set up production marker
         if connection_options.get('production'):
