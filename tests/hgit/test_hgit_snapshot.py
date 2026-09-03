@@ -87,6 +87,19 @@ class TestCaptureBranchesSnapshot:
 
         assert snapshot == {}
 
+    def test_warns_on_stderr_when_status_raises(self, hgit, capsys):
+        """
+        Regression: a failed snapshot capture (the rollback safety net for
+        migrations/promotions) must not be silent.
+        """
+        hgit.get_active_branches_status = Mock(side_effect=Exception("network error"))
+
+        hgit.capture_branches_snapshot()
+
+        stderr = capsys.readouterr().err
+        assert "network error" in stderr
+        assert "snapshot" in stderr.lower()
+
     def test_skips_branch_when_head_missing(self, hgit):
         status = _make_branches_status(
             patch_branches=[{'name': 'ho-patch/missing', 'exists_on_remote': True}],
@@ -212,6 +225,10 @@ class TestRollbackToSnapshot:
         assert 'ho-prod' in result['reset']
 
     def test_empty_snapshot_returns_to_original(self, hgit):
+        """
+        Regression: an empty snapshot (e.g. capture failed earlier) must be
+        reported as an error, not look like a clean successful rollback.
+        """
         _mock_active_branch(hgit, 'ho-prod')
         mock_head = Mock()
         hgit._HGit__git_repo.heads.__getitem__ = Mock(return_value=mock_head)
@@ -219,10 +236,14 @@ class TestRollbackToSnapshot:
         result = hgit.rollback_to_snapshot({})
 
         assert result['reset'] == []
-        assert result['errors'] == []
+        assert result['errors'] == [
+            ('__snapshot__', 'No branches in snapshot - nothing to roll back '
+             '(snapshot capture likely failed earlier; see stderr warning)')
+        ]
         hgit._HGit__git_repo.heads.__getitem__.assert_called_once_with('ho-prod')
 
     def test_empty_stored_snapshot_returns_to_original(self, hgit):
+        """Same regression as above, via the stored __snapshot default."""
         _mock_active_branch(hgit, 'ho-prod')
         mock_head = Mock()
         hgit._HGit__git_repo.heads.__getitem__ = Mock(return_value=mock_head)
@@ -230,4 +251,7 @@ class TestRollbackToSnapshot:
         result = hgit.rollback_to_snapshot()  # no arg, uses empty __snapshot
 
         assert result['reset'] == []
-        assert result['errors'] == []
+        assert result['errors'] == [
+            ('__snapshot__', 'No branches in snapshot - nothing to roll back '
+             '(snapshot capture likely failed earlier; see stderr warning)')
+        ]

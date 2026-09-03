@@ -266,6 +266,36 @@ def _make_minimal_repo(active_branches_status=None):
     return mock_repo
 
 
+class TestRegenerateModulesAfterMigrationBranchStatusFailure:
+    """
+    Regression: if get_active_branches_status() fails during module
+    regeneration, only ho-prod gets regenerated (release/patch branches
+    silently skipped) - this must at least be visible, not silent.
+    """
+
+    def test_warns_on_stderr_and_continues_with_ho_prod_only(self, capsys):
+        repo = Mock()
+        repo.production = False
+        repo.name = 'myproject'
+        repo.base_dir = '/tmp/myproject'
+        repo.hgit._HGit__git_repo = Mock()
+        repo.hgit.get_active_branches_status.side_effect = Exception("git error")
+
+        mgr = MigrationManager(repo)
+
+        with patch('half_orm_dev.modules.generate'):
+            mgr._regenerate_modules_after_migration('1.0.0', '1.0.1')
+
+        stderr = capsys.readouterr().err
+        assert 'git error' in stderr
+        assert 'ho-prod' in stderr
+        # Only ho-prod was regenerated (plus the trailing return-to-ho-prod
+        # checkout) - no release/patch branches, since branches_status
+        # fell back to {} after get_active_branches_status() failed.
+        checkout_branches = [c.args[0] for c in repo.hgit.checkout.call_args_list]
+        assert checkout_branches == ['ho-prod', 'ho-prod']
+
+
 class TestEnsureActiveBranchesSynced:
     """Tests for _ensure_active_branches_synced error messages."""
 
@@ -319,6 +349,18 @@ class TestEnsureActiveBranchesSynced:
         msg = str(exc_info.value)
         assert 'diverged' in msg
         assert 'ho-patch/3-baz' in msg
+
+    def test_status_check_failure_blocks_instead_of_proceeding(self):
+        """
+        Regression: if get_active_branches_status() itself fails, the
+        migration must be blocked (fail safe), not silently proceed as if
+        everything were in sync - that's the whole point of this check.
+        """
+        mgr = self._mgr()
+        mgr._repo.hgit.get_active_branches_status.side_effect = Exception("git error")
+
+        with pytest.raises(MigrationManagerError, match="git error"):
+            mgr._ensure_active_branches_synced()
 
     def test_mixed_ahead_and_diverged_both_reported(self):
         mgr = self._mgr({

@@ -2011,7 +2011,7 @@ class PatchManager:
             except Exception:
                 pass
 
-            raise PatchManagerError(f"Failed to commit/push changes (rolled back): {e}")
+            raise PatchManagerError(f"Failed to commit/push changes (rolled back): {e}") from e
 
         # 8. Rename patch branch ho-patch/X → ho-staged/X (local + remote).
         # The branch is preserved as a reference until production promotion,

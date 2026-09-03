@@ -113,3 +113,18 @@ class TestGetFkeys:
         bad_path.write_text('class Broken(\n    invalid syntax {{{\n', encoding='utf-8')
         result = _get_fkeys(repo, 'Broken', str(bad_path))
         assert result == {}
+
+    def test_warns_on_stderr_on_syntax_error(self, tmp_path, capsys):
+        """
+        Regression: silently dropping developer-authored Fkeys aliases must
+        at least be visible, not disappear without a trace.
+        """
+        repo = _make_repo(tmp_path)
+        bad_path = tmp_path / 'bad.py'
+        bad_path.write_text('class Broken(\n    invalid syntax {{{\n', encoding='utf-8')
+
+        _get_fkeys(repo, 'Broken', str(bad_path))
+
+        stderr = capsys.readouterr().err
+        assert 'Broken' in stderr
+        assert 'Fkeys' in stderr or 'aliases' in stderr.lower()

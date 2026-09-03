@@ -412,8 +412,12 @@ def __get_fkeys(repo, class_name, module_path):
                             and isinstance(stmt.targets[0], ast.Name)
                             and stmt.targets[0].id == 'Fkeys'):
                         return ast.literal_eval(stmt.value)
-    except Exception:
-        pass
+    except Exception as e:
+        print(
+            f"  ⚠  Could not read existing Fkeys aliases from {module_path}: {e}\n"
+            f"  Any developer-authored aliases for {class_name} will be reset to defaults.",
+            file=sys.stderr
+        )
     return {}
 
 

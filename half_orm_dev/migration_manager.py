@@ -417,8 +417,13 @@ class MigrationManager:
 
         try:
             branches_status = repo.hgit.get_active_branches_status()
-        except Exception:
-            return  # can't determine status, proceed cautiously
+        except Exception as e:
+            # This check exists specifically to block migration when branches
+            # are out of sync - failing to even determine their status must
+            # block too, not silently let the migration through.
+            raise MigrationManagerError(
+                f"Cannot verify active branches are in sync with origin: {e}"
+            ) from e
 
         prod_info = branches_status.get('prod_branch')
         prod_branches = [prod_info['name']] if prod_info else []
@@ -505,7 +510,17 @@ class MigrationManager:
         # Collect active branches, filtering out stale ones (no remote counterpart)
         try:
             branches_status = repo.hgit.get_active_branches_status()
-        except Exception:
+        except Exception as e:
+            # Falling back to {} means only ho-prod gets regenerated below -
+            # any active release/patch branch silently misses its module
+            # regeneration for this migration. Surface it rather than
+            # leaving branches quietly out of sync.
+            print(
+                f"  ⚠  Could not list active branches: {e}\n"
+                f"  Only ho-prod will be regenerated - release/patch branches "
+                f"may be left out of sync with this migration.",
+                file=sys.stderr
+            )
             branches_status = {}
 
         patch_branches = [

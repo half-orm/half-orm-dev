@@ -306,11 +306,23 @@ class HGit:
         self.__snapshot = self.capture_branches_snapshot()
 
     def capture_branches_snapshot(self) -> dict:
-        """Return {branch_name: HEAD_SHA} for all active local branches."""
+        """Return {branch_name: HEAD_SHA} for all active local branches.
+
+        This snapshot is what rollback_to_snapshot() restores to after a
+        failed migration or release promotion - a failure here silently
+        leaves that safety net empty, so it's surfaced as a warning (not
+        raised: this runs on every HGit() construction, not just before
+        risky operations, so hard-failing here would be too broad).
+        """
         snapshot = {}
         try:
             branches_status = self.get_active_branches_status()
-        except Exception:
+        except Exception as e:
+            print(
+                f"  ⚠  Could not capture branches snapshot: {e}\n"
+                f"  Rollback safety net will be empty until the next successful snapshot.",
+                file=sys.stderr
+            )
             return snapshot
 
         candidates = []
@@ -340,6 +352,13 @@ class HGit:
         target = snapshot if snapshot is not None else self.__snapshot
         result = {'reset': [], 'errors': []}
         original = self.branch
+
+        if not target:
+            result['errors'].append((
+                '__snapshot__',
+                'No branches in snapshot - nothing to roll back '
+                '(snapshot capture likely failed earlier; see stderr warning)'
+            ))
 
         for branch, sha in target.items():
             try:
@@ -599,9 +618,14 @@ class HGit:
                 remote_ref = self.__git_repo.remote('origin').refs[branch_name]
                 self.__git_repo.create_head(branch_name, remote_ref)
 
-            except Exception:
-                # Skip branches that can't be created (shouldn't happen)
-                pass
+            except Exception as e:
+                # A missing local tracking branch here means `hop rollback`
+                # to that version will fail later, at a less convenient
+                # time - surface it now instead of skipping silently.
+                print(
+                    f"  ⚠  Could not create local tracking branch for {branch_name}: {e}",
+                    file=sys.stderr
+                )
 
     def delete_local_branch(self, branch_name: str) -> None:
         """
