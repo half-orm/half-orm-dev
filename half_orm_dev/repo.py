@@ -2662,9 +2662,21 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
         and should persist across schema resets.
         """
         schemas_to_drop = {'half_orm_meta', 'half_orm_meta.view'}
-        # Add user schemas from half_orm metadata
-        relations = self.model.desc()
-        _ = [schemas_to_drop.add(rel[1][1]) for rel in relations]
+
+        # Enumerate schemas from the PostgreSQL catalog rather than from
+        # self.model.desc(), which only lists *relations*: a schema holding
+        # no table/view (only functions, types, sequences - or nothing at
+        # all) is invisible there, so it would survive the reset and then
+        # collide with the CREATE SCHEMA emitted by the file being
+        # restored ("schema already exists"), leaving the database in a
+        # state that no longer matches the dump.
+        cursor = self.model.execute_query(
+            "SELECT nspname FROM pg_catalog.pg_namespace "
+            "WHERE nspname NOT IN ('pg_catalog', 'information_schema') "
+            "AND nspname NOT LIKE 'pg\\_%'"
+        )
+        for row in cursor:
+            schemas_to_drop.add(row['nspname'])
 
         # Drop each schema with CASCADE
         for schema_name in schemas_to_drop:
