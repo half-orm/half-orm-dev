@@ -2362,11 +2362,22 @@ Files are executed **alphabetically** (not numerically parsed).
 
 ## Execution Context
 
-Bootstrap scripts run:
-- **Development**: Each `patch apply` (allows iteration on bootstrap)
-- **Production**: Initial `clone` only (one-time setup)
+Bootstrap scripts run **once**: when a brand-new instance is created via
+`clone`. They do NOT run on `patch apply`, `patch merge`, or
+`release promote` - there is no database reset between those, so a
+script that isn't independently idempotent would corrupt the database if
+it ran more than once.
 
-For production data changes, use **patches** (not bootstrap).
+Reserve `bootstrap/` for data that is genuinely specific to *this*
+instance (e.g. an initial admin account, a per-site secret) - never for
+reference/system data that every instance should have.
+
+Reference/system data that every instance should ship with (e.g. a new
+system role) does NOT belong in `bootstrap/`: write it as ordinary
+idempotent DML in a **patch** instead. It reaches existing instances
+through the normal `hop upgrade` path, and gets captured automatically
+in `model/data-X.Y.Z.sql` (the schema+data snapshot restored by every
+`patch apply`) once shipped - `bootstrap/` scripts never are.
 
 ## Python Files
 

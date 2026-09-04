@@ -306,7 +306,7 @@ class ReleaseManager:
             try:
                 self._repo.database._generate_schema_sql(version_str, model_dir)
                 click.echo(f"  ✓ Generated schema-{version_str}.sql")
-                click.echo(f"  ✓ Generated metadata-{version_str}.sql")
+                click.echo(f"  ✓ Generated data-{version_str}.sql")
                 click.echo(f"  ✓ Created symlink: schema.sql -> schema-{version_str}.sql")
             except Exception as e:
                 raise ReleaseManagerError(f"Failed to generate schema files: {e}")

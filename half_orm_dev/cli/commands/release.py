@@ -180,7 +180,7 @@ def release_promote(target: str) -> None:
         2. Validate sequential version rule
         3. Acquire distributed lock on ho-prod
         4. Restore database and apply all patches
-        5. Generate schema-X.Y.Z.sql and metadata-X.Y.Z.sql
+        5. Generate schema-X.Y.Z.sql and data-X.Y.Z.sql
         6. Update schema.sql symlink
         7. Rename RC file to production file (git mv)
         8. Commit and push promotion
@@ -203,7 +203,7 @@ def release_promote(target: str) -> None:
         Output:
         ✓ Promoted 1.3.5-rc1 → 1.3.5
         ✓ Generated schema-1.3.5.sql
-        ✓ Generated metadata-1.3.5.sql
+        ✓ Generated data-1.3.5.sql
         ✓ Updated schema.sql → schema-1.3.5.sql
 
     \b

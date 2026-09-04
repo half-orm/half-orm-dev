@@ -1,5 +1,12 @@
 # Journal de développement - half_orm_dev v0.16.0
 
+> ⚠️ **Déprécié / non maintenu.** Ce journal s'arrête à la v0.16.0 et
+> n'a pas été tenu à jour depuis. Il reflète l'état et les intentions du
+> projet à ce moment-là (ex: noms de commandes, formats de fichiers) et
+> ne doit pas être considéré comme une référence sur le comportement
+> actuel - voir `docs/half_orm_dev.md` et `BREAKING_CHANGES-1.0.0.md`
+> pour l'état courant.
+
 ## État actuel du projet
 
 **Date de dernière mise à jour :** 2025-01-29
