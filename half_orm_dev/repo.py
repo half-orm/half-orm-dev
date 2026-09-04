@@ -2733,7 +2733,7 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
             # 3. Load schema from model/schema.sql
             try:
                 self.database.execute_pg_command(
-                    'psql', '-d', self.database_name, '-f', str(schema_path)
+                    'psql', '-v', 'ON_ERROR_STOP=1', '-d', self.database_name, '-f', str(schema_path)
                 )
             except Exception as e:
                 raise RepoError(f"Failed to load schema from {schema_path.name}: {e}") from e
@@ -2744,7 +2744,7 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
             if data_path and data_path.exists():
                 try:
                     self.database.execute_pg_command(
-                        'psql', '-d', self.database_name, '-f', str(data_path)
+                        'psql', '-v', 'ON_ERROR_STOP=1', '-d', self.database_name, '-f', str(data_path)
                     )
                 except Exception as e:
                     raise RepoError(
@@ -2796,7 +2796,7 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
 
             try:
                 self.database.execute_pg_command(
-                    'psql', '-d', self.database_name, '-f', str(schema_path)
+                    'psql', '-v', 'ON_ERROR_STOP=1', '-d', self.database_name, '-f', str(schema_path)
                 )
             except Exception as e:
                 raise RepoError(f"Failed to load schema from {schema_path.name}: {e}") from e
@@ -2805,7 +2805,7 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
             if data_path.exists():
                 try:
                     self.database.execute_pg_command(
-                        'psql', '-d', self.database_name, '-f', str(data_path)
+                        'psql', '-v', 'ON_ERROR_STOP=1', '-d', self.database_name, '-f', str(data_path)
                     )
                 except Exception as e:
                     raise RepoError(
@@ -2862,7 +2862,7 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
             # 2. Load dump using psql
             try:
                 self.database.execute_pg_command(
-                    'psql', '-d', self.database_name, '-f', str(dump_path)
+                    'psql', '-v', 'ON_ERROR_STOP=1', '-d', self.database_name, '-f', str(dump_path)
                 )
             except Exception as e:
                 raise RepoError(f"Failed to load dump from {dump_path.name}: {e}") from e
@@ -2987,7 +2987,7 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
 
             # Load release schema
             self.database.execute_pg_command(
-                'psql', '-d', self.database_name, '-f', str(release_schema_path)
+                'psql', '-v', 'ON_ERROR_STOP=1', '-d', self.database_name, '-f', str(release_schema_path)
             )
 
             # Reload half_orm metadata cache

@@ -398,7 +398,11 @@ class Database:
             )
 
             # Filter to keep only COPY blocks (COPY ... FROM stdin; ... \.)
-            # to avoid version-specific SET commands
+            # and the SELECT pg_catalog.setval(...) calls pg_dump emits
+            # after them - dropping those would leave every serial/identity
+            # sequence at its default start value, causing the next INSERT
+            # relying on it to collide with rows restored by COPY. Version-
+            # specific SET commands are what we actually want to avoid.
             content = temp_file.read_text()
             filtered_lines = []
             in_copy_block = False
@@ -410,6 +414,8 @@ class Database:
                 if line == '\\.':
                     in_copy_block = False
                     filtered_lines.append('')  # Empty line between blocks
+                elif not in_copy_block and line.startswith('SELECT pg_catalog.setval('):
+                    filtered_lines.append(line)
 
             data_file.write_text('\n'.join(filtered_lines))
         except Exception as e:

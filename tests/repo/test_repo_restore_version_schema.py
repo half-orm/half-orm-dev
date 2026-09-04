@@ -67,10 +67,10 @@ class TestRestoreDatabaseFromVersionSchema:
             repo.restore_database_from_version_schema("0.3.5")
 
             mock_reset.assert_called_once()
-            expected = call('psql', '-d', 'test_database', '-f',
+            expected = call('psql', '-v', 'ON_ERROR_STOP=1', '-d', 'test_database', '-f',
                              str(model_dir / "schema-0.3.5.sql"))
             assert expected in mock_execute.call_args_list
-            not_expected = call('psql', '-d', 'test_database', '-f',
+            not_expected = call('psql', '-v', 'ON_ERROR_STOP=1', '-d', 'test_database', '-f',
                                  str(model_dir / "schema-0.3.13.sql"))
             assert not_expected not in mock_execute.call_args_list
             mock_model.reconnect.assert_called_once_with(reload=True)
@@ -84,7 +84,7 @@ class TestRestoreDatabaseFromVersionSchema:
         with patch.object(repo, '_reset_database_schemas'):
             repo.restore_database_from_version_schema("0.3.5")
 
-            expected = call('psql', '-d', 'test_database', '-f',
+            expected = call('psql', '-v', 'ON_ERROR_STOP=1', '-d', 'test_database', '-f',
                              str(model_dir / "data-0.3.5.sql"))
             assert expected in mock_execute.call_args_list
 
@@ -106,7 +106,7 @@ class TestRestoreDatabaseFromVersionSchema:
         with patch.object(repo, '_reset_database_schemas'):
             repo.restore_database_from_version_schema("0.3.5")
 
-            not_expected = call('psql', '-d', 'test_database', '-f',
+            not_expected = call('psql', '-v', 'ON_ERROR_STOP=1', '-d', 'test_database', '-f',
                                  str(model_dir / "data-0.3.13.sql"))
             assert not_expected not in mock_execute.call_args_list
 

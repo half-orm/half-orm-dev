@@ -59,7 +59,7 @@ def execute_sql_file_psql(file_path: Path, database, database_name: str) -> None
         FileExecutionError: If psql execution fails
     """
     try:
-        database.execute_pg_command('psql', '-d', database_name, '-f', str(file_path))
+        database.execute_pg_command('psql', '-v', 'ON_ERROR_STOP=1', '-d', database_name, '-f', str(file_path))
     except Exception as e:
         raise FileExecutionError(f"psql execution failed for {file_path.name}: {e}") from e
 

@@ -79,7 +79,7 @@ class TestRestoreDatabaseFromSchema:
             mock_reset.assert_called_once()
 
             # 2. Schema loaded via psql -f
-            psql_call = call('psql', '-d', 'test_database', '-f', str(schema_file))
+            psql_call = call('psql', '-v', 'ON_ERROR_STOP=1', '-d', 'test_database', '-f', str(schema_file))
             assert psql_call in mock_execute.call_args_list
 
             # 3. Model metadata cache reloaded
@@ -217,7 +217,7 @@ class TestRestoreDatabaseFromSchema:
         repo.restore_database_from_schema()
 
         # Should work with symlink (psql follows symlinks automatically)
-        psql_call = call('psql', '-d', 'test_database', '-f', str(schema_symlink))
+        psql_call = call('psql', '-v', 'ON_ERROR_STOP=1', '-d', 'test_database', '-f', str(schema_symlink))
         assert psql_call in mock_execute.call_args_list
 
         # Workflow should complete successfully
@@ -259,7 +259,7 @@ class TestRestoreDatabaseFromSchema:
         repo.restore_database_from_schema()
 
         # Should work with regular file
-        psql_call = call('psql', '-d', 'test_database', '-f', str(schema_file))
+        psql_call = call('psql', '-v', 'ON_ERROR_STOP=1', '-d', 'test_database', '-f', str(schema_file))
         assert psql_call in mock_execute.call_args_list
 
         # Workflow should complete
@@ -308,7 +308,7 @@ class TestRestoreDatabaseFromSchemaDataFile:
         repo.restore_database_from_schema()
 
         # Verify data file was loaded
-        psql_call = call('psql', '-d', 'test_database', '-f', str(data_file))
+        psql_call = call('psql', '-v', 'ON_ERROR_STOP=1', '-d', 'test_database', '-f', str(data_file))
         assert psql_call in mock_execute.call_args_list
 
     def test_missing_data_file_is_not_an_error(self, patch_manager):

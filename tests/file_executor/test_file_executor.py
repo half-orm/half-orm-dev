@@ -82,7 +82,7 @@ class TestExecuteSqlFilePsql:
         execute_sql_file_psql(sql_file, mock_database, 'mydb')
 
         mock_database.execute_pg_command.assert_called_once_with(
-            'psql', '-d', 'mydb', '-f', str(sql_file)
+            'psql', '-v', 'ON_ERROR_STOP=1', '-d', 'mydb', '-f', str(sql_file)
         )
 
     def test_raises_on_psql_error(self, tmp_path):
