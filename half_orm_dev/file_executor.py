@@ -61,7 +61,9 @@ def execute_sql_file_psql(file_path: Path, database, database_name: str) -> None
     try:
         database.execute_pg_command('psql', '-v', 'ON_ERROR_STOP=1', '-d', database_name, '-f', str(file_path))
     except Exception as e:
-        raise FileExecutionError(f"psql execution failed for {file_path.name}: {e}") from e
+        stderr = getattr(e, 'stderr', None)
+        detail = f"{e}\n{stderr.strip()}" if stderr else str(e)
+        raise FileExecutionError(f"psql execution failed for {file_path.name}: {detail}") from e
 
 
 def execute_python_file(

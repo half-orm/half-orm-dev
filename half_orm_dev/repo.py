@@ -66,6 +66,20 @@ def _git_origin_to_https(git_origin: str) -> str:
     return url
 
 
+def _pg_command_error_detail(e: Exception) -> str:
+    """Format a psql/pg_dump failure with its actual stderr, when available.
+
+    str(subprocess.CalledProcessError) only shows the command and exit
+    code - the actual SQL error psql printed to stderr (e.g. which
+    statement failed and why) is on e.stderr and would otherwise be
+    silently dropped from every RepoError raised around a restore.
+    """
+    stderr = getattr(e, 'stderr', None)
+    if stderr:
+        return f"{e}\n{stderr.strip() if isinstance(stderr, str) else stderr}"
+    return str(e)
+
+
 class RepoError(Exception):
     pass
 
@@ -2747,7 +2761,10 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
                     'psql', '-v', 'ON_ERROR_STOP=1', '-d', self.database_name, '-f', str(schema_path)
                 )
             except Exception as e:
-                raise RepoError(f"Failed to load schema from {schema_path.name}: {e}") from e
+                raise RepoError(
+                    f"Failed to load schema from {schema_path.name}: "
+                    f"{_pg_command_error_detail(e)}"
+                ) from e
 
             # 4. Load data from model/data-X.Y.Z.sql (if exists)
             data_path, version = self._deduce_data_path(schema_path)
@@ -2759,7 +2776,8 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
                     )
                 except Exception as e:
                     raise RepoError(
-                        f"Failed to load data from {data_path.name}: {e}"
+                        f"Failed to load data from {data_path.name}: "
+                        f"{_pg_command_error_detail(e)}"
                     ) from e
             # else: data file doesn't exist, continue without error (backward compatibility)
 
@@ -2810,7 +2828,10 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
                     'psql', '-v', 'ON_ERROR_STOP=1', '-d', self.database_name, '-f', str(schema_path)
                 )
             except Exception as e:
-                raise RepoError(f"Failed to load schema from {schema_path.name}: {e}") from e
+                raise RepoError(
+                    f"Failed to load schema from {schema_path.name}: "
+                    f"{_pg_command_error_detail(e)}"
+                ) from e
 
             data_path = Path(self.model_dir) / f"data-{version}.sql"
             if data_path.exists():
@@ -2820,7 +2841,8 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
                     )
                 except Exception as e:
                     raise RepoError(
-                        f"Failed to load data from {data_path.name}: {e}"
+                        f"Failed to load data from {data_path.name}: "
+                        f"{_pg_command_error_detail(e)}"
                     ) from e
 
             self.model.reconnect(reload=True)
@@ -2876,7 +2898,10 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
                     'psql', '-v', 'ON_ERROR_STOP=1', '-d', self.database_name, '-f', str(dump_path)
                 )
             except Exception as e:
-                raise RepoError(f"Failed to load dump from {dump_path.name}: {e}") from e
+                raise RepoError(
+                    f"Failed to load dump from {dump_path.name}: "
+                    f"{_pg_command_error_detail(e)}"
+                ) from e
 
             # 3. Reload half_orm metadata cache
             self.model.reconnect(reload=True)
@@ -3005,7 +3030,9 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
             self.model.reconnect(reload=True)
 
         except Exception as e:
-            raise RepoError(f"Failed to restore from release schema: {e}") from e
+            raise RepoError(
+                f"Failed to restore from release schema: {_pg_command_error_detail(e)}"
+            ) from e
 
     def get_release_schema_path(self, version: str) -> Path:
         """
