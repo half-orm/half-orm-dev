@@ -231,6 +231,40 @@ class ReleaseFile:
             if patch_data.get("status") == status
         ]
 
+    @staticmethod
+    def parse_patches(content: str, status: Optional[str] = None) -> List[str]:
+        """
+        Get patches from raw TOML content, optionally filtered by status.
+
+        Same contract as get_patches(), but reads content instead of a
+        file - used to inspect a release file straight out of git
+        (git show <branch>:<path>) without checking that branch out.
+
+        Args:
+            content: TOML content of a X.Y.Z-patches.toml file
+            status: Optional filter ("candidate" or "staged")
+
+        Returns:
+            List of patch IDs in file order
+
+        Raises:
+            ReleaseFileError: If content is not valid TOML
+        """
+        try:
+            data = tomli.loads(content)
+        except Exception as e:
+            raise ReleaseFileError(f"Failed to parse release file content: {e}")
+
+        patches = data.get("patches", {})
+
+        if status is None:
+            return list(patches.keys())
+
+        return [
+            patch_id for patch_id, patch_data in patches.items()
+            if patch_data.get("status") == status
+        ]
+
     def get_patch_status(self, patch_id: str) -> Optional[str]:
         """
         Get status of a specific patch.

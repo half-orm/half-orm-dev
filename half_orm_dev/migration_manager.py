@@ -479,10 +479,11 @@ class MigrationManager:
     ) -> None:
         """Regenerate the project modules after a migration on all active branches.
 
-        Each branch is regenerated against the DB schema that matches its state:
-        - ho-prod          → production schema (schema.sql)
-        - ho-release/X.Y.Z → release schema (release-X.Y.Z.sql)
-        - ho-patch/*       → production schema (schema.sql)
+        Every branch is regenerated against the production schema
+        (schema.sql). Release and patch branches may carry relations that
+        only exist once their patches are applied, so modules are not
+        regenerated on ho-patch/* at all - the developer re-runs
+        `hop patch apply` there.
 
         Stale local branches (no longer on remote) are skipped to avoid pre-commit
         hook failures.
@@ -493,10 +494,7 @@ class MigrationManager:
                 "on a production server.\nModule regeneration (which includes database "
                 "restoration) must never run in production."
             )
-        import re as _re
         from half_orm_dev import modules as _modules
-
-        _RELEASE_RE = _re.compile(r'^ho-release/(.+)$')
 
         repo = self._repo
         git_repo = repo.hgit._HGit__git_repo
@@ -541,20 +539,13 @@ class MigrationManager:
             try:
                 repo.hgit.checkout(branch)
 
-                # Restore the DB to the schema appropriate for this branch so
-                # generate() introspects the right set of relations.
-                m = _RELEASE_RE.match(branch)
-                if m:
-                    release_version = m.group(1)
-                    release_schema = repo.get_release_schema_path(release_version)
-                    if release_schema.exists():
-                        repo.restore_database_from_release_schema(release_version)
-                    else:
-                        repo.restore_database_from_schema()
-                else:
-                    #XXX EST-CE QUE POUR ho-patch/* on ne devrait pas utiliser from_release_schema ?
-                    # ho-prod and ho-patch/*: use production schema
-                    repo.restore_database_from_schema()
+                # Restore the DB to the production schema so generate()
+                # introspects a known set of relations. Release and patch
+                # branches may carry relations that only exist once their
+                # patches are applied; the developer re-runs
+                # `hop patch apply` there to regenerate with the full
+                # release context.
+                repo.restore_database_from_schema()
 
                 if not branch in patch_branches:
                     _modules.generate(repo)

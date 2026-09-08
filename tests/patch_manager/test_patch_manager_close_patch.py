@@ -122,11 +122,10 @@ class TestClosePatch:
         release_file.create_empty()
         release_file.add_patch('123-test')
 
-        # Mock validation, sync, and release schema update
+        # Mock validation and sync
         with patch.object(pm, '_validate_patch_before_merge'):
             with patch.object(pm, '_sync_release_files_to_ho_prod'):
-                with patch.object(pm, '_update_release_schemas'):
-                    result = pm.merge_patch()
+                result = pm.merge_patch()
 
         # Verify checkout to release branch was called
         checkout_calls = [str(c) for c in repo.hgit.checkout.call_args_list]

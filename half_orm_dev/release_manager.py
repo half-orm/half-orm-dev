@@ -581,13 +581,12 @@ class ReleaseManager:
 
         return patches
 
-    def _apply_release_patches(self, version: str, hotfix=False, force_apply=False) -> None:
+    def _apply_release_patches(self, version: str, hotfix=False) -> None:
         """
         Apply all patches for a release version to the database.
 
-        If a release schema exists (release-X.Y.Z.sql) and force_apply=False,
-        uses it directly. Otherwise, restores database from baseline and
-        applies patches in order:
+        Restores the database from the production baseline (schema.sql +
+        data-X.Y.Z.sql), then applies patches in order:
         1. All RC patches (rc1, rc2, etc.)
         2. Stage patches
 
@@ -597,25 +596,32 @@ class ReleaseManager:
         Args:
             version: Release version (e.g., "0.1.0")
             hotfix: If True, skip RC patches (hotfix workflow)
-            force_apply: If True, always apply patches individually even if
-                        release schema exists (used for production validation)
 
         Raises:
             ReleaseManagerError: If patch application fails
         """
-        # Check if release schema exists (new workflow)
-        release_schema_path = self._repo.get_release_schema_path(version)
-        if release_schema_path.exists() and not force_apply:
-            # New workflow: restore from release schema (already contains all staged patches)
-            self._repo.restore_database_from_release_schema(version)
-            return
-
-        # XXX EST-CE ENCORE NÉCESSAIRE ?
-        # Fallback: old workflow - restore database from baseline
         self._repo.restore_database_from_schema()
 
         current_branch = self._repo.hgit.branch
+        self._apply_patches_for_version(version, hotfix=hotfix)
+        self._repo.hgit.checkout(current_branch)
 
+    def _apply_patches_for_version(self, version: str, hotfix=False) -> None:
+        """
+        Apply the RC and staged patches of a single version to the database.
+
+        Unlike _apply_release_patches(), this does not restore the database
+        first and does not return to the original branch, so several
+        versions in preparation can be chained on the same baseline
+        (patch -> minor -> major).
+
+        Args:
+            version: Release version (e.g., "0.1.0")
+            hotfix: If True, skip RC patches (hotfix workflow)
+
+        Raises:
+            ReleaseManagerError: If patch application fails
+        """
         # Collect patches already applied from RC files
         applied_patches = set()
 
@@ -667,7 +673,59 @@ class ReleaseManager:
                 if patch_id not in applied_patches:
                     self._repo.patch_manager.apply_patch_files(patch_id, self._repo.model)
 
-        # Return to original branch
+    def releases_in_preparation(self) -> List[str]:
+        """
+        Versions currently in preparation, in ascending order.
+
+        A release is in preparation as long as its X.Y.Z-patches.toml
+        exists (it is deleted when the release is promoted to
+        production). Several may be chained at once: patch -> minor ->
+        major.
+
+        Returns:
+            Ordered list of version strings (e.g., ["0.17.1", "0.18.0"])
+        """
+        versions = []
+        for toml_file in self._releases_dir.glob("*-patches.toml"):
+            version_str = toml_file.stem.replace('-patches', '')
+            try:
+                Version(version_str)
+            except Exception:
+                continue
+            versions.append(version_str)
+        return sorted(versions, key=Version)
+
+    def restore_to_release(self, version: str) -> None:
+        """
+        Restore the database to the state of a release in preparation.
+
+        Starts from the production baseline (schema.sql + data-X.Y.Z.sql)
+        and replays the validated patches of every release in preparation
+        up to and including `version`, in version order - so restoring a
+        minor release chained behind a patch release replays both.
+
+        Args:
+            version: Release version in preparation (e.g., "0.18.0")
+
+        Raises:
+            ReleaseManagerError: If `version` is not in preparation, or if
+                patch application fails
+        """
+        target = Version(version)
+        chain = [v for v in self.releases_in_preparation() if Version(v) <= target]
+
+        if version not in chain:
+            in_prep = ", ".join(self.releases_in_preparation()) or "none"
+            raise ReleaseManagerError(
+                f"Release {version} is not in preparation "
+                f"(no {version}-patches.toml). Releases in preparation: {in_prep}"
+            )
+
+        self._repo.restore_database_from_schema()
+
+        current_branch = self._repo.hgit.branch
+        for chained_version in chain:
+            self._apply_patches_for_version(chained_version)
         self._repo.hgit.checkout(current_branch)
 
     def _collect_all_version_patches(self, version: str) -> List[str]:
@@ -1979,24 +2037,6 @@ class ReleaseManager:
         except Exception as e:
             raise ReleaseManagerError(f"Failed to checkout release branch: {e}")
 
-        # Generate release schema file
-        # Use existing release schema as base if available, otherwise use prod
-        try:
-            base_release = self._find_base_release_schema(version)
-            if base_release:
-                self._repo.restore_database_from_release_schema(base_release)
-            else:
-                self._repo.restore_database_from_schema()
-
-            release_schema_path = self._repo.generate_release_schema(version)
-
-            # Commit release schema on release branch
-            self._repo.hgit.add(str(release_schema_path))
-            self._repo.hgit.commit('-m', f"[HOP] Add release schema for %{version}")
-            self._repo.hgit.push()
-        except Exception as e:
-            raise ReleaseManagerError(f"Failed to generate release schema: {e}")
-
         return {
             'version': version,
             'branch': release_branch,
@@ -2036,51 +2076,6 @@ class ReleaseManager:
 
         patches_files.sort(key=version_key)
         return patches_files[0].stem.replace('-patches', '')
-
-    def _find_base_release_schema(self, new_version: str) -> Optional[str]:
-        """
-        Find the base release schema for a new release.
-
-        When creating a new release, determines which schema to use as base:
-        - If a release with lower version exists and has a release schema, use it
-        - Otherwise, return None (will use production schema)
-
-        This handles parallel releases:
-        - Creating 0.18.0 (minor) when 0.17.1 (patch) exists → use release-0.17.1.sql
-
-        Note: Only one release per level can exist at a time (sequential promotion rule).
-
-        Args:
-            new_version: Version being created (e.g., "0.18.0")
-
-        Returns:
-            Version string of base release, or None if should use prod schema
-        """
-        new_ver = Version(new_version)
-        model_dir = Path(self._repo.model_dir)
-
-        # Find all existing release schema files
-        release_schemas = list(model_dir.glob("release-*.sql"))
-        if not release_schemas:
-            return None
-
-        # Find the release with highest version lower than new_version
-        best_match = None
-        best_ver = None
-
-        for schema_file in release_schemas:
-            match = re.match(r'release-(\d+\.\d+\.\d+)\.sql$', schema_file.name)
-            if match:
-                ver_str = match.group(1)
-                try:
-                    ver = Version(ver_str)
-                    if ver < new_ver and (best_ver is None or ver > best_ver):
-                        best_ver = ver
-                        best_match = ver_str
-                except ValueError:
-                    continue
-
-        return best_match
 
     def _promote(self, target: Literal['rc', 'prod']) -> dict:
         """
@@ -2180,8 +2175,7 @@ class ReleaseManager:
         self._repo.hgit.checkout(release_branch)
         self._repo.hgit.checkout("-b", temp_branch)
 
-        # The release-X.Y.Z.sql already contains all staged patches
-        self._apply_release_patches(version, force_apply=False)
+        self._apply_release_patches(version)
 
         major, minor, patch_num = map(int, version.split('.'))
         if is_prod:
@@ -2243,7 +2237,7 @@ class ReleaseManager:
         # DML, no separate bootstrap step) is captured here automatically.
         self._repo.database._generate_schema_sql(version, model_dir)
         staged_patches = release_file.get_patches(status="staged")
-        self._create_prod_snapshot(version, staged_patches, release_file, model_dir)
+        self._create_prod_snapshot(version, staged_patches, release_file)
 
         self._repo.hgit.add(".")
         self._repo.hgit.commit("-m", commit_msg)
@@ -2543,7 +2537,7 @@ class ReleaseManager:
 
     def _create_prod_snapshot(
         self, version: str, staged_patches: list,
-        release_file: ReleaseFile, model_dir: Path
+        release_file: ReleaseFile
     ) -> None:
         """Create production snapshot and cleanup TOML file."""
         prod_file = self._releases_dir / f"{version}.txt"
@@ -2558,11 +2552,6 @@ class ReleaseManager:
         # Delete TOML patches file
         if toml_file.exists():
             toml_file.unlink()
-
-        # Delete release schema file
-        release_schema_file = model_dir / f"release-{version}.sql"
-        if release_schema_file.exists():
-            release_schema_file.unlink()
 
     def _cleanup_release_branch(self, release_branch: str) -> list:
         """Delete release branch and its ho-staged/* branches after production promotion."""

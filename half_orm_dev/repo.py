@@ -761,39 +761,8 @@ class Repo:
 
                 self.__config = Config(self.base_dir)
 
-                # Preserve release-*.sql files for versions > source_version
-                # These files are generated during propagation and should not be
-                # overwritten by syncs from lower version branches.
-                #
-                # When syncing from ho-prod (source_version=None), preserve ALL
-                # release-*.sql files on the target branch, as ho-prod doesn't
-                # have development release schemas that should overwrite them.
-                preserved_release_schemas = {}
-                model_dir = Path(self.model_dir)
-                if model_dir.exists():
-                    for release_file in model_dir.glob('release-*.sql'):
-                        match = re.match(r'^release-(\d+\.\d+\.\d+)\.sql$', release_file.name)
-                        if match:
-                            try:
-                                file_version = version.parse(match.group(1))
-                                # Preserve if:
-                                # - source_version is None (syncing from ho-prod) OR
-                                # - file_version > source_version (higher version release schema)
-                                if source_version is None or file_version > source_version:
-                                    # Save content before it gets overwritten
-                                    preserved_release_schemas[release_file.name] = release_file.read_text(encoding='utf-8')
-                            except (ValueError, UnicodeDecodeError):
-                                pass
-
                 # Copy .hop/ from source branch
                 self.hgit._HGit__git_repo.git.checkout(source_branch, '--', '.hop/')
-
-                # Restore preserved release-*.sql files
-                if preserved_release_schemas:
-                    model_dir = Path(self.model_dir)
-                    for filename, content in preserved_release_schemas.items():
-                        file_path = model_dir / filename
-                        file_path.write_text(content, encoding='utf-8')
 
                 if additional_files:
                     for file_path in additional_files:
@@ -2812,9 +2781,8 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
         Unlike restore_database_from_schema(), which always targets the
         version model/schema.sql is symlinked to (i.e. the current
         production version), this loads model/schema-{version}.sql
-        directly - used by restore_database_from_release_schema()'s
-        caller (the `restore` CLI command) to restore to an exact
-        historical version instead of silently landing on prod.
+        directly - used by the `restore` CLI command to restore to an
+        exact published version instead of silently landing on prod.
 
         Args:
             version: Exact version string (e.g., "0.3.5") matching an
@@ -2924,139 +2892,6 @@ INSERT INTO public.roles (name) VALUES ('admin'), ('user');
             raise
         except Exception as e:
             raise RepoError(f"Database restoration from dump failed: {e}") from e
-
-    def generate_release_schema(self, version: str) -> Path:
-        """
-        Generate release schema SQL dump.
-
-        Creates .hop/model/release-{version}.sql with current database structure,
-        metadata, and data. This file represents the complete state of a release
-        in development (prod + all staged patches).
-
-        Used by:
-        - release create: Generate initial release schema from prod baseline
-        - patch merge: Update release schema after patch integration
-
-        Args:
-            version: Release version string (e.g., "0.17.1", "0.18.0")
-
-        Returns:
-            Path to generated release schema file
-
-        Raises:
-            RepoError: If pg_dump fails or model_dir doesn't exist
-
-        Examples:
-            # After merging patch into release
-            schema_path = repo.generate_release_schema("0.17.1")
-            # Creates: .hop/model/release-0.17.1.sql
-        """
-        model_dir = Path(self.model_dir)
-
-        if not model_dir.exists():
-            raise RepoError(f"Model directory does not exist: {model_dir}")
-
-        release_schema_file = model_dir / f"release-{version}.sql"
-        temp_file = model_dir / f".release-{version}.sql.tmp"
-
-        try:
-            # Dump complete database (schema + data) to temp file
-            self.database.execute_pg_command(
-                'pg_dump',
-                self.database_name,
-                '--no-owner',
-                '-f',
-                str(temp_file)
-            )
-
-            # Filter out version-specific lines for cross-version compatibility
-            content = temp_file.read_text()
-            filtered_lines = []
-            version_specific_sets = (
-                'SET transaction_timeout',  # PG17+
-            )
-            for line in content.split('\n'):
-                if line.startswith('\\restrict') or line.startswith('\\unrestrict'):
-                    continue
-                if line.startswith('-- Dumped from') or line.startswith('-- Dumped by'):
-                    continue
-                if any(line.startswith(s) for s in version_specific_sets):
-                    continue
-                filtered_lines.append(line)
-
-            release_schema_file.write_text('\n'.join(filtered_lines))
-
-            return release_schema_file
-
-        except Exception as e:
-            raise RepoError(f"Failed to generate release schema: {e}") from e
-        finally:
-            if temp_file.exists():
-                temp_file.unlink()
-
-    def restore_database_from_release_schema(self, version: str) -> None:
-        """
-        Restore database from release schema file.
-
-        Restores database from .hop/model/release-{version}.sql which
-        contains the complete state of a release in development (prod +
-        staged patches, including any reference/system data those patches
-        inserted). This is a full pg_dump (schema + data) in one file, so
-        no separate data-loading step is needed.
-
-        Note: this never runs instance-init scripts (bootstrap/) - those
-        only run once, during clone_repo(), for a brand new instance. A
-        release-in-development database is not a new instance.
-
-        If the release schema file doesn't exist, falls back to
-        restore_database_from_schema() for backward compatibility.
-
-        Args:
-            version: Release version string (e.g., "0.17.1")
-
-        Raises:
-            RepoError: If restoration fails
-
-        Examples:
-            # Before applying a candidate patch
-            repo.restore_database_from_release_schema("0.17.1")
-            # Database now has prod schema + all staged patches for 0.17.1
-        """
-        release_schema_path = Path(self.model_dir) / f"release-{version}.sql"
-
-        # Fallback to production schema if release schema doesn't exist
-        if not release_schema_path.exists():
-            self.restore_database_from_schema()
-            return
-
-        try:
-            # Drop all user schemas
-            self._reset_database_schemas()
-
-            # Load release schema
-            self.database.execute_pg_command(
-                'psql', '-v', 'ON_ERROR_STOP=1', '-d', self.database_name, '-f', str(release_schema_path)
-            )
-
-            # Reload half_orm metadata cache
-            self.model.reconnect(reload=True)
-
-        except Exception as e:
-            raise RepoError(
-                f"Failed to restore from release schema: {_pg_command_error_detail(e)}"
-            ) from e
-
-    def get_release_schema_path(self, version: str) -> Path:
-        """
-        Get path to release schema file.
-
-        Args:
-            version: Release version string
-
-        Returns:
-            Path to .hop/model/release-{version}.sql (may not exist)
-        """
-        return Path(self.model_dir) / f"release-{version}.sql"
 
     def _deduce_data_path(self, schema_path: Path) -> Tuple[Optional[Path], Optional[str]]:
         """

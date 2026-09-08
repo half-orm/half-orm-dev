@@ -3,7 +3,7 @@ Regression test: database restoration must fail loudly, not silently.
 
 Bug scenario:
   All `psql -f <file>` restoration calls (schema.sql, data-X.Y.Z.sql,
-  release-X.Y.Z.sql, dump files) were invoked without `-v ON_ERROR_STOP=1`.
+  dump files) were invoked without `-v ON_ERROR_STOP=1`.
 
   Without that flag, psql does NOT stop on a SQL error and, crucially,
   still exits with status 0 - the failure is only visible as text on
@@ -24,6 +24,8 @@ Bug scenario:
   so a failed load raises RepoError instead of leaving a silently empty
   database.
 """
+import os
+
 import pytest
 
 
@@ -31,20 +33,18 @@ import pytest
 class TestRestoreDatabaseErrorPropagation:
     """A broken schema/data file must fail the restore, not empty it out."""
 
-    def test_broken_release_schema_fails_patch_apply_instead_of_emptying_db(
+    def test_broken_schema_fails_patch_apply_instead_of_emptying_db(
         self, project_with_release
     ):
         """
-        Corrupt model/release-X.Y.Z.sql - the file `patch apply` actually
-        restores from once a release exists (restore_database_from_release_schema,
-        the everyday path for any patch after the first in a release) - with
-        invalid SQL, and verify `patch apply` fails loudly instead of
+        Corrupt the production schema snapshot `patch apply` restores from
+        (restore_database_from_schema, the everyday path for every patch)
+        with invalid SQL, and verify `patch apply` fails loudly instead of
         silently succeeding with an empty database.
         """
         env = project_with_release
         run = env['run']
         project_dir = env['project_dir']
-        release_version = env['release_version']
 
         patch_id = '1-should-not-apply'
         run(['half_orm', 'dev', 'patch', 'create', patch_id])
@@ -54,16 +54,14 @@ class TestRestoreDatabaseErrorPropagation:
             "CREATE TABLE public.canary (id SERIAL PRIMARY KEY);\n"
         )
 
-        # Corrupt the release schema file that
-        # restore_database_from_release_schema() loads - this is the file
-        # `patch apply` actually restores from once a release schema
-        # exists (i.e. every normal development patch, not just legacy
-        # backward-compat).
-        release_schema = (
-            project_dir / '.hop' / 'model' / f'release-{release_version}.sql'
-        )
-        original_content = release_schema.read_text()
-        release_schema.write_text("this is not valid SQL at all;\n")
+        # Corrupt the versioned schema snapshot schema.sql points to -
+        # restore_database_from_schema() loads it through the symlink on
+        # every `patch apply`.
+        model_dir = project_dir / '.hop' / 'model'
+        schema_link = model_dir / 'schema.sql'
+        schema_file = model_dir / os.readlink(schema_link)
+        original_content = schema_file.read_text()
+        schema_file.write_text("this is not valid SQL at all;\n")
 
         try:
             result = run(['half_orm', 'dev', 'patch', 'apply'], check=False)
@@ -82,6 +80,6 @@ class TestRestoreDatabaseErrorPropagation:
                 f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
             )
         finally:
-            # Restore the release schema file so DB state doesn't leak into
-            # other tests / manual inspection.
-            release_schema.write_text(original_content)
+            # Restore the schema file so DB state doesn't leak into other
+            # tests / manual inspection.
+            schema_file.write_text(original_content)

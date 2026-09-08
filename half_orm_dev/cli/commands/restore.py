@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 from half_orm_dev.repo import Repo, RepoError
+from half_orm_dev.release_manager import ReleaseManagerError
 from half_orm import utils
 
 
@@ -16,16 +17,17 @@ def restore(release: str) -> None:
     Restore the database to the state of RELEASE.
 
     Drops all user schemas and reloads them, picking the most precise
-    snapshot available for RELEASE:
+    source available for RELEASE:
 
     \b
-    1. .hop/model/release-RELEASE.sql   (production + patches staged
-       for that release, still in development)
-    2. .hop/model/schema-RELEASE.sql    (published snapshot of that
-       exact released version)
+    1. .hop/model/schema-RELEASE.sql + data-RELEASE.sql (published
+       snapshot of that exact released version)
+    2. otherwise, for a release still in preparation: the production
+       baseline replayed with the validated patches of every release in
+       preparation up to RELEASE (patch -> minor -> major)
 
     Fails with an error, rather than silently loading a different
-    version, if neither file exists.
+    version, if RELEASE is neither published nor in preparation.
 
     \b
     Examples:
@@ -39,22 +41,15 @@ def restore(release: str) -> None:
         repo = Repo()
         click.echo(f"Restoring database to release {utils.Color.bold(release)}...")
 
-        release_schema_path = repo.get_release_schema_path(release)
         schema_path = Path(repo.model_dir) / f"schema-{release}.sql"
 
-        if release_schema_path.exists():
-            repo.restore_database_from_release_schema(release)
-        elif schema_path.exists():
+        if schema_path.exists():
             repo.restore_database_from_version_schema(release)
         else:
-            raise RepoError(
-                f"No schema found for release '{release}': neither "
-                f"{release_schema_path.name} nor {schema_path.name} "
-                f"exists in {repo.model_dir}."
-            )
+            repo.release_manager.restore_to_release(release)
 
         click.echo(f"✓ {utils.Color.green('Database restored to')} {utils.Color.bold(release)}")
-    except RepoError as e:
+    except (RepoError, ReleaseManagerError) as e:
         click.echo(utils.Color.red(f"\n❌ {e}"), err=True)
         raise click.Abort()
     except Exception as e:

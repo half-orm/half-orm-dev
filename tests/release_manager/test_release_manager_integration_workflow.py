@@ -87,11 +87,6 @@ def release_manager(tmp_path):
     mock_patch_manager._sync_release_files_to_ho_prod = Mock()
     mock_repo.patch_manager = mock_patch_manager
 
-    # Mock get_release_schema_path to return non-existent path
-    # This forces the old workflow (restore from schema.sql + apply patches)
-    non_existent_path = tmp_path / ".hop" / "model" / "release-nonexistent.sql"
-    mock_repo.get_release_schema_path = Mock(return_value=non_existent_path)
-
     # Create ReleaseManager
     rel_mgr = ReleaseManager(mock_repo)
 

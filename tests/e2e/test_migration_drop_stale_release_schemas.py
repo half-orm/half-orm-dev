@@ -8,9 +8,14 @@ that inherit them), never on ho-prod, and .hop/ syncing propagates
 additions but never deletions - so the migration has to visit each
 branch itself.
 
+Release schemas are no longer produced at all (the whole mechanism was
+removed in favour of replaying the staged patches over the production
+baseline), so the legacy files are seeded by hand here - the migration
+still has to clean them up in repositories created before that removal.
+
 This verifies the end-to-end behaviour on a real repository:
   - stale release schemas are removed on the release branch AND on the
-    patch branch that inherited a copy
+    patch branch that carries a copy
   - ho-prod, where the file never existed, is left alone
   - a project with no model/metadata-*.sql (i.e. one that never used the
     old mechanism) keeps its release schemas untouched
@@ -46,6 +51,18 @@ def _add_legacy_metadata_file(run, project_dir):
     run(['git', 'push', '--no-verify', 'origin', 'ho-prod'])
 
 
+def _seed_legacy_release_schema(run, project_dir, branch, version):
+    """Commit a legacy release-X.Y.Z.sql on branch, as older hop versions did."""
+    run(['git', 'checkout', branch])
+    legacy = project_dir / '.hop' / 'model' / f'release-{version}.sql'
+    legacy.write_text(
+        "-- legacy release schema: structure + half_orm_meta, no app data\n"
+    )
+    run(['git', 'add', str(legacy)])
+    run(['git', 'commit', '--no-verify', '-m', f'test: legacy release schema on {branch}'])
+    run(['git', 'push', '--no-verify', 'origin', branch])
+
+
 def _file_on_branch(run, branch, relative_path):
     """True when relative_path is tracked on branch."""
     result = run(
@@ -70,16 +87,21 @@ class TestMigrationDropsStaleReleaseSchemas:
         release_branch = f'ho-release/{version}'
         release_schema = f'.hop/model/release-{version}.sql'
 
-        # A patch branch inherits the release schema from the release branch.
-        patch_id = '1-inherits-release-schema'
+        patch_id = '1-carries-release-schema'
         run(['half_orm', 'dev', 'patch', 'create', patch_id])
         patch_branch = f'ho-patch/{patch_id}'
+
+        # Legacy layout: the release branch, the patch branch cut from it
+        # and ho-prod (reached by .hop/ syncing) all carry a copy.
+        _seed_legacy_release_schema(run, project_dir, 'ho-prod', version)
+        _seed_legacy_release_schema(run, project_dir, release_branch, version)
+        _seed_legacy_release_schema(run, project_dir, patch_branch, version)
 
         assert _file_on_branch(run, release_branch, release_schema), (
             "precondition: release branch must carry the release schema"
         )
         assert _file_on_branch(run, patch_branch, release_schema), (
-            "precondition: patch branch must have inherited the release schema"
+            "precondition: patch branch must carry the release schema"
         )
 
         _add_legacy_metadata_file(run, project_dir)
@@ -113,6 +135,9 @@ class TestMigrationDropsStaleReleaseSchemas:
         version = env['release_version']
         release_branch = f'ho-release/{version}'
         release_schema = f'.hop/model/release-{version}.sql'
+
+        _seed_legacy_release_schema(run, project_dir, 'ho-prod', version)
+        _seed_legacy_release_schema(run, project_dir, release_branch, version)
 
         # No legacy metadata-*.sql is created here.
         _downgrade_hop_version(run, project_dir, old_hop_version)

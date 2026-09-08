@@ -1,10 +1,11 @@
 """
 Tests for the `restore` CLI command.
 
-Covers the file-resolution order the command must apply:
-1. .hop/model/release-RELEASE.sql  -> restore_database_from_release_schema
-2. .hop/model/schema-RELEASE.sql   -> restore_database_from_version_schema
-3. neither exists                  -> clean failure, no restoration attempted
+Covers the resolution order the command must apply:
+1. .hop/model/schema-RELEASE.sql -> restore_database_from_version_schema
+2. otherwise                     -> release_manager.restore_to_release
+   (production baseline + validated patches of the releases in preparation)
+3. unknown release               -> clean failure, no restoration attempted
 """
 
 import tempfile
@@ -16,6 +17,7 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
 from half_orm_dev.cli.commands.restore import restore
+from half_orm_dev.release_manager import ReleaseManagerError
 
 
 @pytest.fixture
@@ -30,9 +32,6 @@ def model_dir():
 def _mock_repo(model_dir):
     mock_repo = MagicMock()
     mock_repo.model_dir = str(model_dir)
-    mock_repo.get_release_schema_path.side_effect = (
-        lambda version: model_dir / f"release-{version}.sql"
-    )
     return mock_repo
 
 
@@ -42,20 +41,8 @@ def _invoke(release, mock_repo):
         return runner.invoke(restore, [release], catch_exceptions=False)
 
 
-class TestRestorePrefersReleaseSchema:
-    def test_uses_release_schema_when_present(self, model_dir):
-        (model_dir / "release-0.17.1.sql").write_text("-- in-dev release schema")
-        mock_repo = _mock_repo(model_dir)
-
-        result = _invoke("0.17.1", mock_repo)
-
-        assert result.exit_code == 0
-        mock_repo.restore_database_from_release_schema.assert_called_once_with("0.17.1")
-        mock_repo.restore_database_from_version_schema.assert_not_called()
-
-
-class TestRestoreFallsBackToVersionSchema:
-    def test_uses_version_schema_when_no_release_schema(self, model_dir):
+class TestRestorePrefersPublishedSnapshot:
+    def test_uses_version_schema_when_present(self, model_dir):
         (model_dir / "schema-0.3.5.sql").write_text("-- published snapshot")
         mock_repo = _mock_repo(model_dir)
 
@@ -63,17 +50,30 @@ class TestRestoreFallsBackToVersionSchema:
 
         assert result.exit_code == 0
         mock_repo.restore_database_from_version_schema.assert_called_once_with("0.3.5")
-        mock_repo.restore_database_from_release_schema.assert_not_called()
+        mock_repo.release_manager.restore_to_release.assert_not_called()
+
+
+class TestRestoreReplaysReleaseInPreparation:
+    def test_replays_patches_when_no_published_snapshot(self, model_dir):
+        mock_repo = _mock_repo(model_dir)
+
+        result = _invoke("0.17.1", mock_repo)
+
+        assert result.exit_code == 0
+        mock_repo.release_manager.restore_to_release.assert_called_once_with("0.17.1")
+        mock_repo.restore_database_from_version_schema.assert_not_called()
 
 
 class TestRestoreUnknownVersion:
     def test_fails_cleanly_without_restoring_anything(self, model_dir):
         mock_repo = _mock_repo(model_dir)
+        mock_repo.release_manager.restore_to_release.side_effect = ReleaseManagerError(
+            "Release 9.9.9 is not in preparation"
+        )
 
         result = _invoke("9.9.9", mock_repo)
 
         assert result.exit_code != 0
-        mock_repo.restore_database_from_release_schema.assert_not_called()
         mock_repo.restore_database_from_version_schema.assert_not_called()
 
     def test_does_not_silently_load_current_prod_schema(self, model_dir):
@@ -84,6 +84,9 @@ class TestRestoreUnknownVersion:
         """
         (model_dir / "schema-9.9.8.sql").write_text("-- unrelated version")
         mock_repo = _mock_repo(model_dir)
+        mock_repo.release_manager.restore_to_release.side_effect = ReleaseManagerError(
+            "Release 9.9.9 is not in preparation"
+        )
 
         result = _invoke("9.9.9", mock_repo)
 

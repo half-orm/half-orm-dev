@@ -57,6 +57,18 @@ class TestValidatePatchBeforeMerge:
         # Mock HGit
         mock_hgit = Mock()
         mock_hgit.branch = "ho-release/0.17.0"
+
+        # _staged_patches_on_branch() reads the release file out of git
+        # (git show <branch>:<path>); serve the on-disk fixture file.
+        def _git_show(spec):
+            _branch, _, path = spec.partition(':')
+            file_path = tmp_path / path
+            if not file_path.exists():
+                from git.exc import GitCommandError
+                raise GitCommandError('show', 1)
+            return file_path.read_text()
+
+        mock_hgit._HGit__git_repo.git.show.side_effect = _git_show
         mock_hgit.repos_is_clean.return_value = True
         mock_hgit.branch_exists.return_value = True
         mock_repo.hgit = mock_hgit
@@ -64,10 +76,6 @@ class TestValidatePatchBeforeMerge:
         # Mock database
         mock_database = Mock()
         mock_repo.database = mock_database
-
-        # Mock get_release_schema_path to return a path that doesn't exist
-        # (so fallback to old workflow is used)
-        mock_repo.get_release_schema_path = Mock(return_value=tmp_path / "nonexistent.sql")
 
         patch_mgr = PatchManager(mock_repo)
 
@@ -127,9 +135,9 @@ class TestValidatePatchBeforeMerge:
         """Regression: merge validation must not run bootstrap/ scripts.
 
         Reference/system data now flows through idempotent DML in patches
-        (captured by generate_release_schema's full dump); bootstrap/ is
-        reserved for one-time per-instance init at clone, never at merge -
-        this used to double-run bootstrap with no reset in between.
+        (replayed like any other patch file); bootstrap/ is reserved for
+        one-time per-instance init at clone, never at merge - this used to
+        double-run bootstrap with no reset in between.
         """
         patch_mgr, mock_hgit, mock_database, tmp_path = patch_manager_basic
 

@@ -501,13 +501,8 @@ class PatchManager:
         Apply patch with full release context.
 
         Workflow:
-        1. Restore DB from release schema (includes all staged patches)
-        2. Apply only the current patch
-        3. Generate Python code
-
-        If release schema doesn't exist (backward compatibility), falls back to:
-        1. Restore DB from production baseline
-        2. Apply all staged patches in order
+        1. Restore DB from production baseline (schema.sql + data-X.Y.Z.sql)
+        2. Apply all staged patches of the release context in order
         3. Apply current patch
         4. Generate Python code
 
@@ -522,14 +517,6 @@ class PatchManager:
                       instead of schema.sql. Useful for testing with prod data.
 
         Examples:
-            # With release schema (new workflow):
-            apply_patch_complete_workflow("999")
-            # Execution:
-            # 1. Restore DB from release-0.17.1.sql (includes staged patches)
-            # 2. Apply 999
-            # 3. Generate code
-
-            # Without release schema (backward compat):
             apply_patch_complete_workflow("999")
             # Execution:
             # 1. Restore DB from schema.sql (prod)
@@ -550,7 +537,6 @@ class PatchManager:
             applied_current_files = []
             patch_was_in_release = False
             used_dump = False
-            release_schema_path = None
 
             # If from_dump is provided, use simplified workflow
             if from_dump:
@@ -563,50 +549,23 @@ class PatchManager:
                 applied_current_files = files
 
             else:
-                # Standard workflow: get release version for this patch
-                version = self._find_version_for_candidate(patch_id)
-                if not version:
-                    # Try to find from staged patches
-                    version = self._repo.release_manager.get_next_release_version()
+                # Standard workflow: rebuild from the production baseline,
+                # then replay the release context on top of it.
+                self._repo.restore_database_from_schema()
 
-                # Check if release schema exists
-                release_schema_path = None
-                if version:
-                    release_schema_path = self._repo.get_release_schema_path(version)
+                # Get and apply all staged release patches
+                release_patches = self._repo.release_manager.get_all_release_context_patches()
 
-                if release_schema_path and release_schema_path.exists():
-                    # New workflow: restore from release schema (includes all staged patches)
-                    self._repo.restore_database_from_release_schema(version)
+                for patch in release_patches:
+                    if patch == patch_id:
+                        patch_was_in_release = True
+                    files = self.apply_patch_files(patch, self._repo.model)
+                    applied_release_files.extend(files)
 
-                    # Apply only the current patch
+                # If current patch not in release (candidate), apply it now
+                if not patch_was_in_release:
                     files = self.apply_patch_files(patch_id, self._repo.model)
                     applied_current_files = files
-                else:
-                    # Backward compatibility: old workflow
-                    # Also generates release schema for migration of existing projects
-                    self._repo.restore_database_from_schema()
-
-                    # Get and apply all staged release patches
-                    release_patches = self._repo.release_manager.get_all_release_context_patches()
-
-                    for patch in release_patches:
-                        if patch == patch_id:
-                            patch_was_in_release = True
-                        files = self.apply_patch_files(patch, self._repo.model)
-                        applied_release_files.extend(files)
-
-                    # Generate release schema for existing projects migration
-                    # This captures the state after all staged patches are applied
-                    if version:
-                        try:
-                            self._repo.generate_release_schema(version)
-                        except Exception as e:  # RepoError/OSError (circular import prevents narrowing)
-                            click.echo(f"⚠️  Warning: Failed to generate release schema: {e}")
-
-                    # If current patch not in release (candidate), apply it now
-                    if not patch_was_in_release:
-                        files = self.apply_patch_files(patch_id, self._repo.model)
-                        applied_current_files = files
 
             # Generate Python code
             # Track generated files
@@ -632,11 +591,6 @@ class PatchManager:
                 'generated_files': generated_files,
                 'used_dump': used_dump,
                 'from_dump': str(from_dump) if from_dump else None,
-                'used_release_schema': (
-                    not used_dump and
-                    release_schema_path is not None and
-                    release_schema_path.exists()
-                ),
                 'status': 'success',
                 'error': None
             }
@@ -1945,12 +1899,6 @@ class PatchManager:
         # 6. Move from candidates to stage (with merge commit hash)
         self._move_patch_to_stage(patch_id, version, merge_commit)
 
-        # 6b. Regenerate release schema (DB is already in correct state after validation)
-        try:
-            self._update_release_schemas(version)
-        except Exception as e:
-            raise PatchManagerError(f"Failed to update release schema: {e}")
-
         # 7. ATOMIC TRANSACTION: All commits local, then push all at once
         # Save current branch and prepare for atomic transaction
         original_branch = self._repo.hgit.branch
@@ -1984,14 +1932,7 @@ class PatchManager:
                 modified_branches=modified_branches
             )
 
-            # 7c. Propagate release schema to higher versions (local commits only)
-            self._propagate_release_schema_to_higher_versions(
-                version,
-                defer_push=True,
-                modified_branches=modified_branches
-            )
-
-            # 7d. COMMIT POINT: Push all modified branches atomically
+            # 7c. COMMIT POINT: Push all modified branches atomically
             for branch in modified_branches:
                 self._repo.hgit.push_branch(branch)
 
@@ -2030,206 +1971,6 @@ class PatchManager:
             'merged_into': release_branch,
             'staged_branch': staged_branch,
         }
-
-    def _update_release_schemas(self, version: str) -> None:
-        """
-        Update release schema for current version and propagate to higher versions.
-
-        After a patch is merged, regenerates the release schema file for the
-        current version and updates all higher version releases that depend on it.
-
-        Args:
-            version: Current release version (e.g., "0.17.1")
-
-        Workflow:
-        1. Add release schema to staging (already generated during validation)
-        2. Find all release branches with higher versions
-        3. For each higher version:
-           - Checkout to that branch
-           - Restore DB from current release schema
-           - Apply all staged patches for that release
-           - Regenerate its release schema
-           - Commit the updated schema
-        4. Return to original branch
-        """
-        original_branch = self._repo.hgit.branch
-        current_ver = Version(version)
-
-        # 1. Write and add release schema to staging area (if not hotfix mode)
-        # Schema content was saved during validation with correct DB state
-        release_schema_path = self._repo.get_release_schema_path(version)
-        if hasattr(self, '_pending_release_schema_content') and self._pending_release_schema_content:
-            click.echo(f"  • Writing release schema ({len(self._pending_release_schema_content)} bytes)")
-            release_schema_path.write_text(self._pending_release_schema_content, encoding='utf-8')
-            self._pending_release_schema_content = None  # Clear after use
-            self._repo.hgit.add(str(release_schema_path))
-        else:
-            # Hotfix mode or no content - skip release schema
-            click.echo(f"  • Skipping release schema (hotfix mode)")
-
-        # NOTE: Do NOT checkout other branches here!
-        # The commit will be done later by commit_and_sync_to_active_branches()
-        # Propagation to higher releases is disabled for now as it causes issues
-        # with uncommitted changes being lost during checkout.
-        # TODO: Re-enable propagation after the main commit is done.
-
-        # 2. Find higher version releases (disabled - propagation moved to after commit)
-        releases_dir = Path(self._repo.releases_dir)
-        higher_releases = []
-
-        for toml_file in releases_dir.glob("*-patches.toml"):
-            rel_version = toml_file.stem.replace('-patches', '')
-            rel_ver = Version(rel_version)
-            if rel_ver > current_ver:
-                higher_releases.append(rel_version)
-
-        # Sort by version (ascending)
-        higher_releases.sort(key=lambda v: Version(v))
-
-        # Store higher releases for later propagation (after commit)
-        # This avoids losing uncommitted changes when checking out other branches
-        self._pending_higher_releases = higher_releases if higher_releases else None
-
-    def _propagate_release_schema_to_higher_versions(
-        self,
-        version: str,
-        defer_push: bool = False,
-        modified_branches: list = None
-    ) -> None:
-        """
-        Propagate release schema changes to higher version releases.
-
-        Called after commit to update release schemas for all releases
-        with version > current version.
-
-        Args:
-            version: Current release version that was just updated
-            defer_push: If True, only do local commits (for atomic transactions)
-            modified_branches: List to collect modified branches when defer_push=True
-        """
-        if not hasattr(self, '_pending_higher_releases') or not self._pending_higher_releases:
-            return
-
-        higher_releases = self._pending_higher_releases
-        self._pending_higher_releases = None  # Clear after use
-
-        original_branch = self._repo.hgit.branch
-        releases_dir = Path(self._repo.releases_dir)
-
-        for higher_version in higher_releases:
-            higher_branch = f"ho-release/{higher_version}"
-
-            if not self._repo.hgit.branch_exists(higher_branch):
-                continue
-
-            click.echo(f"  • Propagating to {higher_branch}...")
-
-            try:
-                # Checkout to higher version branch
-                self._repo.hgit.checkout(higher_branch)
-
-                # Note: In defer_push mode, no pull needed since all changes are local
-
-                # Find the highest lower version that has a release schema
-                # Release files can be on ho-prod (merged releases) or ho-release/* (active releases)
-                from packaging.version import Version
-                higher_ver = Version(higher_version)
-                lower_version = None
-                lower_branch = None
-
-                # Collect all potential lower versions
-                branches_status = self._repo.hgit.get_active_branches_status()
-                release_branches = [b['name'] for b in branches_status.get('release_branches', [])]
-
-                # Build list of candidate versions to check
-                candidate_versions = set()
-                for branch in release_branches:
-                    branch_ver_str = branch.replace('ho-release/', '')
-                    try:
-                        branch_ver = Version(branch_ver_str)
-                        if branch_ver < higher_ver:
-                            candidate_versions.add(branch_ver_str)
-                    except Exception:
-                        continue
-
-                # Sort candidates by version (highest first)
-                from packaging.version import Version
-                sorted_candidates = sorted(candidate_versions, key=Version, reverse=True)
-
-                # Find the highest version that has a release-*.sql file
-                # Check ho-prod first, then ho-release/* branches
-                for ver_str in sorted_candidates:
-                    file_path = f".hop/model/release-{ver_str}.sql"
-
-                    # Check on ho-prod first (promoted releases)
-                    try:
-                        self._repo.hgit._HGit__git_repo.git.ls_tree('-r', 'ho-prod', '--name-only', file_path)
-                        lower_version = ver_str
-                        lower_branch = 'ho-prod'
-                        break
-                    except Exception:
-                        pass
-
-                    # Check on ho-release/* branch (active releases)
-                    try:
-                        branch = f'ho-release/{ver_str}'
-                        self._repo.hgit._HGit__git_repo.git.ls_tree('-r', branch, '--name-only', file_path)
-                        lower_version = ver_str
-                        lower_branch = branch
-                        break
-                    except Exception:
-                        pass
-
-                if lower_version and lower_branch:
-                    # Copy the lower release schema from its branch
-                    click.echo(f"    • Copying release-{lower_version}.sql from {lower_branch}")
-                    try:
-                        self._repo.hgit._HGit__git_repo.git.checkout(
-                            lower_branch, '--', f".hop/model/release-{lower_version}.sql"
-                        )
-                    except Exception as e:
-                        click.echo(f"    • Warning: Could not copy from {lower_branch}: {e}")
-                        raise
-
-                    # Restore from lower version's release schema
-                    click.echo(f"    • Restoring from release-{lower_version}.sql")
-                    self._repo.restore_database_from_release_schema(lower_version)
-                else:
-                    # No lower release schema, restore from production
-                    click.echo(f"    • Restoring from schema.sql (no lower release)")
-                    self._repo.restore_database_from_schema()
-
-                # Apply staged patches from this higher version only
-                release_file = ReleaseFile(higher_version, releases_dir)
-                if release_file.exists():
-                    staged_patches = release_file.get_patches(status="staged")
-                    click.echo(f"    • Applying {len(staged_patches)} staged patch(es) from {higher_version}")
-                    for pid in staged_patches:
-                        patch_dir = Path(self._base_dir) / "Patches" / pid
-                        if patch_dir.exists():
-                            self.apply_patch_files(pid, self._repo.model)
-
-                # Regenerate release schema for this higher version
-                higher_schema_path = self._repo.generate_release_schema(higher_version)
-                self._repo.hgit.add(str(higher_schema_path))
-                commit_msg = f"[HOP] Update release schema after merge in {version}"
-
-                # Commit locally (push deferred in atomic transaction mode)
-                # Note: release-*.sql files are branch-specific and don't need cross-branch sync
-                # They will be available on ho-prod after promotion
-                self._repo.hgit.commit('-m', commit_msg)
-
-                # Collect branch for later push if in deferred mode
-                if defer_push and modified_branches is not None:
-                    modified_branches.append(higher_branch)
-
-                click.echo(f"    ✓ Updated release-{higher_version}.sql")
-
-            except Exception as e:
-                click.echo(f"    ⚠️  Warning: Failed to propagate to {higher_branch}: {e}")
-
-        # Return to original branch
-        self._repo.hgit.checkout(original_branch)
 
     def _auto_resolve_generated_conflicts(
         self,
@@ -2320,8 +2061,6 @@ class PatchManager:
         # Save current branch
         original_branch = self._repo.hgit.branch
         temp_branch = f"ho-validate/{patch_id}"
-        release_schema_content = None
-        release_schema_path = None
 
         try:
             click.echo(f"\n🔍 Validating patch {utils.Color.bold(patch_id)} before merge...")
@@ -2348,34 +2087,19 @@ class PatchManager:
             # 3. Run patch apply and verify no modifications
             click.echo(f"  • Running patch apply to verify idempotency...")
             try:
-                # Check if release schema exists
-                release_schema_path = self._repo.get_release_schema_path(version)
+                # Rebuild the release context from the production baseline:
+                # all patches already staged for this release, then the
+                # patch being merged.
+                staged_patches = self._staged_patches_on_branch(release_branch, version)
+                all_patches = staged_patches + [patch_id]
 
-                if release_schema_path.exists():
-                    # New workflow: restore from release schema (includes all staged patches)
-                    self._repo.restore_database_from_release_schema(version)
+                self._repo.restore_database_from_schema()
 
-                    # Apply only the current patch
-                    patch_dir = Path(self._repo.base_dir) / "Patches" / patch_id
-                    if patch_dir.exists():
-                        self.apply_patch_files(patch_id, self._repo.model)
-                else:
-                    # Fallback: old workflow for backward compatibility
-                    release_file = ReleaseFile(version, Path(self._repo.releases_dir))
-                    staged_patches = []
-                    if release_file.exists():
-                        staged_patches = release_file.get_patches(status="staged")
-
-                    # Apply all staged patches + current patch
-                    all_patches = staged_patches + [patch_id]
-
-                    # Restore database and apply patches
-                    self._repo.restore_database_from_schema()
-
-                    for pid in all_patches:
-                        patch_dir = Path(self._repo.base_dir) / "Patches" / pid
-                        if patch_dir.exists():
-                            self.apply_patch_files(pid, self._repo.model)
+                # get_patch_directory_path() resolves Patches/staged/{id}
+                # too: patches already merged into this release live there.
+                for pid in all_patches:
+                    if self.get_patch_directory_path(pid).exists():
+                        self.apply_patch_files(pid, self._repo.model)
 
                 # Generate modules
                 modules.generate(self._repo)
@@ -2415,39 +2139,13 @@ class PatchManager:
                     f"Failed to run patch apply during validation: {e}"
                 )
 
-            # 4. Generate release schema
-            # This captures prod + all staged patches + current patch, including
-            # any reference/system data those patches inserted (a patch is free
-            # to carry idempotent DML alongside its DDL - it flows through here
-            # like any other data change, no separate bootstrap step needed).
-            # Skip for hotfix releases (detected by presence of X.Y.Z.txt production file)
-            prod_file = Path(self._repo.releases_dir) / f"{version}.txt"
-            is_hotfix = prod_file.exists()
-
-            if is_hotfix:
-                click.echo(f"  • Skipping release schema (hotfix mode)")
-                release_schema_content = None
-            else:
-                click.echo(f"  • Generating release schema...")
-                release_schema_path = self._repo.generate_release_schema(version)
-
-                # Save schema content to restore after branch checkout
-                # (the file will be lost when switching branches)
-                release_schema_content = release_schema_path.read_text(encoding='utf-8')
-
-                # Delete the file to avoid checkout conflicts
-                # (content is saved in memory and will be written after checkout)
-                release_schema_path.unlink()
-
-                click.echo(f"  • {utils.Color.green('✓')} Release schema generated")
-
-            # 5. Run tests
+            # 4. Run tests
             self._run_tests_if_available()
 
             click.echo(f"  • {utils.Color.green('✓')} Validation passed!\n")
 
         finally:
-            # 6. Cleanup: Delete temp branch and return to original branch
+            # 5. Cleanup: Delete temp branch and return to original branch
             try:
                 # Discard any staged/unstaged changes in the generated package
                 # dir so checkout doesn't fail (they were staged during validation).
@@ -2469,9 +2167,34 @@ class PatchManager:
                 # Cleanup errors are non-critical, just warn
                 click.echo(f"⚠️  Warning: Failed to cleanup temp branch {temp_branch}: {e}")
 
-        # Store release schema content for later use in _update_release_schemas
-        # (after merge, when we're on the release branch)
-        self._pending_release_schema_content = release_schema_content
+    def _staged_patches_on_branch(self, branch: str, version: str) -> List[str]:
+        """
+        Patches already staged for `version`, as recorded on `branch`.
+
+        Read straight out of git rather than from the working tree: the
+        validation branch merges the patch branch, whose .hop/ is only a
+        synced copy and can be stale (a partial sync, an old branch).
+        The release branch is the authoritative record of what is staged,
+        and therefore of what has to be replayed to rebuild the release
+        context.
+
+        Args:
+            branch: Branch holding the authoritative release file
+            version: Release version (e.g., "0.17.0")
+
+        Returns:
+            Staged patch IDs in file order, empty if the release file
+            doesn't exist on that branch (hotfix workflow)
+        """
+        git = self._repo.hgit._HGit__git_repo.git
+        toml_path = f".hop/releases/{version}-patches.toml"
+
+        try:
+            content = git.show(f"{branch}:{toml_path}")
+        except GitCommandError:
+            return []
+
+        return ReleaseFile.parse_patches(content, status="staged")
 
     def _run_tests_if_available(self) -> None:
         """

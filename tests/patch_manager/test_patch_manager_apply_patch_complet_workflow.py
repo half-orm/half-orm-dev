@@ -34,8 +34,6 @@ def mock_workflow_with_release_context(patch_manager):
         Tuple of (patch_mgr, repo, schema_file, mock_model, mock_execute,
                   mock_generate, mock_release_mgr, releases_dir)
     """
-    from half_orm_dev.repo import Repo
-
     patch_mgr, repo, temp_dir, patches_dir = patch_manager
 
     # Create model/schema.sql
@@ -65,12 +63,6 @@ def mock_workflow_with_release_context(patch_manager):
 
     # Mock modules.generate
     mock_generate = Mock()
-
-    # Bind real method for release schema path (returns actual Path)
-    repo.get_release_schema_path = Repo.get_release_schema_path.__get__(repo, type(repo))
-    # Mock methods that would require real database operations
-    repo.restore_database_from_release_schema = Mock()
-    repo.generate_release_schema = Mock()
 
     # Create real ReleaseManager with mocked production version
     release_mgr = ReleaseManager(repo)
@@ -248,49 +240,14 @@ class TestApplyPatchWithReleaseContext:
         assert result['patch_was_in_release'] is False
         assert result['applied_release_files'] == []
 
-    def test_with_release_schema_applies_only_current_patch(self, mock_workflow_with_release_context):
-        """Test that with release schema, only the current patch is applied."""
-        (patch_mgr, repo, schema_file, mock_model, mock_execute,
-         mock_generate, release_mgr, releases_dir) = mock_workflow_with_release_context
-
-        patches_dir = Path(repo.base_dir) / "Patches"
-        model_dir = Path(repo.model_dir)
-
-        # Create release context with TOML
-        create_release_toml_file(releases_dir, "1.3.6", ["123", "456", "789", "234"])
-
-        # Create release schema file (simulates patches already staged)
-        release_schema = model_dir / "release-1.3.6.sql"
-        release_schema.write_text("-- Release schema with staged patches")
-
-        # Create patches
-        for patch_id in ["123", "456", "789", "234"]:
-            create_patch_directory(patches_dir, patch_id)
-
-        # Track execution order
-        execution_order = []
-
-        def track_apply(patch_id, model):
-            execution_order.append(patch_id)
-            return [f"{patch_id}.sql"]
-
-        with patch.object(patch_mgr, 'apply_patch_files', side_effect=track_apply):
-            with patch('half_orm_dev.modules.generate', mock_generate):
-                result = patch_mgr.apply_patch_complete_workflow("789")
-
-        # With release schema, only current patch is applied
-        assert execution_order == ["789"]
-        assert result['used_release_schema'] is True
-        assert result['applied_current_files'] == ["789.sql"]
-
-    def test_fallback_patch_not_in_release_applied_at_end(self, mock_workflow_with_release_context):
-        """Test fallback: patch not in release is applied at the end."""
+    def test_patch_not_in_release_applied_at_end(self, mock_workflow_with_release_context):
+        """Test that a patch not in the release is applied at the end."""
         (patch_mgr, repo, schema_file, mock_model, mock_execute,
          mock_generate, release_mgr, releases_dir) = mock_workflow_with_release_context
 
         patches_dir = Path(repo.base_dir) / "Patches"
 
-        # Create release context with TOML (without 999) - NO release schema file
+        # Create release context with TOML (without 999)
         create_release_toml_file(releases_dir, "1.3.6", ["123", "456", "789"])
 
         # Create patches
@@ -308,19 +265,18 @@ class TestApplyPatchWithReleaseContext:
             with patch('half_orm_dev.modules.generate', mock_generate):
                 result = patch_mgr.apply_patch_complete_workflow("999")
 
-        # Fallback: Patch 999 should be applied AFTER all release patches
+        # Patch 999 should be applied AFTER all release patches
         assert execution_order == ["123", "456", "789", "999"]
         assert result['patch_was_in_release'] is False
-        assert result['used_release_schema'] is False
 
-    def test_fallback_patch_in_release_applied_in_order(self, mock_workflow_with_release_context):
-        """Test fallback: patch in release is applied in correct order."""
+    def test_patch_in_release_applied_in_order(self, mock_workflow_with_release_context):
+        """Test that a patch in the release is applied in correct order."""
         (patch_mgr, repo, schema_file, mock_model, mock_execute,
          mock_generate, release_mgr, releases_dir) = mock_workflow_with_release_context
 
         patches_dir = Path(repo.base_dir) / "Patches"
 
-        # Create release with TOML - NO release schema file
+        # Create release with TOML
         create_release_toml_file(releases_dir, "1.3.6", ["789", "123", "456"])
 
         for patch_id in ["789", "123", "456"]:
@@ -336,19 +292,18 @@ class TestApplyPatchWithReleaseContext:
             with patch('half_orm_dev.modules.generate', mock_generate):
                 result = patch_mgr.apply_patch_complete_workflow("789")
 
-        # Fallback: all patches applied in order
+        # All patches applied in order
         assert execution_order == ["789", "123", "456"]
         assert result['patch_was_in_release'] is True
-        assert result['used_release_schema'] is False
 
-    def test_fallback_rc_sequence_applied_before_stage(self, mock_workflow_with_release_context):
-        """Test fallback: RC files applied before TOML patches."""
+    def test_rc_sequence_applied_before_stage(self, mock_workflow_with_release_context):
+        """Test that RC files are applied before TOML patches."""
         (patch_mgr, repo, schema_file, mock_model, mock_execute,
          mock_generate, release_mgr, releases_dir) = mock_workflow_with_release_context
 
         patches_dir = Path(repo.base_dir) / "Patches"
 
-        # Create RC snapshots + TOML patches - NO release schema file
+        # Create RC snapshots + TOML patches
         create_release_file(releases_dir, "1.3.6-rc1.txt", ["123", "456"])
         create_release_file(releases_dir, "1.3.6-rc2.txt", ["789"])
         create_release_toml_file(releases_dir, "1.3.6", ["234"])
@@ -366,23 +321,18 @@ class TestApplyPatchWithReleaseContext:
             with patch('half_orm_dev.modules.generate', mock_generate):
                 result = patch_mgr.apply_patch_complete_workflow("999")
 
-        # Fallback: Order: rc1 → rc2 → TOML patches → current
+        # Order: rc1 → rc2 → TOML patches → current
         assert execution_order == ["123", "456", "789", "234", "999"]
         assert result['patch_was_in_release'] is False
 
-    def test_return_structure_with_release_schema(self, mock_workflow_with_release_context):
-        """Test return structure when using release schema."""
+    def test_return_structure(self, mock_workflow_with_release_context):
+        """Test return structure of the release context workflow."""
         (patch_mgr, repo, schema_file, mock_model, mock_execute,
          mock_generate, release_mgr, releases_dir) = mock_workflow_with_release_context
 
         patches_dir = Path(repo.base_dir) / "Patches"
-        model_dir = Path(repo.model_dir)
 
         create_release_toml_file(releases_dir, "1.3.6", ["123", "456"])
-
-        # Create release schema
-        release_schema = model_dir / "release-1.3.6.sql"
-        release_schema.write_text("-- Release schema")
 
         for patch_id in ["123", "456", "789"]:
             create_patch_directory(patches_dir, patch_id)
@@ -398,9 +348,8 @@ class TestApplyPatchWithReleaseContext:
         assert 'applied_release_files' in result
         assert 'applied_current_files' in result
         assert 'patch_was_in_release' in result
-        assert 'used_release_schema' in result
 
-        assert result['used_release_schema'] is True
+        assert result['applied_release_files'] == ["123.sql", "456.sql"]
         assert result['applied_current_files'] == ["789.sql"]
 
 
