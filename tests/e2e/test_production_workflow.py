@@ -17,7 +17,7 @@ from tests.e2e.conftest import run_cmd, pg_port
 
 
 @pytest.fixture(scope="function")
-def production_environment(initialized_project):
+def production_environment(initialized_project, e2e_databases):
     """
     Create a production environment with releases ready to upgrade.
 
@@ -112,6 +112,7 @@ def production_environment(initialized_project):
     # === CREATE PRODUCTION ENVIRONMENT ===
 
     prod_db_name = f"{env['db_name']}_prod"
+    e2e_databases.append(prod_db_name)
     prod_project_dir = work_dir / 'production'
 
     # Create production config directory

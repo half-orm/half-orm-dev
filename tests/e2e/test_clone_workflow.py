@@ -25,7 +25,7 @@ pytestmark = pytest.mark.e2e
 class TestCloneBasic:
     """Test basic clone workflow."""
 
-    def test_clone_creates_project_structure(self, initialized_project):
+    def test_clone_creates_project_structure(self, initialized_project, e2e_databases):
         """Test that clone creates proper project structure from existing project."""
         env = initialized_project
         work_dir = env['work_dir']
@@ -46,6 +46,7 @@ class TestCloneBasic:
         # Generate unique database name for the clone
         import uuid
         clone_db_name = f"hop_clone_{str(uuid.uuid4())[:8]}"
+        e2e_databases.append(clone_db_name)
 
         # Create half_orm config for clone database
         clone_config_file = config_dir / clone_db_name
@@ -100,7 +101,7 @@ port = {pg_port()}
 class TestCloneWithDatabaseName:
     """Test clone with --database-name option (multi-developer scenario)."""
 
-    def test_clone_preserves_package_name(self, initialized_project):
+    def test_clone_preserves_package_name(self, initialized_project, e2e_databases):
         """
         Test that clone with --database-name preserves the original package name.
 
@@ -165,6 +166,7 @@ class TestCloneWithDatabaseName:
 
         import uuid
         alt_db_name = f"alt_db_{str(uuid.uuid4())[:8]}"
+        e2e_databases.append(alt_db_name)
 
         # Create half_orm config for alternate database
         alt_config_file = config_dir / alt_db_name
@@ -234,7 +236,7 @@ port = {pg_port()}
 class TestCloneWithDestDir:
     """Test clone with --dest-dir option."""
 
-    def test_clone_to_custom_directory(self, initialized_project):
+    def test_clone_to_custom_directory(self, initialized_project, e2e_databases):
         """Test that clone with --dest-dir uses specified directory."""
         env = initialized_project
         work_dir = env['work_dir']
@@ -254,6 +256,7 @@ class TestCloneWithDestDir:
 
         import uuid
         clone_db_name = f"hop_custom_{str(uuid.uuid4())[:8]}"
+        e2e_databases.append(clone_db_name)
         custom_dest = 'my_custom_project'
 
         # Create half_orm config for clone database
@@ -301,7 +304,7 @@ port = {pg_port()}
 class TestClonePatchApply:
     """Test patch apply after clone with different database name."""
 
-    def test_patch_apply_uses_correct_package_name(self, initialized_project):
+    def test_patch_apply_uses_correct_package_name(self, initialized_project, e2e_databases):
         """
         Test that patch apply after clone generates modules with the original package name.
 
@@ -330,6 +333,7 @@ class TestClonePatchApply:
 
         import uuid
         alt_db_name = f"patch_alt_{str(uuid.uuid4())[:8]}"
+        e2e_databases.append(alt_db_name)
 
         alt_config_file = config_dir / alt_db_name
         alt_config_content = f"""[database]

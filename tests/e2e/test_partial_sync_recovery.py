@@ -26,7 +26,7 @@ pytestmark = pytest.mark.e2e
 class TestPartialSyncRecovery:
     """Test that a partial .hop/ sync is auto-repaired by the next locked operation."""
 
-    def test_stale_hop_repaired_after_second_actor_merge(self, project_with_release):
+    def test_stale_hop_repaired_after_second_actor_merge(self, project_with_release, e2e_databases):
         env = project_with_release
         run = env['run']
         project_dir = env['project_dir']
@@ -105,6 +105,7 @@ class TestPartialSyncRecovery:
         # ── Actor 2: clone and verify stale state ──────────────────────
 
         actor2_db = f"hop_actor2_{str(uuid.uuid4())[:8]}"
+        e2e_databases.append(actor2_db)
         actor2_work = work_dir.parent / 'actor2_workspace'
         actor2_work.mkdir()
 
@@ -214,7 +215,7 @@ port = {pg_port()}
             check=False
         )
 
-    def test_actor1_creates_patch_after_actor2_merge(self, project_with_release):
+    def test_actor1_creates_patch_after_actor2_merge(self, project_with_release, e2e_databases):
         """Actor 1's sync succeeds when local branches are behind origin.
 
         Scenario:
@@ -270,6 +271,7 @@ port = {pg_port()}
         # that actor 1 doesn't have locally.
 
         actor2_db = f"hop_actor2_{str(uuid.uuid4())[:8]}"
+        e2e_databases.append(actor2_db)
         actor2_work = work_dir.parent / 'actor2_workspace'
         actor2_work.mkdir()
 

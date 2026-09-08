@@ -6,6 +6,7 @@ the complete half-orm-dev workflow with actual CLI commands.
 """
 
 import os
+import sys
 import pytest
 import subprocess
 import tempfile
@@ -160,8 +161,83 @@ def postgres_user():
     return {'user': 'halftest', 'password': 'halftest', 'auth': 'password'}
 
 
+def drop_database(db_name, db_user, db_password=None):
+    """
+    Drop a test database, ignoring the case where it doesn't exist.
+
+    Passes the full environment through (so PGPORT and friends survive)
+    and names the port explicitly: a bare env= would hand dropdb an
+    environment without PGPORT, silently sending it to the default
+    cluster - which is how e2e databases used to pile up on non-default
+    clusters, run after run.
+
+    Returns:
+        subprocess.CompletedProcess of the dropdb call
+    """
+    drop_env = os.environ.copy()
+    if db_password:
+        drop_env['PGPASSWORD'] = db_password
+
+    return subprocess.run(
+        [
+            'dropdb', '-U', db_user, '-h', 'localhost',
+            '-p', str(pg_port()), '--if-exists', '--force', db_name
+        ],
+        env=drop_env,
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.fixture(scope="session")
+def e2e_databases():
+    """
+    Names of every database created by this test session.
+
+    Tests that create databases of their own (a second actor, a clone
+    with --database-name) register them here so they get dropped at the
+    end of the session: the per-test teardown only knows about the
+    database of its own e2e_environment.
+    """
+    created = []
+    yield created
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _drop_session_databases(postgres_user, e2e_databases):
+    """Drop every database this session created, whatever happened to it.
+
+    postgres_user is a declared dependency rather than a late
+    getfixturevalue() lookup: a fixture is only torn down once its
+    dependents are, so this keeps the credentials alive long enough to
+    run dropdb.
+    """
+    yield
+
+    if not e2e_databases:
+        return
+
+    credentials = postgres_user
+    leftovers = []
+    for db_name in e2e_databases:
+        result = drop_database(db_name, credentials['user'], credentials['password'])
+        if result.returncode != 0:
+            leftovers.append(f"{db_name}: {result.stderr.strip()}")
+
+    if leftovers:
+        # Never fail the session on cleanup, but do not stay silent
+        # either: a swallowed dropdb failure is what let these
+        # databases accumulate unnoticed in the first place.
+        print(
+            "\nWarning: could not drop test database(s):\n  "
+            + "\n  ".join(leftovers)
+            + "\n  Run scripts/drop-stale-e2e-databases.py to clean up.",
+            file=sys.stderr,
+        )
+
+
 @pytest.fixture(scope="function")
-def e2e_environment(postgres_user, tmp_path_factory):
+def e2e_environment(postgres_user, tmp_path_factory, e2e_databases):
     """
     Create a complete end-to-end test environment.
 
@@ -199,6 +275,10 @@ def e2e_environment(postgres_user, tmp_path_factory):
     db_user = postgres_user['user']
     db_password = postgres_user['password']
 
+    # Registered before creation: an interrupted test still gets its
+    # database dropped at the end of the session.
+    e2e_databases.append(db_name)
+
     env = {
         'PGPASSWORD': db_password,
         # Disable GPG signing for commits in tests
@@ -224,12 +304,7 @@ def e2e_environment(postgres_user, tmp_path_factory):
     }
 
     # Cleanup
-    drop_env = env.copy()
-    subprocess.run(
-        ['dropdb', '-U', db_user, '-h', 'localhost', '--if-exists', '--force', db_name],
-        env=drop_env,
-        capture_output=True
-    )
+    drop_database(db_name, db_user, db_password)
 
 
 @pytest.fixture(scope="function")

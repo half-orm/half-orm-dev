@@ -80,3 +80,8 @@ release: check-main-branch check-repo-clean
 	git commit -m "[release] $$NEW_VERSION"; \
 	git tag "$$NEW_VERSION"; \
 	echo "✓ Committed and tagged $$NEW_VERSION"
+
+# Drop the PostgreSQL databases left behind by interrupted e2e runs
+.PHONY: clean-e2e
+clean-e2e:
+	@python scripts/drop-stale-e2e-databases.py
