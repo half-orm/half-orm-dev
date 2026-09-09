@@ -80,23 +80,27 @@ class TestMigrateDirtyCheck:
         assert config['halfORM']['hop_version'] == installed_hop_version()
 
 
+# The project must start strictly below the migration this class
+# exercises: get_pending_migrations() keeps `current < v <= target`. The
+# old_hop_version fixture follows the installed version, so it stopped
+# reaching below a20 releases ago - the test then skipped itself and had
+# not run since.
+VERSION_BEFORE_GITIGNORE_MIGRATION = '1.0.0-a19'
+
+
 @pytest.mark.e2e
 class TestMigrateGitignoreUpdate:
     """Migration 1.0.0a20 adds .hop/production and .hop/.fetching to .gitignore."""
 
-    def test_migrate_adds_gitignore_entries(self, initialized_project, old_hop_version):
+    def test_migrate_adds_gitignore_entries(self, initialized_project):
         """After migration, .gitignore contains .hop/production and .hop/.fetching."""
-        from packaging.version import Version
-
         env = initialized_project
         run = env['run']
         project_dir = env['project_dir']
 
-        # Only meaningful when upgrading from a version before 1.0.0a20.
-        if Version(old_hop_version) >= Version('1.0.0a20'):
-            pytest.skip(f"old_hop_version {old_hop_version!r} is already >= 1.0.0a20")
-
-        _downgrade_hop_version(run, project_dir, 'ho-prod', old_hop_version)
+        _downgrade_hop_version(
+            run, project_dir, 'ho-prod', VERSION_BEFORE_GITIGNORE_MIGRATION
+        )
         run(['git', 'checkout', 'ho-prod'])
 
         # Remove the entries from .gitignore so the migration has something to do.
