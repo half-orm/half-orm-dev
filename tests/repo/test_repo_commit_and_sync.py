@@ -109,6 +109,7 @@ class TestRepoCommitAndSync:
         repo.sync_hop_to_active_branches.assert_called_once_with(
             reason="migration 0.17.0 → 0.17.1",
             additional_files=None,
+            removed_files=None,
             defer_push=False,
             modified_branches=None
         )

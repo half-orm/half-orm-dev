@@ -595,6 +595,7 @@ class Repo:
         self,
         reason: str = "update",
         additional_files: list = None,
+        removed_files: list = None,
         defer_push: bool = False,
         modified_branches: list = None
     ) -> dict:
@@ -615,6 +616,13 @@ class Repo:
             reason: Description of why sync is happening (for commit message)
             additional_files: Optional list of additional file paths to sync
                              (e.g., ['pyproject.toml'] for migration files)
+            removed_files: Optional list of paths to delete on the target
+                          branches. The counterpart of additional_files:
+                          a `git checkout <source> -- <path>` adds and
+                          overwrites but never deletes, so propagating a
+                          move takes both halves (e.g. syncing
+                          Patches/staged/{id} while removing the stale
+                          Patches/{id} copy).
             defer_push: If True, collect branches instead of pushing immediately (for atomic transactions)
             modified_branches: List to collect modified branches when defer_push=True
 
@@ -768,6 +776,17 @@ class Repo:
                     for file_path in additional_files:
                         try:
                             self.hgit._HGit__git_repo.git.checkout(source_branch, '--', file_path)
+                        except GitCommandError:
+                            pass
+
+                if removed_files:
+                    for file_path in removed_files:
+                        # --ignore-unmatch: a branch that never had the
+                        # path is already in the target state.
+                        try:
+                            self.hgit._HGit__git_repo.git.rm(
+                                '-r', '--ignore-unmatch', '--', file_path
+                            )
                         except GitCommandError:
                             pass
 
@@ -1123,6 +1142,7 @@ class Repo:
         message: str,
         reason: str = None,
         files: list = None,
+        removed_files: list = None,
         defer_push: bool = False,
         modified_branches: list = None
     ) -> dict:
@@ -1139,6 +1159,8 @@ class Repo:
             message: Commit message
             reason: Optional reason for sync (if not provided, extracts from message)
             files: Optional list of additional files to stage (beyond .hop/)
+            removed_files: Optional list of paths to delete on the other
+                          active branches (already removed on this one)
             defer_push: If True, collect branches instead of pushing immediately (for atomic transactions)
             modified_branches: List to collect modified branches when defer_push=True
 
@@ -1215,6 +1237,7 @@ class Repo:
         sync_result = self.sync_hop_to_active_branches(
             reason=reason,
             additional_files=additional_files if additional_files else None,
+            removed_files=removed_files if removed_files else None,
             defer_push=defer_push,
             modified_branches=modified_branches
         )

@@ -289,10 +289,11 @@ class TestValidatePatchBeforeMerge:
         release_file.add_patch("39-api")
         release_file.move_to_staged("39-api", "commit39")
 
-        # Create patch directories
-        for pid in ["38-auth", "39-api", "42-feature"]:
-            patch_dir = tmp_path / "Patches" / pid
-            patch_dir.mkdir(parents=True)
+        # Create patch directories: the staged ones live under
+        # Patches/staged/, the patch being merged is still a candidate
+        for pid in ["38-auth", "39-api"]:
+            (tmp_path / "Patches" / "staged" / pid).mkdir(parents=True)
+        (tmp_path / "Patches" / "42-feature").mkdir(parents=True)
 
         with patch('click.echo'):
             patch_mgr._validate_patch_before_merge(
@@ -323,10 +324,11 @@ class TestValidatePatchBeforeMerge:
         release_file.add_patch("39-api")
         release_file.move_to_staged("39-api", "commit39")
 
-        # Create patch directories
-        for pid in ["38-auth", "39-api", "42-feature"]:
-            patch_dir = tmp_path / "Patches" / pid
-            patch_dir.mkdir(parents=True)
+        # Create patch directories: the staged ones live under
+        # Patches/staged/, the patch being merged is still a candidate
+        for pid in ["38-auth", "39-api"]:
+            (tmp_path / "Patches" / "staged" / pid).mkdir(parents=True)
+        (tmp_path / "Patches" / "42-feature").mkdir(parents=True)
 
         with patch('click.echo'):
             patch_mgr._validate_patch_before_merge(

@@ -73,10 +73,19 @@ def mock_workflow_with_release_context(patch_manager):
             mock_generate, release_mgr, releases_dir)
 
 
-def create_patch_directory(patches_dir: Path, patch_id: str, num_files: int = 2):
-    """Helper to create patch directory with SQL files."""
-    patch_path = patches_dir / patch_id
-    patch_path.mkdir()
+def create_patch_directory(patches_dir: Path, patch_id: str, num_files: int = 2,
+                           status: str = "candidate"):
+    """Helper to create patch directory with SQL files.
+
+    A patch that has been merged into its release lives in
+    Patches/staged/{id}/, which is where the release context is replayed
+    from - pass status="staged" for those.
+    """
+    patch_path = (
+        patches_dir / patch_id if status == "candidate"
+        else patches_dir / status / patch_id
+    )
+    patch_path.mkdir(parents=True)
     for i in range(1, num_files + 1):
         sql_file = patch_path / f"{i:02d}_file.sql"
         sql_file.write_text(f"-- SQL for {patch_id} file {i}")
@@ -227,7 +236,7 @@ class TestApplyPatchWithReleaseContext:
         # Track execution order
         execution_order = []
 
-        def track_apply(patch_id, model):
+        def track_apply(patch_id, model, status=None):
             execution_order.append(patch_id)
             return [f"{patch_id}_01.sql", f"{patch_id}_02.sql"]
 
@@ -250,14 +259,16 @@ class TestApplyPatchWithReleaseContext:
         # Create release context with TOML (without 999)
         create_release_toml_file(releases_dir, "1.3.6", ["123", "456", "789"])
 
-        # Create patches
-        for patch_id in ["123", "456", "789", "999"]:
-            create_patch_directory(patches_dir, patch_id)
+        # Create patches: the three in the release are staged, 999 is
+        # the candidate being applied
+        for patch_id in ["123", "456", "789"]:
+            create_patch_directory(patches_dir, patch_id, status="staged")
+        create_patch_directory(patches_dir, "999")
 
         # Track execution order
         execution_order = []
 
-        def track_apply(patch_id, model):
+        def track_apply(patch_id, model, status=None):
             execution_order.append(patch_id)
             return [f"{patch_id}.sql"]
 
@@ -280,11 +291,11 @@ class TestApplyPatchWithReleaseContext:
         create_release_toml_file(releases_dir, "1.3.6", ["789", "123", "456"])
 
         for patch_id in ["789", "123", "456"]:
-            create_patch_directory(patches_dir, patch_id)
+            create_patch_directory(patches_dir, patch_id, status="staged")
 
         execution_order = []
 
-        def track_apply(patch_id, model):
+        def track_apply(patch_id, model, status=None):
             execution_order.append(patch_id)
             return [f"{patch_id}.sql"]
 
@@ -308,12 +319,13 @@ class TestApplyPatchWithReleaseContext:
         create_release_file(releases_dir, "1.3.6-rc2.txt", ["789"])
         create_release_toml_file(releases_dir, "1.3.6", ["234"])
 
-        for patch_id in ["123", "456", "789", "234", "999"]:
-            create_patch_directory(patches_dir, patch_id)
+        for patch_id in ["123", "456", "789", "234"]:
+            create_patch_directory(patches_dir, patch_id, status="staged")
+        create_patch_directory(patches_dir, "999")
 
         execution_order = []
 
-        def track_apply(patch_id, model):
+        def track_apply(patch_id, model, status=None):
             execution_order.append(patch_id)
             return [f"{patch_id}.sql"]
 
@@ -334,10 +346,11 @@ class TestApplyPatchWithReleaseContext:
 
         create_release_toml_file(releases_dir, "1.3.6", ["123", "456"])
 
-        for patch_id in ["123", "456", "789"]:
-            create_patch_directory(patches_dir, patch_id)
+        for patch_id in ["123", "456"]:
+            create_patch_directory(patches_dir, patch_id, status="staged")
+        create_patch_directory(patches_dir, "789")
 
-        def mock_apply(patch_id, model):
+        def mock_apply(patch_id, model, status=None):
             return [f"{patch_id}.sql"]
 
         with patch.object(patch_mgr, 'apply_patch_files', side_effect=mock_apply):
@@ -365,11 +378,12 @@ class TestApplyPatchErrorHandlingWithReleaseContext:
 
         create_release_toml_file(releases_dir, "1.3.6", ["123", "456", "789"])
 
-        for patch_id in ["123", "456", "789", "999"]:
-            create_patch_directory(patches_dir, patch_id)
+        for patch_id in ["123", "456", "789"]:
+            create_patch_directory(patches_dir, patch_id, status="staged")
+        create_patch_directory(patches_dir, "999")
 
         # Mock failure on patch 456
-        def mock_apply(patch_id, model):
+        def mock_apply(patch_id, model, status=None):
             if patch_id == "456":
                 raise PatchManagerError(f"Failed to apply patch {patch_id}")
             return [f"{patch_id}.sql"]
@@ -391,11 +405,12 @@ class TestApplyPatchErrorHandlingWithReleaseContext:
 
         create_release_toml_file(releases_dir, "1.3.6", ["123", "456"])
 
-        for patch_id in ["123", "456", "789"]:
-            create_patch_directory(patches_dir, patch_id)
+        for patch_id in ["123", "456"]:
+            create_patch_directory(patches_dir, patch_id, status="staged")
+        create_patch_directory(patches_dir, "789")
 
         # Mock failure on current patch
-        def mock_apply(patch_id, model):
+        def mock_apply(patch_id, model, status=None):
             if patch_id == "789":
                 raise PatchManagerError(f"Failed to apply current patch {patch_id}")
             return [f"{patch_id}.sql"]

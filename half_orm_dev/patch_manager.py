@@ -224,7 +224,7 @@ class PatchManager:
 
         return patch_path
 
-    def get_patch_structure(self, patch_id: str) -> PatchStructure:
+    def get_patch_structure(self, patch_id: str, status: Optional[str] = None) -> PatchStructure:
         """
         Analyze and validate patch directory structure.
 
@@ -233,6 +233,9 @@ class PatchManager:
 
         Args:
             patch_id: Patch identifier to analyze
+            status: Optional status ("candidate", "staged", "orphaned")
+                    pinning which directory to read, instead of letting
+                    the filesystem decide
 
         Returns:
             PatchStructure with complete analysis results
@@ -248,11 +251,11 @@ class PatchManager:
                 print(f"Errors: {structure.validation_errors}")
         """
         # Get patch directory path
-        patch_path = self.get_patch_directory_path(patch_id)
+        patch_path = self.get_patch_directory_path(patch_id, status)
         readme_path = patch_path / "README.md"
 
         # Use validate_patch_structure for basic validation
-        is_valid, validation_errors = self.validate_patch_structure(patch_id)
+        is_valid, validation_errors = self.validate_patch_structure(patch_id, status)
 
         # If basic validation fails, return structure with errors
         if not is_valid:
@@ -333,7 +336,9 @@ class PatchManager:
         """
         pass
 
-    def validate_patch_structure(self, patch_id: str) -> Tuple[bool, List[str]]:
+    def validate_patch_structure(
+        self, patch_id: str, status: Optional[str] = None
+    ) -> Tuple[bool, List[str]]:
         """
         Validate patch directory structure and contents.
 
@@ -344,6 +349,8 @@ class PatchManager:
 
         Args:
             patch_id: Patch identifier to validate
+            status: Optional status ("candidate", "staged", "orphaned")
+                    pinning which directory to check
 
         Returns:
             Tuple of (is_valid, list_of_errors)
@@ -358,7 +365,7 @@ class PatchManager:
         errors = []
 
         # Get patch directory path
-        patch_path = self.get_patch_directory_path(patch_id)
+        patch_path = self.get_patch_directory_path(patch_id, status)
 
         # Minimal validation: directory exists and is accessible
         try:
@@ -555,11 +562,19 @@ class PatchManager:
 
                 # Get and apply all staged release patches
                 release_patches = self._repo.release_manager.get_all_release_context_patches()
+                release_version = self._repo.release_manager.get_next_release_version()
 
+                for patch in release_patches:
+                    self._check_staged_patch_available(patch, release_version)
+
+                # Read them from Patches/staged/ explicitly: a branch cut
+                # while one of them was still a candidate may keep an
+                # outdated copy at Patches/{id}, which the
+                # filesystem-first resolution would prefer.
                 for patch in release_patches:
                     if patch == patch_id:
                         patch_was_in_release = True
-                    files = self.apply_patch_files(patch, self._repo.model)
+                    files = self.apply_patch_files(patch, self._repo.model, status="staged")
                     applied_release_files.extend(files)
 
                 # If current patch not in release (candidate), apply it now
@@ -605,7 +620,9 @@ class PatchManager:
                 f"Apply patch workflow failed for {patch_id}: {e}"
             ) from e
 
-    def apply_patch_files(self, patch_id: str, database_model) -> List[str]:
+    def apply_patch_files(
+        self, patch_id: str, database_model, status: Optional[str] = None
+    ) -> List[str]:
         """
         Apply all patch files in correct order.
 
@@ -616,6 +633,8 @@ class PatchManager:
         Args:
             patch_id: Patch identifier to apply
             database_model: halfORM Model instance for SQL execution
+            status: Optional status ("candidate", "staged", "orphaned")
+                    pinning which directory to apply from
 
         Returns:
             List of applied filenames in execution order
@@ -635,7 +654,7 @@ class PatchManager:
         applied_files = []
 
         # Get patch structure
-        structure = self.get_patch_structure(patch_id)
+        structure = self.get_patch_structure(patch_id, status)
 
         # Validate patch is valid
         if not structure.is_valid:
@@ -1939,8 +1958,16 @@ class PatchManager:
             issue_number = issue_match.group(1) if issue_match else None
             fixes_line = f"\nFixes #{issue_number}." if issue_number else ""
 
+            # Propagate the patch directory along with the release file
+            # that references it. Rebuilding the release context replays
+            # every staged patch, so a branch told "this patch is staged"
+            # needs the files to replay - and needs the stale candidate
+            # copy gone, since it predates whatever the patch became when
+            # it was merged.
             self._repo.commit_and_sync_to_active_branches(
                 message=f"[HOP] move patch #{patch_id} from candidate to stage %{version}{fixes_line}",
+                files=[f"Patches/staged/{patch_id}"],
+                removed_files=[f"Patches/{patch_id}"],
                 defer_push=True,
                 modified_branches=modified_branches
             )
@@ -2125,15 +2152,19 @@ class PatchManager:
                 # all patches already staged for this release, then the
                 # patch being merged.
                 staged_patches = self._staged_patches_on_branch(release_branch, version)
-                all_patches = staged_patches + [patch_id]
+                for pid in staged_patches:
+                    self._check_staged_patch_available(pid, version)
 
                 self._repo.restore_database_from_schema()
 
-                # get_patch_directory_path() resolves Patches/staged/{id}
-                # too: patches already merged into this release live there.
-                for pid in all_patches:
-                    if self.get_patch_directory_path(pid).exists():
-                        self.apply_patch_files(pid, self._repo.model)
+                # Staged patches are read from Patches/staged/ explicitly:
+                # a branch cut while one of them was still a candidate may
+                # keep an outdated copy at Patches/{id}, which the
+                # filesystem-first resolution would prefer.
+                for pid in staged_patches:
+                    self.apply_patch_files(pid, self._repo.model, status="staged")
+
+                self.apply_patch_files(patch_id, self._repo.model)
 
                 # Generate modules
                 modules.generate(self._repo)
@@ -2205,6 +2236,37 @@ class PatchManager:
             except (GitCommandError, TypeError) as e:
                 # Cleanup errors are non-critical, just warn
                 click.echo(f"⚠️  Warning: Failed to cleanup temp branch {temp_branch}: {e}")
+
+    def _check_staged_patch_available(self, patch_id: str, version: str) -> None:
+        """
+        Fail early, and clearly, when a staged patch cannot be replayed.
+
+        Rebuilding the release context replays every patch already staged
+        for it, so their directories have to be present. `patch merge`
+        propagates Patches/staged/{id} to every active branch, but a
+        branch cut before that propagation existed - or one that never
+        received it - has the release file saying "staged" and no
+        directory to match. Skipping it silently would rebuild a database
+        missing that patch's tables and validate the current patch
+        against it, so this stops instead and says how to catch up.
+
+        Args:
+            patch_id: Staged patch that has to be replayed
+            version: Release the patch is staged for
+
+        Raises:
+            PatchManagerError: If the staged directory is missing
+        """
+        if self.get_patch_directory_path(patch_id, "staged").exists():
+            return
+
+        raise PatchManagerError(
+            f"Patch {patch_id} is staged for release {version}, but "
+            f"Patches/staged/{patch_id}/ is missing on this branch.\n\n"
+            f"This branch was cut before {patch_id} was merged into the "
+            f"release. Bring it up to date, then retry:\n"
+            f"  git merge ho-release/{version}"
+        )
 
     def _staged_patches_on_branch(self, branch: str, version: str) -> List[str]:
         """
