@@ -202,54 +202,104 @@ def _display_check_results(repo, result: dict, dry_run: bool, verbose: bool):
     # Stale branches detection and cleanup
     stale_branches = result.get('stale_branches', {})
     candidates = stale_branches.get('candidates', [])
+    unmerged = stale_branches.get('unmerged', [])
+    current_branch = repo.hgit.branch if repo.hgit else None
 
-    if candidates:
+    def _label(branch):
+        """Mark the branch the developer is standing on."""
+        return f"{branch} (current branch)" if branch == current_branch else branch
+
+    if candidates or unmerged:
         click.echo()
-        if dry_run:
-            click.echo(f"⚠️  {utils.Color.bold(f'Found {len(candidates)} stale local branch(es)')} (no longer on remote):")
-            for branch in candidates[:10]:
-                click.echo(f"  ○ {branch}")
-            if len(candidates) > 10:
-                click.echo(f"  ... and {len(candidates) - 10} more")
-            click.echo(f"\n  Run without --dry-run to be prompted for deletion")
-        else:
-            # Show stale branches and prompt for deletion
-            click.echo(f"⚠️  {utils.Color.bold(f'Found {len(candidates)} stale local branch(es)')} (no longer on remote):")
-            for branch in candidates[:10]:
-                click.echo(f"  • {branch}")
-            if len(candidates) > 10:
-                click.echo(f"  ... and {len(candidates) - 10} more")
-            click.echo()
+        click.echo(
+            f"⚠️  {utils.Color.bold(f'Found {len(candidates) + len(unmerged)} stale local branch(es)')}"
+            f" (no longer on remote):"
+        )
+        for branch in candidates[:10]:
+            click.echo(f"  {'○' if dry_run else '•'} {_label(branch)}")
+        if len(candidates) > 10:
+            click.echo(f"  ... and {len(candidates) - 10} more")
 
-            # Prompt for confirmation
-            if click.confirm(f"Delete these {len(candidates)} branch(es)?", default=False):
-                # Get repo instance and actually delete the branches
-                deleted = []
-                errors = []
-                try:
-                    delete_result = repo.hgit.prune_local_branches(
+        # Branches carrying commits that are nowhere else are never part
+        # of the blanket confirmation: deleting them destroys the work.
+        if unmerged:
+            click.echo()
+            click.echo(
+                f"  {utils.Color.red('These carry commits that exist nowhere else:')}"
+            )
+            for branch, count in unmerged[:10]:
+                plural = 's' if count != 1 else ''
+                click.echo(f"    ⚠ {_label(branch)} - {count} unmerged commit{plural}")
+            if len(unmerged) > 10:
+                click.echo(f"    ... and {len(unmerged) - 10} more")
+
+        if dry_run:
+            click.echo(f"\n  Run without --dry-run to be prompted for deletion")
+            return
+
+        click.echo()
+
+        deleted = []
+        errors = []
+        switched_to = None
+
+        try:
+            if candidates and click.confirm(
+                f"Delete these {len(candidates)} branch(es)?", default=False
+            ):
+                delete_result = repo.hgit.prune_local_branches(
+                    pattern="ho-*",
+                    dry_run=False,
+                    exclude_current=False
+                )
+                deleted = delete_result.get('deleted', [])
+                errors = delete_result.get('errors', [])
+                switched_to = delete_result.get('switched_to')
+
+            if unmerged:
+                click.echo()
+                click.echo(
+                    utils.Color.red(
+                        f"⚠ {len(unmerged)} branch(es) hold work that only exists locally. "
+                        f"Deleting them loses it."
+                    )
+                )
+                click.echo("  To keep that work, merge or push those branches first.")
+                if click.confirm(
+                    f"Delete these {len(unmerged)} branch(es) anyway, losing their commits?",
+                    default=False
+                ):
+                    force_result = repo.hgit.prune_local_branches(
                         pattern="ho-*",
                         dry_run=False,
-                        exclude_current=True
+                        exclude_current=False,
+                        force=True
                     )
-                    deleted = delete_result.get('deleted', [])
-                    errors = delete_result.get('errors', [])
+                    deleted.extend(force_result.get('deleted', []))
+                    errors.extend(force_result.get('errors', []))
+                    switched_to = switched_to or force_result.get('switched_to')
 
-                    if deleted:
-                        click.echo(f"\n✓ {utils.Color.green(f'Deleted {len(deleted)} stale branch(es)')}")
-                        if verbose:
-                            for branch in deleted[:10]:
-                                click.echo(f"  ✓ {branch}")
-                            if len(deleted) > 10:
-                                click.echo(f"  ... and {len(deleted) - 10} more")
+            if deleted:
+                click.echo(f"\n✓ {utils.Color.green(f'Deleted {len(deleted)} stale branch(es)')}")
+                if verbose:
+                    for branch in deleted[:10]:
+                        click.echo(f"  ✓ {branch}")
+                    if len(deleted) > 10:
+                        click.echo(f"  ... and {len(deleted) - 10} more")
 
-                    if errors:
-                        click.echo(f"\n⚠ {utils.Color.red('Some errors occurred during cleanup')}")
-                        if verbose:
-                            for branch, error in errors[:3]:
-                                click.echo(f"  {branch}: {error}")
-                except Exception as e:
-                    click.echo(utils.Color.red(f"\n❌ Error deleting branches: {e}"), err=True)
+            if switched_to:
+                click.echo(
+                    f"  ℹ You were on a deleted branch - now on "
+                    f"{utils.Color.bold(switched_to)}"
+                )
+
+            if errors:
+                click.echo(f"\n⚠ {utils.Color.red('Some errors occurred during cleanup')}")
+                if verbose:
+                    for branch, error in errors[:3]:
+                        click.echo(f"  {branch}: {error}")
+        except Exception as e:
+            click.echo(utils.Color.red(f"\n❌ Error deleting branches: {e}"), err=True)
 
 
 def _display_release_branches_grouped(branches: list, verbose: bool):

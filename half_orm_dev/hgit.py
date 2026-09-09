@@ -1358,40 +1358,62 @@ class HGit:
 
     def prune_local_branches(
         self,
-        pattern: Optional[str] = None,
+        pattern: str = "ho-*",
         dry_run: bool = False,
-        exclude_current: bool = True
+        exclude_current: bool = True,
+        force: bool = False
     ) -> dict:
         """
-        Delete local branches that no longer exist on remote origin.
+        Delete local hop branches that no longer exist on remote origin.
 
-        Compares local branches with remote branches and deletes local branches
-        that don't have a corresponding remote branch. This is useful for cleaning
-        up after branches are deleted on remote (e.g., after promote_to cleanup).
+        Origin is the source of truth: a branch deleted there has no
+        reason to survive locally. Only ho-* branches are ever considered
+        - a developer's own branches are none of this method's business -
+        and ho-prod is always kept.
+
+        Deletion uses `git branch -d`, so a branch carrying commits that
+        exist nowhere else is refused rather than destroyed. Those are
+        reported under 'unmerged' for the caller to raise explicitly;
+        force=True then deletes them with `git branch -D`. This matters:
+        a patch branch whose remote was deleted before its work was
+        merged is the only remaining copy of that work, and it used to be
+        removed by a single blanket confirmation.
+
+        When exclude_current is False and the branch to delete is the one
+        checked out, this switches to ho-prod first - you cannot delete
+        the branch you stand on, and leaving it behind would defeat the
+        point of the sync.
 
         Args:
-            pattern: Optional glob pattern to limit pruning (e.g., "ho-release/*")
-                    If None, checks all branches except ho-prod
-            dry_run: If True, only report what would be deleted without deleting
-            exclude_current: If True, never delete currently checked out branch
+            pattern: Glob pattern limiting the branches considered
+                    (default "ho-*"). Non-hop branches are skipped
+                    whatever the pattern says.
+            dry_run: If True, only report what would be deleted
+            exclude_current: If True, never touch the current branch
+            force: If True, delete even branches carrying unmerged
+                  commits (git branch -D)
 
         Returns:
             dict with keys:
                 'deleted': List of deleted branch names
-                'skipped': List of (branch_name, reason) tuples for skipped branches
-                'errors': List of (branch_name, error_message) tuples for failed deletions
+                'unmerged': List of (branch_name, commit_count) for branches
+                            kept because they carry unmerged commits
+                'skipped': List of (branch_name, reason) tuples
+                'errors': List of (branch_name, error_message) tuples
+                'switched_to': Branch checked out to allow deleting the
+                               current one, or None
 
         Examples:
-            # Prune all stale ho-release branches (dry run)
-            result = hgit.prune_local_branches(pattern="ho-release/*", dry_run=True)
+            # What would go (dry run)
+            result = hgit.prune_local_branches(dry_run=True)
             print(f"Would delete: {result['deleted']}")
+            print(f"Would keep (unmerged): {result['unmerged']}")
 
-            # Actually prune stale ho-release branches
-            result = hgit.prune_local_branches(pattern="ho-release/*")
-            print(f"Deleted: {result['deleted']}")
+            # Delete, current branch included, work preserved
+            result = hgit.prune_local_branches(exclude_current=False)
 
-            # Prune all stale branches except ho-prod
-            result = hgit.prune_local_branches()
+            # Delete unmerged ones too, on explicit demand
+            result = hgit.prune_local_branches(exclude_current=False, force=True)
         """
         # Fetch from remote to get up-to-date branch list
         try:
@@ -1399,18 +1421,21 @@ class HGit:
         except GitCommandError as e:
             return {
                 'deleted': [],
+                'unmerged': [],
                 'skipped': [],
-                'errors': [('fetch', f"Failed to fetch from origin: {e}")]
+                'errors': [('fetch', f"Failed to fetch from origin: {e}")],
+                'switched_to': None
             }
 
-        # Get current branch if we need to exclude it
+        # Always needed: to exclude the current branch when asked, and
+        # otherwise to know we must leave it before deleting it - git
+        # refuses to delete a branch used by a worktree.
         current_branch = None
-        if exclude_current:
-            try:
-                current_branch = str(self.__git_repo.active_branch)
-            except TypeError:
-                # active_branch raises TypeError when HEAD is detached
-                pass
+        try:
+            current_branch = str(self.__git_repo.active_branch)
+        except TypeError:
+            # active_branch raises TypeError when HEAD is detached
+            pass
 
         # Get local and remote branches
         local_branches = self.get_local_branches(pattern=pattern)
@@ -1422,13 +1447,21 @@ class HGit:
         }
 
         deleted = []
+        unmerged = []
         skipped = []
         errors = []
+        switched_to = None
 
         for branch in local_branches:
             # Skip ho-prod (always keep)
             if branch == 'ho-prod':
                 skipped.append((branch, 'protected branch'))
+                continue
+
+            # Never touch branches outside the hop namespace, whatever
+            # the pattern allows
+            if not branch.startswith('ho-'):
+                skipped.append((branch, 'not a hop branch'))
                 continue
 
             # Skip current branch if requested
@@ -1441,21 +1474,65 @@ class HGit:
                 skipped.append((branch, 'exists on remote'))
                 continue
 
-            # Branch doesn't exist on remote - delete it
+            # Branch doesn't exist on remote - it should go, unless it
+            # carries commits that exist nowhere else.
+            unmerged_count = self.count_unmerged_commits(branch)
+
             if dry_run:
-                deleted.append(branch)
-            else:
-                try:
-                    self.__git_repo.git.branch('-D', branch)
+                if unmerged_count and not force:
+                    unmerged.append((branch, unmerged_count))
+                else:
                     deleted.append(branch)
+                continue
+
+            # Deleting the branch we stand on requires leaving it first.
+            if branch == current_branch:
+                try:
+                    self.__git_repo.git.checkout('ho-prod')
+                    switched_to = 'ho-prod'
+                    current_branch = 'ho-prod'
                 except GitCommandError as e:
+                    errors.append((branch, f"Could not leave {branch}: {e}"))
+                    continue
+
+            try:
+                # -d refuses a branch that is not fully merged: git is
+                # the backstop even when the count above says otherwise
+                self.__git_repo.git.branch('-D' if force else '-d', branch)
+                deleted.append(branch)
+            except GitCommandError as e:
+                if not force and 'not fully merged' in str(e):
+                    unmerged.append((branch, unmerged_count))
+                else:
                     errors.append((branch, str(e)))
 
         return {
             'deleted': deleted,
+            'unmerged': unmerged,
             'skipped': skipped,
-            'errors': errors
+            'errors': errors,
+            'switched_to': switched_to
         }
+
+    def count_unmerged_commits(self, branch: str, base: str = 'ho-prod') -> int:
+        """
+        Number of commits on branch that are not in base.
+
+        Used to tell a stale branch that can be dropped without loss from
+        one that is the last copy of somebody's work.
+
+        Args:
+            branch: Branch to inspect
+            base: Branch to compare against (default ho-prod)
+
+        Returns:
+            Commit count, 0 when everything is already in base or when
+            the comparison cannot be made
+        """
+        try:
+            return int(self.__git_repo.git.rev_list('--count', f'{base}..{branch}'))
+        except (GitCommandError, ValueError):
+            return 0
 
     def get_active_branches_status(self, stage_files: list = None) -> dict:
         """

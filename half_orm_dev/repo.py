@@ -2015,18 +2015,26 @@ class Repo:
         # Always detect stale branches (for display), but only prompt/delete when not silent
         stale_branches_result = {
             'candidates': [],
+            'unmerged': [],
             'deleted': [],
             'errors': []
         }
 
         if not silent:
-            # Detect stale branches (dry_run=True to just get the list)
+            # Detect stale branches (dry_run=True to just get the list).
+            # The current branch is included: origin is the source of
+            # truth, and a branch deleted there has no reason to survive
+            # locally just because it happens to be checked out - that is
+            # precisely the case where the developer needs to hear about
+            # it. Deleting it means leaving it first, which the deletion
+            # path handles.
             detect_result = self.hgit.prune_local_branches(
                 pattern="ho-*",
                 dry_run=True,
-                exclude_current=True
+                exclude_current=False
             )
             stale_branches_result['candidates'] = detect_result.get('deleted', [])
+            stale_branches_result['unmerged'] = detect_result.get('unmerged', [])
 
         result['stale_branches'] = stale_branches_result
 
