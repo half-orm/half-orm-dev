@@ -26,9 +26,20 @@ from half_orm_dev.utils import hop_version as installed_hop_version
 from packaging.version import Version
 
 
+MIGRATION_VERSION = '1.0.0a36'
+
+# The project must start *strictly below* the migration under test:
+# get_pending_migrations() keeps `current < v <= target`. The
+# old_hop_version fixture gives one pre-release step below the installed
+# version, which moves with every release - at 1.0.0a37 it downgrades to
+# a36 and the a36 migration is no longer pending, so `migrate` succeeds
+# having done nothing and the test fails for a reason unrelated to what
+# it tests. Pin it instead.
+VERSION_BEFORE_MIGRATION = '1.0.0-a35'
+
 pytestmark = pytest.mark.skipif(
-    Version(installed_hop_version()) < Version('1.0.0a36'),
-    reason="migration 1.0.0a36 only runs once that version is released",
+    Version(installed_hop_version()) < Version(MIGRATION_VERSION),
+    reason=f"migration {MIGRATION_VERSION} only runs once that version is released",
 )
 
 
@@ -67,9 +78,7 @@ def _file_on_branch(run, branch, relative_path):
 class TestMigrationDropsReleaseSchemas:
     """Migration 1.0.0a36 removes release schemas from every active branch."""
 
-    def test_removes_release_schema_on_every_branch(
-        self, project_with_release, old_hop_version
-    ):
+    def test_removes_release_schema_on_every_branch(self, project_with_release):
         """ho-prod, the release branch and the patch branch are all cleaned."""
         env = project_with_release
         run = env['run']
@@ -88,7 +97,7 @@ class TestMigrationDropsReleaseSchemas:
                 f"precondition: {branch} must carry the release schema"
             )
 
-        _downgrade_hop_version(run, project_dir, old_hop_version)
+        _downgrade_hop_version(run, project_dir, VERSION_BEFORE_MIGRATION)
 
         result = run(['half_orm', 'dev', 'migrate'], input_text='y\n', check=False)
         assert result.returncode == 0, (
@@ -96,14 +105,21 @@ class TestMigrationDropsReleaseSchemas:
             f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
         )
 
-        for branch in ('ho-prod', release_branch, patch_branch):
-            assert not _file_on_branch(run, branch, release_schema), (
-                f"{release_schema} should be gone from {branch}"
-            )
+        # Reported as one picture rather than one branch at a time: when
+        # this fails, which branches kept the file - and what migrate
+        # said while doing it - is the whole diagnosis.
+        left = [
+            branch for branch in ('ho-prod', release_branch, patch_branch)
+            if _file_on_branch(run, branch, release_schema)
+        ]
+        assert not left, (
+            f"{release_schema} should be gone from every branch, still on: "
+            f"{', '.join(left)}\n\n"
+            f"--- migrate STDOUT ---\n{result.stdout}\n"
+            f"--- migrate STDERR ---\n{result.stderr}"
+        )
 
-    def test_removes_release_schema_without_legacy_metadata(
-        self, project_with_release, old_hop_version
-    ):
+    def test_removes_release_schema_without_legacy_metadata(self, project_with_release):
         """No model/metadata-*.sql is required: the deletion is unconditional.
 
         a35 skipped these projects on purpose - their release schemas
@@ -121,7 +137,7 @@ class TestMigrationDropsReleaseSchemas:
         _seed_release_schema(run, project_dir, release_branch, version)
 
         # No legacy metadata-*.sql is created here.
-        _downgrade_hop_version(run, project_dir, old_hop_version)
+        _downgrade_hop_version(run, project_dir, VERSION_BEFORE_MIGRATION)
 
         result = run(['half_orm', 'dev', 'migrate'], input_text='y\n', check=False)
         assert result.returncode == 0, (
