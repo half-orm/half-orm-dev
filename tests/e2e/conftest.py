@@ -64,6 +64,100 @@ def old_hop_version():
     return _one_pre_release_below(installed_hop_version())
 
 
+def _console_script_interpreter(script_path):
+    """Python running a console script, read from its shebang.
+
+    The e2e tests exercise the `half_orm` on PATH, which may well come
+    from a different environment than the one running pytest - that is
+    exactly what this is here to detect, so the interpreter cannot be
+    assumed to be sys.executable.
+    """
+    try:
+        with open(script_path, 'rb') as f:
+            first_line = f.readline()
+    except OSError:
+        return None
+
+    if not first_line.startswith(b'#!'):
+        return None  # binary launcher: no way to tell, let the tests run
+
+    try:
+        tokens = first_line[2:].strip().decode().split()
+    except UnicodeDecodeError:
+        return None
+
+    if not tokens:
+        return None
+    if Path(tokens[0]).name == 'env' and len(tokens) > 1:
+        return shutil.which(tokens[1])
+    return tokens[0]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _cli_is_the_working_tree():
+    """
+    Stop the session when `half_orm` on PATH is not this working tree.
+
+    Every e2e test drives the CLI as a subprocess, so a stale install
+    silently tests released code instead of the code under review - and
+    fails on assertions about behaviour that working tree has and the
+    installed version does not, which reads as a broken feature rather
+    than a broken environment. That cost a full debugging round already.
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    package_dir = repo_root / 'half_orm_dev'
+
+    script = shutil.which('half_orm')
+    if script is None:
+        pytest.exit(
+            "`half_orm` is not on PATH.\n"
+            f"Install this working tree: pip install -e {repo_root}",
+            returncode=1,
+        )
+
+    interpreter = _console_script_interpreter(script)
+    if interpreter is None:
+        return  # cannot introspect it; let the tests speak for themselves
+
+    # Run from outside the repository: `python -c` puts the current
+    # directory first on sys.path, so probing from the repo root would
+    # import the working tree whatever the CLI actually uses - the guard
+    # would then never catch the very situation it exists for.
+    probe = subprocess.run(
+        [
+            interpreter, '-c',
+            'import half_orm_dev, pathlib;'
+            'from half_orm_dev.utils import hop_version;'
+            'print(hop_version());'
+            'print(pathlib.Path(half_orm_dev.__file__).resolve().parent)'
+        ],
+        capture_output=True, text=True, cwd=tempfile.gettempdir()
+    )
+
+    if probe.returncode != 0:
+        pytest.exit(
+            f"`half_orm` ({script}) cannot import half_orm_dev:\n"
+            f"{probe.stderr.strip()}\n"
+            f"Install this working tree: pip install -e {repo_root}",
+            returncode=1,
+        )
+
+    cli_version, cli_package_dir = (probe.stdout.strip().splitlines() + ['', ''])[:2]
+
+    if Path(cli_package_dir) != package_dir.resolve():
+        expected_version = (package_dir / 'version.txt').read_text().strip()
+        pytest.exit(
+            f"`half_orm` on PATH runs another half_orm_dev than this working tree.\n"
+            f"  script:       {script}\n"
+            f"  it runs:      {cli_package_dir} ({cli_version})\n"
+            f"  expected:     {package_dir} ({expected_version})\n"
+            f"The e2e tests drive that CLI, so they would be testing the "
+            f"installed version, not your changes.\n"
+            f"Fix it with: pip install -e {repo_root}",
+            returncode=1,
+        )
+
+
 def run_cmd(cmd, cwd=None, env=None, input_text=None, check=True):
     """
     Run a shell command and return the result.
