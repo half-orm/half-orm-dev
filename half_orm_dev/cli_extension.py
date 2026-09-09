@@ -36,3 +36,8 @@ def add_commands(main_group):
 
     # Copy the callback from the created group
     dev.callback = dev_group.callback
+
+    # ...and the group's own options, which the registration above would
+    # otherwise drop: create_cli_group() declares --version there, and a
+    # group rebuilt from commands and callback alone would not have it.
+    dev.params = list(dev_group.params)

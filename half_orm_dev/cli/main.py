@@ -7,6 +7,10 @@ import functools
 import os
 import subprocess
 import sys
+from pathlib import Path
+
+import half_orm_dev as _half_orm_dev
+from half_orm_dev.utils import hop_version
 from half_orm_dev.repo import Repo, OutdatedHalfORMDevError
 from half_orm import utils
 from .commands import ALL_COMMANDS
@@ -139,7 +143,6 @@ def create_cli_group():
                 return cmd
             # Unknown command — show a specific message when migration is needed.
             if hop.repo_checked and hop._Hop__repo.needs_migration():
-                from half_orm_dev.utils import hop_version
                 installed_version = hop_version()
                 config_version = hop._Hop__repo.repo.config.hop_version
 
@@ -166,9 +169,26 @@ def create_cli_group():
             return None
 
     @click.group(cls=VersionCheckGroup, invoke_without_command=True)
+    @click.version_option(
+        version=hop_version(),
+        prog_name='half_orm dev',
+        # The package path is what settles the recurring question: an
+        # editable install runs the working tree, a released wheel does
+        # not, and `half_orm --version` answers for the ORM, not for
+        # half_orm_dev.
+        message=f'%(prog)s %(version)s ({Path(_half_orm_dev.__file__).resolve().parent})',
+    )
     @click.pass_context
     def dev(ctx):
         """halfORM development tools - Git-centric patch management and database synchronization"""
+        # Which half_orm_dev is running, on every command: a stale
+        # install silently answers for the working tree otherwise, and
+        # the output looks like a bug in the tool rather than in the
+        # environment. `check` is left out - it already opens with the
+        # same version plus whether a newer one exists.
+        if ctx.invoked_subcommand not in (None, 'check'):
+            click.echo(utils.Color.blue(f"half_orm dev {hop_version()}"))
+
         if hop.needs_hop_upgrade:
             error = hop.hop_upgrade_error
             required = error.required_version
@@ -195,7 +215,6 @@ def create_cli_group():
                 # Check if migration is needed
                 if hop._Hop__repo.needs_migration():
                     # Propose automatic migration
-                    from half_orm_dev.utils import hop_version
                     from half_orm_dev.repo import RepoError
                     installed_version = hop_version()
                     config_version = hop._Hop__repo.repo.config.hop_version
