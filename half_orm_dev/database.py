@@ -1222,8 +1222,20 @@ class Database:
             if password_input == '':
                 # Empty password - assume trust/ident authentication
                 complete_params['password'] = None  # Explicitly None for trust mode
-                complete_params['host'] = ''        # Local socket connection
-                complete_params['port'] = ''        # No port for local socket
+
+                # A local socket is the default that goes with peer/trust
+                # auth, but a default only: an explicit --host, or PGHOST,
+                # still wins. And the port is left alone so it is resolved
+                # below like every other client tool resolves it - a socket
+                # connection needs it too, since it selects which
+                # .s.PGSQL.<port> to talk to. Forcing both to '' here made
+                # `clone`/`init` ignore --port and PGPORT outright, and
+                # wrote a configuration that named no cluster at all: the
+                # cloned project then only worked in a shell that happened
+                # to export PGPORT.
+                if (complete_params.get('host') is None
+                        and os.environ.get('PGHOST') is None):
+                    complete_params['host'] = ''  # Local socket connection
             else:
                 complete_params['password'] = password_input
 
