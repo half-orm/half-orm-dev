@@ -1917,9 +1917,21 @@ class Repo:
 
         # 2. Get active branches status and release files
         try:
-            # Read release files directly from local filesystem (.hop/releases/)
-            releases_info = {}
+            # Release files are read from ho-prod, not from the working
+            # tree: .hop/ on any other branch is a synced copy, frozen at
+            # the last sync that branch received. A branch that stopped
+            # receiving them (deleted on origin, never pushed) would
+            # otherwise have `hop check` report a release that has since
+            # been promoted, over and over, while the pull above had the
+            # right answer all along.
+            releases_info = None
             if hasattr(self, 'release_manager'):
+                releases_info = self.release_manager.get_releases_info_on_ho_prod()
+
+            # Fall back to the working tree when ho-prod cannot be read
+            # (no git, no ho-prod yet, project being initialised).
+            if releases_info is None and hasattr(self, 'release_manager'):
+                releases_info = {}
                 releases_dir = Path(self.releases_dir)
 
                 # Read TOML patches files from local filesystem
@@ -1948,17 +1960,32 @@ class Repo:
             result['active_branches'] = self.hgit.get_active_branches_status(
                 stage_files=[]  # No longer used with TOML format
             )
-            result['releases_info'] = releases_info
+            result['releases_info'] = releases_info or {}
 
-            # Get production version from model/schema.sql symlink
+            # Production version, read on ho-prod for the same reason.
             production_version = None
+            branch_version = None
             if hasattr(self, 'release_manager'):
+                production_version = self.release_manager.get_production_version_on_ho_prod()
                 try:
-                    production_version = self.release_manager._get_production_version()
+                    branch_version = self.release_manager._get_production_version()
                 except ReleaseManagerError:
                     # No production version available (e.g., model/ doesn't exist yet)
                     pass
-            result['production_version'] = production_version
+            result['production_version'] = production_version or branch_version
+
+            # Report the gap rather than hiding it: this branch's .hop/
+            # predates the current production, so anything read from it
+            # here (and any release context rebuilt from it) is stale.
+            if (
+                production_version and branch_version
+                and production_version != branch_version
+            ):
+                result['branch_behind_ho_prod'] = {
+                    'branch': self.hgit.branch,
+                    'branch_version': branch_version,
+                    'production_version': production_version,
+                }
 
             # Get orphaned patches (only if patch_manager already initialized)
             orphaned_patches = []

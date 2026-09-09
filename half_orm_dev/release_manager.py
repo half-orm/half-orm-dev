@@ -103,6 +103,84 @@ class ReleaseManager:
 
         return self._parse_version_from_symlink(schema_path)
 
+    def get_production_version_on_ho_prod(self) -> Optional[str]:
+        """
+        Production version as recorded on ho-prod.
+
+        _get_production_version() reads model/schema.sql in the working
+        tree, i.e. what the *current branch* believes production to be.
+        That is what a patch branch was told when it last received a
+        .hop/ sync, and it never moves again on a branch that stopped
+        receiving them - so `hop check` kept reporting a production
+        version several releases behind, unchanged no matter how many
+        times it ran, while the pull it had just done had brought ho-prod
+        up to date all along.
+
+        Read with `git show` rather than a checkout: no clean working
+        tree required, nothing to restore if interrupted.
+
+        Returns:
+            Version string (e.g. "1.3.5"), or None when ho-prod carries
+            no readable schema symlink (fresh repository, no git)
+        """
+        if not self._repo.hgit:
+            return None
+
+        try:
+            target = self._repo.hgit._HGit__git_repo.git.show(
+                'ho-prod:.hop/model/schema.sql'
+            )
+        except Exception:  # GitCommandError, no ho-prod, no such path
+            return None
+
+        match = re.match(r'^schema-(\d+\.\d+\.\d+)\.sql$', target.strip())
+        return match.group(1) if match else None
+
+    def get_releases_info_on_ho_prod(self) -> Optional[Dict]:
+        """
+        Releases in preparation as recorded on ho-prod.
+
+        The counterpart of get_production_version_on_ho_prod() for
+        .hop/releases/*.toml: ho-prod holds the reference copy (release
+        creation commits it there, and every merge syncs it back), so a
+        branch that stopped receiving syncs must not be the one telling
+        `hop check` which releases exist.
+
+        Returns:
+            {version: {'patches_file', 'candidates', 'staged', 'metadata'}},
+            or None when ho-prod cannot be read at all - the caller then
+            falls back to the working tree
+        """
+        if not self._repo.hgit:
+            return None
+
+        git = self._repo.hgit._HGit__git_repo.git
+
+        try:
+            listing = git.ls_tree('--name-only', 'ho-prod', '.hop/releases/')
+        except Exception:  # GitCommandError, no ho-prod
+            return None
+
+        releases_info = {}
+        for path in listing.splitlines():
+            path = path.strip()
+            if not path.endswith('-patches.toml'):
+                continue
+
+            version = Path(path).name.replace('-patches.toml', '')
+            try:
+                content = git.show(f'ho-prod:{path}')
+                releases_info[version] = {
+                    'patches_file': path,
+                    'candidates': ReleaseFile.parse_patches(content, status='candidate'),
+                    'staged': ReleaseFile.parse_patches(content, status='staged'),
+                    'metadata': ReleaseFile.parse_metadata(content),
+                }
+            except Exception:  # unreadable or malformed - skip this one
+                continue
+
+        return releases_info
+
     def _parse_version_from_symlink(self, schema_path: Path) -> str:
         """
         Parse version from model/schema.sql symlink target.

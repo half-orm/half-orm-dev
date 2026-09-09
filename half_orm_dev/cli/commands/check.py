@@ -104,10 +104,26 @@ def _display_check_results(repo, result: dict, dry_run: bool, verbose: bool):
             click.echo(f"✓ {utils.Color.green(f'half_orm_dev: {current} (latest)')}")
             click.echo()
 
-    # Production version
+    # Production version (read on ho-prod)
     production_version = result.get('production_version')
     if production_version:
         click.echo(f"📦 {utils.Color.bold('Production version:')} {utils.Color.green(production_version)}")
+        click.echo()
+
+    # The current branch's .hop/ predates that production version: say so
+    # instead of letting the numbers above look like this branch's state.
+    behind = result.get('branch_behind_ho_prod')
+    if behind:
+        click.echo(
+            f"⚠️  {utils.Color.bold(behind['branch'])} still records production "
+            f"{utils.Color.red(behind['branch_version'])}, "
+            f"while ho-prod is on {utils.Color.green(behind['production_version'])}."
+        )
+        click.echo(
+            f"   Its .hop/ stopped receiving updates, so the release context "
+            f"rebuilt from it is stale."
+        )
+        click.echo(f"   Bring it up to date: {utils.Color.bold('git merge ho-prod')}")
         click.echo()
 
     # Hooks

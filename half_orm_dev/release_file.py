@@ -265,6 +265,30 @@ class ReleaseFile:
             if patch_data.get("status") == status
         ]
 
+    @staticmethod
+    def parse_metadata(content: str) -> Dict:
+        """
+        Get metadata from raw TOML content.
+
+        Same contract as get_metadata(), for a release file read straight
+        out of git rather than from the filesystem.
+
+        Args:
+            content: TOML content of a X.Y.Z-patches.toml file
+
+        Returns:
+            Dict of metadata, empty if the file carries none
+
+        Raises:
+            ReleaseFileError: If content is not valid TOML
+        """
+        try:
+            data = tomli.loads(content)
+        except Exception as e:
+            raise ReleaseFileError(f"Failed to parse release file content: {e}")
+
+        return data.get("metadata", {})
+
     def get_patch_status(self, patch_id: str) -> Optional[str]:
         """
         Get status of a specific patch.
