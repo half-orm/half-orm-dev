@@ -116,3 +116,37 @@ class TestGenBaseclassOverrideSignatures:
             assert declared <= forwarded, (
                 f"{name}: declares {sorted(declared - forwarded)} but never "
                 f"forwards it to super() — the value would be silently dropped")
+
+
+class TestBcOverrideDerivation:
+    """_bc_override reads its parameters off Relation, so a parameter added
+    upstream needs no change here.
+
+    The six real methods never exercise **kwargs, and since the refactor
+    both sides of test_kwonly_params_match_relation come from
+    inspect.signature — this drives the derivation itself with a stand-in
+    method instead.
+    """
+
+    def test_new_and_variadic_params_are_declared_and_forwarded(self, monkeypatch):
+        from half_orm.relation import Relation
+
+        def ho_select(self, *args, distinct: bool = False, brand_new=None, **extra):
+            ...
+
+        monkeypatch.setattr(Relation, 'ho_select', ho_select)
+        signature, call = _mod._bc_override(
+            'ho_select', 'Iterator[PublicItemDict]', False).splitlines()
+
+        assert 'brand_new=None' in signature
+        assert '**extra' in signature
+        assert 'brand_new=brand_new' in call
+        assert '**extra' in call
+        assert '*args' in call
+        assert signature.endswith('-> Iterator[PublicItemDict]:')
+
+    def test_async_methods_keep_async_def_and_await(self):
+        signature, call = _mod._bc_override(
+            'ho_aselect', 'List[PublicItemDict]', False).splitlines()
+        assert signature.lstrip().startswith('async def ')
+        assert 'return await super().ho_aselect(' in call

@@ -645,6 +645,64 @@ def __gen_dc_relation() -> tuple:
     return class_str, needed_typing
 
 
+# The BC_* overrides exist for one reason: narrow the return type to the
+# table's own TypedDict so an IDE resolves it. Everything else about them —
+# the parameter list and the super() call — is Relation's, and is therefore
+# read off Relation itself rather than hand-copied. Hand-copying is what
+# broke: json_agg, added to Relation.ho_select/.ho_aselect in half_orm
+# 0.18.6, was transcribed into the ho_select override only, and since an
+# override shadows the real method, every async list query passing
+# json_agg= raised TypeError.
+#
+# (method, narrowed return annotation, needs `# type: ignore[override]`)
+_BC_OVERRIDES = (
+    ('ho_select',  'Iterator[{d}]', False),
+    ('ho_get',     '{d}',           True),
+    ('ho_insert',  '{d}',           True),
+    ('ho_aselect', 'List[{d}]',     False),
+    ('ho_aget',    '{d}',           True),
+    ('ho_ainsert', '{d}',           True),
+)
+
+
+def _bc_override(name: str, return_annotation: str, override_ignore: bool) -> str:
+    """One BC_ override: Relation's own parameter list, the narrowed return
+    annotation, and a super() call forwarding every parameter it declares.
+
+    Annotations are rendered by inspect, exactly as __gen_dc_relation does,
+    and are safe under the `from __future__ import annotations` the
+    generated module starts with — they are never evaluated at runtime.
+    """
+    from half_orm.relation import Relation
+
+    underlying = inspect.getattr_static(Relation, name)
+    sig = inspect.signature(underlying)
+    params = str(sig.replace(return_annotation=inspect.Signature.empty))
+
+    forwarded = []
+    for param in sig.parameters.values():
+        if param.name == 'self':
+            continue
+        if param.kind is param.VAR_POSITIONAL:
+            forwarded.append(f'*{param.name}')
+        elif param.kind is param.VAR_KEYWORD:
+            forwarded.append(f'**{param.name}')
+        elif param.kind is param.KEYWORD_ONLY:
+            forwarded.append(f'{param.name}={param.name}')
+        else:
+            forwarded.append(param.name)
+
+    is_async = inspect.iscoroutinefunction(underlying)
+    def_ = 'async def' if is_async else 'def'
+    await_ = 'await ' if is_async else ''
+    ignore = '  # type: ignore[override]' if override_ignore else ''
+    return '\n'.join([
+        f'    {def_} {name}{params} -> {return_annotation}:{ignore}',
+        f'        return {await_}super().{name}({", ".join(forwarded)})'
+        f'  # type: ignore[return-value]',
+    ])
+
+
 def __gen_baseclass(relation, fkeys) -> str:
     """Generate a BC_* base class string with TypedDict-typed method overrides."""
     rel = relation()
@@ -656,33 +714,22 @@ def __gen_baseclass(relation, fkeys) -> str:
     d = f'{full_name}Dict'
     HO_BASECLASSES_DICT_NAMES.add(d)
 
-    lines = [
+    header = [
         f"class {bc_name}(",
         f"    MODEL.get_relation_class('{fqtn}', fields_aliases=None),  # type: ignore[misc]",
         f"    {dc_name}",
         f"):",
-        f"    def __iter__(self) -> Iterator[{d}]:",
-        f"        return super().__iter__()  # type: ignore[return-value]",
-        f"",
-        f"    def ho_select(self, *args, distinct: bool = False, order_by: Optional[str] = None, limit: Optional[int] = None, offset: Optional[int] = None, json_agg=None) -> Iterator[{d}]:",
-        f"        return super().ho_select(*args, distinct=distinct, order_by=order_by, limit=limit, offset=offset, json_agg=json_agg)  # type: ignore[return-value]",
-        f"",
-        f"    def ho_get(self, *args) -> {d}:  # type: ignore[override]",
-        f"        return super().ho_get(*args)  # type: ignore[return-value]",
-        f"",
-        f"    def ho_insert(self, *args, upsert: Optional[bool] = False) -> {d}:  # type: ignore[override]",
-        f"        return super().ho_insert(*args, upsert=upsert)  # type: ignore[return-value]",
-        f"",
-        f"    async def ho_aselect(self, *args, distinct: bool = False, order_by: Optional[str] = None, limit: Optional[int] = None, offset: Optional[int] = None, json_agg=None) -> List[{d}]:",
-        f"        return await super().ho_aselect(*args, distinct=distinct, order_by=order_by, limit=limit, offset=offset, json_agg=json_agg)  # type: ignore[return-value]",
-        f"",
-        f"    async def ho_aget(self, *args) -> {d}:  # type: ignore[override]",
-        f"        return await super().ho_aget(*args)  # type: ignore[return-value]",
-        f"",
-        f"    async def ho_ainsert(self, *args, upsert: bool = False) -> {d}:  # type: ignore[override]",
-        f"        return await super().ho_ainsert(*args, upsert=upsert)  # type: ignore[return-value]",
     ]
-    return '\n'.join(lines)
+    # __iter__ is not a Relation ho_* method — no signature to inherit.
+    blocks = [
+        f"    def __iter__(self) -> Iterator[{d}]:\n"
+        f"        return super().__iter__()  # type: ignore[return-value]",
+    ]
+    blocks += [
+        _bc_override(name, ret.format(d=d), override_ignore)
+        for name, ret, override_ignore in _BC_OVERRIDES
+    ]
+    return '\n'.join(header + ['\n\n'.join(blocks)])
 
 
 def __reset_baseclasses(repo, package_dir):
