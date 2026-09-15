@@ -9,6 +9,8 @@ Verifies that ho_baseclasses.py contains:
 And that relation modules are simplified to:
 - @register class X(ho_baseclasses.BC_X):
 """
+import re
+
 import pytest
 
 
@@ -69,8 +71,13 @@ def test_baseclasses_ho_select_annotation(baseclasses):
 
 @pytest.mark.e2e
 def test_baseclasses_ho_get_annotation(baseclasses):
-    """BC_PublicAuthor.ho_get is annotated with PublicAuthorDict."""
-    assert 'def ho_get(self, *args) -> PublicAuthorDict:' in baseclasses
+    """BC_PublicAuthor.ho_get is annotated with PublicAuthorDict.
+
+    The parameter list is derived from Relation.ho_get, so it is matched
+    loosely: a parameter added upstream must not break this test.
+    """
+    assert re.search(r'^    def ho_get\(self, \*args.*\) -> PublicAuthorDict:',
+                     baseclasses, re.M)
 
 
 @pytest.mark.e2e
@@ -88,8 +95,13 @@ def test_baseclasses_ho_aselect_annotation(baseclasses):
 
 @pytest.mark.e2e
 def test_baseclasses_ho_aget_annotation(baseclasses):
-    """BC_PublicAuthor.ho_aget is annotated with PublicAuthorDict."""
-    assert 'async def ho_aget(self, *args) -> PublicAuthorDict:' in baseclasses
+    """BC_PublicAuthor.ho_aget is annotated with PublicAuthorDict.
+
+    Parameter list derived from Relation.ho_aget — matched loosely, as for
+    the sync ho_get above.
+    """
+    assert re.search(r'^    async def ho_aget\(self, \*args.*\) -> PublicAuthorDict:',
+                     baseclasses, re.M)
 
 
 @pytest.mark.e2e
