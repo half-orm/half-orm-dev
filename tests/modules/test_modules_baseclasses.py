@@ -62,3 +62,57 @@ class TestGenBaseclass:
         assert 'BC_AccessAccess' not in result
         assert 'class BC_AccessUserGroup(' in result
         assert "MODEL.get_relation_class('access.user_group'" in result
+
+
+class TestGenBaseclassOverrideSignatures:
+    """The typed overrides must stay in step with half_orm's own signatures.
+
+    Each BC_ override exists only to narrow a return type for IDEs; it must
+    therefore accept exactly the keyword-only parameters the real
+    half_orm.relation.Relation method accepts, and forward every one of
+    them. A parameter missing here is not a typing nit: the override
+    shadows the real method, so calling it with that keyword raises
+    TypeError at runtime — which is how json_agg, added to ho_select but
+    not to ho_aselect, broke every async list query going through a
+    generated class.
+    """
+
+    def _overrides(self):
+        import ast
+        src = _gen_baseclass(lambda: _SimpleRelation(), {})
+        cls = ast.parse(src).body[0]
+        return {
+            node.name: node
+            for node in cls.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+
+    def test_kwonly_params_match_relation(self):
+        import inspect
+        from half_orm.relation import Relation
+
+        for name, node in self._overrides().items():
+            real = getattr(Relation, name, None)
+            if real is None:          # __iter__ and friends: nothing to match
+                continue
+            expected = [
+                p.name for p in inspect.signature(real).parameters.values()
+                if p.kind == p.KEYWORD_ONLY
+            ]
+            generated = [a.arg for a in node.args.kwonlyargs]
+            assert generated == expected, (
+                f"{name}: generated override declares {generated}, "
+                f"half_orm's own signature has {expected}")
+
+    def test_every_declared_kwonly_param_is_forwarded(self):
+        import ast
+
+        for name, node in self._overrides().items():
+            declared = {a.arg for a in node.args.kwonlyargs}
+            if not declared:
+                continue
+            calls = [n for n in ast.walk(node) if isinstance(n, ast.Call)]
+            forwarded = {kw.arg for call in calls for kw in call.keywords}
+            assert declared <= forwarded, (
+                f"{name}: declares {sorted(declared - forwarded)} but never "
+                f"forwards it to super() — the value would be silently dropped")
