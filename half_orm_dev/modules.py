@@ -703,6 +703,51 @@ def _bc_override(name: str, return_annotation: str, override_ignore: bool) -> st
     ])
 
 
+# Emitted near the top of every generated ho_baseclasses.py.
+#
+# ho_baseclasses.py builds one base class per relation *at import time*, from
+# the schema as it stood at the last generation — and the database does not
+# always match. `patch apply` rebuilds it from the production baseline and
+# replays the staged patches one by one, so a table created by a later patch
+# is still missing while an earlier patch's Python script imports the package.
+# Resolving that base eagerly aborted the whole apply with UnknownRelation.
+#
+# A missing relation now degrades to a placeholder that raises only if
+# something actually instantiates it, and every occurrence is logged, so the
+# drift is never silent.
+BC_BASE_HELPER = '''def _bc_base(fqrn: str):
+    """Base class for *fqrn*, or a placeholder when it is not in the database.
+
+    The generated code describes the schema as of the last generation; the
+    database it runs against may be older (mid-migration, or rebuilt from the
+    production baseline by `half_orm dev patch apply`).
+    """
+    try:
+        return MODEL.get_relation_class(fqrn, fields_aliases=None)
+    except UnknownRelation as exc:
+        # Bind it under a name that survives the except block, so the
+        # placeholder below can re-raise it from its closure.
+        error = exc
+        sys.stderr.write(
+            f"half-orm: relation '{fqrn}' is not in the database - generated code "
+            f"is ahead of the schema. Using a placeholder base class.\\n")
+
+        class _MissingRelation:
+            """Stands in for a relation absent from the database.
+
+            Importing the module keeps working; using the class does not.
+            """
+            _ho_missing_fqrn = fqrn
+
+            def __init__(self, *args, **kwargs):
+                # Re-raise half_orm's own error: it carries the message
+                # built from the (dbname, schema, relation) triple.
+                raise error
+
+        return _MissingRelation
+'''
+
+
 def __gen_baseclass(relation, fkeys) -> str:
     """Generate a BC_* base class string with TypedDict-typed method overrides."""
     rel = relation()
@@ -716,7 +761,7 @@ def __gen_baseclass(relation, fkeys) -> str:
 
     header = [
         f"class {bc_name}(",
-        f"    MODEL.get_relation_class('{fqtn}', fields_aliases=None),  # type: ignore[misc]",
+        f"    _bc_base('{fqtn}'),  # type: ignore[misc]",
         f"    {dc_name}",
         f"):",
     ]
@@ -751,7 +796,9 @@ def __gen_baseclasses(package_dir, package_name):
         typing_names = sorted(dc_typing | {'Iterator', 'List', 'Optional', 'TYPE_CHECKING'})
         file_.write(f"from typing import {', '.join(typing_names)}\n")
         file_.write("import dataclasses\n")
+        file_.write("import sys\n")
         file_.write("from half_orm.field import Field  # type: ignore[import-not-found]\n")
+        file_.write("from half_orm.model_errors import UnknownRelation  # type: ignore[import-not-found]\n")
         for mod in sorted(HO_DATACLASSES_IMPORTS):
             file_.write(f"import {mod}\n")
         file_.write(f"from {package_name} import MODEL  # type: ignore[import-not-found]\n")
@@ -762,6 +809,8 @@ def __gen_baseclasses(package_dir, package_name):
                 file_.write(f"        {name},\n")
             file_.write("    )\n")
         file_.write("\n\n")
+        file_.write(BC_BASE_HELPER)
+        file_.write("\n")
         file_.write(dc_relation_str)
         for dc in HO_DATACLASSES:
             file_.write(f"\n\n{dc}\n")

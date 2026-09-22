@@ -107,6 +107,11 @@ def execute_python_file(
             text=True,
             check=True
         )
+        # A script that succeeds can still have something to say - notably
+        # the generated package logging a relation missing from the database.
+        # Dropping its stderr would make that warning unobservable.
+        if result.stderr:
+            sys.stderr.write(result.stderr)
         return result.stdout.strip()
 
     except subprocess.CalledProcessError as e:
@@ -170,6 +175,8 @@ def _execute_via_venv_runner(
             text=True,
             check=True
         )
+        if result.stderr:
+            sys.stderr.write(result.stderr)
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
         error_msg = f"Python execution failed in {file_path.name}"

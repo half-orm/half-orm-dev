@@ -313,7 +313,7 @@ class TestExecutePythonBootstrapWithVenv:
         """
         f = tmp_path / '01-seed.py'
         f.write_text('def run(model):\n    pass\n')
-        mock_run.return_value = Mock(returncode=0, stdout='ok\n')
+        mock_run.return_value = Mock(returncode=0, stdout='ok\n', stderr='')
         venv_python = Path('/proj/.venv/bin/python')
 
         result = execute_python_bootstrap(
@@ -329,7 +329,7 @@ class TestExecutePythonBootstrapWithVenv:
     def test_legacy_script_also_forced_to_subprocess(self, mock_run, tmp_path):
         f = tmp_path / '01-legacy.py'
         f.write_text('print("hi")')
-        mock_run.return_value = Mock(returncode=0, stdout='hi\n')
+        mock_run.return_value = Mock(returncode=0, stdout='hi\n', stderr='')
         venv_python = Path('/proj/.venv/bin/python')
 
         execute_python_bootstrap(
@@ -344,7 +344,7 @@ class TestExecutePythonBootstrapWithVenv:
     def test_project_root_added_to_pythonpath(self, mock_run, tmp_path):
         f = tmp_path / '01-seed.py'
         f.write_text('def run(model):\n    pass\n')
-        mock_run.return_value = Mock(returncode=0, stdout='')
+        mock_run.return_value = Mock(returncode=0, stdout='', stderr='')
         project_root = tmp_path.parent
 
         execute_python_bootstrap(
@@ -396,7 +396,7 @@ class TestExecuteBootstrapFiles:
     @patch('half_orm_dev.file_executor.subprocess.run')
     def test_venv_python_and_database_name_threaded_through(self, mock_run, tmp_path):
         (tmp_path / "01-seed.py").write_text('def run(model):\n    pass\n')
-        mock_run.return_value = Mock(returncode=0, stdout='')
+        mock_run.return_value = Mock(returncode=0, stdout='', stderr='')
         venv_python = Path('/proj/.venv/bin/python')
 
         execute_bootstrap_files(tmp_path, Mock(), venv_python=venv_python, database_name='my_db')

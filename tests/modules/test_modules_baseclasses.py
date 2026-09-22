@@ -48,9 +48,16 @@ class TestGenBaseclass:
         result = _gen_baseclass(lambda: _SimpleRelation(), {})
         assert 'class BC_PublicItem(' in result
 
-    def test_includes_model_get_relation_class(self):
+    def test_base_goes_through_the_bc_base_helper(self):
+        """The base is resolved by _bc_base, not by MODEL directly.
+
+        _bc_base degrades a relation missing from the database to a
+        placeholder; resolving the base eagerly here would make importing
+        the package fail outright (see TestBcBaseHelper).
+        """
         result = _gen_baseclass(lambda: _SimpleRelation(), {})
-        assert "MODEL.get_relation_class('public.item'" in result
+        assert "_bc_base('public.item')" in result
+        assert 'MODEL.get_relation_class' not in result
 
     def test_includes_dc_class(self):
         result = _gen_baseclass(lambda: _SimpleRelation(), {})
@@ -61,7 +68,7 @@ class TestGenBaseclass:
         result = _gen_baseclass(lambda: _ChildRelation(), {})
         assert 'BC_AccessAccess' not in result
         assert 'class BC_AccessUserGroup(' in result
-        assert "MODEL.get_relation_class('access.user_group'" in result
+        assert "_bc_base('access.user_group')" in result
 
 
 class TestGenBaseclassOverrideSignatures:
@@ -150,3 +157,61 @@ class TestBcOverrideDerivation:
             'ho_aselect', 'List[PublicItemDict]', False).splitlines()
         assert signature.lstrip().startswith('async def ')
         assert 'return await super().ho_aselect(' in call
+
+
+class TestBcBaseHelper:
+    """The _bc_base helper emitted at the top of ho_baseclasses.py.
+
+    ho_baseclasses.py resolves one base class per relation at *import*
+    time, from the schema as of the last generation. `patch apply` rebuilds
+    the database from the production baseline and replays staged patches
+    one at a time, so a table created by a later patch is missing while an
+    earlier patch's Python script imports the package — which used to abort
+    the apply with UnknownRelation.
+    """
+
+    def _helper(self, model):
+        import sys
+        from half_orm.model_errors import UnknownRelation
+
+        namespace = {'sys': sys, 'UnknownRelation': UnknownRelation, 'MODEL': model}
+        exec(compile(_mod.BC_BASE_HELPER, 'ho_baseclasses.py', 'exec'), namespace)
+        return namespace['_bc_base']
+
+    def test_existing_relation_returns_the_real_base(self):
+        class Item:
+            pass
+
+        class Model:
+            def get_relation_class(self, fqrn, fields_aliases=None):
+                assert fqrn == 'public.item'
+                return Item
+
+        assert self._helper(Model())('public.item') is Item
+
+    def test_missing_relation_is_logged(self, capsys):
+        from half_orm.model_errors import UnknownRelation
+
+        class Model:
+            def get_relation_class(self, fqrn, fields_aliases=None):
+                raise UnknownRelation(('bug', 'public', 'thing'))
+
+        self._helper(Model())('public.thing')
+        assert 'public.thing' in capsys.readouterr().err
+
+    def test_missing_relation_raises_only_when_used(self):
+        from half_orm.model_errors import UnknownRelation
+        import pytest
+
+        class Model:
+            def get_relation_class(self, fqrn, fields_aliases=None):
+                raise UnknownRelation(('bug', 'public', 'thing'))
+
+        placeholder = self._helper(Model())('public.thing')
+
+        # Subclassing it is what ho_baseclasses.py does on import: it must work.
+        class BC_PublicThing(placeholder):
+            pass
+
+        with pytest.raises(UnknownRelation, match="public.thing"):
+            BC_PublicThing()
