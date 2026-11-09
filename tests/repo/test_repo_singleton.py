@@ -339,28 +339,28 @@ devel = True
         instances = []
 
         def create_repo():
-            with patch('os.path.abspath') as mock_abspath:
-                mock_abspath.return_value = temp_hop_repo
+            # Add small delay to increase chance of race condition
+            time.sleep(0.01)
+            repo = Repo()
+            instances.append(repo)
 
-                # CORRECTION: Retirer le patch de Changelog qui n'existe plus
-                with patch('half_orm_dev.repo.Database') as mock_db, \
-                     patch('half_orm_dev.repo.HGit') as mock_hgit:
+        # Patch once, in the main thread: mock.patch() is not thread-safe.
+        # Patching inside each thread let concurrent __exit__ calls restore
+        # another thread's mock, leaking a mocked os.path.abspath into the
+        # rest of the session (breaks tmp_path on Python < 3.13).
+        with patch('os.path.abspath', return_value=temp_hop_repo), \
+             patch('half_orm_dev.repo.Database'), \
+             patch('half_orm_dev.repo.HGit'):
+            # Create multiple threads
+            threads = [threading.Thread(target=create_repo) for _ in range(5)]
 
-                    # Add small delay to increase chance of race condition
-                    time.sleep(0.01)
-                    repo = Repo()
-                    instances.append(repo)
+            # Start all threads
+            for thread in threads:
+                thread.start()
 
-        # Create multiple threads
-        threads = [threading.Thread(target=create_repo) for _ in range(5)]
-
-        # Start all threads
-        for thread in threads:
-            thread.start()
-
-        # Wait for all threads
-        for thread in threads:
-            thread.join()
+            # Wait for all threads
+            for thread in threads:
+                thread.join()
 
         # Current implementation is NOT thread-safe - multiple instances may be created
         # This documents the current behavior rather than enforcing thread safety
