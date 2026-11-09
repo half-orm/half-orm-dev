@@ -17,13 +17,9 @@ Test coverage:
 
 import pytest
 from pathlib import Path
-import sys
 
 # Import tomli based on Python version (same logic as release_file.py)
-if sys.version_info >= (3, 11):
-    import tomllib as tomli
-else:
-    import tomli
+import tomllib as tomli
 
 from half_orm_dev.release_file import ReleaseFile, ReleaseFileError
 

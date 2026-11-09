@@ -7,12 +7,8 @@ during development (candidate and staged status).
 
 from pathlib import Path
 from typing import List, Optional, Dict
-import sys
 
-if sys.version_info >= (3, 11):
-    import tomllib as tomli
-else:
-    import tomli
+import tomllib as tomli
 
 try:
     import tomli_w

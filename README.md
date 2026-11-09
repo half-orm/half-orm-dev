@@ -6,7 +6,7 @@
 
 **Git-centric patch management and PostgreSQL database versioning for half-orm projects**
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![half-orm](https://img.shields.io/badge/halfORM-compatible-green.svg)](https://github.com/half-orm/half-orm)
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/half-orm-dev?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/half-orm-dev)
@@ -87,7 +87,7 @@ half_orm dev patch merge
 
 ### Prerequisites
 
-- **Python**: [Active versions](https://devguide.python.org/versions/) (currently 3.9+)
+- **Python**: [Active versions](https://devguide.python.org/versions/) (currently 3.11+)
 - **PostgreSQL**: [Supported versions](https://www.postgresql.org/support/versioning/) (currently 13+)
 - **Git** for version control
 

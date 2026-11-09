@@ -155,7 +155,7 @@ Add methods to `Database` class (`database.py`):
 
 ## Dependencies
 
-- **Python 3.9+** required
+- **Python 3.11+** required
 - **PostgreSQL 12+** recommended
 - **GitPython** - Git operations
 - **click** - CLI framework

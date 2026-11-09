@@ -21,7 +21,7 @@ Thank you for considering contributing to half-orm-dev! This guide will help you
 
 ### Prerequisites
 
-- **Python 3.9+** required
+- **Python 3.11+** required
 - **PostgreSQL 12+** recommended for integration tests
 - **Git** for version control
 
