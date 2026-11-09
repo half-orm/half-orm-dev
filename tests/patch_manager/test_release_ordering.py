@@ -15,11 +15,7 @@ try:
 except ImportError:
     raise ImportError("tomli_w is required for tests")
 
-import sys
-if sys.version_info >= (3, 11):
-    import tomllib as tomli
-else:
-    import tomli
+import tomllib as tomli
 
 
 def add_patch_with_status(release_file: ReleaseFile, patch_id: str, status: str) -> None:

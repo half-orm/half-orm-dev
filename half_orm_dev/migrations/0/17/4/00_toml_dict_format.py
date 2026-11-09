@@ -18,10 +18,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-if sys.version_info >= (3, 11):
-     import tomllib as tomli
-else:
-    import tomli
+import tomllib as tomli
 
 try:
     import tomli_w
