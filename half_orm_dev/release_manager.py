@@ -1595,6 +1595,10 @@ class ReleaseManager:
             # Upgrade to latest (all releases)
             upgrade_path = update_info['upgrade_path']
 
+        # Before anything is written -- snapshot, backup, or the dry run's
+        # report: a release is applied by the half_orm_dev it was made with.
+        self._check_tool_version_for_releases(upgrade_path)
+
         # === DRY RUN - Stop here and return simulation ===
         if dry_run:
             # Build patches_would_apply dict
@@ -1806,6 +1810,105 @@ class ReleaseManager:
 
         return backup_file
 
+
+    def _release_hop_version(self, version: str) -> Optional[str]:
+        """The half_orm_dev version release `version` was made with.
+
+        Read from the .hop/config of its ho-prod-X.Y.Z branch, without
+        checking it out. The branch is fetched first: a production server
+        cloned with --single-branch only tracks ho-prod.
+
+        Returns:
+            The hop_version, or None when the branch or its configuration
+            cannot be read.
+        """
+        from configparser import ConfigParser, Error as ConfigParserError
+        git_repo = self._repo.hgit._HGit__git_repo
+        branch = f"ho-prod-{version}"
+        try:
+            git_repo.git.fetch('origin', f'{branch}:refs/remotes/origin/{branch}')
+        except Exception:
+            pass  # offline, or only known locally: read what is there
+        for ref in (f'origin/{branch}', branch):
+            try:
+                text = git_repo.git.show(f'{ref}:.hop/config')
+            except Exception:
+                continue
+            parser = ConfigParser()
+            try:
+                parser.read_string(text)
+                return parser['halfORM'].get('hop_version', '').strip() or None
+            except (ConfigParserError, KeyError):
+                return None
+        return None
+
+    def _check_tool_version_for_releases(self, upgrade_path: List[str]) -> None:
+        """Refuse to apply a release made with another half_orm_dev.
+
+        A release is prepared, migrated and tested on a development machine
+        with one version of half_orm_dev, recorded in its .hop/config. On a
+        production server it is applied by that version and no other: an
+        older one does not know what the release's repository looks like, a
+        newer one has not been tested with it -- and with half_orm_dev comes
+        the half-orm it depends on.
+
+        The installed version used to be compared only with the release
+        already in production, at startup; the releases about to be applied
+        were never checked.
+
+        Raises:
+            ReleaseManagerError: if a release of the path was made with
+                another version, saying how far the installed one can go and
+                what to install for the rest. Nothing has been applied.
+        """
+        from half_orm_dev.utils import hop_version
+        installed = hop_version()
+
+        def same(a, b):
+            try:
+                return Version(a) == Version(b)
+            except InvalidVersion:
+                return a == b
+
+        required = {version: self._release_hop_version(version) for version in upgrade_path}
+        applicable = []
+        for version in upgrade_path:
+            if required[version] is None or not same(required[version], installed):
+                break
+            applicable.append(version)
+        if len(applicable) == len(upgrade_path):
+            return
+
+        blocking = upgrade_path[len(applicable)]
+        needed = required[blocking]
+        lines = [
+            "This upgrade needs another version of half_orm_dev.",
+            f"  Installed: {installed}",
+        ]
+        if needed is None:
+            lines.append(
+                f"  Release {blocking}: no half_orm_dev version could be read from "
+                f"ho-prod-{blocking}:.hop/config")
+            lines.append("  Check that the branch exists on origin and is reachable.")
+        else:
+            lines.append(f"  Release {blocking} was made with half_orm_dev {needed}")
+            if applicable:
+                lines += [
+                    "",
+                    f"The installed version can apply up to {applicable[-1]}. Run, in order:",
+                    f"  half_orm dev upgrade --to-release {applicable[-1]}",
+                    f"  pip install half-orm-dev=={needed}",
+                    "  half_orm dev upgrade",
+                ]
+            else:
+                lines += [
+                    "",
+                    "Install it, then run the upgrade again:",
+                    f"  pip install half-orm-dev=={needed}",
+                    "  half_orm dev upgrade",
+                ]
+        lines += ["", "Nothing was applied."]
+        raise ReleaseManagerError('\n'.join(lines))
 
     def _validate_production_upgrade(self) -> None:
         """

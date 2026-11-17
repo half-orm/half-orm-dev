@@ -99,7 +99,7 @@ class TestMigrationDropsReleaseSchemas:
 
         _downgrade_hop_version(run, project_dir, VERSION_BEFORE_MIGRATION)
 
-        result = run(['half_orm', 'dev', 'migrate'], input_text='y\n', check=False)
+        result = run(['half_orm', 'dev', 'migrate'], input_text='yes\n', check=False)
         assert result.returncode == 0, (
             f"migrate should succeed.\n"
             f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"
@@ -139,7 +139,7 @@ class TestMigrationDropsReleaseSchemas:
         # No legacy metadata-*.sql is created here.
         _downgrade_hop_version(run, project_dir, VERSION_BEFORE_MIGRATION)
 
-        result = run(['half_orm', 'dev', 'migrate'], input_text='y\n', check=False)
+        result = run(['half_orm', 'dev', 'migrate'], input_text='yes\n', check=False)
         assert result.returncode == 0, (
             f"migrate should succeed.\n"
             f"STDOUT: {result.stdout}\nSTDERR: {result.stderr}"

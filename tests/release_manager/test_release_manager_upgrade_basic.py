@@ -415,3 +415,26 @@ class TestUpgradeProductionSnapshot:
         mock_repo.database.execute_pg_command.assert_any_call(
             'pg_dump', 'test_db', '-f', ANY
         )
+
+
+# ============================================================================
+# TOOL VERSION OF THE RELEASES APPLIED
+# ============================================================================
+
+class TestUpgradeProductionToolVersion:
+    """A release made with another half_orm_dev is refused before anything
+    is written. The check itself: test_release_manager_upgrade_tool_version."""
+
+    @pytest.mark.parametrize('dry_run', [False, True])
+    def test_refused_before_snapshot_backup_or_report(
+            self, release_manager_for_snapshot, monkeypatch, dry_run):
+        release_mgr, mock_repo, *_ = release_manager_for_snapshot
+        monkeypatch.setattr(
+            ReleaseManager, '_release_hop_version', lambda self, version: '0.0.1')
+
+        with pytest.raises(ReleaseManagerError, match='Nothing was applied'):
+            release_mgr.upgrade_production(dry_run=dry_run)
+
+        mock_repo.database.create_snapshot.assert_not_called()
+        mock_repo.database.terminate_active_connections.assert_not_called()
+        mock_repo.database.execute_pg_command.assert_not_called()

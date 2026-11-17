@@ -85,9 +85,13 @@ class RepoError(Exception):
 
 class OutdatedHalfORMDevError(RepoError):
     """Raised when installed half_orm_dev version is older than repository requirement."""
-    def __init__(self, required_version: str, installed_version: str):
+    def __init__(self, required_version: str, installed_version: str, base_dir=None):
         self.required_version = required_version
         self.installed_version = installed_version
+        # The repository that asked: what the CLI does about it -- install the
+        # version on a development machine, refuse on a production server --
+        # depends on what kind of checkout it is.
+        self.base_dir = base_dir
         super().__init__(
             f"Repository requires half_orm_dev == {required_version} "
             f"but {installed_version} is installed.\n"
@@ -404,7 +408,8 @@ class Repo:
         try:
             # Use centralized comparison method
             if self.compare_versions(installed_version, required_version) < 0:
-                raise OutdatedHalfORMDevError(required_version, installed_version)
+                raise OutdatedHalfORMDevError(
+                    required_version, installed_version, self.__base_dir)
         except OutdatedHalfORMDevError:
             # Re-raise downgrade errors immediately
             raise
@@ -1120,7 +1125,8 @@ class Repo:
             # Raise only when installed < required (tool too old).
             # When installed > required, needs_migration() handles it via the CLI.
             if self.compare_versions(installed_version, required_version) < 0:
-                raise OutdatedHalfORMDevError(required_version, installed_version)
+                raise OutdatedHalfORMDevError(
+                    required_version, installed_version, self.__base_dir)
 
         except RepoError:
             # Re-raise RepoError (dirty working directory)

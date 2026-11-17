@@ -45,7 +45,7 @@ class TestMigrateDirtyCheck:
         gitignore = project_dir / '.gitignore'
         gitignore.write_text(gitignore.read_text() + '\n# dirty\n')
 
-        result = run(['half_orm', 'dev', 'migrate'], input_text='y\n', check=False)
+        result = run(['half_orm', 'dev', 'migrate'], input_text='yes\n', check=False)
 
         assert result.returncode != 0
         combined = result.stdout + result.stderr
@@ -67,7 +67,7 @@ class TestMigrateDirtyCheck:
         status = run(['git', 'status', '--short'])
         assert status.stdout.strip() == '', "Tree should be clean before migration"
 
-        result = run(['half_orm', 'dev', 'migrate'], input_text='y\n', check=False)
+        result = run(['half_orm', 'dev', 'migrate'], input_text='yes\n', check=False)
 
         assert result.returncode == 0, (
             f"hop migrate should succeed with clean tree.\n"
@@ -115,7 +115,7 @@ class TestMigrateGitignoreUpdate:
         run(['git', 'commit', '--no-verify', '-m', 'test: remove hop gitignore entries'])
         run(['git', 'push', '--no-verify', 'origin', 'ho-prod'])
 
-        result = run(['half_orm', 'dev', 'migrate'], input_text='y\n', check=False)
+        result = run(['half_orm', 'dev', 'migrate'], input_text='yes\n', check=False)
 
         assert result.returncode == 0, (
             f"hop migrate should succeed.\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"

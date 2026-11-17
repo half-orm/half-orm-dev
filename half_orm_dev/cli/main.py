@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 import half_orm_dev as _half_orm_dev
-from half_orm_dev.utils import hop_version
+from half_orm_dev.utils import hop_version, is_production_checkout
 from half_orm_dev.repo import Repo, OutdatedHalfORMDevError
 from half_orm import utils
 from .commands import ALL_COMMANDS
@@ -141,6 +141,23 @@ def create_cli_group():
             cmd = super().get_command(ctx, cmd_name)
             if cmd is not None:
                 return cmd
+            if hop.needs_hop_upgrade:
+                # No command is registered while half_orm_dev is too old, so
+                # `half_orm dev upgrade` answered "No such command 'upgrade'"
+                # before the group callback could say why -- and install the
+                # right version, or refuse to on a production server. Resolve
+                # the name to a placeholder, and let the callback speak.
+                @click.command(
+                    cmd_name,
+                    context_settings={
+                        'allow_extra_args': True,
+                        'ignore_unknown_options': True,
+                    },
+                )
+                def _outdated():
+                    sys.exit(1)  # not reached: the callback exits or restarts
+
+                return _outdated
             # Unknown command — show a specific message when migration is needed.
             if hop.repo_checked and hop._Hop__repo.needs_migration():
                 installed_version = hop_version()
@@ -193,6 +210,16 @@ def create_cli_group():
             error = hop.hop_upgrade_error
             required = error.required_version
             installed = error.installed_version
+            if error.base_dir and is_production_checkout(error.base_dir):
+                # Nothing is installed behind an operator's back on a
+                # production server: the version is a decision.
+                click.echo(utils.Color.red(
+                    f"\n  This repository requires half-orm-dev {required} "
+                    f"(installed: {installed})."), err=True)
+                click.echo("  Production server: nothing is installed automatically.", err=True)
+                click.echo("  Install it, then run the command again:", err=True)
+                click.echo(f"    pip install half-orm-dev=={required}", err=True)
+                sys.exit(1)
             click.echo(f"\n  This repository requires half-orm-dev {required} "
                        f"(installed: {installed}).")
             click.echo(f"  Installing the required version...")

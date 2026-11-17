@@ -13,6 +13,30 @@ def hop_version():
         hop_v = version.read().strip()
     return hop_v
 
+def is_production_checkout(base_dir) -> bool:
+    """Whether `base_dir` is the checkout of a production server.
+
+    Readable without a database connection, which is what the CLI needs
+    before it has one. Two marks, either of which is enough -- a production
+    server must not be taken for a development machine:
+
+    * ``.hop/production``, written by ``clone --production`` and read by
+      the git hooks;
+    * ``production = true`` in the connection file, which is what
+      half_orm_dev goes by once connected.
+    """
+    if (Path(base_dir) / '.hop' / 'production').exists():
+        return True
+    try:
+        from half_orm.model import CONF_DIR
+        parser = configparser.ConfigParser()
+        if not parser.read(os.path.join(CONF_DIR, resolve_database_config_name(base_dir))):
+            return False
+        return parser.getboolean('database', 'production', fallback=False)
+    except (configparser.Error, ValueError, OSError):
+        return False
+
+
 def resolve_database_config_name(base_dir):
     """
     Resolve database configuration name with backward compatibility.
