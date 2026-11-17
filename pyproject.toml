@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "half_orm_dev"
-dynamic = ["version", "dependencies"]
+dynamic = ["version"]
 description = "half_orm development Framework."
 readme = "README.md"
 keywords = ["postgres", "relation-object mapping"]
@@ -31,6 +31,19 @@ classifiers = [
     "Programming Language :: Python :: 3.15",
 ]
 requires-python = ">=3.11"
+# half-orm follows Semantic Versioning from 2.0.0: the lower bound is the
+# oldest release providing what half_orm_dev uses, the upper one the next
+# major. `make release` keeps this line and requirements.txt in step.
+dependencies = [
+    "GitPython",
+    "click",
+    "packaging",
+    "pydash",
+    "pytest",
+    "pytest-asyncio",
+    "half-orm>=2.0.0,<3",
+    "tomli_w>=1.0.0",
+]
 
 [project.scripts]
 half_orm = "half_orm.cli:main"

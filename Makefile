@@ -44,17 +44,38 @@ build: check-main-branch check-half-orm-release check-repo-clean test clean_buil
 	@echo "Building package..."
 	python -m build
 
+# HEAD must be the commit `make release` tagged: what is uploaded is what the
+# tag names, and nothing else.
+.PHONY: check-publish-ready
+check-publish-ready:
+	@VERSION=$$(cat half_orm_dev/version.txt | tr -d '[:space:]'); \
+	if [ "$$(git tag --points-at HEAD | grep -Fx "$$VERSION")" != "$$VERSION" ]; then \
+		echo "Error: HEAD is not tagged $$VERSION. Run 'make release' first."; \
+		exit 1; \
+	fi; \
+	echo "✓ HEAD is tagged $$VERSION"
+
+# The tag is pushed before the upload, and must be: a release whose tag is not
+# on GitHub is a release nobody can find the source of. (The same defect was
+# fixed in half-orm's Makefile.)
 .PHONY: publish
-publish: build
+publish: check-publish-ready build
+	@VERSION=$$(cat half_orm_dev/version.txt | tr -d '[:space:]'); \
+	echo "Pushing tag $$VERSION..."; \
+	git push origin "refs/tags/$$VERSION"
 	@echo "Publishing to PyPI..."
 	twine upload -r half-orm-dev dist/*
 
-# Bump version, verify half-orm compatibility, commit and tag
+# Bump version, verify half-orm compatibility, commit and tag.
+# half-orm follows Semantic Versioning: the dependency is half-orm>=MIN,<MAJOR+1
+# and half_orm_dev's major version must be MAJOR. Both, and that the new
+# version moves forward, are checked by scripts/check_half_orm_release.py
+# before anything is written.
 .PHONY: release
 release: check-main-branch check-repo-clean
 	@CURRENT=$$(cat half_orm_dev/version.txt | tr -d '[:space:]'); \
 	echo "Current half-orm-dev version: $$CURRENT"; \
-	CURRENT_MIN=$$(grep -oP '(?<=half-orm>=)[^,<]+' requirements.txt); \
+	CURRENT_MIN=$$(grep -oP '(?<=half-orm>=)[^,<"]+' pyproject.toml); \
 	printf "Minimum half-orm version required [$$CURRENT_MIN]: "; \
 	read MIN_HALF_ORM; \
 	if [ -z "$$MIN_HALF_ORM" ]; then MIN_HALF_ORM="$$CURRENT_MIN"; fi; \
@@ -62,21 +83,14 @@ release: check-main-branch check-repo-clean
 	printf "New half-orm-dev version: "; \
 	read NEW_VERSION; \
 	if [ -z "$$NEW_VERSION" ]; then echo "Aborted."; exit 1; fi; \
-	HO_XY=$$(echo "$$MIN_HALF_ORM" | sed 's/^\([0-9]*\.[0-9]*\).*/\1/'); \
-	DEV_XY=$$(echo "$$NEW_VERSION" | sed 's/^\([0-9]*\.[0-9]*\).*/\1/'); \
-	if [ "$$HO_XY" != "$$DEV_XY" ]; then \
-		echo "ERROR: version mismatch — half-orm $$MIN_HALF_ORM ($$HO_XY) and half-orm-dev $$NEW_VERSION ($$DEV_XY) must share the same X.Y"; \
+	echo "Checking half-orm PyPI release compatibility..."; \
+	if ! python scripts/check_half_orm_release.py --min-half-orm "$$MIN_HALF_ORM" --dev-version "$$NEW_VERSION"; then \
+		git checkout requirements.txt pyproject.toml codemeta.json; \
+		echo "Nothing released."; \
 		exit 1; \
 	fi; \
 	echo "$$NEW_VERSION" > half_orm_dev/version.txt; \
-	echo "Checking half-orm PyPI release compatibility..."; \
-	if ! python scripts/check_half_orm_release.py --min-half-orm "$$MIN_HALF_ORM"; then \
-		echo "$$CURRENT" > half_orm_dev/version.txt; \
-		git checkout requirements.txt; \
-		echo "Reverted to $$CURRENT"; \
-		exit 1; \
-	fi; \
-	git add half_orm_dev/version.txt requirements.txt; \
+	git add half_orm_dev/version.txt requirements.txt pyproject.toml codemeta.json; \
 	git commit -m "[release] $$NEW_VERSION"; \
 	git tag "$$NEW_VERSION"; \
 	echo "✓ Committed and tagged $$NEW_VERSION"

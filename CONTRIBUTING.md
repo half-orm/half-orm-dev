@@ -196,7 +196,21 @@ ReleaseManagerError → ReleaseVersionError, ReleaseFileError
 #### Version Management
 Version is stored in `half_orm_dev/version.txt`:
 - Format: `X.Y.Z` or `X.Y.Z-suffix` (e.g., `0.17.3-a1`)
-- `setup.py` dynamically calculates half_orm dependency
+- The half-orm dependency is declared in `pyproject.toml` (and copied to
+  `requirements.txt` for CI): `half-orm>=<min>,<<major+1>`. half-orm follows
+  Semantic Versioning from 2.0.0, and the `half_orm` CLI only loads an
+  extension built for its own major version, so half_orm_dev's major version
+  is half-orm's; minor and patch versions are independent. `make release`
+  asks for the minimum half-orm version and checks both.
+- half_orm_dev's own version number therefore cannot follow Semantic
+  Versioning: its major version is not its to change. A change that breaks
+  half_orm_dev itself — the `.hop/` layout, a command, the generated code —
+  ships within the current major version, with a repository migration
+  (`half_orm_dev/migrations/`) and a note
+  (`half_orm_dev/migrations/hop/BREAKING_CHANGES-X.Y.Z.md`) that
+  `half_orm dev upgrade` shows before migrating. While half_orm_dev is
+  published as pre-releases (`X.Y.Z-aN`), that is also what Semantic
+  Versioning allows.
 
 #### Configuration Files
 - `.hop/config`: Repository configuration (hop_version, git_origin, devel)
