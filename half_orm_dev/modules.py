@@ -93,6 +93,37 @@ def _to_valid_identifier(name: str) -> str:
     return sanitized
 
 
+def _safe_identifier(name: str) -> str:
+    """Return `name` if it can be written as a Python identifier, else a
+    sanitized form of it.
+
+    Schema, relation and constraint names are read from the database, and
+    PostgreSQL accepts anything in a quoted name -- a quote, a slash, a
+    newline. Written as they are into a class statement, an attribute or a
+    path, they are code or a directory of the database's choosing rather than
+    a name. A name that already is an identifier is returned untouched, so
+    what is generated for an ordinary schema does not change.
+    """
+    name = str(name)
+    if name.isidentifier() and not iskeyword(name):
+        return name
+    return _to_valid_identifier(name) or '_'
+
+
+def _docstring_safe(text: str) -> str:
+    """Escape `text` so that it can only ever be the content of a
+    triple-quoted docstring.
+
+    Relation and column comments end up in the docstring of the generated
+    class. A comment holding three quotes used to close it, and the rest of
+    the comment became statements of the class body, run at import. The
+    backslash is escaped first: it would otherwise undo the escaping of the
+    quotes -- and was already turning a comment such as `C:\new` into a
+    line break.
+    """
+    return str(text).replace('\\', '\\\\').replace('"""', '\\"\\"\\"')
+
+
 def __get_test_directory_path(schema_name, table_name, base_dir):
     """
     Calculate the test directory path for a given schema and table.
@@ -153,7 +184,29 @@ def __get_test_file_path(schema_name, table_name, base_dir, package_name):
 def __get_full_class_name(schemaname, relationname):
     schemaname = ''.join([elt.capitalize() for elt in schemaname.split('.')])
     relationname = ''.join([elt.capitalize() for elt in relationname.split('_')])
-    return f'{schemaname}{relationname}'
+    # Every generated class name is built on this one: DC_*, BC_*, *Dict.
+    return _safe_identifier(f'{schemaname}{relationname}')
+
+
+def __get_dataclass_name(relation) -> str:
+    """Name of the DC_* class of `relation`.
+
+    Same formula as Relation._ho_dataclass_name(), through
+    __get_full_class_name so that the result is always an identifier.
+    """
+    return f'DC_{__get_full_class_name(*list(relation._t_fqrn)[1:])}'
+
+
+def __attribute_line(indent: str, attr_name: str, statement: str) -> str:
+    """Return `statement`, or a comment in its place when `attr_name` cannot
+    be an attribute.
+
+    The name is shown through repr(): a name holding a line break must not
+    get to end the comment it is quoted in.
+    """
+    if attr_name.isidentifier() and not iskeyword(attr_name):
+        return f'{indent}{statement}'
+    return f'{indent}# FIX ME! {attr_name!r} is not a valid identifier in Python.'
 
 
 def __get_field_desc(field_name, field):
@@ -188,7 +241,7 @@ def __get_field_desc(field_name, field):
 
 def __gen_dataclass(relation, fkeys):
     rel = relation()
-    dc_name = relation._ho_dataclass_name()
+    dc_name = __get_dataclass_name(relation)
     fields = []
     post_init = ['    def __post_init__(self) -> None:']
     for field_name, field in rel._ho_fields.items():
@@ -209,7 +262,9 @@ def __gen_dataclass(relation, fkeys):
             fdc_name = f'DC_{__get_full_class_name(fk_fqrn[1], fk_fqrn[2])}'
         except Exception:
             fdc_name = dc_name  # fallback: host class
-        post_init.append(f"        self.{attr_name} = {fdc_name}")
+        # A constraint may be named anything, and so may an alias.
+        post_init.append(__attribute_line(
+            '        ', attr_name, f"self.{attr_name} = {fdc_name}"))
     return '\n'.join([f'@dataclasses.dataclass\nclass {dc_name}(DC_Relation):'] + fields + post_init)
 
 
@@ -273,6 +328,13 @@ def __gen_json_typedicts(name_prefix: str, schema) -> tuple:
     fields = []
 
     for key, val in schema.items():
+        # The keys come from a column comment. One that is not an identifier
+        # cannot be a TypedDict field, and written as it is would be a
+        # statement of the class body.
+        if not isinstance(key, str) or not key.isidentifier() or iskeyword(key):
+            fields.append(
+                f"    # FIX ME! {key!r} is not a valid identifier in Python.")
+            continue
         if isinstance(val, str):
             type_str = __json_scalar_type(val)
             fields.append(f"    {key}: Optional[{type_str}]")
@@ -297,7 +359,10 @@ def __gen_json_typedicts(name_prefix: str, schema) -> tuple:
             fields.append(f"    {key}: Optional[Any]")
 
     class_name = f'{name_prefix}Dict'
-    body = '\n'.join(fields) if fields else '    pass'
+    if not any(not line.lstrip().startswith('#') for line in fields):
+        # Nothing but comments, or nothing at all: a class needs a statement.
+        fields.append('    pass')
+    body = '\n'.join(fields)
     classes.append(f'class {class_name}(TypedDict, total=False):\n{body}')
     return classes, class_name
 
@@ -449,9 +514,11 @@ def __apply_fkey_aliases_to_doc(documentation: str, rel, existing_fkeys: dict) -
     lines.append("    }")
     new_block = '\n'.join(lines)
 
+    # A function, not the string: in a replacement string a backslash is an
+    # escape, and constraint names are not ours to vouch for.
     return re.sub(
         r'    Fkeys = \{[^}]*\}',
-        new_block,
+        lambda _match: new_block,
         documentation,
         flags=re.DOTALL,
     )
@@ -524,7 +591,10 @@ def __update_this_module(
     arg_names = ", ".join(arg_names)
 
     path[0] = package_dir
-    path[1] = path[1].replace('.', os.sep)
+    # One directory per dotted part of the schema name, each of them a name
+    # and nothing else: left as it was, a schema called `/tmp/x` sent the
+    # module there, os.path.join dropping everything before an absolute part.
+    path[1] = os.sep.join(_safe_identifier(part) for part in path[1].split('.'))
 
     path = [_to_valid_identifier(elt).lower() if i >= 2 else elt for i, elt in enumerate(path)]
     class_name = camel_case(path[-1])
@@ -552,11 +622,13 @@ def __update_this_module(
         file_.write(
             module_template.format(
                 hop_release = hop_version(),
-                module=f"{package_name}.{fqtn}",
+                # Both land inside a docstring, and both are database text:
+                # the relation's comment, and its qualified name.
+                module=_docstring_safe(f"{package_name}.{fqtn}"),
                 package_name=package_name,
-                documentation=documentation,
+                documentation=_docstring_safe(documentation),
                 class_name=class_name,
-                dc_name=rel._ho_dataclass_name(),
+                dc_name=__get_dataclass_name(rel),
                 dict_class_name=dict_class_name,
                 bc_name=bc_name,
                 fqtn=fqtn,
@@ -755,13 +827,14 @@ def __gen_baseclass(relation, fkeys) -> str:
     full_name = __get_full_class_name(*t_qrn)
     fqtn = '.'.join(t_qrn)
     bc_name = f'BC_{full_name}'
-    dc_name = rel._ho_dataclass_name()
+    dc_name = __get_dataclass_name(rel)
     d = f'{full_name}Dict'
     HO_BASECLASSES_DICT_NAMES.add(d)
 
     header = [
         f"class {bc_name}(",
-        f"    _bc_base('{fqtn}'),  # type: ignore[misc]",
+        # repr(): a quote in a schema or relation name closed the literal.
+        f"    _bc_base({fqtn!r}),  # type: ignore[misc]",
         f"    {dc_name}",
         f"):",
     ]
