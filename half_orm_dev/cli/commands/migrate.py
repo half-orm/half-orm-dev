@@ -7,8 +7,59 @@ is newer than the repository's hop_version in .hop/config.
 
 import click
 from half_orm_dev.repo import Repo, RepoError
-from half_orm_dev.migration_manager import MigrationManager
+from half_orm_dev.migration_manager import (
+    MigrationManager, HALF_ORM_BREAKING_CHANGES_URL)
 from half_orm import utils
+
+
+def announce_breaking_changes(repo, config_version: str, installed_version: str) -> bool:
+    """Say what a migration breaks, before it is confirmed.
+
+    Two kinds of breaking change, shown differently:
+
+    * half-orm's, when its major version changes: what the application's
+      code must change. They are documented on half-orm's site, so a link
+      is enough -- migrating happens on a development machine.
+    * half_orm_dev's: what the migration about to run does to the
+      repository. Shown in full, since that is what is being confirmed.
+
+    Returns:
+        True when there was something to announce, and the migration calls
+        for an explicit "yes" rather than a y/n.
+    """
+    mgr = MigrationManager(repo)
+    major_change = mgr.half_orm_major_change(config_version, installed_version)
+    notes = mgr.get_breaking_changes(config_version, installed_version)
+
+    if major_change:
+        from_major, to_major = major_change
+        click.echo(utils.Color.bold(
+            f"⚠️  half-orm {from_major}.x → {to_major}.x: a major release, "
+            "which may require changes to your code."))
+        click.echo("   Read what changed, and what to write instead, before going on:")
+        click.echo(f"   {HALF_ORM_BREAKING_CHANGES_URL.format(major=to_major)}")
+        click.echo()
+
+    if notes:
+        width = 70
+        label = 'half-orm-dev'
+        lines = ['━' * width, "  ⚠️  BREAKING CHANGES", '━' * width]
+        for note in notes:
+            lines.append(
+                f"\n  ━━━ {label} {installed_version} "
+                f"{'━' * max(0, width - len(label) - len(installed_version) - 7)}")
+            lines.extend(f"  {line}" for line in note['content'].splitlines())
+        lines.append(f"\n{'━' * width}")
+        click.echo_via_pager('\n'.join(lines) + '\n')
+
+    return bool(major_change or notes)
+
+
+def confirm_breaking_migration() -> bool:
+    "Ask for the explicit \"yes\" a breaking migration calls for."
+    click.echo("Type \"yes\" to confirm you have read the breaking changes and want to proceed.")
+    answer = click.prompt("Proceed?", default="no")
+    return answer.strip().lower() == "yes"
 
 
 @click.command()
@@ -77,41 +128,8 @@ def migrate(verbose: bool) -> None:
         click.echo()
 
         # Check for breaking changes between current and target version
-        mgr = MigrationManager(repo)
-        breaking_changes = mgr.get_breaking_changes(config_version, installed_version)
-
-        needs_explicit_confirm = False
-        if breaking_changes:
-            import importlib.metadata
-            try:
-                half_orm_installed = importlib.metadata.version('half-orm')
-            except importlib.metadata.PackageNotFoundError:
-                half_orm_installed = None
-
-            width = 70
-            lines = []
-            lines.append('━' * width)
-            lines.append(f"  ⚠️  BREAKING CHANGES")
-            lines.append('━' * width)
-            for bc in breaking_changes:
-                if bc['component'] == 'hop':
-                    label = 'half-orm-dev'
-                    display_version = installed_version
-                else:
-                    label = 'half-orm'
-                    display_version = half_orm_installed or bc['version']
-                lines.append(f"\n  ━━━ {label} {display_version} {'━' * max(0, width - len(label) - len(display_version) - 7)}")
-                for line in bc['content'].splitlines():
-                    lines.append(f"  {line}")
-            lines.append(f"\n{'━' * width}")
-            click.echo_via_pager('\n'.join(lines) + '\n')
-            needs_explicit_confirm = True
-
-        # Run migrations
-        if needs_explicit_confirm:
-            click.echo("Type \"yes\" to confirm you have read the breaking changes and want to proceed.")
-            answer = click.prompt("Proceed?", default="no")
-            confirmed = answer.strip().lower() == "yes"
+        if announce_breaking_changes(repo, config_version, installed_version):
+            confirmed = confirm_breaking_migration()
         else:
             confirmed = click.confirm("Do you want to proceed?", default=False)
 

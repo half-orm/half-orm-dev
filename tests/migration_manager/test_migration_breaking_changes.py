@@ -1,8 +1,10 @@
 """
 Tests for MigrationManager.get_breaking_changes().
 
-Verifies that breaking-changes documents are correctly collected for all
-versions in ]current, target] across both the hop/ and half_orm/ components.
+Verifies that half_orm_dev's breaking-changes documents are collected for
+all versions in ]current, target], and that half-orm's are not: a change of
+half-orm's major version is detected instead (half_orm_major_change), and
+the developer pointed to half-orm's documentation.
 """
 import pytest
 from pathlib import Path
@@ -16,11 +18,8 @@ def mgr_with_bc_dir(tmp_path):
     MigrationManager whose _migrations_root points to a temporary directory.
 
     Creates a hop/ subdirectory ready to receive BREAKING_CHANGES-X.Y.Z.md
-    files.  The half_orm BC dir is a separate directory that simulates the
-    installed half_orm package's migrations directory.
-
-    half_orm.migrations.get_breaking_changes_dir is patched to return
-    half_orm_bc_dir for the duration of each test.
+    files, and a directory standing for the installed half_orm package's
+    migrations, which must not be read.
     """
     mock_repo = Mock()
     mock_repo.base_dir = str(tmp_path)
@@ -45,11 +44,7 @@ def mgr_with_bc_dir(tmp_path):
     half_orm_bc_dir = tmp_path / 'half_orm_pkg_migrations'
     half_orm_bc_dir.mkdir()
 
-    with patch(
-        'half_orm_dev.migration_manager.get_breaking_changes_dir',
-        return_value=half_orm_bc_dir,
-    ):
-        yield mgr, bc_root, half_orm_bc_dir
+    yield mgr, bc_root, half_orm_bc_dir
 
 
 class TestGetBreakingChanges:
@@ -93,17 +88,15 @@ class TestGetBreakingChanges:
 
         assert mgr.get_breaking_changes('0.17.0', '1.0.0') == []
 
-    def test_both_components_returned(self, mgr_with_bc_dir):
-        """Files in both hop/ and half_orm/ are returned when in range."""
+    def test_half_orm_notes_are_not_collected(self, mgr_with_bc_dir):
+        """Only half_orm_dev's notes are shown in full; half-orm's are linked."""
         mgr, bc_root, half_orm_bc_dir = mgr_with_bc_dir
-        (bc_root / 'hop' / 'BREAKING_CHANGES-1.0.0.md').write_text('hop changes')
-        (half_orm_bc_dir / 'BREAKING_CHANGES-1.0.0.md').write_text('half_orm changes')
+        (bc_root / 'hop' / 'BREAKING_CHANGES-2.0.0.md').write_text('hop changes')
+        (half_orm_bc_dir / 'BREAKING_CHANGES-2.0.0.md').write_text('half_orm changes')
 
-        result = mgr.get_breaking_changes('0.17.0', '1.0.0')
+        result = mgr.get_breaking_changes('1.2.0', '2.0.0')
 
-        assert len(result) == 2
-        components = {r['component'] for r in result}
-        assert components == {'hop', 'half_orm'}
+        assert [(r['component'], r['content']) for r in result] == [('hop', 'hop changes')]
 
     def test_multiple_versions_sorted(self, mgr_with_bc_dir):
         """Multiple files in range are returned sorted by version ascending."""
@@ -178,27 +171,6 @@ class TestGetBreakingChanges:
 
         assert result == []
 
-    def test_half_orm_unavailable_is_silently_ignored(self, tmp_path):
-        """If get_breaking_changes_dir is None (older half-orm), only hop/ BC files are returned."""
-        mock_repo = Mock()
-        mock_repo.base_dir = str(tmp_path)
-        from packaging import version as pkg_version
-        mock_repo.compare_versions = lambda v1, v2: (
-            0 if pkg_version.parse(v1) == pkg_version.parse(v2)
-            else (1 if pkg_version.parse(v1) > pkg_version.parse(v2) else -1)
-        )
-        mgr = MigrationManager(mock_repo)
-        bc_root = tmp_path / 'migrations'
-        (bc_root / 'hop').mkdir(parents=True)
-        mgr._migrations_root = bc_root
-        (bc_root / 'hop' / 'BREAKING_CHANGES-1.0.0.md').write_text('hop only')
-
-        with patch('half_orm_dev.migration_manager.get_breaking_changes_dir', None):
-            result = mgr.get_breaking_changes('0.17.0', '1.0.0')
-
-        assert len(result) == 1
-        assert result[0]['component'] == 'hop'
-
     def test_invalid_current_or_target_version_returns_empty(self, mgr_with_bc_dir):
         """Unparseable current/target versions return empty list instead of crashing."""
         mgr, bc_root, _ = mgr_with_bc_dir
@@ -206,3 +178,27 @@ class TestGetBreakingChanges:
 
         assert mgr.get_breaking_changes('not-a-version', '1.0.0') == []
         assert mgr.get_breaking_changes('0.17.0', 'not-a-version') == []
+
+
+class TestHalfOrmMajorChange:
+    """half_orm_dev's major version is half-orm's: a change of one is a change of the other."""
+
+    @pytest.mark.parametrize('current, target, expected', [
+        ('1.2.0-a1', '2.0.0-a1', (1, 2)),
+        ('1.2.0', '2.0.0', (1, 2)),
+        ('1.2.0', '3.1.0', (1, 3)),
+        ('0.18.0', '1.0.0-a1', (0, 1)),
+    ])
+    def test_a_new_major_version_is_reported(self, current, target, expected):
+        assert MigrationManager.half_orm_major_change(current, target) == expected
+
+    @pytest.mark.parametrize('current, target', [
+        ('2.0.0-a1', '2.0.0-a2'),
+        ('2.0.0', '2.4.1'),
+        ('2.1.0', '2.0.0'),
+        ('2.0.0', '1.9.0'),
+        ('not-a-version', '2.0.0'),
+        ('2.0.0', 'not-a-version'),
+    ])
+    def test_no_major_change(self, current, target):
+        assert MigrationManager.half_orm_major_change(current, target) is None

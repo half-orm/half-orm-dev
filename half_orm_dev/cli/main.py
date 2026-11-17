@@ -144,7 +144,7 @@ def create_cli_group():
             # Unknown command — show a specific message when migration is needed.
             if hop.repo_checked and hop._Hop__repo.needs_migration():
                 installed_version = hop_version()
-                config_version = hop._Hop__repo.repo.config.hop_version
+                config_version = hop._Hop__repo.config.hop_version
 
                 @click.command(
                     cmd_name,
@@ -217,7 +217,7 @@ def create_cli_group():
                     # Propose automatic migration
                     from half_orm_dev.repo import RepoError
                     installed_version = hop_version()
-                    config_version = hop._Hop__repo.repo.config.hop_version
+                    config_version = hop._Hop__repo.config.hop_version
                     current_branch = hop._Hop__repo.hgit.branch if hop._Hop__repo.hgit else 'unknown'
 
                     click.echo(f"\n{'='*70}")
@@ -234,8 +234,18 @@ def create_cli_group():
                     click.echo(f"\n  💡 You can interrupt (Ctrl+C) to backup .git/ if needed.")
                     click.echo(f"\n{'='*70}\n")
 
+                    # What the migration breaks, if anything: this path used
+                    # to migrate without showing any breaking change at all.
+                    from half_orm_dev.cli.commands.migrate import (
+                        announce_breaking_changes, confirm_breaking_migration)
+                    if announce_breaking_changes(
+                            hop._Hop__repo, config_version, installed_version):
+                        apply = confirm_breaking_migration()
+                    else:
+                        apply = click.confirm("Apply migration now?", default=True)
+
                     # Ask for confirmation
-                    if click.confirm("Apply migration now?", default=True):
+                    if apply:
                         click.echo()
 
                         # Switch to ho-prod if needed

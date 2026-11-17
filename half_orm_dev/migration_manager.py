@@ -34,10 +34,9 @@ from typing import List, Dict, Optional, Tuple
 from half_orm import utils
 from half_orm_dev.decorators import with_dynamic_branch_lock
 
-try:
-    from half_orm.migrations import get_breaking_changes_dir
-except (ImportError, AttributeError):
-    get_breaking_changes_dir = None  # type: ignore[assignment]
+# Where half-orm documents what a major release requires of the code.
+HALF_ORM_BREAKING_CHANGES_URL = (
+    'https://half-orm.github.io/half-orm/latest/breaking-changes/#breaking-{major}-0-0')
 
 
 class MigrationManagerError(Exception):
@@ -721,13 +720,14 @@ class MigrationManager:
 
     def get_breaking_changes(self, current_version: str, target_version: str) -> List[Dict]:
         """
-        Collect breaking-changes documents for all versions in ]current, target].
+        Collect half_orm_dev's breaking-changes notes for ]current, target].
 
-        Looks in two subdirectories of the migrations root:
-          - hop/       BREAKING_CHANGES-X.Y.Z.md  (half-orm-dev changes)
-          - half_orm/  BREAKING_CHANGES-X.Y.Z.md  (half-orm library changes)
+        These describe what the migration about to run does to the
+        repository -- the .hop/ layout, a command, the generated code -- and
+        are shown in full before it runs. half-orm's own notes are not
+        collected: see half_orm_major_change().
 
-        Both are keyed by hop version (same major.minor family).
+        Files live in migrations/hop/ as BREAKING_CHANGES-X.Y.Z.md.
 
         Args:
             current_version: Current hop version (exclusive lower bound)
@@ -735,7 +735,7 @@ class MigrationManager:
 
         Returns:
             List of dicts ordered by version, each with keys:
-                - component: 'hop' or 'half_orm'
+                - component: 'hop'
                 - version:   version string from filename
                 - content:   file content
         """
@@ -751,30 +751,49 @@ class MigrationManager:
         except Exception:
             return results
 
-        component_dirs = {'hop': self._migrations_root / 'hop'}
-        if get_breaking_changes_dir is not None:
+        bc_dir = self._migrations_root / 'hop'
+        if not bc_dir.is_dir():
+            return results
+        for bc_file in sorted(bc_dir.glob('BREAKING_CHANGES-*.md')):
+            # filename: BREAKING_CHANGES-X.Y.Z.md  (hyphens in pre-release OK)
+            raw = bc_file.stem[len('BREAKING_CHANGES-'):]  # e.g. '1.0.0' or '1.0.0-rc1'
             try:
-                component_dirs['half_orm'] = get_breaking_changes_dir()
+                file_version = version.parse(raw)
             except Exception:
-                pass  # older half-orm — ignore silently
-
-        for component, bc_dir in component_dirs.items():
-            if not bc_dir.is_dir():
                 continue
-            for bc_file in sorted(bc_dir.glob('BREAKING_CHANGES-*.md')):
-                # filename: BREAKING_CHANGES-X.Y.Z.md  (hyphens in pre-release OK)
-                raw = bc_file.stem[len('BREAKING_CHANGES-'):]  # e.g. '1.0.0' or '1.0.0-rc1'
-                try:
-                    file_version = version.parse(raw)
-                except Exception:
-                    continue
-                if current_base < file_version <= target_base:
-                    results.append({
-                        'component': component,
-                        'version': raw,
-                        'content': bc_file.read_text(encoding='utf-8'),
-                    })
+            if current_base < file_version <= target_base:
+                results.append({
+                    'component': 'hop',
+                    'version': raw,
+                    'content': bc_file.read_text(encoding='utf-8'),
+                })
 
-        # Sort by version, then by component for a stable display order
-        results.sort(key=lambda r: (version.parse(r['version']), r['component']))
+        results.sort(key=lambda r: version.parse(r['version']))
         return results
+
+    @staticmethod
+    def half_orm_major_change(current_version: str, target_version: str) -> Optional[Tuple[int, int]]:
+        """
+        The half-orm major versions a migration moves between, if it does.
+
+        half-orm follows Semantic Versioning: only a major release requires
+        changes to the application's code, and its notes are on half-orm's
+        documentation, where a developer -- the one running this, on a
+        machine with a browser -- is pointed. half_orm_dev's major version
+        is half-orm's (its CLI loads nothing else), so a change of
+        half_orm_dev's major version is a change of half-orm's.
+
+        Args:
+            current_version: Current hop version
+            target_version:  Target hop version
+
+        Returns:
+            ``(from_major, to_major)``, or None when the major version does
+            not move forward or a version cannot be read.
+        """
+        try:
+            current = version.parse(current_version).major
+            target = version.parse(target_version).major
+        except Exception:
+            return None
+        return (current, target) if target > current else None
