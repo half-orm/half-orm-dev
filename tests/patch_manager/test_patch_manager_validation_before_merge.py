@@ -422,3 +422,63 @@ class TestValidatePatchBeforeMerge:
                 # Verify helpful guidance is present
                 assert "idempotent" in error_msg.lower()
                 assert "patch apply" in error_msg.lower()
+
+    # Generated code that moves during validation (#58)
+
+    def _validate(self, patch_mgr):
+        patch_mgr._validate_patch_before_merge(
+            "42-feature", "0.17.0", "ho-release/0.17.0", "ho-patch/42-feature")
+
+    def test_validation_refuses_stale_generated_code(self, patch_manager_basic):
+        """The package regenerates differently: the patch branch's generated
+        code is out of date, and would reach the release as it is."""
+        patch_mgr, mock_hgit, _, _ = patch_manager_basic
+        mock_hgit.repos_is_clean.return_value = False
+        mock_hgit.get_modified_files.return_value = [
+            'test_project/ho_baseclasses.py', 'test_project/public/user.py']
+
+        with pytest.raises(PatchManagerError) as error:
+            self._validate(patch_mgr)
+
+        message = str(error.value)
+        assert "generated code is out of date" in message
+        assert "test_project/ho_baseclasses.py" in message
+        assert "test_project/public/user.py" in message
+        assert "half_orm dev patch apply" in message
+        assert "git merge ho-release/0.17.0" not in message
+        mock_hgit.delete_branch.assert_called()
+
+    def test_validation_tells_a_branch_behind_the_release_to_merge_it(
+            self, patch_manager_basic):
+        """Generated files conflicted (the patch's side was kept): the branch
+        is behind the release, and must merge it before regenerating."""
+        patch_mgr, mock_hgit, _, _ = patch_manager_basic
+        mock_hgit.merge.side_effect = Exception("Merge conflict")
+        patch_mgr._auto_resolve_generated_conflicts = Mock(return_value=True)
+        mock_hgit.repos_is_clean.return_value = False
+        mock_hgit.get_modified_files.return_value = ['test_project/ho_baseclasses.py']
+
+        with pytest.raises(PatchManagerError) as error:
+            self._validate(patch_mgr)
+
+        message = str(error.value)
+        assert "is behind ho-release/0.17.0" in message
+        assert "git merge ho-release/0.17.0" in message
+        assert "half_orm dev patch apply" in message
+
+    def test_validation_reports_non_generated_changes_first(self, patch_manager_basic):
+        patch_mgr, mock_hgit, _, _ = patch_manager_basic
+        mock_hgit.repos_is_clean.return_value = False
+        mock_hgit.get_modified_files.return_value = [
+            'model/schema.sql', 'test_project/ho_baseclasses.py']
+
+        with pytest.raises(PatchManagerError, match="patch apply modified files"):
+            self._validate(patch_mgr)
+
+    def test_validation_with_up_to_date_generated_code_passes(self, patch_manager_basic):
+        patch_mgr, mock_hgit, _, _ = patch_manager_basic
+        mock_hgit.repos_is_clean.return_value = True
+
+        self._validate(patch_mgr)
+
+        mock_hgit.get_modified_files.assert_not_called()

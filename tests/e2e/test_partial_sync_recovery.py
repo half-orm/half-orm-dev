@@ -307,6 +307,17 @@ port = {pg_port()}
 
         cmd_env['PYTHONPATH'] = str(clone_dir)
         run_cmd(['git', 'checkout', 'ho-patch/2-feat-b'], cwd=clone_dir, env=cmd_env)
+        # Patch 2 was cut before patch 1 was merged: its branch is behind the
+        # release, so it takes the release in and regenerates before merging
+        # (patch merge refuses generated code that moves, #58). Conflicts are
+        # in generated files only, and `patch apply` regenerates them.
+        run_cmd(['git', 'merge', '--no-edit', '-X', 'theirs', f'ho-release/{version}'],
+                cwd=clone_dir, env=cmd_env)
+        run_cmd(['half_orm', 'dev', 'patch', 'apply'], cwd=clone_dir, env=cmd_env)
+        run_cmd(['git', 'add', '-A'], cwd=clone_dir, env=cmd_env)
+        run_cmd(['git', 'commit', '-m', 'Take ho-release in, regenerate'],
+                cwd=clone_dir, env=cmd_env)
+        run_cmd(['git', 'push'], cwd=clone_dir, env=cmd_env)
         run_cmd(
             ['half_orm', 'dev', 'patch', 'merge'],
             cwd=clone_dir, env=cmd_env, input_text='y\n'
