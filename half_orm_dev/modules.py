@@ -416,6 +416,90 @@ def __gen_typedicts(package_dir: str, package_name: str) -> None:
             file_.write(f"\n{td}\n")
 
 
+class UncommittedModulesError(Exception):
+    """generate() would delete modules holding work git cannot give back."""
+
+    def __init__(self, modules):
+        self.modules = sorted(modules)
+        listed = "\n".join(f"  • {module}" for module in self.modules)
+        super().__init__(
+            "These modules correspond to no relation in the database, and hold "
+            "code that git cannot give back:\n"
+            f"{listed}\n\n"
+            "Generating the package would delete them, so nothing was modified.\n"
+            "A module whose table is created by a patch not applied here (another "
+            "patch, or this one not applied yet) is in this case. Before retrying:\n"
+            "  - commit the work, if it belongs to this branch;\n"
+            "  - or move the file out of the package, to bring it back later;\n"
+            "  - or apply the patch that creates the relation first.")
+
+
+def _module_is_pristine(module_path) -> bool:
+    """True if the module holds generated code only, so deleting it loses
+    nothing. A file that is not a generated module at all counts as not
+    pristine: nothing is known about what it holds."""
+    try:
+        zones = _user_code_zones(utils.read(module_path))
+    except (OSError, ValueError, IndexError):
+        return False
+    return not any(zone.strip() for zone in zones)
+
+
+def _module_is_committed(repo, relative_path) -> bool:
+    """True if git can give the file back after deletion. Anything that
+    cannot be answered - no repository, git failing - counts as False, so
+    the caller errs on the side of keeping the file."""
+    hgit = getattr(repo, 'hgit', None)
+    if hgit is None:
+        return False
+    try:
+        return hgit.file_is_committed(relative_path)
+    except Exception:  # pylint: disable=broad-except
+        return False
+
+
+def _obsolete_files(package_dir, expected):
+    """Files that __update_init_files would delete: under the package's
+    subdirectories, matching no expected module (same rules as
+    __get_modules_list)."""
+    obsolete = []
+    for dir_, _, files in os.walk(package_dir):
+        if dir_ == package_dir:
+            continue
+        if re.findall(SKIP, dir_.replace(package_dir, '')):
+            continue
+        for file_ in files:
+            if re.findall(SKIP, file_):
+                continue
+            path_ = os.path.join(dir_, file_)
+            if (path_ not in expected and file_ not in DO_NOT_REMOVE
+                    and path_.find('__pycache__') == -1):
+                obsolete.append(path_)
+    return obsolete
+
+
+def _check_obsolete_modules(repo, package_dir, expected):
+    """Refuse to go on when deleting the obsolete modules would lose work.
+
+    A module is deleted when its relation is absent from the database. The
+    database is not always a superset of the package: `patch apply` rebuilds
+    it from the production baseline, so a module written for a table created
+    by another patch matches no relation. Its deletion is safe only if the
+    module holds generated code only, or if git can give it back.
+
+    Raises:
+        UncommittedModulesError: listing the modules whose work would be lost
+    """
+    at_risk = [
+        os.path.relpath(path_, repo.base_dir)
+        for path_ in _obsolete_files(package_dir, expected)
+        if not _module_is_pristine(path_)
+        and not _module_is_committed(repo, os.path.relpath(path_, repo.base_dir))
+    ]
+    if at_risk:
+        raise UncommittedModulesError(at_risk)
+
+
 def __get_modules_list(dir, files_list, files):
     all_ = []
     for file_ in files:
@@ -524,22 +608,39 @@ def __apply_fkey_aliases_to_doc(documentation: str, rel, existing_fkeys: dict) -
     )
 
 
+ALT_BEGIN_CODE = "#>>> PLACE YOUR CODE BELLOW THIS LINE. DO NOT REMOVE THIS LINE!\n"
+
+
+def _user_code_zones(module_code: str) -> tuple:
+    """The three developer-owned zones of a generated module, in file order:
+    module-level code, class attributes, and the class body.
+
+    They are what a regeneration carries over, and what a deletion destroys.
+
+    Raises:
+        ValueError: if the file is not a generated module (markers missing)
+    """
+    if module_code.find(ALT_BEGIN_CODE) != -1:
+        module_code = module_code.replace(ALT_BEGIN_CODE, utils.BEGIN_CODE)
+    if module_code.count(utils.BEGIN_CODE) < 3:
+        raise ValueError("not a generated module: user-code markers missing")
+    global_user_s_code = module_code.rsplit(utils.END_CODE)[0].split(utils.BEGIN_CODE)[1]
+    user_s_class_attr = module_code.split(utils.BEGIN_CODE)[2].split(f'    {utils.END_CODE}')[0]
+    user_s_code = module_code.rsplit(utils.BEGIN_CODE, 1)[1]
+    return global_user_s_code, user_s_class_attr, user_s_code
+
+
 def __assemble_module_template(module_path):
     """Construct the module after slicing it if it already exists."""
-    ALT_BEGIN_CODE = "#>>> PLACE YOUR CODE BELLOW THIS LINE. DO NOT REMOVE THIS LINE!\n"
     user_s_code = ""
     global_user_s_code = "\n"
     module_template = MODULE_FORMAT
     user_s_class_attr = ''
     if os.path.exists(module_path):
-        module_code = utils.read(module_path)
-        if module_code.find(ALT_BEGIN_CODE) != -1:
-            module_code = module_code.replace(ALT_BEGIN_CODE, utils.BEGIN_CODE)
-        user_s_code = module_code.rsplit(utils.BEGIN_CODE, 1)[1]
+        global_user_s_code, user_s_class_attr, user_s_code = _user_code_zones(
+            utils.read(module_path))
         user_s_code = user_s_code.replace('{', '{{').replace('}', '}}')
-        global_user_s_code = module_code.rsplit(utils.END_CODE)[0].split(utils.BEGIN_CODE)[1]
         global_user_s_code = global_user_s_code.replace('{', '{{').replace('}', '}}')
-        user_s_class_attr = module_code.split(utils.BEGIN_CODE)[2].split(f'    {utils.END_CODE}')[0]
 
     user_s_class_attr = user_s_class_attr.replace('{', '{{').replace('}', '}}')
     return module_template.format(
@@ -550,9 +651,14 @@ def __assemble_module_template(module_path):
         user_s_code=user_s_code)
 
 
-def __update_this_module(
-        repo, relation, package_dir, package_name):
-    """Updates the module and generates corresponding test file."""
+def _relation_module(repo, relation, package_dir):
+    """The relation instance and the path parts of its module, or None when
+    the relation gets no module (hop internals, or a class half_orm cannot
+    build).
+
+    Shared by generate()'s pre-check and by the generation itself, so both
+    agree on which modules the database accounts for.
+    """
     _, fqtn = relation
     path = list(fqtn)
     if path[1].find('half_orm_meta') == 0:
@@ -565,6 +671,25 @@ def __update_this_module(
         sys.stderr.write(f"{err}\n{fqtn}\n")
         sys.stderr.flush()
         return None
+
+    path[0] = package_dir
+    # One directory per dotted part of the schema name, each of them a name
+    # and nothing else: left as it was, a schema called `/tmp/x` sent the
+    # module there, os.path.join dropping everything before an absolute part.
+    path[1] = os.sep.join(_safe_identifier(part) for part in path[1].split('.'))
+
+    path = [_to_valid_identifier(elt).lower() if i >= 2 else elt for i, elt in enumerate(path)]
+    return rel, path
+
+
+def __update_this_module(
+        repo, relation, package_dir, package_name):
+    """Updates the module and generates corresponding test file."""
+    found = _relation_module(repo, relation, package_dir)
+    if found is None:
+        return None
+    rel, path = found
+    fqtn = '.'.join(list(relation[1])[1:])
 
     fields = []
     kwargs = []
@@ -590,13 +715,6 @@ def __update_this_module(
     kwargs = ", ".join(kwargs)
     arg_names = ", ".join(arg_names)
 
-    path[0] = package_dir
-    # One directory per dotted part of the schema name, each of them a name
-    # and nothing else: left as it was, a schema called `/tmp/x` sent the
-    # module there, os.path.join dropping everything before an absolute part.
-    path[1] = os.sep.join(_safe_identifier(part) for part in path[1].split('.'))
-
-    path = [_to_valid_identifier(elt).lower() if i >= 2 else elt for i, elt in enumerate(path)]
     class_name = camel_case(path[-1])
     if class_name and class_name[0].isdigit():
         class_name = f'_{class_name}'
@@ -919,6 +1037,16 @@ def generate(repo):
         sys.stderr.write(f"{exc}\n")
 
     repo.database.model.reconnect(reload=True)
+
+    # Before writing anything: a module the database no longer accounts for
+    # is deleted further down, and must not take uncommitted work with it.
+    if package_dir.exists():
+        expected = set()
+        for relation in repo.database.model._relations():
+            found = _relation_module(repo, relation, str(package_dir))
+            if found is not None:
+                expected.add(f"{os.path.join(*found[1])}.py")
+        _check_obsolete_modules(repo, str(package_dir), expected)
 
     if not package_dir.exists():
         package_dir.mkdir(parents=True)

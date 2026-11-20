@@ -176,6 +176,24 @@ class HGit:
 
         return modified
 
+    def file_is_committed(self, relative_path) -> bool:
+        """Return True if *relative_path* is tracked and has no pending change.
+
+        In other words: whatever the file holds right now can be read back
+        from the repository, so deleting it loses nothing. Anything else -
+        untracked, modified, staged - answers False.
+
+        Args:
+            relative_path: Path relative to the repository root
+
+        Examples:
+            hgit.file_is_committed('mydb/public/author.py')
+        """
+        path = str(relative_path)
+        if not self.__git_repo.git.ls_files('--', path).strip():
+            return False  # untracked
+        return not self.__git_repo.git.status('--porcelain', '--', path).strip()
+
     def last_commit(self):
         """Returns the last commit
         """
