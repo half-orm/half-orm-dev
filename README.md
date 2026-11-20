@@ -4,26 +4,32 @@
 
 > **Please report any issues at [GitHub Issues](https://github.com/half-orm/half-orm-dev/issues)**
 
-> ### ⚠️ 2.0.0-a2 requires half-orm 2.0.1: upgrade
+> ### ⚠️ 2.0.0-a3: `patch apply` and `patch merge` stop instead of losing work
 >
-> half-orm 2.0.0 had a data-loss bug. `ho_update()` and `ho_delete()` on a
-> predicate built with `|`, `-` or `^` whose operands follow a foreign key
-> dropped the joins and touched other rows than the predicate denotes,
-> without an error: `(alices.rfk_posts() | bobs.rfk_posts()).ho_delete()`
-> deleted every post. The `delete_all` / `update_all` guard did not stop it.
+> **`patch apply` no longer deletes uncommitted business code.** A module whose
+> relation is absent from the database (its table created by another patch,
+> or by this one not applied yet) used to be deleted, with the code written in
+> it. `patch apply` now stops before modifying anything, and lists the modules
+> to put away: commit the work, move the file out of the package, or apply the
+> patch that creates the relation first. A module that holds generated code
+> only, or that git can give back, is still deleted.
 >
-> half-orm 2.0.1 fixes it (so do 1.2.2 and 0.18.15). half-orm-dev 2.0.0-a2
-> requires `half-orm>=2.0.1,<3`, so `pip install --upgrade half_orm_dev`
-> upgrades half-orm too.
+> **`patch merge` refuses a patch whose generated code is out of date.** Merge
+> validation regenerates the package: if anything moves, the merge stops. A
+> patch merged without `patch apply` after its last change used to bring stale
+> generated code into the release; a patch branch behind the release lost, in
+> the release, the generated code of the patches merged in between.
 >
-> **What to do:** upgrade, then look in your code for `ho_update()` or
-> `ho_delete()` called on such an expression. A write that used to update
-> nothing now updates the rows it names: check that this is what the code
-> meant. The repository migration that follows the upgrade (`half_orm dev`,
-> or `half_orm dev migrate`) shows this notice again, and warns if an older
-> half-orm is still the one imported.
-> Details in half-orm's
-> [CHANGELOG](https://github.com/half-orm/half-orm/blob/main/CHANGELOG.md).
+> **What changes for you:** a `patch merge` that used to pass may now be
+> refused, typically for a patch cut before another one was merged. Its
+> message gives the commands: on the patch branch, `git merge
+> ho-release/X.Y.Z` when it is behind (in generated files, keep either side),
+> then `half_orm dev patch apply`, commit, and merge again.
+>
+> **Upgrading from an earlier alpha?** This box describes the latest version
+> only. The repository migration that follows the upgrade (`half_orm dev`, or
+> `half_orm dev migrate`) shows the notice of every version since yours, in
+> order.
 
 **Git-centric patch management and PostgreSQL database versioning for half-orm projects**
 
