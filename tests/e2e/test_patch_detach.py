@@ -341,3 +341,30 @@ print(f"STATUS:{patch_info.get('status', 'NOT_FOUND')}")
         assert '91-first' not in toml and '92-second' not in toml
         for patch_id in ('91-first', '92-second'):
             assert (project_dir / 'Patches' / 'orphaned' / patch_id / '01_test.sql').exists()
+
+    def test_detach_syncs_ho_prod_under_the_lock(self, project_with_release):
+        """
+        `patch detach` holds the ho-prod lock: its sync commit goes through
+        ho-prod's hook, and ho-prod's TOML no longer lists the patch. The
+        lock is released afterwards.
+        """
+        env = project_with_release
+        run = env['run']
+        project_dir = env['project_dir']
+
+        run(['half_orm', 'dev', 'patch', 'create', '93-detached'])
+        run(['git', 'checkout', 'ho-patch/93-detached'])
+        (project_dir / 'Patches' / '93-detached' / '01_test.sql').write_text(
+            "CREATE TABLE t_93 (id INT);"
+        )
+        run(['git', 'add', '.'])
+        run(['git', 'commit', '-m', 'Patch 93', '--no-verify'])
+
+        run(['half_orm', 'dev', 'patch', 'detach', '--force'])
+
+        prod_toml = run(['git', 'show', 'ho-prod:.hop/releases/0.1.0-patches.toml']).stdout
+        assert '93-detached' not in prod_toml
+        assert run(['git', 'show', 'ho-prod:Patches/orphaned/93-detached/01_test.sql']
+                   ).stdout == "CREATE TABLE t_93 (id INT);"
+        assert run(['git', 'tag', '-l', 'lock-*']).stdout == ''
+        assert 'refs/tags/lock-' not in run(['git', 'ls-remote', '--tags', 'origin']).stdout

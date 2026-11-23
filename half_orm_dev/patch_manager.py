@@ -3042,7 +3042,19 @@ class PatchManager:
                 f"Failed to move patch to staged: {e}"
             )
 
+    @with_dynamic_branch_lock(lambda self, patch_id: "ho-prod")
     def detach_patch(self, patch_id: str) -> dict:
+        """
+        Detach a candidate patch from its release, under the ho-prod lock.
+
+        The lock lets the sync commit through ho-prod's pre-commit hook:
+        without it, ho-prod kept the release TOML with the patch still
+        listed. Callers already holding the lock (`release promote prod`)
+        use _detach_patch().
+        """
+        return self._detach_patch(patch_id)
+
+    def _detach_patch(self, patch_id: str) -> dict:
         """
         Detach a candidate patch from its release (move to orphaned/).
 
@@ -3110,7 +3122,15 @@ class PatchManager:
             'orphaned_path': str(new_path)
         }
 
+    @with_dynamic_branch_lock(lambda self, patch_id, version: "ho-prod")
     def attach_patch(self, patch_id: str, version: str) -> dict:
+        """
+        Attach an orphaned patch to a release, under the ho-prod lock (cf.
+        detach_patch).
+        """
+        return self._attach_patch(patch_id, version)
+
+    def _attach_patch(self, patch_id: str, version: str) -> dict:
         """
         Attach an orphaned patch to a release (move from orphaned/ to root).
 

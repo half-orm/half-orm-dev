@@ -96,6 +96,10 @@ class TestPromoteProdDetachesCandidates:
         assert tomllib.loads(toml)['patches'] == {'2-candidate': {'status': 'candidate'}}
         assert run(['git', 'show', 'ho-release/0.1.1:Patches/2-candidate/01_table.sql']
                    ).stdout == CANDIDATE_SQL
+        # Attached under the ho-prod lock: ho-prod's TOML follows, no lock left.
+        prod_toml = run(['git', 'show', 'ho-prod:.hop/releases/0.1.1-patches.toml']).stdout
+        assert tomllib.loads(prod_toml)['patches'] == {'2-candidate': {'status': 'candidate'}}
+        assert run(['git', 'tag', '-l', 'lock-*']).stdout == ''
 
     def test_declined_attachment_leaves_the_candidate_orphaned(self, project_with_release):
         run = project_with_release['run']

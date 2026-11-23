@@ -2348,7 +2348,8 @@ class ReleaseManager:
         # and propagated to the other active branches.
         for patch_id in candidates:
             self._repo.hgit.checkout(f"ho-patch/{patch_id}")
-            self._repo.patch_manager.detach_patch(patch_id)
+            # The promotion holds the ho-prod lock already: the unlocked form.
+            self._repo.patch_manager._detach_patch(patch_id)
             print(f"  {utils.Color.green('✓')} Detached {patch_id}")
         self._repo.hgit.checkout(release_branch)
         return candidates

@@ -58,7 +58,7 @@ def test_declined_detach_cancels_the_promotion(mock_print, release_manager):
         with pytest.raises(ReleaseManagerError, match="Promotion cancelled"):
             rel_mgr.promote_to_prod()
 
-    repo.patch_manager.detach_patch.assert_not_called()
+    repo.patch_manager._detach_patch.assert_not_called()
     repo.hgit.merge.assert_not_called()
 
 
@@ -68,16 +68,16 @@ def test_accepted_detach_detaches_each_candidate_from_its_branch(mock_print, rel
     _add_candidates(release_file, "43-bugfix", "44-other")
     events = Mock()
     events.attach_mock(repo.hgit.checkout, 'checkout')
-    events.attach_mock(repo.patch_manager.detach_patch, 'detach_patch')
+    events.attach_mock(repo.patch_manager._detach_patch, '_detach_patch')
 
     with patch('builtins.input', return_value='y'):
         result = rel_mgr.promote_to_prod()
 
     assert events.mock_calls[:5] == [
         call.checkout("ho-patch/43-bugfix"),
-        call.detach_patch("43-bugfix"),
+        call._detach_patch("43-bugfix"),
         call.checkout("ho-patch/44-other"),
-        call.detach_patch("44-other"),
+        call._detach_patch("44-other"),
         call.checkout("ho-release/0.17.1"),
     ]
     assert result['detached_patches'] == ["43-bugfix", "44-other"]
@@ -103,6 +103,6 @@ def test_without_candidates_nothing_is_asked(mock_print, release_manager):
         result = rel_mgr.promote_to_prod()
 
     mock_input.assert_not_called()
-    repo.patch_manager.detach_patch.assert_not_called()
+    repo.patch_manager._detach_patch.assert_not_called()
     assert result['version'] == "0.17.1"
     assert result['detached_patches'] == []
