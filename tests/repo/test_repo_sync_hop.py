@@ -485,5 +485,5 @@ class TestSyncHopStaleAndErrors:
         assert 'ho-patch/151-active' in result['synced_branches']
         # ho-prod error collected as warning, not raised
         assert any('ho-prod' in e for e in result['errors'])
-        # staged state was cleaned (reset HEAD called)
-        repo.hgit._HGit__git_repo.git.reset.assert_any_call('HEAD')
+        # ho-prod put back as it was, files brought by the sync included
+        repo.hgit._HGit__git_repo.git.reset.assert_any_call('--hard', 'HEAD')

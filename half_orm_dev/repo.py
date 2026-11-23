@@ -851,11 +851,15 @@ class Repo:
             except Exception as e:
                 if branch == 'ho-prod':
                     # ho-prod may have a protective hook that blocks direct
-                    # commits. Clean up staged state so the next checkout
-                    # succeeds, then skip gracefully.
+                    # commits. Put ho-prod back as it was so the next
+                    # checkout succeeds, then skip gracefully. --hard also
+                    # removes the files the sync brought from the source
+                    # branch (additional_files, e.g. Patches/orphaned/<id>):
+                    # left untracked, they block checking out a branch that
+                    # tracks them. The working tree was clean before the
+                    # sync, so nothing else is lost.
                     try:
-                        self.hgit._HGit__git_repo.git.reset('HEAD')
-                        self.hgit._HGit__git_repo.git.checkout('--', '.hop/')
+                        self.hgit._HGit__git_repo.git.reset('--hard', 'HEAD')
                     except Exception:
                         pass
                     original_shas.pop('ho-prod', None)

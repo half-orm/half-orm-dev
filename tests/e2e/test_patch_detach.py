@@ -302,3 +302,42 @@ print(f"STATUS:{patch_info.get('status', 'NOT_FOUND')}")
         toml_content = toml_file.read_text()
         assert '81-first' not in toml_content, "First patch should be removed"
         assert '82-second' in toml_content, "Second patch should be preserved"
+    def test_detach_two_patches_one_after_the_other(self, project_with_release):
+        """
+        Detaching a second patch after a first one succeeds and leaves the
+        working tree clean.
+
+        ho-prod's pre-commit hook refuses the sync commit of a detach (no
+        lock is held). Cleaning up after that refusal used to restore .hop/
+        only: Patches/orphaned/<first> stayed in the working tree, untracked,
+        and the second detach failed checking out the release branch, which
+        tracks it ("untracked working tree files would be overwritten").
+        """
+        env = project_with_release
+        run = env['run']
+        project_dir = env['project_dir']
+
+        for patch_id in ('91-first', '92-second'):
+            run(['git', 'checkout', 'ho-release/0.1.0'])
+            run(['half_orm', 'dev', 'patch', 'create', patch_id])
+            run(['git', 'checkout', f'ho-patch/{patch_id}'])
+            (project_dir / 'Patches' / patch_id / '01_test.sql').write_text(
+                f"CREATE TABLE t_{patch_id.replace('-', '_')} (id INT);"
+            )
+            run(['git', 'add', '.'])
+            run(['git', 'commit', '-m', f'Patch {patch_id}', '--no-verify'])
+
+        for patch_id in ('91-first', '92-second'):
+            run(['git', 'checkout', f'ho-patch/{patch_id}'])
+            result = run(['half_orm', 'dev', 'patch', 'detach', '--force'], check=False)
+            assert result.returncode == 0, (
+                f"detach {patch_id} failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+            )
+            status = run(['git', 'status', '--porcelain', '--untracked-files=all']).stdout
+            assert status == '', f"working tree not clean after detaching {patch_id}:\n{status}"
+
+        run(['git', 'checkout', 'ho-release/0.1.0'])
+        toml = (project_dir / '.hop' / 'releases' / '0.1.0-patches.toml').read_text()
+        assert '91-first' not in toml and '92-second' not in toml
+        for patch_id in ('91-first', '92-second'):
+            assert (project_dir / 'Patches' / 'orphaned' / patch_id / '01_test.sql').exists()
