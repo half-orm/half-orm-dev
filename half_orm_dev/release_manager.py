@@ -2278,9 +2278,7 @@ class ReleaseManager:
 
         is_prod = (target == 'prod')
         version, release_file, release_branch, temp_branch = self._promote_setup(target, is_prod)
-        candidates, migrate_candidates, next_patch_version = self._promote_handle_candidates(
-            version, release_file, is_prod
-        )
+        detached = self._promote_handle_candidates(version, release_file, release_branch, is_prod)
         rc_number, tag, tag_message, commit_msg = self._promote_build_tag(version, target, is_prod)
 
         original_branch = self._repo.hgit.branch
@@ -2296,8 +2294,7 @@ class ReleaseManager:
                 self._promote_execute_rc(version, rc_number, release_branch, temp_branch, commit_msg, release_file)
 
             return self._promote_finalize(
-                version, tag, tag_message, target, is_prod,
-                release_branch, candidates, migrate_candidates, next_patch_version
+                version, tag, tag_message, target, is_prod, release_branch, detached
             )
 
         except Exception as e:
@@ -2319,18 +2316,42 @@ class ReleaseManager:
         return version, release_file, f"ho-release/{version}", f"ho-promote/{version}-{target}"
 
     def _promote_handle_candidates(
-        self, version: str, release_file, is_prod: bool
-    ) -> tuple:
-        """For prod: detect candidate patches and prompt for migration."""
+        self, version: str, release_file, release_branch: str, is_prod: bool
+    ) -> list:
+        """For prod: detach the candidate patches, once the user agrees.
+
+        A release goes to production with its staged patches only. Each
+        candidate is detached from its own branch (cf. `patch detach` and
+        PatchManager.detach_patch): out of the TOML, its directory moved to
+        Patches/orphaned/, its branch kept. `release create` offers to
+        attach it to the next release (or `release attach-patch`, later).
+
+        Each detachment is committed and pushed on its own, before the
+        promotion: if the promotion fails afterwards, the patches stay
+        detached, which is a consistent state.
+
+        Returns:
+            The detached patch IDs.
+
+        Raises:
+            ReleaseManagerError: If the user declines.
+        """
         if not is_prod:
-            return [], False, None
+            return []
         candidates = release_file.get_patches(status="candidate")
-        migrate_candidates = False
-        next_patch_version = None
-        if candidates:
-            next_patch_version = self._calculate_next_patch_version(version)
-            migrate_candidates = self._prompt_candidate_migration(version, candidates, next_patch_version)
-        return candidates, migrate_candidates, next_patch_version
+        if not candidates:
+            return []
+
+        self._prompt_candidate_detach(version, candidates)
+        # From each patch branch, as `patch detach` does: the patch's
+        # directory, with its work, is the one moved to Patches/orphaned/
+        # and propagated to the other active branches.
+        for patch_id in candidates:
+            self._repo.hgit.checkout(f"ho-patch/{patch_id}")
+            self._repo.patch_manager.detach_patch(patch_id)
+            print(f"  {utils.Color.green('✓')} Detached {patch_id}")
+        self._repo.hgit.checkout(release_branch)
+        return candidates
 
     def _promote_build_tag(
         self, version: str, target: str, is_prod: bool
@@ -2438,9 +2459,9 @@ class ReleaseManager:
 
     def _promote_finalize(
         self, version: str, tag: str, tag_message: str, target: str, is_prod: bool,
-        release_branch: str, candidates: list, migrate_candidates: bool, next_patch_version
+        release_branch: str, detached: list
     ) -> dict:
-        """Push/sync, tag, cleanup branches, migrate candidates, build result."""
+        """Push/sync, tag, cleanup branches, build result."""
         current_branch = self._repo.hgit.branch
         self._repo.hgit.push_branch(current_branch)
         self._repo.sync_hop_to_active_branches(reason=f"promote {version} to {target}")
@@ -2454,10 +2475,6 @@ class ReleaseManager:
         deleted_branches = []
         if is_prod:
             deleted_branches = self._cleanup_release_branch(release_branch)
-
-        if is_prod and migrate_candidates and next_patch_version:
-            print(f"\n{utils.Color.bold('🔄 Migrating candidates to ' + next_patch_version + '...')}")
-            self._migrate_candidates_to_new_release(candidates, version, next_patch_version)
 
         if is_prod:
             # Create immutable production branch and push to remote so production
@@ -2474,8 +2491,7 @@ class ReleaseManager:
         if is_prod:
             result['deleted_branches'] = deleted_branches
             result['prod_branch'] = f"ho-prod-{version}"
-            result['migrated_to'] = next_patch_version if migrate_candidates else None
-            result['migrated_patches'] = candidates if migrate_candidates else []
+            result['detached_patches'] = detached
             # Lock migration revert: delete all ho-migration/* tags so that
             # revert_migration() is no longer possible after going to production.
             for t in list(self._repo.hgit._HGit__git_repo.tags):
@@ -2668,40 +2684,26 @@ class ReleaseManager:
         except (GitCommandError, TypeError) as cleanup_error:
             print(f"  Warning: Cleanup failed: {cleanup_error}", file=sys.stderr)
 
-    def _calculate_next_patch_version(self, version: str) -> str:
-        """Calculate next patch version (X.Y.Z → X.Y.Z+1)."""
-        parts = version.split('.')
-        if len(parts) != 3:
-            raise ReleaseManagerError(f"Invalid version format: {version}")
-        major, minor, patch = map(int, parts)
-        return f"{major}.{minor}.{patch + 1}"
-
-    def _prompt_candidate_migration(
-        self, version: str, candidates: list, next_patch_version: str
-    ) -> bool:
-        """Prompt user for candidate migration decision."""
+    def _prompt_candidate_detach(self, version: str, candidates: list) -> None:
+        """Ask before detaching the candidate patches (cf. _promote_handle_candidates)."""
         print(f"\n{utils.Color.bold('⚠️  Candidate patches detected:')}")
         print(f"  Release {version} has {len(candidates)} candidate patch(es):")
         for patch_id in candidates:
             print(f"    • {patch_id}")
         print()
-        print(f"{utils.Color.bold('Migration to new release ' + utils.Color.green(next_patch_version) + '?')}")
-        print(f"  → Current release {version} will be promoted to production")
-        print(f"  → Candidates will be rebased onto new release {next_patch_version}")
-        print(f"  → Patch branches will be force-pushed to origin")
+        print(f"  → Release {version} goes to production with its staged patches only")
+        print(f"  → Candidates are detached: their branches are kept, and")
+        print(f"    `half_orm dev release create` will offer to attach them to the next release")
         print()
 
-        response = input(f"Migrate candidates to {next_patch_version}? [y/N]: ").strip().lower()
+        response = input("Detach the candidate patches? [y/N]: ").strip().lower()
 
-        if response in ('y', 'yes'):
-            print(f"\n✓ Will migrate {len(candidates)} candidate(s) to {next_patch_version}")
-            return True
-        else:
+        if response not in ('y', 'yes'):
             raise ReleaseManagerError(
                 f"Promotion cancelled.\n"
                 f"To proceed, either:\n"
                 f"  1. Merge candidate patches: git checkout ho-patch/<patch_id> && half_orm dev patch merge\n"
-                f"  2. Accept candidate migration when prompted"
+                f"  2. Accept to detach them when prompted"
             )
 
     def _create_rc_snapshot(
@@ -2842,12 +2844,13 @@ class ReleaseManager:
         Promote stage release to production.
 
         Merges the release branch into ho-prod and finalizes:
-        1. Merge ho-release/{version} into ho-prod
-        2. Apply all patches (RCs + stage) and generate schema
-        3. Create X.Y.Z.txt, delete TOML patches file
-        4. Create production tag on ho-prod
-        5. Delete release branch (ho-release/{version})
-        6. Optionally migrate candidates to next patch version
+        1. Detach the candidate patches, once the user agrees (cf.
+           _promote_handle_candidates)
+        2. Merge ho-release/{version} into ho-prod
+        3. Apply all patches (RCs + stage) and generate schema
+        4. Create X.Y.Z.txt, delete TOML patches file
+        5. Create production tag on ho-prod
+        6. Delete release branch (ho-release/{version})
 
         RC files are preserved for historical tracking.
 
@@ -2856,8 +2859,7 @@ class ReleaseManager:
                 - version: The version
                 - tag: The production tag
                 - deleted_branches: List of deleted branches
-                - migrated_to: Next version if candidates migrated
-                - migrated_patches: List of migrated patch IDs
+                - detached_patches: Candidate patches detached before promotion
 
         Raises:
             ReleaseManagerError: If promotion fails
@@ -2869,136 +2871,6 @@ class ReleaseManager:
             # → Deletes TOML, creates 0.1.0.txt
         """
         return self._promote('prod')
-
-    def _migrate_candidates_to_new_release(
-        self,
-        candidates: list,
-        source_version: str,
-        target_version: str
-    ) -> None:
-        """
-        Migrate candidate patches to a new release version.
-
-        This method:
-        1. Creates new release branch from ho-prod
-        2. Rebases each candidate patch branch onto the new release
-        3. Force-pushes rebased branches to origin
-        4. Creates new TOML file with migrated candidates and metadata
-        5. Deletes old TOML file
-
-        Args:
-            candidates: List of candidate patch IDs
-            source_version: Source release version (e.g., "0.17.1")
-            target_version: Target release version (e.g., "0.17.2")
-
-        Raises:
-            ReleaseManagerError: If migration fails
-        """
-
-        source_release_branch = f"ho-release/{source_version}"
-        target_release_branch = f"ho-release/{target_version}"
-
-        try:
-            # 1. Create new release branch from ho-prod
-            print(f"  → Creating release branch {target_release_branch}...")
-            self._repo.hgit.checkout("ho-prod")
-            self._repo.hgit.checkout("-b", target_release_branch)
-            self._repo.hgit.push_branch(target_release_branch, set_upstream=True)
-            print(f"    {utils.Color.green('✓')} Created {target_release_branch}")
-
-            # 2. Rebase each candidate patch branch
-            rebased_commits = {}
-            print(f"\n  → Rebasing {len(candidates)} candidate patch(es)...")
-
-            for patch_id in candidates:
-                patch_branch = f"ho-patch/{patch_id}"
-                print(f"    • {patch_id}...", end=" ", flush=True)
-
-                try:
-                    # Checkout patch branch
-                    self._repo.hgit.checkout(patch_branch)
-
-                    # Rebase onto new release: git rebase --onto target source patch_branch
-                    # This moves commits from source to target
-                    self._repo.hgit.rebase(
-                        "--onto",
-                        target_release_branch,
-                        source_release_branch,
-                        patch_branch
-                    )
-
-                    # Get SHA of rebased commit
-                    sha = self._repo.hgit.get_repo().head.commit.hexsha[:8]
-                    rebased_commits[patch_id] = sha
-
-                    # Force-push rebased branch to origin
-                    self._repo.hgit.push_branch(patch_branch, force=True)
-
-                    print(f"{utils.Color.green('✓')} (SHA: {sha})")
-
-                except Exception as e:
-                    # Try to abort rebase if it failed
-                    try:
-                        self._repo.hgit.rebase("--abort")
-                    except GitCommandError:
-                        pass
-
-                    print(f"{utils.Color.red('✗ FAILED')}")
-                    raise ReleaseManagerError(
-                        f"Failed to rebase patch {patch_id}: {e}\n"
-                        f"Please resolve conflicts manually and run:\n"
-                        f"  git rebase --continue\n"
-                        f"  git push origin {patch_branch} --force"
-                    )
-
-            # 3. Create new TOML file with candidates and metadata
-            print(f"\n  → Creating {target_version}-patches.toml...")
-            target_release_file = ReleaseFile(target_version, self._releases_dir)
-            target_release_file.create_empty()
-
-            # Add all candidates to new release
-            for patch_id in candidates:
-                target_release_file.add_patch(patch_id)
-
-            # Set migration metadata
-            metadata = {
-                "created_from_promotion": True,
-                "source_version": source_version,
-                "migrated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "rebased_commits": rebased_commits
-            }
-            target_release_file.set_metadata(metadata)
-            print(f"    {utils.Color.green('✓')} Created with {len(candidates)} candidate(s)")
-
-            # 4. Commit the new TOML file
-            self._repo.hgit.checkout(target_release_branch)
-            self._repo.hgit.add(str(target_release_file.file_path))
-
-            # 5. Delete old TOML file
-            source_release_file = ReleaseFile(source_version, self._releases_dir)
-            if source_release_file.file_path.exists():
-                source_release_file.file_path.unlink()
-                self._repo.hgit.add(str(source_release_file.file_path))
-                print(f"    {utils.Color.green('✓')} Deleted {source_version}-patches.toml")
-
-            # 6. Commit changes
-            self._repo.hgit.commit(
-                "-m",
-                f"[HOP] Migrate {len(candidates)} candidate(s) from %{source_version} to %{target_version}"
-            )
-            self._repo.hgit.push_branch(target_release_branch)
-
-            print(f"\n{utils.Color.green('✓ Migration complete!')}")
-            print(f"  • {len(candidates)} patch(es) migrated to {target_version}")
-            print(f"  • All patch branches rebased and force-pushed to origin")
-            print(f"\n{utils.Color.bold('⚠️  IMPORTANT:')}")
-            print(f"  Developers working on these patches must sync their local branches:")
-            print(f"  Run: {utils.Color.bold('half_orm dev check')}")
-
-        except ReleaseManagerError:
-            raise
-        except Exception as e:
-            raise ReleaseManagerError(f"Failed to migrate candidates: {e}")
 
     def _get_latest_label_number(self, version: str, label: str) -> int:
         """

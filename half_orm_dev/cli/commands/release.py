@@ -39,6 +39,42 @@ def release():
     pass
 
 
+def _offer_to_attach_orphaned_patches(repo, version: str, branch: str) -> None:
+    """
+    Offer to attach each detached (orphaned) patch to the new release.
+
+    Candidates left out of a production release are detached (cf.
+    `release promote prod`); attaching them back is proposed, never
+    automatic: a patch declined here stays orphaned, and
+    `release attach-patch` attaches it later.
+    """
+    orphaned = sorted(
+        patch_id
+        for patch_id, info in repo.patch_manager.get_patch_status_map().items()
+        if info.get('status') == 'orphaned'
+    )
+    if not orphaned:
+        return
+
+    click.echo(f"{utils.Color.bold('Detached patches')} (Patches/orphaned/):")
+    for patch_id in orphaned:
+        click.echo(f"  • {patch_id}")
+    click.echo()
+
+    for patch_id in orphaned:
+        if click.confirm(f"Attach {patch_id} to {version}?", default=False):
+            repo.hgit.checkout(branch)
+            try:
+                repo.patch_manager.attach_patch(patch_id, version)
+            except PatchManagerError as e:
+                # The release exists: a failed attachment leaves the patch
+                # orphaned, to attach later with `release attach-patch`.
+                click.echo(utils.Color.red(f"  ✗ {patch_id} not attached: {e}"), err=True)
+                continue
+            click.echo(f"  {utils.Color.green('✓')} {patch_id} attached to {version} (candidate)")
+    click.echo()
+
+
 @release.command('create')
 @click.argument(
     'level',
@@ -126,6 +162,8 @@ def release_create(level: str) -> None:
         click.echo()
         click.echo(f"ℹ️  You are now on {utils.Color.bold(branch)} - patches will be merged here")
         click.echo()
+
+        _offer_to_attach_orphaned_patches(repo, version, branch)
 
     except ReleaseManagerError as e:
         # Handle validation errors (branch, clean, sync, etc.)
