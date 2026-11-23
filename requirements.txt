@@ -1,2 +1,2 @@
-half-orm>=2.0.1,<3
+half-orm>=2.1.0,<3
 tomli_w>=1.0.0
