@@ -121,3 +121,29 @@ class TestPromoteProdDetachesCandidates:
         toml = run(['git', 'show', 'ho-release/0.1.0:.hop/releases/0.1.0-patches.toml']).stdout
         assert tomllib.loads(toml)['patches']['2-candidate'] == {'status': 'candidate'}
 
+    def test_promote_after_patch_detach(self, project_with_release):
+        """
+        A candidate detached beforehand with `patch detach` does not block
+        the promotion.
+
+        ho-prod's hook refuses the sync commit of `patch detach` (no lock is
+        held), so ho-prod keeps the release TOML as it was, the detached
+        patch still listed. Merging the release into ho-prod then conflicted
+        on that TOML, which the promotion deletes right after: the release
+        branch's version is taken.
+        """
+        project_dir, run = project_with_release['project_dir'], project_with_release['run']
+        self._release_with_a_staged_patch_and_a_candidate(project_with_release)
+
+        run(['git', 'checkout', 'ho-patch/2-candidate'])
+        run(['half_orm', 'dev', 'patch', 'detach', '--force'])
+        run(['git', 'checkout', 'ho-release/0.1.0'])
+
+        result = run(['half_orm', 'dev', 'release', 'promote', 'prod'], check=False)
+        assert result.returncode == 0, (
+            f"promote prod failed:\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}"
+        )
+        assert run(['git', 'show', 'ho-prod:.hop/releases/0.1.0.txt']).stdout == '1-merged\n'
+        assert run(['git', 'show', 'ho-prod:Patches/orphaned/2-candidate/01_table.sql']
+                   ).stdout == CANDIDATE_SQL
+        assert run(['git', 'status', '--porcelain']).stdout == ''

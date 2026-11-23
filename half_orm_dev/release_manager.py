@@ -2411,13 +2411,23 @@ class ReleaseManager:
         try:
             self._repo.hgit.merge(release_branch, no_commit=True)
         except GitCommandError:
-            # ho_baseclasses.py is auto-generated and may conflict when the
-            # file was introduced by a half_orm_dev migration AFTER the release
-            # branch was cut (CONFLICT add/add).  The release branch always
-            # holds the correct post-patch version, so we take --theirs.
+            # Conflicts the release branch settles, so we take --theirs:
+            # - ho_baseclasses.py is auto-generated and may conflict when the
+            #   file was introduced by a half_orm_dev migration AFTER the
+            #   release branch was cut (CONFLICT add/add). The release branch
+            #   always holds the correct post-patch version.
+            # - The release TOML: ho-prod's copy is stale when a sync commit
+            #   was refused on it (its hook blocks commits without the lock,
+            #   e.g. the sync of `patch detach`), so it may still list
+            #   detached patches. The release branch's copy is the truth, the
+            #   staged patches are read from it below, and the snapshot
+            #   deletes it.
             git_repo = self._repo.hgit._HGit__git_repo
             conflicted = git_repo.git.diff('--name-only', '--diff-filter=U').splitlines()
-            auto_generated = {f'{self._repo.name}/ho_baseclasses.py'}
+            auto_generated = {
+                f'{self._repo.name}/ho_baseclasses.py',
+                f'.hop/releases/{version}-patches.toml',
+            }
             unexpected = set(conflicted) - auto_generated
             if unexpected:
                 raise ReleaseManagerError(
@@ -2430,7 +2440,7 @@ class ReleaseManager:
                 git_repo.git.checkout('--theirs', path)
                 git_repo.git.add(path)
             click.echo(
-                f"  ℹ Resolved add/add conflict in {', '.join(conflicted)} "
+                f"  ℹ Resolved conflict in {', '.join(conflicted)} "
                 f"(took release branch version)"
             )
 
