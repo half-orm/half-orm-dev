@@ -147,3 +147,40 @@ class TestPromoteProdDetachesCandidates:
         assert run(['git', 'show', 'ho-prod:Patches/orphaned/2-candidate/01_table.sql']
                    ).stdout == CANDIDATE_SQL
         assert run(['git', 'status', '--porcelain']).stdout == ''
+
+
+@pytest.mark.integration
+class TestPromoteProdRollback:
+
+    def test_failed_merge_is_rolled_back(self, project_with_release):
+        """
+        A promotion that fails on a merge conflict leaves the repository as
+        it was: no merge in progress, nothing staged.
+
+        The rollback checked out each branch of its snapshot first, which git
+        refuses during a conflicted merge: every reset failed, silently, and
+        ho-prod stayed MERGING with the release's files staged.
+        """
+        project_dir, run = project_with_release['project_dir'], project_with_release['run']
+
+        # The same file, changed differently on ho-prod and on the release.
+        run(['git', 'checkout', 'ho-prod'])
+        (project_dir / 'conflict.txt').write_text('ho-prod\n')
+        run(['git', 'add', 'conflict.txt'])
+        run(['git', 'commit', '--no-verify', '-m', 'ho-prod side'])
+        run(['git', 'push', 'origin', 'ho-prod'])
+        prod_sha = run(['git', 'rev-parse', 'ho-prod']).stdout
+
+        run(['git', 'checkout', 'ho-release/0.1.0'])
+        (project_dir / 'conflict.txt').write_text('release\n')
+        run(['git', 'add', 'conflict.txt'])
+        run(['git', 'commit', '-m', 'release side'])
+        run(['git', 'push', 'origin', 'ho-release/0.1.0'])
+
+        result = run(['half_orm', 'dev', 'release', 'promote', 'prod'], check=False)
+
+        assert result.returncode != 0
+        assert 'conflict.txt' in result.stderr
+        assert not (project_dir / '.git' / 'MERGE_HEAD').exists()
+        assert run(['git', 'status', '--porcelain']).stdout == ''
+        assert run(['git', 'rev-parse', 'ho-prod']).stdout == prod_sha

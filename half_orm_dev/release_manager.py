@@ -2662,10 +2662,13 @@ class ReleaseManager:
         """Best-effort rollback after a promotion failure."""
         print(f"\n{utils.Color.red('⚠ Promotion failed, rolling back...')}")
         try:
-            # reset --hard on all snapshot branches aborts any in-progress
-            # --no-commit merge and restores working-tree files in one step,
-            # replacing the former merge_abort + checkout HEAD -- . sequence.
-            self._repo.hgit.rollback_to_snapshot()
+            # Aborts an in-progress --no-commit merge, then resets every
+            # snapshot branch (reset --hard) to its captured SHA. Its errors
+            # are reported: a silent failure left ho-prod MERGING while this
+            # message said the promotion was rolled back.
+            rollback = self._repo.hgit.rollback_to_snapshot()
+            for branch, message in rollback.get('errors', []):
+                print(f"  ⚠ Rollback of {branch} failed: {message}", file=sys.stderr)
 
             try:
                 self._repo.hgit.checkout(original_branch)

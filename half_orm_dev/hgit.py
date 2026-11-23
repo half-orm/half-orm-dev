@@ -378,6 +378,19 @@ class HGit:
                 '(snapshot capture likely failed earlier; see stderr warning)'
             ))
 
+        # A merge stopped on conflicts (e.g. promote's --no-commit merge into
+        # ho-prod) makes git refuse every checkout below: abort it first.
+        try:
+            self.__git_repo.git.rev_parse('-q', '--verify', 'MERGE_HEAD')
+            merging = True
+        except GitCommandError:
+            merging = False
+        if merging:
+            try:
+                self.__git_repo.git.merge('--abort')
+            except Exception as e:
+                result['errors'].append(('__merge_abort__', str(e)))
+
         for branch, sha in target.items():
             try:
                 self.__git_repo.heads[branch].checkout()

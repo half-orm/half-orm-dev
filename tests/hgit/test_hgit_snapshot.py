@@ -5,7 +5,7 @@ Tests for HGit snapshot API:
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, call
 from git.exc import GitCommandError
 
 from half_orm_dev.hgit import HGit
@@ -190,6 +190,35 @@ class TestRollbackToSnapshot:
         assert set(result['reset']) == set(snapshot.keys())
         assert result['errors'] == []
         hgit._HGit__git_repo.heads.__getitem__.assert_called_with('ho-prod')
+
+    def test_aborts_a_merge_in_progress_before_resetting(self, hgit):
+        """A conflicted merge (promote's --no-commit merge) makes git refuse
+        the checkouts: it is aborted first."""
+        _mock_active_branch(hgit, 'ho-prod')
+        events = Mock()
+        hgit._HGit__git_repo.git = events.git
+        hgit._HGit__git_repo.heads.__getitem__ = Mock(return_value=events.head)
+
+        result = hgit.rollback_to_snapshot({'ho-prod': 'sha-prod'})
+
+        assert result['errors'] == []
+        assert events.mock_calls[:4] == [
+            call.git.rev_parse('-q', '--verify', 'MERGE_HEAD'),
+            call.git.merge('--abort'),
+            call.head.checkout(),
+            call.git.reset('--hard', 'sha-prod'),
+        ]
+
+    def test_does_not_abort_without_a_merge_in_progress(self, hgit):
+        _mock_active_branch(hgit, 'ho-prod')
+        hgit._HGit__git_repo.git.rev_parse = Mock(
+            side_effect=GitCommandError('rev-parse', 1)
+        )
+        hgit._HGit__git_repo.heads.__getitem__ = Mock(return_value=Mock())
+
+        hgit.rollback_to_snapshot({'ho-prod': 'sha-prod'})
+
+        hgit._HGit__git_repo.git.merge.assert_not_called()
 
     def test_uses_stored_snapshot_when_no_arg(self, hgit):
         _mock_active_branch(hgit, 'ho-prod')
