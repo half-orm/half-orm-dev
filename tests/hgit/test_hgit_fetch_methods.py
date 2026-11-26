@@ -34,6 +34,7 @@ class TestHGitTagMethods:
 
         # Mock remote
         mock_origin = Mock()
+        mock_origin.push.return_value = []
         mock_git_repo.remote.return_value = mock_origin
 
         # Fetch tags
@@ -136,6 +137,7 @@ class TestHGitTagMethods:
 
         # Mock remote
         mock_origin = Mock()
+        mock_origin.push.return_value = []
         mock_git_repo.remote.return_value = mock_origin
 
         # Push tag

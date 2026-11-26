@@ -92,6 +92,7 @@ class TestHGitRemoteMethods:
 
         # Mock remote
         mock_origin = Mock()
+        mock_origin.push.return_value = []
         mock_git_repo.remote.return_value = mock_origin
 
         # Push with upstream
@@ -110,6 +111,7 @@ class TestHGitRemoteMethods:
 
         # Mock remote
         mock_origin = Mock()
+        mock_origin.push.return_value = []
         mock_git_repo.remote.return_value = mock_origin
 
         # Push without upstream
@@ -170,6 +172,7 @@ class TestHGitRemoteMethods:
 
         # Mock remote
         mock_origin = Mock()
+        mock_origin.push.return_value = []
         mock_git_repo.remote.return_value = mock_origin
 
         # Test various branch names

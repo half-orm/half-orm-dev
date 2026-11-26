@@ -324,6 +324,75 @@ class TestRepoSyncHop:
             '--hard', 'origin/ho-patch/9-other'
         )
 
+    def test_sync_skips_diverged_branch(self, mock_repo):
+        """A branch that diverged from origin gets no sync commit.
+
+        Its history was rewritten on origin (or locally): a commit on the
+        local history could not be pushed, and forcing it would undo the
+        rewrite. The branch is reported in errors, the others are synced.
+        """
+        repo, tmp_path = mock_repo
+        repo.hgit.branch = 'ho-prod'
+
+        repo.hgit.get_active_branches_status.return_value = {
+            'patch_branches': [{'name': 'ho-patch/9-rewritten'}, {'name': 'ho-patch/10-ok'}],
+            'release_branches': [],
+            'staged_branches': [],
+        }
+        repo.hgit.is_branch_synced = Mock(side_effect=lambda b: (
+            (False, "diverged") if b == 'ho-patch/9-rewritten' else (True, "synced")
+        ))
+
+        repo.hgit.checkout = Mock()
+        repo.hgit.add = Mock()
+        repo.hgit.commit = Mock()
+        repo.hgit.push_branch = Mock()
+        repo.hgit._HGit__git_repo.git.checkout = Mock()
+        repo.hgit._HGit__git_repo.git.reset = Mock()
+        repo.hgit._HGit__git_repo.git.status = Mock(return_value='M .hop/config\n')
+
+        with patch('half_orm_dev.repo.Config') as MockConfig:
+            MockConfig.return_value = repo.config
+            result = repo.sync_hop_to_active_branches("update")
+
+        repo.hgit._HGit__git_repo.git.reset.assert_not_called()
+        repo.hgit.commit.assert_called_once()
+        repo.hgit.push_branch.assert_called_once_with('ho-patch/10-ok')
+        assert any('ho-patch/9-rewritten' in e and 'diverged' in e for e in result['errors'])
+        assert result['synced_branches'] == ['ho-patch/10-ok']
+
+    def test_sync_keeps_recovery_ref_when_push_refused(self, mock_repo):
+        """A refused push is an error: the branch is not reported synced
+        and its recovery ref refs/hop/sync/before/<branch> is kept."""
+        from git.exc import GitCommandError
+        repo, tmp_path = mock_repo
+        repo.hgit.branch = 'ho-prod'
+
+        repo.hgit.get_active_branches_status.return_value = {
+            'patch_branches': [{'name': 'ho-patch/11-x'}],
+            'release_branches': [],
+            'staged_branches': [],
+        }
+        repo.hgit.is_branch_synced = Mock(return_value=(True, "synced"))
+        repo.hgit.checkout = Mock()
+        repo.hgit.add = Mock()
+        repo.hgit.commit = Mock()
+        repo.hgit.push_branch = Mock(side_effect=GitCommandError(
+            ['git', 'push'], 1, stderr='push refused by origin: [rejected]'))
+        repo.hgit._HGit__git_repo.git.checkout = Mock()
+        repo.hgit._HGit__git_repo.git.update_ref = Mock()
+        repo.hgit._HGit__git_repo.git.status = Mock(return_value='M .hop/config\n')
+
+        with patch('half_orm_dev.repo.Config') as MockConfig:
+            MockConfig.return_value = repo.config
+            result = repo.sync_hop_to_active_branches("update")
+
+        assert result['synced_branches'] == []
+        assert any('ho-patch/11-x' in e for e in result['errors'])
+        deletions = [c for c in repo.hgit._HGit__git_repo.git.update_ref.call_args_list
+                     if c.args and c.args[0] == '-d']
+        assert deletions == []
+
     def test_sync_commit_message_format(self, mock_repo):
         """Test sync commit message includes reason."""
         repo, tmp_path = mock_repo

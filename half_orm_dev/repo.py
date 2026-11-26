@@ -759,7 +759,19 @@ class Repo:
                     if not synced and status == "behind":
                         self.hgit._HGit__git_repo.git.reset('--hard', remote_ref)
                 except GitCommandError:
-                    pass
+                    status = None
+                if status == "diverged":
+                    # The branch was rewritten on origin, or here: a sync
+                    # commit on the local history could not be pushed, and
+                    # pushing it by force would undo the rewrite. Left to
+                    # the developer.
+                    result['errors'].append(
+                        f"{branch}: not synced, it has diverged from {remote_ref}. "
+                        f"Reconcile it (git checkout {branch} && git pull, or "
+                        f"git reset --hard {remote_ref}), then run 'half_orm dev check'."
+                    )
+                    result['skipped_branches'].append(f"{branch} (diverged)")
+                    continue
 
                 # Record SHA after fast-forward: this is the rollback target
                 original_shas[branch] = self.hgit._HGit__git_repo.head.commit.hexsha
@@ -1252,6 +1264,8 @@ class Repo:
             modified_branches=modified_branches
         )
         result['sync_result'] = sync_result
+        for error in sync_result.get('errors', []):
+            print(f"⚠️  Sync: {error}", file=sys.stderr)
 
         self.hgit.update_snapshot()
 

@@ -468,6 +468,34 @@ class HGit:
         remotes = self.__git_repo.remotes
         return any(remote.name == 'origin' for remote in remotes)
 
+    def _push(self, *args, remote: str = 'origin', **kwargs):
+        """Push through GitPython, raising when git refuses a ref.
+
+        `Remote.push()` does not raise when the remote rejects a ref
+        (non-fast-forward, tag that already exists, ...): it returns the
+        refusal in its PushInfo list. Every push of hop goes through here,
+        so that a refused push is an error, never a silent success.
+
+        Raises:
+            GitCommandError: if any ref was refused or failed.
+        """
+        infos = self.__git_repo.remote(remote).push(*args, **kwargs)
+        failed_flags = (
+            git.PushInfo.ERROR | git.PushInfo.REJECTED
+            | git.PushInfo.REMOTE_REJECTED | git.PushInfo.REMOTE_FAILURE
+        )
+        failed = [info for info in infos if info.flags & failed_flags]
+        if failed:
+            refs = ', '.join(
+                f"{info.remote_ref_string or info.local_ref}: {info.summary.strip()}"
+                for info in failed
+            )
+            raise GitCommandError(
+                ['git', 'push', remote, *map(str, args)], 1,
+                stderr=f"push refused by {remote}: {refs}"
+            )
+        return infos
+
     def push_branch(self, branch_name: str, set_upstream: bool = True) -> None:
         """
         Push branch to remote origin.
@@ -489,11 +517,7 @@ class HGit:
             # Push without upstream tracking
             hgit.push_branch("ho-patch/456-user-auth", set_upstream=False)
         """
-        # Get origin remote
-        origin = self.__git_repo.remote('origin')
-
-        # Push branch with or without upstream tracking
-        origin.push(branch_name, set_upstream=set_upstream)
+        self._push(branch_name, set_upstream=set_upstream)
 
     def read_file_at_ref(self, ref: str, relative_path: str) -> str:
         """
@@ -568,8 +592,7 @@ class HGit:
         Examples:
             hgit.push_tag("ho-patch/456")
         """
-        origin = self.__git_repo.remote('origin')
-        origin.push(tag_name)
+        self._push(tag_name)
 
     def delete_remote_tag(self, tag_name: str) -> None:
         """
@@ -581,8 +604,7 @@ class HGit:
         Examples:
             hgit.delete_remote_tag("ho-migration/1.0.0")
         """
-        origin = self.__git_repo.remote('origin')
-        origin.push(refspec=f':refs/tags/{tag_name}')
+        self._push(refspec=f':refs/tags/{tag_name}')
 
     def fetch_from_origin(self) -> None:
         """
@@ -712,8 +734,7 @@ class HGit:
             hgit.delete_remote_branch("ho-release/1.3.5/456-user-auth")
             # Branch deleted from origin
         """
-        origin = self.__git_repo.remote(remote)
-        origin.push(refspec=f":{branch_name}")
+        self._push(refspec=f":{branch_name}", remote=remote)
 
     def create_branch(self, branch_name: str, from_branch: str = None) -> None:
         """
@@ -764,25 +785,60 @@ class HGit:
         """
         Rename a branch locally and on the remote.
 
-        Sequence:
-          1. git branch -m old_name new_name  (local rename; works even when
-             old_name is the current branch)
-          2. git push origin new_name         (publish new branch)
-          3. git push origin :old_name        (delete old remote branch)
+        The branch may exist locally, on the remote, or both, and may be the
+        current branch. Its content is taken from the local branch when there
+        is one: the caller makes sure it is up to date with the remote.
+
+        Sequence (remote first, so that a refused push changes nothing):
+          1. git push origin <old>:refs/heads/<new>   (publish new name)
+          2. git push origin :refs/heads/<old>        (delete old name)
+          3. git branch -m <old> <new>                (or create it locally
+             from the remote when there was no local branch)
 
         Args:
             old_name: Current branch name (e.g., "ho-patch/001-first")
             new_name: New branch name (e.g., "ho-staged/001-first")
             remote: Remote name (default: 'origin')
 
+        Raises:
+            GitCommandError: if the old branch does not exist, the new one
+                already does, or the remote refuses a push.
+
         Examples:
             hgit.rename_branch_with_remote("ho-patch/001-first", "ho-staged/001-first")
             # ho-patch/001-first → ho-staged/001-first locally and on origin
         """
-        self.__git_repo.git.branch('-m', old_name, new_name)
-        origin = self.__git_repo.remote(remote)
-        origin.push(new_name)
-        origin.push(refspec=f":{old_name}")
+        repo = self.__git_repo
+        remote_heads = {ref.remote_head for ref in repo.remote(remote).refs}
+        has_local = old_name in repo.heads
+        has_remote = old_name in remote_heads
+
+        if not has_local and not has_remote:
+            raise GitCommandError(
+                ['git', 'branch', '-m', old_name, new_name], 1,
+                stderr=f"branch '{old_name}' exists neither locally nor on {remote}"
+            )
+        if new_name in repo.heads or new_name in remote_heads:
+            raise GitCommandError(
+                ['git', 'branch', '-m', old_name, new_name], 1,
+                stderr=f"branch '{new_name}' already exists"
+            )
+
+        source = f"refs/heads/{old_name}" if has_local else f"refs/remotes/{remote}/{old_name}"
+        sha = repo.git.rev_parse(source)
+
+        if has_remote:
+            self._push(f"{sha}:refs/heads/{new_name}", remote=remote)
+            self._push(refspec=f":refs/heads/{old_name}", remote=remote)
+            # The pushed sha is now remote/<new>: record it without a fetch.
+            repo.git.update_ref(f"refs/remotes/{remote}/{new_name}", sha)
+
+        if has_local:
+            repo.git.branch('-m', old_name, new_name)
+        else:
+            repo.git.branch(new_name, sha)
+        if has_remote:
+            repo.git.branch(f"--set-upstream-to={remote}/{new_name}", new_name)
 
     def merge(self, branch_name: str, no_ff: bool = False, ff_only: bool = False,
               no_commit: bool = False, message: str = None) -> None:
@@ -1291,7 +1347,7 @@ class HGit:
 
         # 5. Push new branch to remote with upstream tracking
         try:
-            origin.push(f"{new_name}:{new_name}", set_upstream=True)
+            self._push(f"{new_name}:{new_name}", set_upstream=True)
         except GitCommandError:
             # Rollback: delete local new branch
             try:
@@ -1304,7 +1360,7 @@ class HGit:
         # 6. Delete old branch from remote (if requested)
         if delete_remote_old and old_branch_exists_remote:
             try:
-                origin.push(refspec=f":{old_name}")  # Delete remote branch
+                self._push(refspec=f":{old_name}")  # Delete remote branch
             except GitCommandError as e:
                 # Non-fatal: log warning but continue
                 # New branch is already on remote, which is the main goal
