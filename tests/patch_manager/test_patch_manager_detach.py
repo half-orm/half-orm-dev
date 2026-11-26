@@ -70,6 +70,11 @@ def patch_manager_for_detach(tmp_path):
     repo.hgit.add = Mock()
     repo.hgit.mv = Mock()
     repo.hgit.commit = Mock()
+    # The patch branch exists only on origin (not checked out in this clone)
+    repo.hgit.fetch_from_origin = Mock()
+    repo.hgit.branch_exists = Mock(return_value=False)
+    repo.hgit.get_remote_branches = Mock(return_value=['origin/ho-patch/123-feature'])
+    repo.hgit.rename_branch_with_remote = Mock()
 
     # Mock commit_and_sync
     repo.commit_and_sync_to_active_branches = Mock()
@@ -104,6 +109,56 @@ class TestDetachPatch:
         call_args = repo.commit_and_sync_to_active_branches.call_args
         assert 'detach' in call_args[1]['message'].lower()
         assert '123-feature' in call_args[1]['message']
+
+    def test_detach_renames_branch_to_ho_detached(self, patch_manager_for_detach):
+        """The branch is frozen as ho-detached/<id>, after the detach commit."""
+        pm, repo, *_ = patch_manager_for_detach
+        calls = Mock()
+        calls.attach_mock(repo.commit_and_sync_to_active_branches, 'sync')
+        calls.attach_mock(repo.hgit.rename_branch_with_remote, 'rename')
+
+        result = pm.detach_patch('123-feature')
+
+        repo.hgit.rename_branch_with_remote.assert_called_once_with(
+            'ho-patch/123-feature', 'ho-detached/123-feature')
+        assert [c[0] for c in calls.mock_calls] == ['sync', 'rename']
+        assert result['branch'] == 'ho-detached/123-feature'
+
+    def test_detach_refuses_diverged_branch_before_any_change(self, patch_manager_for_detach):
+        """A patch branch that diverged from origin cannot be renamed safely:
+        nothing is changed."""
+        pm, repo, tmp_path, releases_dir, patches_dir = patch_manager_for_detach
+        repo.hgit.branch_exists = Mock(return_value=True)
+        repo.hgit.is_branch_synced = Mock(return_value=(False, 'diverged'))
+
+        with pytest.raises(PatchManagerError, match='diverged'):
+            pm.detach_patch('123-feature')
+
+        repo.commit_and_sync_to_active_branches.assert_not_called()
+        repo.hgit.rename_branch_with_remote.assert_not_called()
+        assert (patches_dir / '123-feature').exists()
+        assert '123-feature' in ReleaseFile('0.17.0', releases_dir).get_patches()
+
+    def test_detach_accepts_branch_ahead_of_origin(self, patch_manager_for_detach):
+        """Local commits not yet pushed are pushed by the detach commit."""
+        pm, repo, *_ = patch_manager_for_detach
+        repo.hgit.branch_exists = Mock(return_value=True)
+        repo.hgit.is_branch_synced = Mock(return_value=(False, 'ahead'))
+
+        pm.detach_patch('123-feature')
+
+        repo.hgit.rename_branch_with_remote.assert_called_once()
+
+    def test_detach_failed_rename_is_not_fatal(self, patch_manager_for_detach):
+        """The release files are committed: a refused rename only warns."""
+        from git.exc import GitCommandError
+        pm, repo, *_ = patch_manager_for_detach
+        repo.hgit.rename_branch_with_remote.side_effect = GitCommandError(
+            ['git', 'push'], 1, stderr='refused')
+
+        result = pm.detach_patch('123-feature')
+
+        assert result['branch'] is None
 
     def test_detach_removes_patch_from_toml(self, patch_manager_for_detach):
         """Test that detach removes the patch from TOML file."""

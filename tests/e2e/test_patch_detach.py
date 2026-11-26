@@ -4,7 +4,7 @@ End-to-end tests for patch detach functionality.
 Tests the workflow of detaching a candidate patch from its release:
 - Patch is removed from TOML file
 - Directory is moved to Patches/orphaned/
-- Git branch is preserved for future reattachment
+- Git branch is kept, renamed ho-detached/<id>, for future reattachment
 - CLI command with confirmation
 - Check command shows orphaned patches
 """
@@ -105,9 +105,10 @@ class TestPatchDetach:
         run(['git', 'checkout', 'ho-release/0.1.0'])
         run(['half_orm', 'dev', 'patch', 'detach', '3-branch-test', '--force'])
 
-        # Verify branch still exists
+        # The branch is kept, frozen under ho-detached/, locally and on origin
         result = run(['git', 'branch', '-a'])
-        assert 'ho-patch/3-branch-test' in result.stdout, "Git branch should be preserved"
+        assert 'ho-detached/3-branch-test' in result.stdout, "Git branch should be preserved"
+        assert 'ho-patch/3-branch-test' not in result.stdout, "ho-patch/ name should be gone"
 
     def test_detach_staged_patch_fails(self, project_with_release):
         """Test that detaching a staged patch fails."""
@@ -172,8 +173,40 @@ class TestPatchDetach:
         # Run check and verify orphaned patches are shown
         result = run(['half_orm', 'dev', 'check'])
 
-        assert '5-orphan-check' in result.stdout, "Check should show orphaned patch"
-        assert 'orphan' in result.stdout.lower(), "Check should mention 'orphan'"
+        # (The patch name contains "orphan": look for the section itself.)
+        assert 'Orphaned patches' in result.stdout, "Check should list orphaned patches"
+        section = result.stdout.split('Orphaned patches', 1)[1]
+        assert '5-orphan-check' in section, "Check should show orphaned patch"
+
+    def test_detach_from_release_records_the_patch_directory(self, project_with_release):
+        """Detached from the release branch, where the patch directory is
+        not: it is taken from the patch branch, so the release records the
+        patch as orphaned, with its work. The move is propagated: no branch
+        is left with both Patches/<id> and Patches/orphaned/<id>."""
+        env = project_with_release
+        run = env['run']
+        project_dir = env['project_dir']
+
+        run(['half_orm', 'dev', 'patch', 'create', '10-from-release'])
+        sql = "CREATE TABLE from_release (id INT);"
+        (project_dir / 'Patches' / '10-from-release' / '01_test.sql').write_text(sql)
+        run(['git', 'add', '.'])
+        run(['git', 'commit', '-m', 'Work', '--no-verify'])
+        run(['git', 'checkout', 'ho-release/0.1.0'])
+
+        run(['half_orm', 'dev', 'patch', 'detach', '10-from-release', '--force'])
+
+        for ref in ('ho-release/0.1.0', 'ho-prod', 'ho-detached/10-from-release'):
+            assert run(['git', 'show', f'{ref}:Patches/orphaned/10-from-release/01_test.sql']
+                       ).stdout == sql, ref
+            assert run(['git', 'ls-tree', '-d', ref, 'Patches/10-from-release']).stdout == '', ref
+        assert run(['git', 'status', '--porcelain']).stdout == ''
+
+        # And it can be attached back
+        result = run(['half_orm', 'dev', 'release', 'attach-patch', '10-from-release', '--force'])
+        assert result.returncode == 0
+        assert run(['git', 'show', 'ho-patch/10-from-release:Patches/10-from-release/01_test.sql']
+                   ).stdout == sql
 
     def test_detach_from_current_branch(self, project_with_release):
         """Test detach from current patch branch (auto-detect patch_id)."""

@@ -100,6 +100,7 @@ half_orm dev patch merge
 - **Release candidates**: RC validation before production
 - **Hotfix support**: Reopen last released version for urgent fixes
 - **Branch cleanup**: `ho-staged/ID` branches deleted automatically at `release promote prod`
+- **Detached patches**: a candidate left out of a release keeps its work on a frozen `ho-detached/ID` branch until it is attached again
 
 ### Production
 
@@ -221,6 +222,9 @@ ho-prod (main production branch)
 │
 └── ho-release/0.18.0 (next version in parallel)
     └── ho-patch/10-new-api     (in development)
+
+ho-patch/9-later  → ho-detached/9-later  (patch detach: frozen)
+                  → ho-patch/9-later     (release attach-patch: thawed)
 ```
 
 **Branch Types:**
@@ -228,6 +232,7 @@ ho-prod (main production branch)
 - **ho-release/X.Y.Z**: Integration branches (temporary, deleted after prod)
 - **ho-patch/ID**: Patch development branches (renamed to `ho-staged/ID` after merge)
 - **ho-staged/ID**: Staged patch branches (preserved for debugging, deleted at `release promote prod`)
+- **ho-detached/ID**: Branch of a detached patch (`patch detach`, or a candidate left out by `release promote prod`). Frozen: it receives no `.hop/` sync and the pre-commit hook refuses commits on it. `release attach-patch` renames it back to `ho-patch/ID` and merges the release into it. To also block force-pushes, protect `ho-detached/*` on your Git forge.
 
 ### Release Files
 
@@ -361,7 +366,16 @@ half_orm dev patch apply
 # Merge patch into release (AUTOMATIC VALIDATION!)
 # Must be on ho-patch/* branch
 half_orm dev patch merge
+
+# Take a candidate out of its release (branch → ho-detached/<patch_id>)
+half_orm dev patch detach [<patch_id>]
+
+# Attach a detached patch to the current release (must be on ho-release/*)
+# (branch → ho-patch/<patch_id>, updated with the release)
+half_orm dev release attach-patch <patch_id>
 ```
+
+`release create` lists the detached patches; it never attaches them by itself.
 
 **Tip:** Patch IDs must start with a number (e.g., `123-add-users`). This number automatically closes the corresponding GitHub/GitLab issue #123 when the patch is merged.
 

@@ -31,6 +31,13 @@ from .patch_validator import PatchValidator, PatchInfo
 from .decorators import with_dynamic_branch_lock
 
 
+#: Branch of a patch in development (candidate of a release).
+PATCH_BRANCH_PREFIX = "ho-patch/"
+#: Branch of a detached (orphaned) patch: frozen, left out of the .hop/
+#: sync, renamed back to ho-patch/ when the patch is attached again.
+DETACHED_BRANCH_PREFIX = "ho-detached/"
+
+
 class PatchManagerError(Exception):
     """Base exception for PatchManager operations."""
     pass
@@ -3093,6 +3100,11 @@ class PatchManager:
         if status == "orphaned":
             raise PatchManagerError(f"Patch '{patch_id}' is already orphaned.")
 
+        # Before changing anything: the branch must be renamable once the
+        # detachment is committed (cf. _check_patch_branch_movable).
+        patch_branch = f"{PATCH_BRANCH_PREFIX}{patch_id}"
+        self._check_patch_branch_movable(patch_branch, allow_ahead=True)
+
         # 3. Remove from TOML
         release_file = ReleaseFile(version, self._releases_dir)
         release_file.remove_patch(patch_id)
@@ -3103,6 +3115,12 @@ class PatchManager:
         orphaned_dir = self._schema_patches_dir / "orphaned"
         new_path = orphaned_dir / patch_id
 
+        # Detached from another branch (the release): the directory, with
+        # the patch's work, is on the patch branch only. Taken from there,
+        # or the release would not know the patch is orphaned.
+        if not old_path.exists():
+            self._take_patch_directory_from(patch_branch, [old_path])
+
         if old_path.exists():
             orphaned_dir.mkdir(exist_ok=True)
             self._repo.hgit.mv(str(old_path), str(new_path))
@@ -3110,16 +3128,26 @@ class PatchManager:
         # 5. Update cache
         self._update_patch_status_cache(patch_id, "orphaned")
 
-        # 6. Commit changes (include Patches/ directory in sync)
+        # 6. Commit, and propagate the move: the new path is copied to the
+        # other active branches and the old one removed from them (copying
+        # all of Patches/ left both paths on every branch).
         self._repo.commit_and_sync_to_active_branches(
             message=f"[HOP] detach patch #{patch_id} from release %{version}",
-            files=['Patches/']
+            files=[self._relative(new_path)],
+            removed_files=[self._relative(old_path)],
+        )
+
+        # 7. Freeze the branch: ho-patch/<id> → ho-detached/<id>. Out of the
+        # active branches, it no longer receives the .hop/ sync commits.
+        detached_branch = self._rename_patch_branch(
+            patch_branch, f"{DETACHED_BRANCH_PREFIX}{patch_id}"
         )
 
         return {
             'patch_id': patch_id,
             'version': version,
-            'orphaned_path': str(new_path)
+            'orphaned_path': str(new_path),
+            'branch': detached_branch,
         }
 
     @with_dynamic_branch_lock(lambda self, patch_id, version: "ho-prod")
@@ -3183,6 +3211,23 @@ class PatchManager:
                 f"Release {version} not found. "
                 f"No file {release_file.file_path.name} exists."
             )
+
+        # Before changing anything: the frozen branch must be exactly what
+        # origin has (a commit on it, or a rewrite, is not attached blindly).
+        # A patch detached before ho-detached/ existed still has its
+        # ho-patch/ branch.
+        detached_branch = f"{DETACHED_BRANCH_PREFIX}{patch_id}"
+        patch_branch = f"{PATCH_BRANCH_PREFIX}{patch_id}"
+        if self._branch_exists_anywhere(detached_branch):
+            self._check_patch_branch_movable(detached_branch, allow_ahead=False)
+        elif self._branch_exists_anywhere(patch_branch):
+            detached_branch = None
+        else:
+            raise PatchManagerError(
+                f"No branch for patch '{patch_id}': neither {detached_branch} "
+                f"nor {patch_branch} exists, locally or on origin."
+            )
+
         release_file.add_patch(patch_id)
         self._repo.hgit.add(str(release_file.file_path))
 
@@ -3190,23 +3235,245 @@ class PatchManager:
         orphaned_path = self._schema_patches_dir / "orphaned" / patch_id
         new_path = self._schema_patches_dir / patch_id
 
+        # Not recorded on this branch (detached before the fix of #61 from
+        # another branch): taken from the patch's own branch.
+        if not orphaned_path.exists() and not new_path.exists():
+            # Patches/<id> when the branch was never told it was detached.
+            self._take_patch_directory_from(
+                detached_branch or patch_branch, [orphaned_path, new_path]
+            )
+            if new_path.exists() and not orphaned_path.exists():
+                self._repo.hgit.add(self._relative(new_path))
+
         if orphaned_path.exists():
             self._repo.hgit.mv(str(orphaned_path), str(new_path))
 
         # 5. Update cache
         self._update_patch_status_cache(patch_id, "candidate")
 
-        # 6. Commit changes (include Patches/ directory in sync)
+        # 6. Commit, and propagate the move (cf. _detach_patch).
         self._repo.commit_and_sync_to_active_branches(
             message=f"[HOP] attach patch #{patch_id} to release %{version}",
-            files=['Patches/']
+            files=[self._relative(new_path)],
+            removed_files=[self._relative(orphaned_path)],
         )
+
+        # 7. Thaw the branch, then bring it up to date with the release it
+        # now belongs to (it was frozen since its detachment).
+        if detached_branch:
+            self._rename_patch_branch(detached_branch, patch_branch)
+        merge = self._update_attached_patch_branch(patch_id, version)
 
         return {
             'patch_id': patch_id,
             'version': version,
-            'patch_path': str(new_path)
+            'patch_path': str(new_path),
+            'branch': patch_branch,
+            'merge': merge,
         }
+
+    # ------------------------------------------------------------------
+    # Patch branch moves (detach / attach)
+    # ------------------------------------------------------------------
+
+    def _relative(self, path: Path) -> str:
+        """Path relative to the repository root, as git takes it."""
+        return str(Path(path).resolve().relative_to(Path(self._repo.base_dir).resolve()))
+
+    def _take_patch_directory_from(self, branch: str, paths: List[Path]) -> None:
+        """
+        Check out, from `branch`, the first of `paths` it has (best effort).
+
+        The local branch is used when there is one, origin's otherwise. A
+        branch without any of the paths leaves the working tree unchanged.
+        """
+        hgit = self._repo.hgit
+        if hgit.branch_exists(branch):
+            ref = branch
+        elif f"origin/{branch}" in hgit.get_remote_branches():
+            ref = f"origin/{branch}"
+        else:
+            return
+        for path in paths:
+            try:
+                hgit._HGit__git_repo.git.checkout(ref, '--', self._relative(path))
+                return
+            except GitCommandError:
+                continue
+
+    def _branch_exists_anywhere(self, branch: str) -> bool:
+        """True if the branch exists locally or on origin."""
+        hgit = self._repo.hgit
+        return (hgit.branch_exists(branch)
+                or f"origin/{branch}" in hgit.get_remote_branches())
+
+    def _check_patch_branch_movable(self, branch: str, allow_ahead: bool) -> None:
+        """
+        Make sure `branch` can be renamed on origin without losing anything.
+
+        The rename publishes the local branch under its new name and deletes
+        the old name on origin: the local branch must hold everything origin
+        has. A local branch behind origin is brought up to date; one that
+        diverged (history rewritten here or on origin) is refused. With
+        allow_ahead (detach), local commits not yet on origin are accepted:
+        the detach commit pushes them.
+
+        Raises:
+            PatchManagerError: if the branch diverged from origin, or (without
+                allow_ahead) has commits origin does not have.
+        """
+        hgit = self._repo.hgit
+        try:
+            hgit.fetch_from_origin()
+        except GitCommandError as e:
+            raise PatchManagerError(f"Cannot fetch from origin to check {branch}: {e}")
+
+        if not hgit.branch_exists(branch) or f"origin/{branch}" not in hgit.get_remote_branches():
+            return  # only one side: nothing to reconcile
+
+        synced, status = hgit.is_branch_synced(branch)
+        if synced or (status == "ahead" and allow_ahead):
+            return
+        git_repo = hgit._HGit__git_repo
+        if status == "behind":
+            if hgit.branch == branch:
+                git_repo.git.reset('--hard', f"origin/{branch}")
+            else:
+                git_repo.git.branch('-f', branch, f"origin/{branch}")
+            return
+        raise PatchManagerError(
+            f"{branch} is {status} compared to origin/{branch}.\n"
+            f"Make both identical first, for instance:\n"
+            f"  git checkout {branch}\n"
+            f"  git reset --hard origin/{branch}   # keep origin's version\n"
+            f"  # or: git push --force origin {branch}   # keep the local one"
+        )
+
+    def _rename_patch_branch(self, old: str, new: str) -> Optional[str]:
+        """
+        Rename a patch branch locally and on origin.
+
+        A branch that exists nowhere (patch created without one) is left
+        alone. A failed rename is not fatal: the release files are already
+        committed; the user is told how to finish it by hand.
+
+        Returns:
+            The new branch name, or None if nothing was renamed.
+        """
+        if not self._branch_exists_anywhere(old):
+            return None
+        try:
+            self._repo.hgit.rename_branch_with_remote(old, new)
+        except GitCommandError as e:
+            click.echo(utils.Color.red(
+                f"⚠️  Could not rename {old} → {new}: {e}\n"
+                f"   Finish it by hand:\n"
+                f"     git push origin {old}:refs/heads/{new} :refs/heads/{old}\n"
+                f"     git branch -m {old} {new}"
+            ), err=True)
+            return None
+        return new
+
+    def _update_attached_patch_branch(self, patch_id: str, version: str) -> dict:
+        """
+        Merge ho-release/<version> into the patch branch just attached.
+
+        The branch was frozen since its detachment: it lacks what the release
+        received meanwhile, starting with its own move from Patches/orphaned/
+        back to Patches/. .hop/ is taken from the release (the branch's copy
+        is stale by construction). Any other conflict is left to the
+        developer: the merge is aborted and the patch stays attached.
+
+        Returns:
+            dict with 'status' ('merged', 'up-to-date' or 'conflict') and,
+            for a conflict, 'message'.
+        """
+        hgit = self._repo.hgit
+        git_repo = hgit._HGit__git_repo
+        release_branch = f"ho-release/{version}"
+        patch_branch = f"{PATCH_BRANCH_PREFIX}{patch_id}"
+        if not hgit.branch_exists(patch_branch):
+            return {'status': 'no-branch'}
+
+        current = hgit.branch
+        try:
+            hgit.checkout(patch_branch)
+            before = git_repo.head.commit.hexsha
+            try:
+                hgit.merge(
+                    release_branch, no_commit=True,
+                )
+            except GitCommandError:
+                unmerged = [
+                    f for f in git_repo.git.diff('--name-only', '--diff-filter=U').splitlines()
+                    if f.strip()
+                ]
+                if not unmerged or any(not f.startswith('.hop/') for f in unmerged):
+                    self._abort_merge_in_progress()
+                    return {
+                        'status': 'conflict',
+                        'message': (
+                            f"{patch_branch} conflicts with {release_branch}"
+                            f" ({', '.join(unmerged) or 'merge failed'}).\n"
+                            f"The patch is attached; merge the release into it by hand:\n"
+                            f"  git checkout {patch_branch}\n"
+                            f"  git merge {release_branch}\n"
+                            f"  # resolve, commit, push"
+                        ),
+                    }
+            base = Path(self._repo.base_dir)
+            try:
+                # .hop/ is the release's, conflict or not.
+                git_repo.git.checkout(release_branch, '--', '.hop/')
+                hgit.add('.hop/')
+                # The patch directory belongs at Patches/<id> again. When the
+                # branch never had it there, both sides added it at different
+                # paths: the release at Patches/<id> (attach), the branch at
+                # Patches/orphaned/<id> (detach). The branch's copy is the
+                # patch's own work: it replaces the release's.
+                orphaned_dir = Path('Patches') / 'orphaned' / patch_id
+                root_dir = Path('Patches') / patch_id
+                if (base / orphaned_dir).exists():
+                    if (base / root_dir).exists():
+                        git_repo.git.rm('-r', '-q', '-f', '--', str(root_dir))
+                    hgit.mv(str(orphaned_dir), str(root_dir))
+
+                merging = (base / '.git' / 'MERGE_HEAD').exists()
+                if merging or git_repo.git.status('--porcelain', '--untracked-files=no').strip():
+                    hgit.commit('-m', f'[HOP] Merge %{version} into #{patch_id} (attach)')
+            except GitCommandError as e:
+                # Back to the branch as it was, nothing half done.
+                if (base / '.git' / 'MERGE_HEAD').exists():
+                    self._abort_merge_in_progress()
+                git_repo.git.reset('--hard', before)
+                return {
+                    'status': 'conflict',
+                    'message': (
+                        f"Could not merge {release_branch} into {patch_branch}: {e}\n"
+                        f"The patch is attached; merge the release into it by hand:\n"
+                        f"  git checkout {patch_branch}\n"
+                        f"  git merge {release_branch}\n"
+                        f"  # resolve, commit, push"
+                    ),
+                }
+            if git_repo.head.commit.hexsha == before:
+                return {'status': 'up-to-date'}
+            try:
+                hgit.push_branch(patch_branch)
+            except GitCommandError as e:
+                return {
+                    'status': 'conflict',
+                    'message': (
+                        f"{patch_branch} was updated with {release_branch} but not "
+                        f"pushed: {e}\n  git push origin {patch_branch}"
+                    ),
+                }
+            return {'status': 'merged'}
+        finally:
+            try:
+                hgit.checkout(current)
+            except GitCommandError:
+                pass
 
     def _get_other_candidates(self, version: str, exclude_patch: str) -> List[str]:
         """

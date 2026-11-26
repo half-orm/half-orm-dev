@@ -57,9 +57,10 @@ class TestCheckReportsHoProdState:
 
         # The reported situation: branch gone from origin, local copy
         # left where it stood before the promotion's .hop/ sync.
+        # (The promotion detached 2-beta: its branch is ho-detached/2-beta
+        # now; the stale local ho-patch/2-beta is recreated where it stood.)
         run(['git', 'push', 'origin', '--delete', 'ho-patch/2-beta'], check=False)
-        run(['git', 'checkout', 'ho-patch/2-beta'])
-        run(['git', 'reset', '--hard', sha_before])
+        run(['git', 'checkout', '-B', 'ho-patch/2-beta', sha_before])
 
         assert 'schema-0.0.0.sql' in run(
             ['readlink', '.hop/model/schema.sql']

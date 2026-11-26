@@ -39,39 +39,24 @@ def release():
     pass
 
 
-def _offer_to_attach_orphaned_patches(repo, version: str, branch: str) -> None:
+def _remind_detached_patches(repo) -> None:
     """
-    Offer to attach each detached (orphaned) patch to the new release.
+    List the detached (orphaned) patches, if any, after `release create`.
 
-    Candidates left out of a production release are detached (cf.
-    `release promote prod`); attaching them back is proposed, never
-    automatic: a patch declined here stays orphaned, and
-    `release attach-patch` attaches it later.
+    Attaching one is never proposed here: it is a decision of its own,
+    taken with `release attach-patch` from the release branch.
     """
-    orphaned = sorted(
+    detached = sorted(
         patch_id
         for patch_id, info in repo.patch_manager.get_patch_status_map().items()
         if info.get('status') == 'orphaned'
     )
-    if not orphaned:
+    if not detached:
         return
-
-    click.echo(f"{utils.Color.bold('Detached patches')} (Patches/orphaned/):")
-    for patch_id in orphaned:
+    click.echo(f"{utils.Color.bold('Detached patches')} (not in any release):")
+    for patch_id in detached:
         click.echo(f"  • {patch_id}")
-    click.echo()
-
-    for patch_id in orphaned:
-        if click.confirm(f"Attach {patch_id} to {version}?", default=False):
-            repo.hgit.checkout(branch)
-            try:
-                repo.patch_manager.attach_patch(patch_id, version)
-            except PatchManagerError as e:
-                # The release exists: a failed attachment leaves the patch
-                # orphaned, to attach later with `release attach-patch`.
-                click.echo(utils.Color.red(f"  ✗ {patch_id} not attached: {e}"), err=True)
-                continue
-            click.echo(f"  {utils.Color.green('✓')} {patch_id} attached to {version} (candidate)")
+    click.echo(f"  To attach one: {utils.Color.bold('half_orm dev release attach-patch <patch_id>')}")
     click.echo()
 
 
@@ -163,7 +148,7 @@ def release_create(level: str) -> None:
         click.echo(f"ℹ️  You are now on {utils.Color.bold(branch)} - patches will be merged here")
         click.echo()
 
-        _offer_to_attach_orphaned_patches(repo, version, branch)
+        _remind_detached_patches(repo)
 
     except ReleaseManagerError as e:
         # Handle validation errors (branch, clean, sync, etc.)
@@ -565,8 +550,9 @@ def release_attach_patch(patch_id: str, force: bool) -> None:
         version = current_branch.replace('ho-release/', '')
 
         # Accept full branch name or short patch ID
-        if patch_id.startswith('ho-patch/'):
-            patch_id = patch_id[len('ho-patch/'):]
+        for prefix in ('ho-detached/', 'ho-patch/'):
+            if patch_id.startswith(prefix):
+                patch_id = patch_id[len(prefix):]
 
         # Confirmation
         if not force:
@@ -574,6 +560,8 @@ def release_attach_patch(patch_id: str, force: bool) -> None:
             click.echo("This will:")
             click.echo(f"  • Add patch to {version}-patches.toml as candidate")
             click.echo(f"  • Move directory from Patches/orphaned/{patch_id}/ to Patches/{patch_id}/")
+            click.echo(f"  • Rename branch ho-detached/{patch_id} → ho-patch/{patch_id}")
+            click.echo(f"  • Merge ho-release/{version} into ho-patch/{patch_id}")
             if not click.confirm("Continue?", default=True):
                 click.echo("Cancelled.")
                 return
@@ -586,6 +574,12 @@ def release_attach_patch(patch_id: str, force: bool) -> None:
         ))
         click.echo(f"  Status: candidate")
         click.echo(f"  Directory: {result['patch_path']}")
+        click.echo(f"  Branch: {result.get('branch')}")
+        merge = result.get('merge') or {}
+        if merge.get('status') == 'conflict':
+            click.echo(f"⚠️  {utils.Color.red(merge['message'])}", err=True)
+        elif merge.get('status') == 'merged':
+            click.echo(f"  Branch updated with ho-release/{version}")
 
     except PatchManagerError as e:
         click.echo(f"❌ {utils.Color.red(str(e))}", err=True)

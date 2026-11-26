@@ -4,8 +4,8 @@ End-to-end test: `release promote prod` detaches the candidate patches.
 A release goes to production with its staged patches only. When it still
 has candidates, the promotion offers to detach them, as `patch detach` would
 from each patch branch: out of the release, directory moved to
-Patches/orphaned/, branch kept. Attaching them back is proposed, never
-automatic: `release create` offers it for each detached patch.
+Patches/orphaned/, branch kept as ho-detached/<id>. Attaching them back is
+never automatic: `release create` lists them, `release attach-patch` attaches.
 
 It used to offer to migrate them to the next patch release instead, by
 rebasing their branches. The release branch they were rebased from had
@@ -70,43 +70,29 @@ class TestPromoteProdDetachesCandidates:
 
         # The candidate is orphaned, its work kept, on production and on
         # its own branch, pushed.
-        for ref in ('ho-prod', 'ho-patch/2-candidate'):
+        for ref in ('ho-prod', 'ho-detached/2-candidate'):
             assert run(['git', 'show', f'{ref}:Patches/orphaned/2-candidate/01_table.sql']
                        ).stdout == CANDIDATE_SQL
-        assert (run(['git', 'rev-parse', 'ho-patch/2-candidate']).stdout
-                == run(['git', 'rev-parse', 'origin/ho-patch/2-candidate']).stdout)
+        assert (run(['git', 'rev-parse', 'ho-detached/2-candidate']).stdout
+                == run(['git', 'rev-parse', 'origin/ho-detached/2-candidate']).stdout)
+        assert 'refs/heads/ho-patch/2-candidate' not in remote
 
         # No release was created behind the user's back.
         assert 'ho-release/' not in remote
 
-    def _promote_then_create_next_release(self, env, answer):
-        run = env['run']
-        self._release_with_a_staged_patch_and_a_candidate(env)
+    def test_next_release_only_reminds_the_detached_candidate(self, project_with_release):
+        """`release create` lists the detached patches and asks nothing:
+        attaching one is done with `release attach-patch`."""
+        run = project_with_release['run']
+        self._release_with_a_staged_patch_and_a_candidate(project_with_release)
         run(['half_orm', 'dev', 'release', 'promote', 'prod'], input_text='y\n')
         run(['git', 'checkout', 'ho-prod'])
-        return run(['half_orm', 'dev', 'release', 'create', 'patch'], input_text=answer)
 
-    def test_next_release_offers_to_attach_the_candidate(self, project_with_release):
-        project_dir, run = project_with_release['project_dir'], project_with_release['run']
+        result = run(['half_orm', 'dev', 'release', 'create', 'patch'])
 
-        result = self._promote_then_create_next_release(project_with_release, 'y\n')
-
-        assert 'Attach 2-candidate to 0.1.1?' in result.stdout
-        toml = run(['git', 'show', 'ho-release/0.1.1:.hop/releases/0.1.1-patches.toml']).stdout
-        assert tomllib.loads(toml)['patches'] == {'2-candidate': {'status': 'candidate'}}
-        assert run(['git', 'show', 'ho-release/0.1.1:Patches/2-candidate/01_table.sql']
-                   ).stdout == CANDIDATE_SQL
-        # Attached under the ho-prod lock: ho-prod's TOML follows, no lock left.
-        prod_toml = run(['git', 'show', 'ho-prod:.hop/releases/0.1.1-patches.toml']).stdout
-        assert tomllib.loads(prod_toml)['patches'] == {'2-candidate': {'status': 'candidate'}}
-        assert run(['git', 'tag', '-l', 'lock-*']).stdout == ''
-
-    def test_declined_attachment_leaves_the_candidate_orphaned(self, project_with_release):
-        run = project_with_release['run']
-
-        result = self._promote_then_create_next_release(project_with_release, 'n\n')
-
-        assert 'Attach 2-candidate to 0.1.1?' in result.stdout
+        assert '2-candidate' in result.stdout
+        assert 'release attach-patch' in result.stdout
+        assert 'Attach 2-candidate' not in result.stdout
         toml = run(['git', 'show', 'ho-release/0.1.1:.hop/releases/0.1.1-patches.toml']).stdout
         assert tomllib.loads(toml)['patches'] == {}
         assert run(['git', 'show', 'ho-release/0.1.1:Patches/orphaned/2-candidate/01_table.sql']

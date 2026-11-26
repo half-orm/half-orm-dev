@@ -375,8 +375,9 @@ def patch_detach(patch_id: Optional[str], force: bool) -> None:
     """
     Detach a candidate patch from its release.
 
-    Moves the patch to Patches/orphaned/ directory.
-    The git branch is preserved for future reattachment.
+    Moves the patch to Patches/orphaned/ directory and renames its branch
+    ho-patch/<id> to ho-detached/<id>: the branch is kept, frozen (no more
+    .hop/ sync, no commits), for a later `release attach-patch`.
 
     If PATCH_ID is not provided, uses the current branch's patch.
 
@@ -431,7 +432,7 @@ def patch_detach(patch_id: Optional[str], force: bool) -> None:
             click.echo("This will:")
             click.echo(f"  • Remove patch from {version}-patches.toml")
             click.echo(f"  • Move directory to Patches/orphaned/{patch_id}/")
-            click.echo(f"  • Keep git branch ho-patch/{patch_id}")
+            click.echo(f"  • Rename git branch ho-patch/{patch_id} → ho-detached/{patch_id} (frozen)")
             click.echo()
             if not click.confirm("Continue?", default=True):
                 click.echo("Cancelled.")
@@ -443,7 +444,8 @@ def patch_detach(patch_id: Optional[str], force: bool) -> None:
         click.echo()
         click.echo(utils.Color.green(f"✓ Patch '{patch_id}' detached from release {version}"))
         click.echo(f"  Directory moved to: {result['orphaned_path']}")
-        click.echo(f"  Branch preserved: ho-patch/{patch_id}")
+        if result.get('branch'):
+            click.echo(f"  Branch frozen as: {result['branch']}")
         click.echo()
         click.echo("To reattach later: half_orm dev release attach-patch <patch_id>")
 

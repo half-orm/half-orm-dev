@@ -57,6 +57,21 @@ fi
 # HALF-ORM STANDARD CHECKS
 # =============================================================================
 
+# A detached patch's branch is frozen until the patch is attached again
+if [[ "$CURRENT_BRANCH" == ho-detached/* ]]; then
+    PATCH_ID="${CURRENT_BRANCH#ho-detached/}"
+    cat << EOF
+❌ '$CURRENT_BRANCH' is the branch of a detached patch: it is frozen
+
+Attach the patch to a release first (this renames the branch back to
+ho-patch/$PATCH_ID and brings it up to date with the release):
+  \$ git checkout ho-release/<version>
+  \$ half_orm dev release attach-patch $PATCH_ID
+
+EOF
+    exit 1
+fi
+
 # Check if current ho-* branch (except ho-prod and ho-promote/*) still exists on remote origin
 # This prevents committing to ho-* branches that were deleted remotely
 # ho-promote/* branches are temporary local branches used during promotion validation

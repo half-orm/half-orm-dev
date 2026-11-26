@@ -17,6 +17,7 @@ The repository uses a strict branching model:
 - **ho-prod**: Main production branch (stable, source of truth)
 - **ho-release/X.Y.Z**: Integration branches for releases (temporary, deleted after production promotion)
 - **ho-patch/ID**: Patch development branches (temporary, deleted after merge)
+- **ho-detached/ID**: Branch of a detached patch (frozen: no `.hop/` sync, no commits; renamed back to ho-patch/ID by `release attach-patch`)
 
 Exception: Hotfix branches reopen existing releases from tags for urgent production fixes.
 

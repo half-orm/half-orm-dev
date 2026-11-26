@@ -2323,8 +2323,8 @@ class ReleaseManager:
         A release goes to production with its staged patches only. Each
         candidate is detached from its own branch (cf. `patch detach` and
         PatchManager.detach_patch): out of the TOML, its directory moved to
-        Patches/orphaned/, its branch kept. `release create` offers to
-        attach it to the next release (or `release attach-patch`, later).
+        Patches/orphaned/, its branch kept as ho-detached/<id>.
+        `release attach-patch` attaches it to a later release.
 
         Each detachment is committed and pushed on its own, before the
         promotion: if the promotion fails afterwards, the patches stay
@@ -2706,8 +2706,8 @@ class ReleaseManager:
             print(f"    • {patch_id}")
         print()
         print(f"  → Release {version} goes to production with its staged patches only")
-        print(f"  → Candidates are detached: their branches are kept, and")
-        print(f"    `half_orm dev release create` will offer to attach them to the next release")
+        print(f"  → Candidates are detached: their branches are kept, frozen as ho-detached/<id>;")
+        print(f"    `half_orm dev release attach-patch <id>` attaches one to a later release")
         print()
 
         response = input("Detach the candidate patches? [y/N]: ").strip().lower()

@@ -2011,17 +2011,18 @@ class Repo:
                     'production_version': production_version,
                 }
 
-            # Get orphaned patches (only if patch_manager already initialized)
+            # Get orphaned patches. The PatchManager is built if needed: the
+            # list used to be shown only when another step had built it,
+            # i.e. never for `check` itself.
             orphaned_patches = []
-            if self._patch_directory is not None:
-                try:
-                    status_map = self.patch_manager.get_patch_status_map()
-                    orphaned_patches = [
-                        patch_id for patch_id, info in status_map.items()
-                        if info.get('status') == 'orphaned'
-                    ]
-                except PatchManagerError:
-                    pass  # Best effort
+            try:
+                status_map = self.patch_manager.get_patch_status_map()
+                orphaned_patches = [
+                    patch_id for patch_id, info in status_map.items()
+                    if info.get('status') == 'orphaned'
+                ]
+            except PatchManagerError:
+                pass  # Not in devel mode, or no PatchManager for this repo
             result['orphaned_patches'] = orphaned_patches
 
         except Exception as e:

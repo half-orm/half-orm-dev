@@ -69,6 +69,11 @@ def patch_manager_for_attach(tmp_path):
     repo.hgit.add = Mock()
     repo.hgit.mv = Mock()
     repo.hgit.commit = Mock()
+    # The patch branch exists only on origin (not checked out in this clone)
+    repo.hgit.fetch_from_origin = Mock()
+    repo.hgit.branch_exists = Mock(return_value=False)
+    repo.hgit.get_remote_branches = Mock(return_value=['origin/ho-detached/123-feature'])
+    repo.hgit.rename_branch_with_remote = Mock()
 
     # Mock commit_and_sync
     repo.commit_and_sync_to_active_branches = Mock()
@@ -103,6 +108,51 @@ class TestAttachPatch:
         call_args = repo.commit_and_sync_to_active_branches.call_args
         assert 'attach' in call_args[1]['message'].lower()
         assert '123-feature' in call_args[1]['message']
+
+    def test_attach_renames_branch_back_to_ho_patch(self, patch_manager_for_attach):
+        pm, repo, *_ = patch_manager_for_attach
+
+        result = pm.attach_patch('123-feature', '0.17.0')
+
+        repo.hgit.rename_branch_with_remote.assert_called_once_with(
+            'ho-detached/123-feature', 'ho-patch/123-feature')
+        assert result['branch'] == 'ho-patch/123-feature'
+
+    def test_attach_legacy_ho_patch_branch(self, patch_manager_for_attach):
+        """A patch detached before ho-detached/ existed keeps its ho-patch/
+        branch: attached without rename."""
+        pm, repo, *_ = patch_manager_for_attach
+        repo.hgit.get_remote_branches.return_value = ['origin/ho-patch/123-feature']
+
+        pm.attach_patch('123-feature', '0.17.0')
+
+        repo.hgit.rename_branch_with_remote.assert_not_called()
+        repo.commit_and_sync_to_active_branches.assert_called_once()
+
+    def test_attach_without_any_branch_fails(self, patch_manager_for_attach):
+        pm, repo, *_ = patch_manager_for_attach
+        repo.hgit.get_remote_branches.return_value = []
+
+        with pytest.raises(PatchManagerError, match='No branch'):
+            pm.attach_patch('123-feature', '0.17.0')
+        repo.commit_and_sync_to_active_branches.assert_not_called()
+
+    @pytest.mark.parametrize('status', ['ahead', 'diverged'])
+    def test_attach_refuses_detached_branch_not_identical_to_origin(
+            self, patch_manager_for_attach, status):
+        """Commits on the frozen branch, or a rewrite, are never attached
+        blindly: nothing is changed."""
+        pm, repo, tmp_path, releases_dir, patches_dir = patch_manager_for_attach
+        repo.hgit.branch_exists = Mock(return_value=True)
+        repo.hgit.get_remote_branches.return_value = ['origin/ho-detached/123-feature']
+        repo.hgit.is_branch_synced = Mock(return_value=(False, status))
+
+        with pytest.raises(PatchManagerError, match=status):
+            pm.attach_patch('123-feature', '0.17.0')
+
+        repo.commit_and_sync_to_active_branches.assert_not_called()
+        repo.hgit.rename_branch_with_remote.assert_not_called()
+        assert '123-feature' not in ReleaseFile('0.17.0', releases_dir).get_patches()
 
     def test_attach_adds_patch_to_toml(self, patch_manager_for_attach):
         """Test that attach adds the patch to TOML file as candidate."""

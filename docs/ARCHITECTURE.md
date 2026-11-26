@@ -78,6 +78,12 @@ The repository uses a **strict branching model**:
 - **Creation**: `patch create <id>`
 - **Merges**: Into release branch via `patch merge`
 
+#### ho-detached/ID
+- **Purpose**: Branch of a detached (orphaned) patch, kept for a later attachment
+- **Creation**: `patch detach`, or `release promote prod` for the candidates it leaves out (renames `ho-patch/ID`, locally and on origin)
+- **Frozen**: not an active branch, so no `.hop/` sync commit; the pre-commit hook refuses commits on it
+- **End**: `release attach-patch` checks it is identical to origin, renames it back to `ho-patch/ID` and merges `ho-release/X.Y.Z` into it
+
 ### Exception: Hotfix Branches
 
 Hotfix branches reopen existing releases from tags for urgent production fixes. They follow the same pattern but start from a tag instead of `ho-prod`.
