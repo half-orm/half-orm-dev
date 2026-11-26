@@ -25,6 +25,8 @@ clean_build:
 
 .PHONY: test
 test:
+	@echo "Installing this working tree (the e2e tests drive the installed CLI)..."
+	python -m pip install -q -e .
 	@echo "Running unit and integration tests..."
 	pytest -x -m "not e2e"
 	@echo "Running e2e tests..."
