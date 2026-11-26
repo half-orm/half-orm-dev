@@ -36,7 +36,7 @@
         }
     ],
     "dateCreated": "2021-08-26T11:23:32Z+0200",
-    "dateModified": "2026-11-23T16:33:36Z",
+    "dateModified": "2026-11-26T15:09:34Z",
     "description": "half_orm development Framework.",
     "developmentStatus": "https://www.repostatus.org/#wip",
     "identifier": "half-orm-dev",
@@ -113,5 +113,5 @@
         }
     ],
     "url": "https://github.com/half-orm/half-orm-dev",
-    "version": "2.0.0-a4"
+    "version": "2.0.0-a5"
 }
