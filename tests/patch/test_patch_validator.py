@@ -51,6 +51,12 @@ class TestPatchValidator:
         result = validator.validate_patch_id("789-user-auth-system-fix")
         assert result.ticket_number == 789
         assert result.description == "user-auth-system-fix"
+
+        # Underscores between words, e.g. an identifier quoted from a ticket title
+        result = validator.validate_patch_id("42-fix-ho_id-default")
+        assert result.normalized_id == "42-fix-ho_id-default"
+        assert result.ticket_number == 42
+        assert result.description == "fix-ho_id-default"
         assert result.is_numeric_only is False
 
     def test_validate_patch_id_invalid_format_empty(self, validator):
@@ -62,7 +68,7 @@ class TestPatchValidator:
         """Test validation with invalid characters."""
         invalid_ids = [
             "456@invalid",
-            "456_underscore",
+            "456_underscore",     # the ticket number is followed by '-'
             "456-Invalid-Case",
             "456-with space",
             "456-with.dot",
@@ -152,6 +158,8 @@ class TestPatchValidator:
             "user-auth-system",
             "bugfix",
             "feature-123",
+            "user_auth",          # underscore
+            "fix-ho_id-default",  # both separators
             "a",  # single character
             "very-long-description-with-many-parts"
         ]
@@ -163,7 +171,6 @@ class TestPatchValidator:
         """Test description validation with invalid cases."""
         invalid_descriptions = [
             "User-Auth",          # uppercase
-            "user_auth",          # underscore
             "user auth",          # space
             "user.auth",          # dot
             "user@auth",          # special char
@@ -171,6 +178,10 @@ class TestPatchValidator:
             "-leading-dash",      # starts with dash
             "trailing-dash-",     # ends with dash
             "double--dash",       # double dash
+            "_leading-underscore",
+            "trailing-underscore_",
+            "double__underscore",
+            "mixed-_separators",
         ]
 
         for desc in invalid_descriptions:

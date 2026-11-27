@@ -60,8 +60,11 @@ class PatchValidator:
 
     # Regex patterns for validation
     NUMERIC_PATTERN = re.compile(r'^\d+$')
-    FULL_PATTERN = re.compile(r'^\d+-[a-z0-9]+(?:-[a-z0-9]+)*$')
-    DESCRIPTION_PATTERN = re.compile(r'^[a-z0-9]+(?:-[a-z0-9]+)*$')
+    # Words are separated by '-' or '_' (one at a time, never leading or
+    # trailing): a branch name taken from a ticket title often keeps the
+    # underscores of an identifier it mentions.
+    FULL_PATTERN = re.compile(r'^\d+-[a-z0-9]+(?:[-_][a-z0-9]+)*$')
+    DESCRIPTION_PATTERN = re.compile(r'^[a-z0-9]+(?:[-_][a-z0-9]+)*$')
 
     def __init__(self):
         """Initialize patch validator."""
@@ -127,7 +130,7 @@ class PatchValidator:
         else:
             raise InvalidPatchIdError(
                 f"Invalid patch ID format: '{patch_id}'. "
-                f"Expected formats: '123' or '123-description' (lowercase, hyphens only)"
+                f"Expected formats: '123' or '123-description' (lowercase, words separated by hyphens or underscores)"
             )
 
     def normalize_patch_id(self, patch_id: str, suggested_description: Optional[str] = None) -> str:
@@ -251,7 +254,8 @@ class PatchValidator:
 
         Examples:
             assert validator.is_valid_description("user-authentication") == True
-            assert validator.is_valid_description("user_auth") == False  # no underscores
+            assert validator.is_valid_description("user_auth") == True
+            assert validator.is_valid_description("user__auth") == False # one separator at a time
             assert validator.is_valid_description("UserAuth") == False   # no uppercase
         """
         if not description:
