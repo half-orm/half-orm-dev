@@ -125,7 +125,8 @@ class Database:
         res.append(f'- name: {self.__name}')
         res.append(f"- user: {self._get_connection_params()['user']}")
         res.append(f"- host: {self._get_connection_params()['host']}")
-        res.append(f"- port: {self._get_connection_params()['port']}")
+        port = self._get_connection_params()['port']
+        res.append(f"- port: {port or os.environ.get('PGPORT', 5432)}")
         prod = utils.Color.blue(
             True) if self._get_connection_params()['production'] else False
         res.append(f'- production: {prod}')
@@ -1283,7 +1284,9 @@ class Database:
                 - user (str): Database user
                 - password (str): Database password (empty string if not set)
                 - host (str): Database host (empty string for Unix socket)
-                - port (int): Database port (5432 default)
+                - port (int or None): Database port (None when the
+                  configuration leaves it empty: libpq then reads PGPORT,
+                  then defaults to 5432)
                 - production (bool): Production environment flag
                 - docker_container (str): Docker container name (if configured)
         """
@@ -1299,7 +1302,10 @@ class Database:
                 'user': dbinfo.get('user', os.environ.get('USER', '')),
                 'password': dbinfo.get('password', ''),
                 'host': dbinfo.get('host', ''),
-                'port': int(dbinfo.get('port', 5432) or 5432),
+                # An empty port is left to libpq, as half_orm's own
+                # connection does: exporting 5432 here would send psql,
+                # pg_dump... to another cluster than the one PGPORT names.
+                'port': int(dbinfo['port']) if dbinfo.get('port') else None,
                 'production': self.__model._production_mode,
                 'docker_container': dbinfo.get('docker_container', ''),
             }
@@ -1312,7 +1318,7 @@ class Database:
             'user': os.environ.get('USER', ''),
             'password': '',
             'host': '',
-            'port': 5432,
+            'port': None,
             'production': False,
             'docker_container': '',
         }
